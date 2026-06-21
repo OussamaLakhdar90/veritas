@@ -29,9 +29,10 @@ Non-negotiable rules from the template:
   `{serviceName}Api.test.*`). Never invent framework classes.
 - **Secrets:** every credential is a `$sensitive:ENV_VAR_NAME` reference — never a literal. (Veritas rejects any
   generated file containing a literal secret before it is written.)
-- **Prohibited tools:** **never** use or reference **Postman / Newman** (bank-prohibited). Only the approved
-  framework — TestNG + Rest-Assured over `ca.bnc.lsist.api` — is permitted. (Veritas rejects any generated file
-  mentioning a prohibited tool.)
+- **Prohibited tools:** **never** use or reference **Postman / Newman** (bank-prohibited). The approved automated
+  framework is TestNG + Rest-Assured over `ca.bnc.lsist.api`. If an ad-hoc / exploratory API artifact is useful,
+  use **Bruno** or the **IntelliJ HTTP Client** (`.http` files) — the approved Postman replacements. (Veritas
+  rejects any generated file mentioning Postman/Newman.)
 - **Suites:** emit three TestNG suites under `suites/` (smoke P0, regression P0+P1, full) differing only by the
   group filter, per the template's Suite XML section.
 - **Traceability:** `@Xray(requirement=...)` from `config.yml` → `service_auth.{group}.xray_requirement`; if unknown,

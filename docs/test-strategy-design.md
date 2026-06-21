@@ -38,7 +38,7 @@ ISTQB Advanced Test Manager concept:
 | 7 | Techniques | *Test Design Techniques* | LLM |
 | 8 | Entry / exit criteria | *Entry & Exit Criteria* | LLM, must be S.M.A.R.T. |
 | 9 | Test environment & data | *Test Environment / Test Data Management* | LLM + deterministic ($sensitive refs) |
-| 10 | Automation approach | *Test Automation* — **TestNG+Rest-Assured only, no Postman** | LLM, framework-pinned |
+| 10 | Automation approach | *Test Automation* — TestNG+Rest-Assured for automated; Bruno / IntelliJ HTTP (`.http`) for ad-hoc; **no Postman/Newman** | LLM, framework-pinned |
 | 11 | Roles & responsibilities | *Roles / RACI* | LLM |
 | 12 | Estimation & schedule | *Test Estimation (three-point)* | LLM |
 | 13 | Risks to the strategy + mitigations | *Project Risk* | LLM |
@@ -68,7 +68,8 @@ cheaper tier (cost-aware, like the report's translation step).
 - **Not** a fill-in-the-blanks prose template (can't be validated, rendered, diffed, or revised section-wise).
 - **Yes** a JSON Schema (`test-strategy.schema.json`) that defines the sections above as typed fields, plus an
   optional **org house-style template** that seeds defaults (mandatory sections, approved tools = TestNG/Rest-
-  Assured, banned tools = Postman/Newman, default environments, RACI roles). The LLM fills the schema; a
+  Assured for automation + Bruno / IntelliJ HTTP Client for ad-hoc, banned tools = Postman/Newman, default
+  environments, RACI roles). The LLM fills the schema; a
   deterministic renderer produces the document (HTML/PDF, bilingual EN/FR), exactly as the test-plan deliverable
   works today. One house-style file = one place to rebrand/retune.
 

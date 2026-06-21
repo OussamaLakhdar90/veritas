@@ -67,7 +67,8 @@ public class GeneratedFileWriter {
         if (m.find()) {
             throw new PreconditionException("implement-tests", List.of(
                     "Generated file '" + path + "' references the prohibited tool '" + m.group()
-                            + "'. Only the approved framework (TestNG + Rest-Assured / ca.bnc.lsist.api) is permitted."));
+                            + "'. Use the approved automated framework (TestNG + Rest-Assured / ca.bnc.lsist.api); "
+                            + "for ad-hoc API checks use Bruno or the IntelliJ HTTP Client (.http) — never Postman/Newman."));
         }
     }
 
