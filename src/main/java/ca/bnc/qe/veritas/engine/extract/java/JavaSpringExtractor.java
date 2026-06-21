@@ -97,7 +97,7 @@ public class JavaSpringExtractor {
                     .filter(this::isController)
                     .forEach(ctrl -> {
                         List<String> bases = classPaths(ctrl, constants, blindSpots);
-                        List<String> classSecurity = securityOf(ctrl);
+                        List<String> classSecurity = securityOf(ctrl, types);
                         int before = endpoints.size();
                         Set<String> seenSignatures = new java.util.HashSet<>();
                         for (Object mo : ctrl.getMethods()) {
@@ -288,7 +288,7 @@ public class JavaSpringExtractor {
                 SourceRef.code(file, line(m), line(m), m.getDeclarationAsString(false, false, false))));
 
         List<String> security = new ArrayList<>(classSecurity);
-        security.addAll(securityOf(m));   // method-level security adds to (overrides conceptually) the class default
+        security.addAll(securityOf(m, types));   // method-level security adds to (overrides conceptually) the class default
 
         SourceRef src = SourceRef.code(file, line(m), line(m), m.getDeclarationAsString(false, false, false));
         List<Endpoint> out = new ArrayList<>();
@@ -473,13 +473,26 @@ public class JavaSpringExtractor {
         return out;
     }
 
-    /** Required roles/scopes from method/class security annotations (@PreAuthorize / @Secured / @RolesAllowed). */
-    private List<String> securityOf(NodeWithAnnotations<?> n) {
+    /**
+     * Required roles/scopes from security annotations (@PreAuthorize / @Secured / @RolesAllowed) — including custom
+     * annotations meta-annotated with one of them (e.g. a project @AdminOnly). Missing the meta path would report a
+     * protected endpoint as UNSECURED — a security false-negative, the worst direction of error in a bank context.
+     */
+    private List<String> securityOf(NodeWithAnnotations<?> n, Map<String, TypeDeclaration<?>> types) {
         List<String> out = new ArrayList<>();
+        addSecurity(n, out);   // literal @PreAuthorize/@Secured/@RolesAllowed on the node itself
+        for (AnnotationExpr a : n.getAnnotations()) {
+            if (types.get(a.getNameAsString()) instanceof AnnotationDeclaration decl) {
+                addSecurity(decl, out);   // composed/meta annotation declared in the scanned sources
+            }
+        }
+        return out;
+    }
+
+    private void addSecurity(NodeWithAnnotations<?> n, List<String> out) {
         getAnnotation(n, "PreAuthorize").map(a -> firstString(a, "value")).filter(s -> s != null).ifPresent(out::add);
         getAnnotation(n, "Secured").map(a -> firstString(a, "value")).filter(s -> s != null).ifPresent(out::add);
         getAnnotation(n, "RolesAllowed").map(a -> firstString(a, "value")).filter(s -> s != null).ifPresent(out::add);
-        return out;
     }
 
     private ParamModel param(String file, Parameter p, ParamLocation loc, boolean required) {

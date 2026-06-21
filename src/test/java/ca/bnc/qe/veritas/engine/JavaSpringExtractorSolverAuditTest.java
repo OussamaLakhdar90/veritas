@@ -75,6 +75,20 @@ class JavaSpringExtractorSolverAuditTest {
     }
 
     @Test
+    void customSecurityAnnotationIsHonoredNotReportedUnsecured(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("AdminOnly.java"),
+                "package demo; import org.springframework.security.access.prepost.PreAuthorize;\n"
+                        + "@PreAuthorize(\"hasRole('ADMIN')\") @interface AdminOnly {}");
+        Files.writeString(dir.resolve("SecCtrl.java"),
+                HDR + "@RestController class SecCtrl { @AdminOnly @GetMapping(\"/admin\") String a(){return null;} }");
+
+        var ep = new JavaSpringExtractor().extract(dir).endpoints().stream()
+                .filter(e -> e.pathTemplate().equals("/admin")).findFirst().orElseThrow();
+
+        assertThat(ep.security().toString()).contains("ADMIN");   // composed annotation's @PreAuthorize is surfaced
+    }
+
+    @Test
     void unresolvedExtendedBaseRecordsBlindSpot(@TempDir Path dir) throws Exception {
         Files.writeString(dir.resolve("OrphanCtrl.java"),
                 HDR + "@RestController class OrphanCtrl extends UnknownBase { @GetMapping(\"/x\") String x(){return null;} }");
