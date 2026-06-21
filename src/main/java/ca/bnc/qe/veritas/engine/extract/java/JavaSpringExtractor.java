@@ -281,18 +281,18 @@ public class JavaSpringExtractor {
         List<ParamModel> params = new ArrayList<>();
         RequestBodyModel body = null;
         for (Parameter p : m.getParameters()) {
-            if (has(p, "PathVariable")) {
+            if (hasMeta(p, "PathVariable", types)) {
                 params.add(param(file, p, ParamLocation.PATH, true));
-            } else if (has(p, "RequestParam")) {
+            } else if (hasMeta(p, "RequestParam", types)) {
                 boolean required = getAnnotation(p, "RequestParam")
                         .map(a -> !"false".equals(firstString(a, "required")) && firstString(a, "defaultValue") == null)
                         .orElse(true);
                 params.add(param(file, p, ParamLocation.QUERY, required));
-            } else if (has(p, "RequestHeader")) {
+            } else if (hasMeta(p, "RequestHeader", types)) {
                 params.add(param(file, p, ParamLocation.HEADER, true));
-            } else if (has(p, "CookieValue")) {
+            } else if (hasMeta(p, "CookieValue", types)) {
                 params.add(param(file, p, ParamLocation.COOKIE, true));
-            } else if (has(p, "RequestBody")) {
+            } else if (hasMeta(p, "RequestBody", types)) {
                 BodyType bt = unwrap(p.getType());
                 if (bt.typeName() != null) {
                     referenced.add(bt.typeName());
@@ -788,6 +788,24 @@ public class JavaSpringExtractor {
 
     private boolean has(NodeWithAnnotations<?> n, String name) {
         return n.getAnnotationByName(name).isPresent();
+    }
+
+    /**
+     * True if the node carries {@code name} directly, OR carries a custom annotation whose declaration (in the
+     * scanned sources) is meta-annotated with {@code name} — e.g. a composed @RequestParam-based param annotation.
+     * Only fires for genuine composed annotations (the same way Spring resolves them), so no false positives for
+     * resolver-backed annotations that don't compose a binding.
+     */
+    private boolean hasMeta(NodeWithAnnotations<?> n, String name, Map<String, TypeDeclaration<?>> types) {
+        if (has(n, name)) {
+            return true;
+        }
+        for (AnnotationExpr a : n.getAnnotations()) {
+            if (types.get(a.getNameAsString()) instanceof AnnotationDeclaration decl && has(decl, name)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Optional<AnnotationExpr> getAnnotation(NodeWithAnnotations<?> n, String name) {

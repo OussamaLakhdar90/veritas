@@ -75,6 +75,21 @@ class JavaSpringExtractorSolverAuditTest {
     }
 
     @Test
+    void composedParamBindingAnnotationIsNotDropped(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("TenantId.java"),
+                "package demo; import org.springframework.web.bind.annotation.RequestParam;\n"
+                        + "@RequestParam @interface TenantId {}");
+        Files.writeString(dir.resolve("TenantCtrl.java"),
+                HDR + "@RestController class TenantCtrl { @GetMapping(\"/t\") String t(@TenantId String tid){return null;} }");
+
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+
+        var params = m.endpoints().get(0).params();
+        assertThat(params).isNotEmpty();   // composed @RequestParam binding produces a QUERY param, not dropped
+        assertThat(params.stream().anyMatch(p -> p.name().equals("tid"))).isTrue();
+    }
+
+    @Test
     void customStereotypeAndClassLevelMetaRequestMappingAreHonored(@TempDir Path dir) throws Exception {
         Files.writeString(dir.resolve("ApiV1Controller.java"),
                 "package demo; import org.springframework.web.bind.annotation.*;\n"
