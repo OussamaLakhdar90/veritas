@@ -32,6 +32,14 @@ class GeneratedFileWriterTest {
     }
 
     @Test
+    void rejectsProhibitedTool(@TempDir Path dir) {
+        assertThatThrownBy(() -> writer.write(dir.resolve("README.md"), "README.md",
+                "Run the collection with `newman run policies.postman_collection.json`."))
+                .isInstanceOf(PreconditionException.class)
+                .hasMessageContaining("prohibited tool");
+    }
+
+    @Test
     void allowsSensitiveReference(@TempDir Path dir) throws Exception {
         Path f = dir.resolve("data-manager.json");
         assertThatCode(() -> writer.write(f, "data-manager.json",

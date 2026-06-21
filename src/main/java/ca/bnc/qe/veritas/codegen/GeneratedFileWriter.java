@@ -34,6 +34,9 @@ public class GeneratedFileWriter {
                     + "|-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"
                     + "|AKIA[0-9A-Z]{16}");
 
+    /** Tools prohibited at the bank — generated artifacts must use the approved framework only. */
+    private static final Pattern PROHIBITED_TOOL = Pattern.compile("(?i)\\b(postman|newman)\\b");
+
     private final ObjectMapper mapper;
 
     public GeneratedFileWriter(ObjectMapper mapper) {
@@ -55,9 +58,23 @@ public class GeneratedFileWriter {
         }
     }
 
+    /** Reject any generated artifact that references a bank-prohibited tool (Postman/Newman). */
+    public void assertNoProhibitedTool(String path, String content) {
+        if (content == null || content.isBlank()) {
+            return;
+        }
+        Matcher m = PROHIBITED_TOOL.matcher(content);
+        if (m.find()) {
+            throw new PreconditionException("implement-tests", List.of(
+                    "Generated file '" + path + "' references the prohibited tool '" + m.group()
+                            + "'. Only the approved framework (TestNG + Rest-Assured / ca.bnc.lsist.api) is permitted."));
+        }
+    }
+
     /** Scan, then write — merging into an existing JSON registry rather than clobbering it. */
     public void write(Path target, String relPathForMessage, String content) throws IOException {
         assertNoLiteralSecret(relPathForMessage, content);
+        assertNoProhibitedTool(relPathForMessage, content);
         if (target.getParent() != null) {
             Files.createDirectories(target.getParent());
         }

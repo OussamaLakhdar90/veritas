@@ -10,9 +10,9 @@ Grounding source for the ISTQB-aligned prompts in this folder. Update on new syl
 
 Every prompt that embeds this pack inherits these rules. Do not restate them — reference as *"knowledge pack §0"*.
 
-1. **Cite syllabus §** for every non-trivial claim, technique, plan section, risk category, or exit criterion. Format: `(CTAL-TM §1.3.3)`, `(CTFL §4.2.2)`, `(CTAL-TA §3.2.2)`.
-2. **No hallucinated citations.** Cite only §§ from the source syllabi (CTFL v4.0.1, CTAL-TM v3.0, CTAL-TA v4.0); a § is valid when the pack covers the topic at any level, even if that exact sub-number isn't anchored. Content outside the syllabi → say *"extension beyond syllabus"*. Never invent § numbers.
-3. **Cite ONE primary per topic.** Cite two only when a claim genuinely spans two syllabi (e.g. *test levels × ISO 25010* = CTFL + CTAL-TA). Use a range for consecutive sub-sections (`CTFL §4.2.1–2`). Routing table → §14; each topic section also names its own primary.
+1. **Cite the NAMED ISTQB concept** — never a section/paragraph number. Format: `(CTAL-TM — Risk-Based Testing)`, `(CTFL — Boundary Value Analysis)`, `(CTAL-TA — Decision Table Testing)`. **Do not emit `§1.3.3`-style numbers in any output field (citation, rationale, notes)** — reviewers don't recognise numbers and they can't be verified; the concept name is what carries weight.
+2. **No hallucinated citations.** Cite only concepts the source syllabi actually cover (CTFL v4.0.1, CTAL-TM v3.0, CTAL-TA v4.0). Content outside the syllabi → say *"extension beyond syllabus"*. Never invent a concept or attribute it to the wrong syllabus.
+3. **Cite ONE primary syllabus per topic** (named concept). Cite two only when a claim genuinely spans two syllabi (e.g. *test levels × ISO 25010* = CTFL + CTAL-TA). Each topic section names its own primary.
 4. **Use ISTQB terminology verbatim:** `test basis`, `test item`, `test condition`, `test case`, `coverage item`, `risk level`, `entry criteria`, `exit criteria`, `test oracle`, `equivalence partitioning`, `boundary value analysis`, `state transition`. Never substitute *"user flow"* for `scenario`, *"validation"* for `test condition`, *"step"* for `coverage item`. Definitions: §1.
 5. **No fabrication.** Report only what the inputs actually contain. Missing input → flag as gap or blind spot.
 6. **If inputs are critical-missing, ask one consolidated question.** No placeholders, no guessing.
