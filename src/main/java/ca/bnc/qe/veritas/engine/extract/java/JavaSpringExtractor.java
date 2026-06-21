@@ -51,6 +51,7 @@ import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithAnnotations;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.Type;
+import com.github.javaparser.ast.type.WildcardType;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -738,9 +739,18 @@ public class JavaSpringExtractor {
         if ("ResponseEntity".equals(simple) || "HttpEntity".equals(simple)) {
             return new BodyType(null, false, false, true);
         }
+        // A Map/dictionary body is a free-form object — model it as an unspecified body, never a phantom 'Map'
+        // schema ref that resolves to nothing (the value type is a known simplification, not surfaced here).
+        if (MAP_LIKE.contains(simple)) {
+            return new BodyType(null, false, false, false);
+        }
         // primitive/wrapper or DTO return — still a body (openApiType decides scalar vs object schema).
         return new BodyType(simple, false, false, false);
     }
+
+    /** Dictionary types whose body is a free-form object — never emitted as a named schema. */
+    private static final Set<String> MAP_LIKE = Set.of(
+            "Map", "HashMap", "LinkedHashMap", "TreeMap", "SortedMap", "NavigableMap", "ConcurrentHashMap", "Properties");
 
     /** Wrappers whose single type argument IS the response body (Spring envelopes, reactive-single, async). */
     private static final Set<String> TRANSPARENT_WRAPPERS = Set.of(
@@ -796,6 +806,12 @@ public class JavaSpringExtractor {
     private String simpleTypeName(Type type) {
         if (type == null) {
             return null;
+        }
+        // Wildcard (List<? extends Foo>) → recover the bound's real type instead of the literal "? extends Foo".
+        if (type instanceof WildcardType wt) {
+            return wt.getExtendedType().map(this::simpleTypeName)
+                    .or(() -> wt.getSuperType().map(this::simpleTypeName))
+                    .orElse("Object");
         }
         if (type instanceof ClassOrInterfaceType cit) {
             return cit.getNameAsString();

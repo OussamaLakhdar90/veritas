@@ -103,6 +103,34 @@ class JavaSpringExtractorSolverAuditTest {
     }
 
     @Test
+    void wildcardGenericRecoversBoundType(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("Foo.java"), "package demo; public class Foo { public String id; }");
+        Files.writeString(dir.resolve("WildCtrl.java"),
+                HDR + "import java.util.List;\nimport org.springframework.http.ResponseEntity;\n"
+                        + "@RestController class WildCtrl { @GetMapping(\"/w\") ResponseEntity<List<? extends Foo>> g(){return null;} }");
+
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        // schemaRef is the modelled type (not the source snippet); the wildcard bound Foo is recovered, array kept.
+        assertThat(m.endpoints().get(0).responses().get(0).schemaRef()).isEqualTo("Foo[]");
+        assertThat(m.schemas()).containsKey("Foo");                 // inner type built, not lost
+        assertThat(m.blindSpots().toString()).doesNotContain("?");  // no literal wildcard flagged as a blind spot
+    }
+
+    @Test
+    void mapBodyIsFreeFormNotAPhantomSchemaRef(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("Foo.java"), "package demo; public class Foo { public String id; }");
+        Files.writeString(dir.resolve("MapCtrl.java"),
+                HDR + "import java.util.Map;\n"
+                        + "@RestController class MapCtrl { @GetMapping(\"/m\") Map<String, Foo> g(){return null;} }");
+
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+
+        assertThat(m.schemas()).doesNotContainKey("Map");
+        assertThat(m.endpoints().get(0).responses().get(0).schemaRef()).isNull();   // free-form, no phantom 'Map' ref
+        assertThat(m.blindSpots().toString()).doesNotContain("Map");
+    }
+
+    @Test
     void unresolvedExtendedBaseRecordsBlindSpot(@TempDir Path dir) throws Exception {
         Files.writeString(dir.resolve("OrphanCtrl.java"),
                 HDR + "@RestController class OrphanCtrl extends UnknownBase { @GetMapping(\"/x\") String x(){return null;} }");
