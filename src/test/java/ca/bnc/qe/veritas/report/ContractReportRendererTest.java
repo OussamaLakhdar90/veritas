@@ -30,7 +30,7 @@ class ContractReportRendererTest {
                 .codeEvidence(SourceRef.code("PolicyController.java", 45, 47, "return ResponseEntity.notFound().build();"))
                 .currentYamlFragment("  /policies:\n    get:\n      responses:\n        '200': {}")
                 .proposedFix("Add a 404 response to the get operation.")
-                .citation("ISTQB CTFL 2.2 — spec must reflect observable behaviour")
+                .citation("RFC 9110 — HTTP status codes")
                 .build();
     }
 
@@ -52,8 +52,10 @@ class ContractReportRendererTest {
         assertThat(html).contains("/policies:");
         assertThat(html).contains("Proposed fix");
         assertThat(html).contains("Add a 404 response");
-        assertThat(html).contains("ISTQB citation");
-        assertThat(html).contains("CTFL 2.2");
+        // Reference cites the governing standard for the finding type (OpenAPI/HTTP), not ISTQB.
+        assertThat(html).contains("Reference");
+        assertThat(html).contains("RFC 9110");
+        assertThat(html).doesNotContain("ISTQB citation");
     }
 
     @Test

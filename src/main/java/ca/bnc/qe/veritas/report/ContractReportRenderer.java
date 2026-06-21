@@ -308,7 +308,7 @@ public class ContractReportRenderer {
             sb.append("</div>");
         }
         if (!isBlank(citation)) {
-            sb.append("<div class=\"citation\">").append(bi("ISTQB citation", "Référence ISTQB")).append(": ")
+            sb.append("<div class=\"citation\">").append(bi("Reference", "Référence")).append(": ")
                     .append(esc(citation)).append("</div>");
         }
         return sb.append("</div>").toString();

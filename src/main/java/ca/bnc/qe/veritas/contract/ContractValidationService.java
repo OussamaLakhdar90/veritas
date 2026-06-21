@@ -169,6 +169,12 @@ public class ContractValidationService {
             // Populate the "current YAML" fragment per finding (deterministic) so the report can show it.
             findings = enrichWithSpecFragments(findings, req.specs());
 
+            // Reference each finding to the CORRECT standard for its type (OpenAPI / HTTP / JSON Schema),
+            // deterministically — contract fidelity is API governance, not ISTQB testing (ISTQB fits only L6).
+            findings = findings.stream()
+                    .map(f -> f.toBuilder().citation(ca.bnc.qe.veritas.finding.StandardsReference.forType(f.getType())).build())
+                    .toList();
+
             persist(scan.getId(), findings, enrich);
             scan.setTotalFindings(findings.size());
 
@@ -240,14 +246,14 @@ public class ContractValidationService {
                 + promptComposer.data("CODE_ENDPOINTS", codeEps)
                 + promptComposer.data("SPEC_ENDPOINTS", specEps.toString());
         String outputContract = "Code is the source of truth for behaviour. For each finding add a short "
-                + "explanation, a proposed fix, and an ISTQB/CTFL citation; then produce a reconciled corrected "
-                + "OpenAPI YAML (code wins on behaviour). ALSO add L5 (design-quality) and L6 (test-basis "
-                + "adequacy) judgements in designFindings — e.g. a spec with no examples/constraints/error "
-                + "responses is a weak test basis (cite CTFL §2). Reply with exactly one fenced ```json block as "
-                + "the LAST thing, matching: {\"correctedYaml\": string, \"findings\": [{\"findingId\": string, "
-                + "\"explanation\": string, \"proposedFix\": string, \"citation\": string}], \"designFindings\": "
-                + "[{\"layer\": \"L5\"|\"L6\", \"severity\": string, \"endpoint\": string, \"summary\": string, "
-                + "\"explanation\": string, \"citation\": string}]}. No prose after the json.";
+                + "explanation and a proposed fix; then produce a reconciled corrected OpenAPI YAML (code wins on "
+                + "behaviour). ALSO add L5 (design-quality) and L6 (test-basis adequacy) judgements in "
+                + "designFindings — e.g. a spec with no examples/constraints/error responses is a weak test basis. "
+                + "Do NOT add citations — Veritas attaches the governing standard (OpenAPI / HTTP / JSON Schema) "
+                + "deterministically. Reply with exactly one fenced ```json block as the LAST thing, matching: "
+                + "{\"correctedYaml\": string, \"findings\": [{\"findingId\": string, \"explanation\": string, "
+                + "\"proposedFix\": string}], \"designFindings\": [{\"layer\": \"L5\"|\"L6\", \"severity\": string, "
+                + "\"endpoint\": string, \"summary\": string, \"explanation\": string}]}. No prose after the json.";
         String prompt = promptComposer.compose("[CONTRACT-RECONCILE]", "validate-service-contract.prompt.md",
                 Set.of("1", "6", "12"), inputs, outputContract);   // terminology, techniques, API heuristics
 
@@ -374,7 +380,7 @@ public class ContractValidationService {
             if (e != null) {
                 if (e.hasNonNull("explanation")) r.setExplanation(e.get("explanation").asText());
                 if (e.hasNonNull("proposedFix")) r.setProposedFix(e.get("proposedFix").asText());
-                if (e.hasNonNull("citation")) r.setCitation(e.get("citation").asText());
+                // citation is set deterministically above (StandardsReference) — never from the LLM.
             }
             carryForwardStatus(r, scanId);
             records.add(r);
