@@ -58,12 +58,14 @@ public class ReleaseTestPlanService {
     private final CoverageMatcher matcher;
     private final CoverageReportRenderer coverageReportRenderer;
     private final Preflight preflight;
+    private final ca.bnc.qe.veritas.persistence.TestStrategyRepository strategyRepository;
 
     public ReleaseTestPlanService(LlmGateway llm, JsonBlockExtractor jsonExtractor, ResponseSchemaValidator schemaValidator,
                                   ModelSelector modelSelector, CostRecorder costRecorder, PromptComposer promptComposer,
                                   ObjectMapper objectMapper, JiraClient jira, XrayClient xray, GateService gateService,
                                   TestPlanRepository planRepository, CoverageItemRepository coverageRepository,
-                                  CoverageMatcher matcher, CoverageReportRenderer coverageReportRenderer, Preflight preflight) {
+                                  CoverageMatcher matcher, CoverageReportRenderer coverageReportRenderer, Preflight preflight,
+                                  ca.bnc.qe.veritas.persistence.TestStrategyRepository strategyRepository) {
         this.llm = llm;
         this.jsonExtractor = jsonExtractor;
         this.schemaValidator = schemaValidator;
@@ -79,6 +81,7 @@ public class ReleaseTestPlanService {
         this.matcher = matcher;
         this.coverageReportRenderer = coverageReportRenderer;
         this.preflight = preflight;
+        this.strategyRepository = strategyRepository;
     }
 
     public CoverageSummary generate(String serviceName, String fixVersion, String issuesJql, String testsJql,
@@ -93,6 +96,18 @@ public class ReleaseTestPlanService {
                         "Release '" + fixVersion + "' was not found among project " + projectKey + " versions."));
             }
         }
+        // loadStrategy (plan §3 step 4) — coverage is defined relative to a previously-authored strategy's risk
+        // register + coverage goals. Hard dependency: fail clearly if none exists, and feed it to the planner.
+        List<ca.bnc.qe.veritas.persistence.TestStrategy> strategies =
+                strategyRepository.findByServiceNameOrderByCreatedAtDesc(serviceName);
+        if (strategies.isEmpty()) {
+            throw new PreconditionException("release-test-plan", List.of(
+                    "No test strategy found for '" + serviceName + "'. Create a strategy first (test-strategy) — the "
+                            + "release plan's risk register and coverage goals derive from it."));
+        }
+        ca.bnc.qe.veritas.persistence.TestStrategy strategy = strategies.get(0);
+        String strategyBasis = strategy.getDeliverableJson() != null && !strategy.getDeliverableJson().isBlank()
+                ? strategy.getDeliverableJson() : strategy.getContentMarkdown();
         try {
             String jql = issuesJql != null ? issuesJql : "fixVersion = \"" + fixVersion + "\"";
             List<JiraIssue> issues = jira.search(jql, List.of("summary"), 200);
@@ -124,9 +139,11 @@ public class ReleaseTestPlanService {
                     + "\"selfReview\": {\"confidence\": number, \"rubricChecks\": [{\"check\": string, \"pass\": boolean, \"note\": string}], \"blindSpots\": [string]}, "
                     + "\"markdown\": string}. "
                     + "Each requiredCase traces to a requirementKey and a riskId; every HIGH/VERY-HIGH risk needs >=2 cases.";
+            String inputs = promptComposer.data("TEST_STRATEGY", strategyBasis == null ? "" : strategyBasis)
+                    + promptComposer.data("RELEASE_ISSUES", basis.toString());
             String prompt = promptComposer.compose("[TEST-PLAN]", "generate-test-plan.prompt.md",
                     Set.of("1", "5", "6", "8", "9", "10"),   // terms, ISO 25010, techniques, planning, risk, monitoring
-                    promptComposer.data("RELEASE_ISSUES", basis.toString()), outputContract);
+                    inputs, outputContract);
             String model = modelSelector.resolveTier(ModelTier.DEEP);
             String raw = llm.complete(prompt, model);
             JsonNode node = objectMapper.readTree(jsonExtractor.extract(raw));

@@ -50,9 +50,21 @@ class ReleaseTestPlanServiceTest {
     @Autowired
     private CoverageItemRepository coverage;
 
+    @Autowired
+    private ca.bnc.qe.veritas.persistence.TestStrategyRepository strategies;
+
     @BeforeEach
-    void seedToken() {
+    void seed() {
         when(secrets.get("JIRA_API_TOKEN")).thenReturn(Optional.of("pat-123"));   // satisfies write-scope preflight
+        // release-test-plan has a hard dependency on an existing strategy — seed one for the services under test.
+        for (String svc : new String[] {"ciam-policies", "svc"}) {
+            if (strategies.findByServiceNameOrderByCreatedAtDesc(svc).isEmpty()) {
+                ca.bnc.qe.veritas.persistence.TestStrategy s = new ca.bnc.qe.veritas.persistence.TestStrategy();
+                s.setServiceName(svc);
+                s.setContentMarkdown("risk register (seed)");
+                strategies.save(s);
+            }
+        }
     }
 
     @Test
@@ -123,6 +135,13 @@ class ReleaseTestPlanServiceTest {
         assertThat(second.matched()).isEqualTo(2);
 
         verify(xray, times(2)).createTest(any());   // exactly the two from run 1, none from the idempotent re-run
+    }
+
+    @Test
+    void requiresAStrategyFirst() {
+        assertThatThrownBy(() -> service.generate("no-strategy-svc", "8.2", null, "project = X", null, false, "tester"))
+                .isInstanceOf(PreconditionException.class)
+                .hasMessageContaining("No test strategy found");
     }
 
     @Test
