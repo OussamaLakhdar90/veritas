@@ -28,6 +28,7 @@ import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.ParserConfiguration.LanguageLevel;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
@@ -98,13 +99,32 @@ public class JavaSpringExtractor {
                         List<String> bases = classPaths(ctrl, constants, blindSpots);
                         List<String> classSecurity = securityOf(ctrl);
                         int before = endpoints.size();
+                        Set<String> seenSignatures = new java.util.HashSet<>();
                         for (Object mo : ctrl.getMethods()) {
                             MethodDeclaration method = (MethodDeclaration) mo;
+                            seenSignatures.add(signatureKey(method));
                             endpoints.addAll(toEndpoints(file, bases, method, types, referenced,
                                     classSecurity, blindSpots, constants));
                         }
-                        // Mappings declared on an implemented interface/abstract base aren't analysed — if a
-                        // controller yields no endpoints of its own yet implements interfaces, say so (don't drop silently).
+                        // Mappings inherited from an abstract/base class the controller EXTENDS are real routes at
+                        // runtime — emit them (subclass overrides win). Use the subclass's class-level bases + security.
+                        if (ctrl instanceof ClassOrInterfaceDeclaration coid) {
+                            for (MethodDeclaration inherited :
+                                    inheritedMappedMethods(coid, types, seenSignatures, new java.util.HashSet<>())) {
+                                endpoints.addAll(toEndpoints(file, bases, inherited, types, referenced,
+                                        classSecurity, blindSpots, constants));
+                            }
+                            // A base we can't see can't be analysed — record an honest blind spot, never drop silently.
+                            for (ClassOrInterfaceType ext : coid.getExtendedTypes()) {
+                                if (!types.containsKey(ext.getNameAsString())) {
+                                    blindSpots.add("Controller '" + ctrl.getNameAsString() + "' extends '"
+                                            + ext.getNameAsString() + "', which is not in the scanned sources; any request "
+                                            + "mappings it declares are not analysed.");
+                                }
+                            }
+                        }
+                        // Mappings declared on an implemented interface aren't analysed — if a controller yields no
+                        // endpoints of its own yet implements interfaces, say so (don't drop silently).
                         if (endpoints.size() == before && ctrl instanceof ClassOrInterfaceDeclaration coid
                                 && !coid.getImplementedTypes().isEmpty()) {
                             blindSpots.add("Controller '" + ctrl.getNameAsString() + "' has no mappings on its own methods"
@@ -284,6 +304,42 @@ public class JavaSpringExtractor {
         return out;
     }
 
+    /**
+     * Methods carrying a request mapping that this controller inherits from base classes it EXTENDS (recursively),
+     * excluding any the subclass overrides ({@code seenSignatures} carries the subclass's own signatures). Only
+     * bases present in the scanned sources are walked; an unresolved base is flagged as a blind spot by the caller.
+     */
+    private List<MethodDeclaration> inheritedMappedMethods(ClassOrInterfaceDeclaration coid,
+                                                           Map<String, TypeDeclaration<?>> types,
+                                                           Set<String> seenSignatures, Set<String> visited) {
+        List<MethodDeclaration> out = new ArrayList<>();
+        for (ClassOrInterfaceType ext : coid.getExtendedTypes()) {
+            String name = ext.getNameAsString();
+            if (!visited.add(name)) {
+                continue;   // cycle guard
+            }
+            if (types.get(name) instanceof ClassOrInterfaceDeclaration base) {
+                for (MethodDeclaration m : base.getMethods()) {
+                    if (!seenSignatures.add(signatureKey(m))) {
+                        continue;   // overridden by a subclass already processed
+                    }
+                    if (methodMappingOf(m, types) != null) {
+                        out.add(m);
+                    }
+                }
+                out.addAll(inheritedMappedMethods(base, types, seenSignatures, visited));
+            }
+        }
+        return out;
+    }
+
+    /** Override-aware key: method name + parameter types (enough to detect a subclass override of a base method). */
+    private String signatureKey(MethodDeclaration m) {
+        StringBuilder sb = new StringBuilder(m.getNameAsString()).append('(');
+        m.getParameters().forEach(p -> sb.append(simpleTypeName(p.getType())).append(','));
+        return sb.append(')').toString();
+    }
+
     private record MethodMapping(List<HttpMethod> verbs, AnnotationExpr annotation) {}
 
     /** The method's HTTP verb(s) + the annotation carrying its path(s); supports shortcuts, @RequestMapping, and composed meta-annotations. */
@@ -440,11 +496,22 @@ public class JavaSpringExtractor {
     }
 
     private SchemaModel buildSchema(TypeDeclaration<?> td, Map<String, TypeDeclaration<?>> types) {
+        SourceRef src = SourceRef.code(td.findCompilationUnit().flatMap(CompilationUnit::getStorage)
+                .map(s -> s.getPath().toString()).orElse("?"), line(td), line(td), null);
+        // An enum is a string schema with an enum list — not an empty {type:object} (else it spuriously diffs
+        // against the spec, which models the same enum as type:string + enum).
+        if (td instanceof EnumDeclaration ed) {
+            return new SchemaModel(td.getNameAsString(), "string", List.of(), enumValuesOf(ed), src);
+        }
         List<FieldModel> fields = new ArrayList<>();
         collectFields(td, types, fields, new HashSet<>(), new HashSet<>());
-        return new SchemaModel(td.getNameAsString(), "object", fields, null,
-                SourceRef.code(td.findCompilationUnit().flatMap(CompilationUnit::getStorage)
-                        .map(s -> s.getPath().toString()).orElse("?"), line(td), line(td), null));
+        return new SchemaModel(td.getNameAsString(), "object", fields, null, src);
+    }
+
+    private List<String> enumValuesOf(EnumDeclaration ed) {
+        List<String> out = new ArrayList<>();
+        ed.getEntries().forEach(e -> out.add(e.getNameAsString()));
+        return out;
     }
 
     /** Own fields + inherited fields from superclasses present in the same source set (subclass wins on name). */
@@ -483,8 +550,13 @@ public class JavaSpringExtractor {
         boolean required = has(annotated, "NotNull") || has(annotated, "NotBlank") || has(annotated, "NotEmpty");
         String simple = simpleTypeName(type);
         String[] tf = openApiType(simple);
+        ConstraintSet cs = constraintsOf(annotated);
+        // Enum-typed field → a string with an inline enum, not a phantom {type:object} ref.
+        if (types.get(simple) instanceof EnumDeclaration ed) {
+            return new FieldModel(jsonName, "string", null, required, cs.withEnumValues(enumValuesOf(ed)), null, null);
+        }
         String refSchema = "object".equals(tf[0]) && types.containsKey(simple) ? simple : null;
-        return new FieldModel(jsonName, tf[0], tf[1], required, constraintsOf(annotated), refSchema, null);
+        return new FieldModel(jsonName, tf[0], tf[1], required, cs, refSchema, null);
     }
 
     @SuppressWarnings("unchecked")

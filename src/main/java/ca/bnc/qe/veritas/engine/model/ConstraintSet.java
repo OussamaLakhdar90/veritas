@@ -18,6 +18,12 @@ public record ConstraintSet(
         return new ConstraintSet(null, null, null, null, null, null, null, null, null);
     }
 
+    /** Copy with the enum values set (used when a field/param type resolves to a Java enum). */
+    public ConstraintSet withEnumValues(List<String> values) {
+        return new ConstraintSet(minLength, maxLength, minimum, maximum, exclusiveMin, exclusiveMax,
+                pattern, values, format);
+    }
+
     public boolean isEmpty() {
         return minLength == null && maxLength == null && minimum == null && maximum == null
                 && pattern == null && (enumValues == null || enumValues.isEmpty()) && format == null;
