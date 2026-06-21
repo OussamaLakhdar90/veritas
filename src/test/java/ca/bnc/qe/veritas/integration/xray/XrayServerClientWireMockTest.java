@@ -89,6 +89,17 @@ class XrayServerClientWireMockTest {
     }
 
     @Test
+    void linkTestToRequirementPostsJiraIssueLink() {
+        wm.stubFor(post(urlPathEqualTo("/rest/api/2/issueLink")).willReturn(aResponse().withStatus(201)));
+        client().linkTestToRequirement("CIAM-9", "CIAM-1");
+        wm.verify(1, com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor(
+                        urlPathEqualTo("/rest/api/2/issueLink"))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.containing("\"Tests\""))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.containing("CIAM-9"))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.containing("CIAM-1")));
+    }
+
+    @Test
     void stripHtmlRemovesTags() {
         assertThat(XrayServerClient.stripHtml("<p>hi <b>there</b></p>")).isEqualTo("hi there");
     }

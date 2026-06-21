@@ -98,6 +98,14 @@ public class XrayCloudClient implements XrayClient {
                 + String.join(",", ids) + "]) { warning } }");
     }
 
+    @Override
+    public void linkTestToRequirement(String testKey, String requirementKey) {
+        // Xray Cloud derives requirement coverage from a Jira "Tests" issue link, which the GraphQL API does not
+        // expose. BNC runs Server/DC (where this IS implemented); fail clearly rather than pretend it linked.
+        throw new UnsupportedOperationException("linkTestToRequirement is not supported by the Xray Cloud GraphQL "
+                + "client — create a Jira 'Tests' issue link (" + testKey + " -> " + requirementKey + ") instead.");
+    }
+
     // ---- testable builders ----
 
     public String buildGetTestsQuery(String jql) {

@@ -235,6 +235,16 @@ public class ReleaseTestPlanService {
                                 item.setMatchedTestKey(key);
                                 item.setMatchStatus("CREATED");
                                 created++;
+                                // Establish requirement coverage in Xray/Jira (#22). Non-fatal — the RTM already
+                                // records the link in Veritas; a link failure must not fail the whole batch.
+                                String reqKey = item.getRequirementKey();
+                                if (reqKey != null && !reqKey.isBlank()) {
+                                    try {
+                                        xray.linkTestToRequirement(key, reqKey);
+                                    } catch (RuntimeException le) {
+                                        log.warn("linkTestToRequirement {} -> {} failed: {}", key, reqKey, le.getMessage());
+                                    }
+                                }
                             } catch (RuntimeException ex) {
                                 item.setMatchStatus("FAILED");
                                 item.setNote("Xray create failed: " + ex.getMessage());

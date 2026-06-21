@@ -21,4 +21,10 @@ public interface XrayClient {
 
     /** Attach existing tests to a Test Plan (outward write — gate upstream). */
     void addTestsToTestPlan(String planKey, List<String> testKeys);
+
+    /**
+     * Establish requirement coverage: link a Test to the requirement it verifies (outward write — gate upstream).
+     * On Server/DC this is a Jira "Tests" issue link; on Cloud it is not exposed by the GraphQL client.
+     */
+    void linkTestToRequirement(String testKey, String requirementKey);
 }

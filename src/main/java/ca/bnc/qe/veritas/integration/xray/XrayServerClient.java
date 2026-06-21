@@ -119,6 +119,25 @@ public class XrayServerClient implements XrayClient {
         }
     }
 
+    /**
+     * Requirement coverage on Server/DC = a Jira "Tests" issue link: the Test {@code tests} the requirement.
+     * (outwardIssue = test "tests" inwardIssue = requirement "is tested by"). Non-Xray-specific — uses the Jira
+     * REST on the same host.
+     */
+    @Override
+    public void linkTestToRequirement(String testKey, String requirementKey) {
+        try {
+            String body = mapper.writeValueAsString(Map.of(
+                    "type", Map.of("name", "Tests"),
+                    "outwardIssue", Map.of("key", testKey),
+                    "inwardIssue", Map.of("key", requirementKey)));
+            corp.post(base() + "/rest/api/2/issueLink", authHeaders(), body, "application/json");
+        } catch (Exception e) {
+            throw new IllegalStateException("Xray (Raven) linkTestToRequirement failed for " + testKey
+                    + " -> " + requirementKey + ": " + e.getMessage(), e);
+        }
+    }
+
     @Override
     public void addTestsToTestPlan(String planKey, List<String> testKeys) {
         try {
