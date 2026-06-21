@@ -37,6 +37,12 @@ class CodegenServiceTest {
         assertThat(run.getId()).isNotBlank();
         assertThat(run.getBuildStatus()).isEqualTo("SKIPPED");
         assertThat(Files.exists(outputDir.resolve("src/test/java/GeneratedApiTest.java"))).isTrue();
+        // Distinct data-gen step ran first: data artifacts present, secrets only as $sensitive refs (never literal).
+        Path serverConfig = outputDir.resolve("src/test/resources/serverConfig.json");
+        assertThat(Files.exists(serverConfig)).isTrue();
+        assertThat(Files.readString(serverConfig)).contains("$sensitive:");
+        // Both steps' TODOs merged onto the run.
+        assertThat(run.getTodos()).contains("Provision a seed policy id").contains("Set the base URL");
     }
 
     @Test

@@ -57,6 +57,16 @@ public class MockLlmGateway implements LlmGateway {
                     ```
                     """;
         }
+        if (prompt != null && prompt.contains("[GENERATE-DATA]")) {
+            // Data artifacts in the template's format — secrets ONLY as $sensitive refs, IDs-that-must-exist as TODOs.
+            return """
+                    Test data (mock).
+
+                    ```json
+                    {"files": [{"path": "src/test/resources/serverConfig.json", "content": "{\\n  \\"baseUrl\\": \\"https://localhost:8443\\",\\n  \\"token\\": \\"$sensitive:CIAM_API_TOKEN\\"\\n}\\n"}, {"path": "src/test/resources/data-manager.json", "content": "{\\n  \\"policies\\": []\\n}\\n"}], "todos": ["Provision a seed policy id and set it in data-manager.json"]}
+                    ```
+                    """;
+        }
         if (prompt != null && prompt.contains("[IMPLEMENT-TESTS-REPAIR]")) {
             return """
                     Repaired tests (mock).

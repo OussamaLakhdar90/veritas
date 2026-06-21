@@ -115,6 +115,31 @@ public class CodegenService {
         }
     }
 
+    /**
+     * Distinct data-generation step (Pillar C, §4 step 4): emit the data artifacts in the TEMPLATE's own format
+     * (e.g. serverConfig.json / data-manager.json / entity+response fixtures) BEFORE the tests, so the test code
+     * can reference them. Secrets are emitted only as {@code $sensitive:ENV} refs (the GeneratedFileWriter rejects
+     * literal secrets); IDs that must pre-exist come back as TODOs, never invented. Returns the parsed reply
+     * (files + todos) so the caller writes the files and merges the TODOs with the implement step's.
+     */
+    private JsonNode generateData(TemplateSpec spec, List<String> endpoints, String owner) throws Exception {
+        String contract = "Generate the test DATA artifacts in the TEMPLATE's exact format (framework: "
+                + spec.frameworkName() + "). Secrets MUST be \"$sensitive:ENV_NAME\" references — never literal values. "
+                + "Any record/ID that must already exist in the system goes in todos (do not invent it). "
+                + "One fenced ```json block last: {\"files\":[{\"path\":string,\"content\":string}],\"todos\":[string]}. "
+                + "Paths relative to the output repo. No prose after.";
+        String inputs = promptComposer.data("TEMPLATE", spec.body())
+                + promptComposer.data("ENDPOINTS", endpoints.toString());
+        String prompt = promptComposer.compose("[GENERATE-DATA]", "generate-test-data.prompt.md",
+                Set.of("1", "15"), inputs, contract);   // terminology + secrets-handling knowledge
+        String model = modelSelector.resolveTier(ModelTier.STANDARD);   // data fixtures don't need the DEEP tier
+        String raw = llm.complete(prompt, model);
+        JsonNode node = objectMapper.readTree(jsonExtractor.extract(raw));
+        schemaValidator.validate(node, "implement-tests.schema.json");   // same {files,todos} shape
+        costRecorder.record("implement-tests", "generate-data", model, prompt, raw, owner);
+        return node;
+    }
+
     /** Default codegen template = the bundled BNC autotests template; copied to a temp file for TemplateLearner. */
     static final String DEFAULT_TEMPLATE_RESOURCE = "veritas/templates/autotests-template.md";
 
@@ -177,6 +202,9 @@ public class CodegenService {
         code.endpoints().forEach(e -> endpoints.add(e.signature()));
 
         try {
+            // Step 4 (L): generate the data artifacts first, in the template's format, so tests can reference them.
+            JsonNode dataNode = generateData(spec, endpoints, owner);
+
             String outputContract = "Generate automated tests that EXACTLY follow the template (framework: "
                     + spec.frameworkName() + ", language: " + spec.language() + "). Mirror its conventions; "
                     + "introduce no pattern absent from it. One fenced ```json block last: "
@@ -194,6 +222,12 @@ public class CodegenService {
 
             Files.createDirectories(outputDir);
             List<String> written = new ArrayList<>();
+            // Data files first — merge-don't-clobber (#14) JSON registries, secret-scan (#15), both in GeneratedFileWriter.
+            for (JsonNode f : dataNode.path("files")) {
+                String relPath = f.path("path").asText();
+                generatedFileWriter.write(outputDir.resolve(relPath), relPath, f.path("content").asText(""));
+                written.add(relPath);
+            }
             for (JsonNode f : node.path("files")) {
                 String relPath = f.path("path").asText();
                 String content = f.path("content").asText("");
@@ -226,7 +260,11 @@ public class CodegenService {
             run.setOutputRepo(outputDir.toString());
             run.setBuildStatus(build.status());   // PASS | FAIL | SKIPPED (git push/PR stays for live creds)
             run.setFilesWritten(objectMapper.writeValueAsString(written));
-            run.setTodos(node.path("todos").toString());
+            // Merge TODOs from both LLM steps (data IDs that must pre-exist + implement-step notes).
+            com.fasterxml.jackson.databind.node.ArrayNode todos = objectMapper.createArrayNode();
+            dataNode.path("todos").forEach(todos::add);
+            node.path("todos").forEach(todos::add);
+            run.setTodos(todos.toString());
             run.setApprovedBy(owner);
             run.setEstCostUsd(cost.estCostUsd());
             CodegenRun saved = repository.save(run);
