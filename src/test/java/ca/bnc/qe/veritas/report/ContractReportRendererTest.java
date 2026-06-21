@@ -41,7 +41,10 @@ class ContractReportRendererTest {
         scan.setConfidence(79.0);
         scan.setBlindSpots("Runtime-only routes not visible to static analysis");
         String html = new ContractReportRenderer().renderHtml(scan, List.of(richFinding()));
-        assertThat(html).contains("Self-review").contains("79%").contains("Blind spots");
+        // Management report: executive summary KPIs + reframed coverage section.
+        assertThat(html).contains("Executive summary").contains("Contract fidelity").contains("Recommended actions");
+        assertThat(html).contains("Self-review").contains("79%");
+        assertThat(html).contains("Analysis coverage").contains("Runtime-only routes");
 
         assertThat(html).contains("Code evidence");
         assertThat(html).contains("ResponseEntity.notFound");
