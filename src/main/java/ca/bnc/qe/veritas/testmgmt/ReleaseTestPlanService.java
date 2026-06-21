@@ -107,10 +107,23 @@ public class ReleaseTestPlanService {
                 basis.append("- [").append(i.key()).append("] ").append(i.summary()).append("\n");
             }
 
-            String outputContract = "Produce a release test plan for fixVersion " + fixVersion
-                    + " (description, scope, risk-based prioritization) and the list of required test cases. "
-                    + "One fenced ```json block last: {\"markdown\": string, "
-                    + "\"requiredCases\": [{\"title\": string, \"technique\": string, \"priority\": string}]}. No prose after.";
+            // Output contract MUST mirror test-plan.schema.json (required: markdown, requiredCases, selfReview)
+            // and the fields the service reads below (selfReview.confidence, riskRegister, requiredCases.*).
+            // Previously this asked for only {markdown, requiredCases[title,technique,priority]}, which a real
+            // Copilot run would obey → schema-validation failure + empty risk register/confidence (masked by the mock).
+            String outputContract = "Produce a board-ready release test plan for fixVersion " + fixVersion + ". "
+                    + "Markdown first (the full document), then ONE fenced ```json block last, nothing after it. "
+                    + "The JSON MUST be: {"
+                    + "\"executiveSummary\": string, "
+                    + "\"scope\": {\"inScope\": [string], \"outOfScope\": [string], \"objectives\": [string], \"assumptions\": [string]}, "
+                    + "\"riskRegister\": [{\"id\": string, \"description\": string, \"category\": string, \"qualityCharacteristic\": string, \"likelihood\": string, \"impact\": string, \"level\": string, \"mitigation\": string, \"citation\": string}], "
+                    + "\"testApproach\": {\"levels\": [string], \"types\": [string], \"techniques\": [{\"name\": string, \"rationale\": string, \"citation\": string}], \"entryCriteria\": [string]}, "
+                    + "\"exitCriteria\": [{\"criterion\": string, \"metric\": string, \"smart\": boolean, \"citation\": string}], "
+                    + "\"estimation\": {\"technique\": string, \"effortDays\": number, \"basis\": string, \"citation\": string}, "
+                    + "\"requiredCases\": [{\"title\": string, \"technique\": string, \"priority\": string, \"level\": string, \"type\": string, \"requirementKey\": string, \"riskId\": string, \"citation\": string}], "
+                    + "\"selfReview\": {\"confidence\": number, \"rubricChecks\": [{\"check\": string, \"pass\": boolean, \"note\": string}], \"blindSpots\": [string]}, "
+                    + "\"markdown\": string}. "
+                    + "Each requiredCase traces to a requirementKey and a riskId; every HIGH/VERY-HIGH risk needs >=2 cases.";
             String prompt = promptComposer.compose("[TEST-PLAN]", "generate-test-plan.prompt.md",
                     Set.of("1", "5", "6", "8", "9", "10"),   // terms, ISO 25010, techniques, planning, risk, monitoring
                     promptComposer.data("RELEASE_ISSUES", basis.toString()), outputContract);

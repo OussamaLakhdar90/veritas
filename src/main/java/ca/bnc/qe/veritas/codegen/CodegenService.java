@@ -46,13 +46,15 @@ public class CodegenService {
     private final ca.bnc.qe.veritas.preflight.Preflight preflight;
     private final PrPublisher prPublisher;
     private final ca.bnc.qe.veritas.skill.GateService gateService;
+    private final GeneratedFileWriter generatedFileWriter;
 
     public CodegenService(LlmGateway llm, JsonBlockExtractor jsonExtractor, ResponseSchemaValidator schemaValidator,
                           ModelSelector modelSelector, CostRecorder costRecorder, PromptComposer promptComposer,
                           ObjectMapper objectMapper, TemplateLearner templateLearner,
                           JavaSpringExtractor javaSpringExtractor, CodegenRunRepository repository,
                           BuildVerifier buildVerifier, ca.bnc.qe.veritas.preflight.Preflight preflight,
-                          PrPublisher prPublisher, ca.bnc.qe.veritas.skill.GateService gateService) {
+                          PrPublisher prPublisher, ca.bnc.qe.veritas.skill.GateService gateService,
+                          GeneratedFileWriter generatedFileWriter) {
         this.llm = llm;
         this.jsonExtractor = jsonExtractor;
         this.schemaValidator = schemaValidator;
@@ -67,6 +69,7 @@ public class CodegenService {
         this.preflight = preflight;
         this.prPublisher = prPublisher;
         this.gateService = gateService;
+        this.generatedFileWriter = generatedFileWriter;
     }
 
     /**
@@ -74,8 +77,19 @@ public class CodegenService {
      * (gated for human approval). Completes the Pillar-C flow; idempotent re-runs reuse the branch/PR.
      */
     public CodegenRun publish(String runId, String outputRepoSlug, String targetBranch, String owner) {
+        return publish(runId, outputRepoSlug, targetBranch, owner, false);
+    }
+
+    public CodegenRun publish(String runId, String outputRepoSlug, String targetBranch, String owner,
+                              boolean allowFailedBuild) {
         CodegenRun run = repository.findById(runId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown codegen run " + runId));
+        // Blind spot #12: never PR a non-compiling branch unless the user explicitly overrides.
+        if ("FAIL".equalsIgnoreCase(run.getBuildStatus()) && !allowFailedBuild) {
+            throw new ca.bnc.qe.veritas.preflight.PreconditionException("implement-tests", java.util.List.of(
+                    "Generated tests did not compile (build status FAIL). Refusing to open a PR for a non-compiling "
+                            + "branch. Re-run so the repair pass can fix it, or publish with the explicit override."));
+        }
         ca.bnc.qe.veritas.skill.GateService.Decision gate = gateService.await(runId, "OPEN_PR", owner);
         if (!gate.approved()) {
             throw new IllegalStateException("PR for codegen run " + runId
@@ -121,12 +135,11 @@ public class CodegenService {
             Files.createDirectories(outputDir);
             List<String> written = new ArrayList<>();
             for (JsonNode f : node.path("files")) {
-                Path target = outputDir.resolve(f.path("path").asText());
-                if (target.getParent() != null) {
-                    Files.createDirectories(target.getParent());
-                }
-                Files.writeString(target, f.path("content").asText(""));
-                written.add(f.path("path").asText());
+                String relPath = f.path("path").asText();
+                String content = f.path("content").asText("");
+                // secret-scan (#15) + merge-don't-clobber (#14) handled by GeneratedFileWriter.
+                generatedFileWriter.write(outputDir.resolve(relPath), relPath, content);
+                written.add(relPath);
             }
 
             BuildVerifier.BuildResult build = buildVerifier.verify(outputDir, spec.verifyCommand());

@@ -40,7 +40,8 @@ public class CodegenController {
     public CodegenRun publish(@PathVariable String id,
                               @RequestParam String repoSlug,
                               @RequestParam(required = false) String targetBranch,
-                              @RequestParam(required = false, defaultValue = "api") String owner) {
-        return codegen.publish(id, repoSlug, targetBranch, owner);
+                              @RequestParam(required = false, defaultValue = "api") String owner,
+                              @RequestParam(required = false, defaultValue = "false") boolean allowFailedBuild) {
+        return codegen.publish(id, repoSlug, targetBranch, owner, allowFailedBuild);
     }
 }

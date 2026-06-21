@@ -46,4 +46,24 @@ class CodegenPublishTest {
         assertThat(published.getBranch()).isEqualTo("veritas/ciam-policies-tests");
         verify(prPublisher).publish(any());
     }
+
+    @Test
+    void refusesToPublishAFailingBuildUnlessOverridden() {
+        CodegenRun run = new CodegenRun();
+        run.setServiceName("ciam-policies");
+        run.setOutputRepo(System.getProperty("java.io.tmpdir"));
+        run.setBuildStatus("FAIL");
+        run = runs.save(run);
+        String id = run.getId();
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> codegen.publish(id, "ciam-policies-tests", "main", "tester"))
+                .isInstanceOf(ca.bnc.qe.veritas.preflight.PreconditionException.class)
+                .hasMessageContaining("did not compile");
+        verify(prPublisher, org.mockito.Mockito.never()).publish(any());
+
+        // explicit override publishes anyway
+        when(prPublisher.publish(any())).thenReturn(new PrPublisher.PrResult("b", "https://pr/override"));
+        CodegenRun published = codegen.publish(id, "ciam-policies-tests", "main", "tester", true);
+        assertThat(published.getPrUrl()).isEqualTo("https://pr/override");
+    }
 }
