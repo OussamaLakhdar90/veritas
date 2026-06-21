@@ -150,8 +150,9 @@ public class ContractReportRenderer {
         sb.append(kpi(score + "<span class=\"unit\">/100</span>", bi("Contract fidelity", "Fidélité du contrat"), band[0]));
         sb.append(kpi(String.valueOf(blocking), bi("Release-blocking", "Bloquants"), blocking > 0 ? "action" : "clean"));
         sb.append(kpi(String.valueOf(counted.size()), bi("Total findings", "Constats totaux"), "neutral"));
-        sb.append(kpi(scan.getConfidence() != null ? Math.round(scan.getConfidence()) + "%" : "—",
-                bi("Self-review confidence", "Confiance de l'auto-revue"), "neutral"));
+        boolean fullCoverage = isBlank(scan.getBlindSpots());
+        String covValue = fullCoverage ? bi("Full", "Complète") : bi("Partial", "Partielle");
+        sb.append(kpi(covValue, bi("Analysis coverage", "Couverture"), fullCoverage ? "clean" : "minor"));
         sb.append("</div>");
 
         sb.append("<div class=\"dist-panel\"><div class=\"panel-h\">")
@@ -246,8 +247,15 @@ public class ContractReportRenderer {
                                 + "explanations and proposed fixes may be AI-assisted. Confidential — internal use.",
                         "Généré par Veritas. Les constats L1–L4 sont déterministes (analyse statique, sans IA); les "
                                 + "explications et correctifs proposés peuvent être assistés par IA. Confidentiel — usage interne."))
-                .append(" · ").append(bi("Est. cost", "Coût est.")).append(String.format(" $%.4f", scan.getTotalEstCostUsd()))
-                .append("</p>");
+                .append(" · ").append(bi("Est. cost", "Coût est.")).append(String.format(" $%.4f", scan.getTotalEstCostUsd()));
+        if (scan.getConfidence() != null && scan.getConfidence() > 0) {
+            sb.append(" · ").append(bi(
+                    "AI-assist confidence: " + Math.round(scan.getConfidence())
+                            + "% (the assistant's confidence in its own explanations — not a measure of contract correctness)",
+                    "Confiance de l'assistance IA : " + Math.round(scan.getConfidence())
+                            + "% (confiance de l'assistant dans ses propres explications — pas une mesure de l'exactitude du contrat)"));
+        }
+        sb.append("</p>");
         sb.append("</div>");   // content
 
         if (interactive) {
