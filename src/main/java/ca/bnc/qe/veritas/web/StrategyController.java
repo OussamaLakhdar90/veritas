@@ -7,6 +7,7 @@ import ca.bnc.qe.veritas.testmgmt.TestStrategyService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -36,6 +37,30 @@ public class StrategyController {
     public ResponseEntity<TestStrategy> get(@PathVariable String id) {
         return repository.findById(id).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
     }
+
+    /** Version history for a strategy (newest first) — backs the revision/diff view. */
+    @GetMapping("/strategies/{id}/versions")
+    public List<TestStrategy> versions(@PathVariable String id) {
+        String lineage = repository.findById(id).map(s -> s.getLineageId() != null ? s.getLineageId() : id).orElse(id);
+        return repository.findByLineageIdOrderByVersionDesc(lineage);
+    }
+
+    /** Revise one section — stores a new immutable version (deterministic edit, no LLM). */
+    @PatchMapping("/strategies/{id}/sections/{key}")
+    public TestStrategy reviseSection(@PathVariable String id, @PathVariable String key,
+                                      @RequestBody SectionEdit edit) {
+        return service.reviseSection(id, key, edit.content(), edit.actor() == null ? "api" : edit.actor());
+    }
+
+    /** Approve a strategy version (locks it as the basis release plans pin to). */
+    @PostMapping("/strategies/{id}/approve")
+    public TestStrategy approve(@PathVariable String id, @RequestBody(required = false) ApproveRequest req) {
+        return service.approve(id, req != null && req.actor() != null ? req.actor() : "api");
+    }
+
+    public record SectionEdit(String content, String actor) {}
+
+    public record ApproveRequest(String actor) {}
 
     @PostMapping("/services/{service}/strategies")
     @ResponseStatus(HttpStatus.ACCEPTED)

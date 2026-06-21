@@ -76,9 +76,59 @@ public class TestStrategyService {
             strategy.setSource(source);
             strategy.setOwner(owner);
             strategy.setEstCostUsd(cost.estCostUsd());
-            return repository.save(strategy);
+            strategy.setVersion(1);
+            TestStrategy saved = repository.save(strategy);
+            saved.setLineageId(saved.getId());   // v1 seeds the lineage
+            return repository.save(saved);
         } catch (Exception e) {
             throw new IllegalStateException("test-strategy generation failed: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Revise one section of a strategy: replaces the named top-level field of the deliverable and stores it as a
+     * NEW immutable version (history preserved). No LLM — a deterministic user edit. {@code contentJson} is the
+     * new value (parsed as JSON; falls back to a plain string).
+     */
+    public TestStrategy reviseSection(String id, String sectionKey, String contentJson, String actor) {
+        TestStrategy current = repository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown strategy " + id));
+        try {
+            com.fasterxml.jackson.databind.node.ObjectNode deliverable = current.getDeliverableJson() == null
+                    ? objectMapper.createObjectNode()
+                    : (com.fasterxml.jackson.databind.node.ObjectNode) objectMapper.readTree(current.getDeliverableJson());
+            JsonNode value;
+            try {
+                value = objectMapper.readTree(contentJson);
+            } catch (Exception notJson) {
+                value = objectMapper.getNodeFactory().textNode(contentJson);
+            }
+            deliverable.set(sectionKey, value);
+
+            TestStrategy next = new TestStrategy();
+            next.setServiceName(current.getServiceName());
+            next.setContentMarkdown(deliverable.path("markdown").asText(current.getContentMarkdown()));
+            next.setDeliverableJson(deliverable.toString());
+            next.setConfidence(deliverable.path("selfReview").path("confidence").asDouble(
+                    current.getConfidence() == null ? 0 : current.getConfidence()));
+            next.setStatus("DRAFT");   // an edit re-opens the draft
+            next.setSource(current.getSource());
+            next.setOwner(current.getOwner());
+            next.setRevisedBy(actor);
+            next.setVersion((current.getVersion() == null ? 1 : current.getVersion()) + 1);
+            next.setLineageId(current.getLineageId() != null ? current.getLineageId() : current.getId());
+            return repository.save(next);
+        } catch (Exception e) {
+            throw new IllegalStateException("revise-section failed for " + id + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** Approve a strategy version (locks it as the basis release plans pin to). */
+    public TestStrategy approve(String id, String actor) {
+        TestStrategy s = repository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Unknown strategy " + id));
+        s.setStatus("APPROVED");
+        s.setRevisedBy(actor);
+        return repository.save(s);
     }
 }
