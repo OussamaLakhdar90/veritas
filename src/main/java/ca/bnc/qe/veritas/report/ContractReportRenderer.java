@@ -150,9 +150,13 @@ public class ContractReportRenderer {
         sb.append(kpi(score + "<span class=\"unit\">/100</span>", bi("Contract fidelity", "Fidélité du contrat"), band[0]));
         sb.append(kpi(String.valueOf(blocking), bi("Release-blocking", "Bloquants"), blocking > 0 ? "action" : "clean"));
         sb.append(kpi(String.valueOf(counted.size()), bi("Total findings", "Constats totaux"), "neutral"));
-        boolean fullCoverage = isBlank(scan.getBlindSpots());
-        String covValue = fullCoverage ? bi("Full", "Complète") : bi("Partial", "Partielle");
-        sb.append(kpi(covValue, bi("Analysis coverage", "Couverture"), fullCoverage ? "clean" : "minor"));
+        // Coverage = deterministic per-scan gaps (unparsed files / unresolved types). Fall back to the
+        // blind-spots text only for older scans that predate the coverageGaps count.
+        int gaps = scan.getCoverageGaps() != null ? scan.getCoverageGaps()
+                : (isBlank(scan.getBlindSpots()) ? 0 : 1);
+        String covValue = gaps == 0 ? bi("Full", "Complète")
+                : bi(gaps + (gaps == 1 ? " gap" : " gaps"), gaps + (gaps == 1 ? " lacune" : " lacunes"));
+        sb.append(kpi(covValue, bi("Analysis coverage", "Couverture"), gaps == 0 ? "clean" : "minor"));
         sb.append("</div>");
 
         sb.append("<div class=\"dist-panel\"><div class=\"panel-h\">")

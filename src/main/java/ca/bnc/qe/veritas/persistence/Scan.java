@@ -42,6 +42,9 @@ public class Scan extends AuditableEntity {
     @Column(length = 2000)
     private String blindSpots;
 
+    /** Deterministic count of per-scan coverage gaps (files that didn't parse, DTOs that didn't resolve). */
+    private Integer coverageGaps;
+
     @Column(length = 2000)
     private String errorMessage;
 }

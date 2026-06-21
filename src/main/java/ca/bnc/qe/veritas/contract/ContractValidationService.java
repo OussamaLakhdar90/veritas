@@ -153,7 +153,9 @@ public class ContractValidationService {
 
             // Always surface deterministic static-analysis blind spots (unparsed files, unresolved DTOs),
             // merged with any LLM self-review blind spots — never silently dropped.
-            if (code.blindSpots() != null && !code.blindSpots().isEmpty()) {
+            int coverageGaps = code.blindSpots() == null ? 0 : code.blindSpots().size();
+            scan.setCoverageGaps(coverageGaps);   // deterministic per-scan gaps drive the Coverage KPI
+            if (coverageGaps > 0) {
                 String existing = scan.getBlindSpots();
                 String extractor = String.join(" ", code.blindSpots());
                 scan.setBlindSpots(existing == null || existing.isBlank() ? extractor : existing + " " + extractor);
