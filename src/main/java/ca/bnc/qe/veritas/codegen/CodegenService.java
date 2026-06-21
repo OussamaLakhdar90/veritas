@@ -47,6 +47,7 @@ public class CodegenService {
     private final PrPublisher prPublisher;
     private final ca.bnc.qe.veritas.skill.GateService gateService;
     private final GeneratedFileWriter generatedFileWriter;
+    private final HttpRequestsEmitter httpRequestsEmitter;
 
     public CodegenService(LlmGateway llm, JsonBlockExtractor jsonExtractor, ResponseSchemaValidator schemaValidator,
                           ModelSelector modelSelector, CostRecorder costRecorder, PromptComposer promptComposer,
@@ -54,7 +55,7 @@ public class CodegenService {
                           JavaSpringExtractor javaSpringExtractor, CodegenRunRepository repository,
                           BuildVerifier buildVerifier, ca.bnc.qe.veritas.preflight.Preflight preflight,
                           PrPublisher prPublisher, ca.bnc.qe.veritas.skill.GateService gateService,
-                          GeneratedFileWriter generatedFileWriter) {
+                          GeneratedFileWriter generatedFileWriter, HttpRequestsEmitter httpRequestsEmitter) {
         this.llm = llm;
         this.jsonExtractor = jsonExtractor;
         this.schemaValidator = schemaValidator;
@@ -70,6 +71,7 @@ public class CodegenService {
         this.prPublisher = prPublisher;
         this.gateService = gateService;
         this.generatedFileWriter = generatedFileWriter;
+        this.httpRequestsEmitter = httpRequestsEmitter;
     }
 
     /**
@@ -163,11 +165,16 @@ public class CodegenService {
                 written.add(relPath);
             }
 
+            // Deterministic ad-hoc API artifact (IntelliJ HTTP Client / Bruno) — from the AST, no LLM.
+            String httpFile = serviceName.replaceAll("[^A-Za-z0-9._-]", "-") + ".http";
+            generatedFileWriter.write(outputDir.resolve(httpFile), httpFile, httpRequestsEmitter.emit(serviceName, code));
+            written.add(httpFile);
+
             BuildVerifier.BuildResult build = buildVerifier.verify(outputDir, spec.verifyCommand());
 
             CodegenRun run = new CodegenRun();
             run.setServiceName(serviceName);
-            run.setTemplateSource(templatePath.toString());
+            run.setTemplateSource(effectiveTemplate.toString());   // null-safe (default template resolves to a temp file)
             run.setOutputRepo(outputDir.toString());
             run.setBuildStatus(build.status());   // PASS | FAIL | SKIPPED (git push/PR stays for live creds)
             run.setFilesWritten(objectMapper.writeValueAsString(written));
