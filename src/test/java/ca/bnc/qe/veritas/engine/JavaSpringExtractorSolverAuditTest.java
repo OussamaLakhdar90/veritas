@@ -75,6 +75,20 @@ class JavaSpringExtractorSolverAuditTest {
     }
 
     @Test
+    void customStereotypeAndClassLevelMetaRequestMappingAreHonored(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("ApiV1Controller.java"),
+                "package demo; import org.springframework.web.bind.annotation.*;\n"
+                        + "@RestController @RequestMapping(\"/api/v1\") @interface ApiV1Controller {}");
+        Files.writeString(dir.resolve("V1Ctrl.java"),
+                HDR + "@ApiV1Controller class V1Ctrl { @GetMapping(\"/things\") String t(){return null;} }");
+
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+
+        // stereotype recognized as a controller AND its class-level @RequestMapping base path applied
+        assertThat(m.endpoints().stream().map(e -> e.pathTemplate())).contains("/api/v1/things");
+    }
+
+    @Test
     void customSecurityAnnotationIsHonoredNotReportedUnsecured(@TempDir Path dir) throws Exception {
         Files.writeString(dir.resolve("AdminOnly.java"),
                 "package demo; import org.springframework.security.access.prepost.PreAuthorize;\n"

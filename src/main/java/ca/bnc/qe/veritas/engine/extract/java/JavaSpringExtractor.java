@@ -94,9 +94,9 @@ public class JavaSpringExtractor {
         for (CompilationUnit cu : units) {
             String file = cu.getStorage().map(s -> s.getPath().toString()).orElse("?");
             cu.findAll(TypeDeclaration.class).stream()
-                    .filter(this::isController)
+                    .filter(td -> isController(td, types))
                     .forEach(ctrl -> {
-                        List<String> bases = classPaths(ctrl, constants, blindSpots);
+                        List<String> bases = classPaths(ctrl, types, constants, blindSpots);
                         List<String> classSecurity = securityOf(ctrl, types);
                         int before = endpoints.size();
                         Set<String> seenSignatures = new java.util.HashSet<>();
@@ -227,14 +227,39 @@ public class JavaSpringExtractor {
         return new JavaParser(cfg);
     }
 
-    private boolean isController(TypeDeclaration<?> td) {
-        return has(td, "RestController")
-                || (has(td, "Controller") && (has(td, "ResponseBody")));
+    private boolean isController(TypeDeclaration<?> td, Map<String, TypeDeclaration<?>> types) {
+        if (isControllerAnnotated(td)) {
+            return true;
+        }
+        // custom stereotype meta-annotated with @RestController (or @Controller + @ResponseBody) — defined in sources
+        for (AnnotationExpr a : td.getAnnotations()) {
+            if (types.get(a.getNameAsString()) instanceof AnnotationDeclaration decl && isControllerAnnotated(decl)) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    private List<String> classPaths(TypeDeclaration<?> ctrl, Map<String, String> constants, List<String> blindSpots) {
+    private boolean isControllerAnnotated(NodeWithAnnotations<?> n) {
+        return has(n, "RestController") || (has(n, "Controller") && has(n, "ResponseBody"));
+    }
+
+    private List<String> classPaths(TypeDeclaration<?> ctrl, Map<String, TypeDeclaration<?>> types,
+                                    Map<String, String> constants, List<String> blindSpots) {
         Optional<AnnotationExpr> rm = getAnnotation(ctrl, "RequestMapping");
-        return rm.map(a -> annotationPaths(a, constants, blindSpots)).orElse(List.of(""));
+        if (rm.isPresent()) {
+            return annotationPaths(rm.get(), constants, blindSpots);
+        }
+        // composed stereotype meta-annotated with @RequestMapping (e.g. @ApiV1Controller) — base path on the meta decl
+        for (AnnotationExpr a : ctrl.getAnnotations()) {
+            if (types.get(a.getNameAsString()) instanceof AnnotationDeclaration decl) {
+                Optional<AnnotationExpr> metaRm = getAnnotation(decl, "RequestMapping");
+                if (metaRm.isPresent()) {
+                    return annotationPaths(metaRm.get(), constants, blindSpots);
+                }
+            }
+        }
+        return List.of("");
     }
 
     /**
