@@ -73,18 +73,28 @@ class JavaSpringExtractorRobustnessTest {
     }
 
     @Test
-    void constantPathRecordsBlindSpot(@TempDir Path dir) throws Exception {
+    void resolvesConstantPathFromSources(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("Routes.java"),
+                "package demo; public class Routes { public static final String RENEW = \"/renew\"; }");
         ApiModel m = extract(dir, "ConstCtrl",
-                "@RestController class ConstCtrl { static final String RENEW=\"/renew\";"
-                        + " @GetMapping(Routes.RENEW) String g(){return null;} }");
-        assertThat(m.blindSpots().toString()).contains("constant reference");
+                "@RestController class ConstCtrl { @GetMapping(Routes.RENEW) String g(){return null;} }");
+        assertThat(pathOf(m)).isEqualTo("/renew");                       // resolved, not "/Routes.RENEW"
+        assertThat(m.blindSpots().toString()).doesNotContain("constant");
     }
 
     @Test
-    void multiplePathsRecordBlindSpot(@TempDir Path dir) throws Exception {
+    void emitsAllPathsForMultiPathMapping(@TempDir Path dir) throws Exception {
         ApiModel m = extract(dir, "MultiCtrl",
                 "@RestController class MultiCtrl { @GetMapping({\"/a\",\"/b\"}) String g(){return null;} }");
-        assertThat(m.blindSpots().toString()).contains("multiple paths");
+        assertThat(m.endpoints()).extracting(Endpoint::pathTemplate).contains("/a", "/b");
+    }
+
+    @Test
+    void emitsAllMethodsForMultiMethodMapping(@TempDir Path dir) throws Exception {
+        ApiModel m = extract(dir, "MmCtrl",
+                "@RestController class MmCtrl { @RequestMapping(value=\"/multi\","
+                        + " method={RequestMethod.PUT, RequestMethod.PATCH}) String g(){return null;} }");
+        assertThat(m.endpoints()).extracting(e -> e.method().name()).contains("PUT", "PATCH");
     }
 
     @Test

@@ -3,6 +3,7 @@ package ca.bnc.qe.veritas.engine.extract.java;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -36,9 +37,16 @@ import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeSolver;
+import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
+import com.github.javaparser.ast.expr.ArrayInitializerExpr;
+import com.github.javaparser.ast.expr.BinaryExpr;
+import com.github.javaparser.ast.expr.Expression;
+import com.github.javaparser.ast.expr.FieldAccessExpr;
+import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
+import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithAnnotations;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.Type;
@@ -78,6 +86,8 @@ public class JavaSpringExtractor {
             blindSpots.add("Source walk failed for " + sourceRoot + ": " + e.getMessage());
         }
 
+        Map<String, String> constants = collectStringConstants(units);   // for resolving constant path refs
+
         List<Endpoint> endpoints = new ArrayList<>();
         List<String> referenced = new ArrayList<>();
         for (CompilationUnit cu : units) {
@@ -85,13 +95,13 @@ public class JavaSpringExtractor {
             cu.findAll(TypeDeclaration.class).stream()
                     .filter(this::isController)
                     .forEach(ctrl -> {
-                        String base = classPath(ctrl);
+                        List<String> bases = classPaths(ctrl, constants, blindSpots);
                         List<String> classSecurity = securityOf(ctrl);
                         int before = endpoints.size();
                         for (Object mo : ctrl.getMethods()) {
                             MethodDeclaration method = (MethodDeclaration) mo;
-                            toEndpoint(file, base, method, types, referenced, classSecurity, blindSpots)
-                                    .ifPresent(endpoints::add);
+                            endpoints.addAll(toEndpoints(file, bases, method, types, referenced,
+                                    classSecurity, blindSpots, constants));
                         }
                         // Mappings declared on an implemented interface/abstract base aren't analysed — if a
                         // controller yields no endpoints of its own yet implements interfaces, say so (don't drop silently).
@@ -202,31 +212,26 @@ public class JavaSpringExtractor {
                 || (has(td, "Controller") && (has(td, "ResponseBody")));
     }
 
-    private String classPath(TypeDeclaration<?> ctrl) {
-        return getAnnotation(ctrl, "RequestMapping").map(a -> firstString(a, "value", "path")).orElse("");
+    private List<String> classPaths(TypeDeclaration<?> ctrl, Map<String, String> constants, List<String> blindSpots) {
+        Optional<AnnotationExpr> rm = getAnnotation(ctrl, "RequestMapping");
+        return rm.map(a -> annotationPaths(a, constants, blindSpots)).orElse(List.of(""));
     }
 
-    private Optional<Endpoint> toEndpoint(String file, String base, MethodDeclaration m,
-                                          Map<String, TypeDeclaration<?>> types, List<String> referenced,
-                                          List<String> classSecurity, List<String> blindSpots) {
-        MappingInfo mapping = mappingOf(m, types);
-        if (mapping == null) {
-            return Optional.empty();
+    /**
+     * Build every endpoint a method declares: class-path × method-path × HTTP verb (so multi-path / multi-method
+     * mappings produce all of their endpoints, and constant path refs resolve to their literal value).
+     */
+    private List<Endpoint> toEndpoints(String file, List<String> bases, MethodDeclaration m,
+                                       Map<String, TypeDeclaration<?>> types, List<String> referenced,
+                                       List<String> classSecurity, List<String> blindSpots,
+                                       Map<String, String> constants) {
+        MethodMapping mm = methodMappingOf(m, types);
+        if (mm == null) {
+            return List.of();
         }
-        String path = joinPath(base, mapping.path());
-        // Surface non-literal paths instead of comparing a wrong path (which would emit a false MISSING_ENDPOINT).
-        String rawPath = nz(mapping.path());
-        if (rawPath.contains("${")) {
-            blindSpots.add("Endpoint " + mapping.method() + " '" + path + "' uses an unresolved property placeholder"
-                    + " — its real path is environment-defined and is not compared to the spec.");
-        } else if (rawPath.matches("[A-Za-z_][\\w]*(\\.[A-Za-z_][\\w]*)+")) {
-            blindSpots.add("Endpoint " + mapping.method() + " path is the constant reference '" + rawPath
-                    + "' which could not be resolved to a literal path.");
-        }
-        if (mappingHasMultiplePaths(m)) {
-            blindSpots.add("Endpoint " + mapping.method() + " " + path
-                    + " declares multiple paths; only the first is analysed.");
-        }
+        List<String> methodPaths = annotationPaths(mm.annotation(), constants, blindSpots);
+
+        // --- params / body / responses are identical across the method's path×verb combinations ---
         List<ParamModel> params = new ArrayList<>();
         RequestBodyModel body = null;
         for (Parameter p : m.getParameters()) {
@@ -265,9 +270,151 @@ public class JavaSpringExtractor {
         List<String> security = new ArrayList<>(classSecurity);
         security.addAll(securityOf(m));   // method-level security adds to (overrides conceptually) the class default
 
-        Endpoint endpoint = new Endpoint(mapping.method(), path, m.getNameAsString(), params, body, responses,
-                null, null, security, SourceRef.code(file, line(m), line(m), m.getDeclarationAsString(false, false, false)));
-        return Optional.of(endpoint);
+        SourceRef src = SourceRef.code(file, line(m), line(m), m.getDeclarationAsString(false, false, false));
+        List<Endpoint> out = new ArrayList<>();
+        for (String b : bases.isEmpty() ? List.of("") : bases) {
+            for (String mp : methodPaths.isEmpty() ? List.of("") : methodPaths) {
+                String path = joinPath(b, mp);
+                for (HttpMethod verb : mm.verbs()) {
+                    out.add(new Endpoint(verb, path, m.getNameAsString(), params, body, responses,
+                            null, null, security, src));
+                }
+            }
+        }
+        return out;
+    }
+
+    private record MethodMapping(List<HttpMethod> verbs, AnnotationExpr annotation) {}
+
+    /** The method's HTTP verb(s) + the annotation carrying its path(s); supports shortcuts, @RequestMapping, and composed meta-annotations. */
+    private MethodMapping methodMappingOf(MethodDeclaration m, Map<String, TypeDeclaration<?>> types) {
+        for (Map.Entry<String, HttpMethod> e : Map.of(
+                "GetMapping", HttpMethod.GET, "PostMapping", HttpMethod.POST, "PutMapping", HttpMethod.PUT,
+                "PatchMapping", HttpMethod.PATCH, "DeleteMapping", HttpMethod.DELETE).entrySet()) {
+            Optional<AnnotationExpr> a = getAnnotation(m, e.getKey());
+            if (a.isPresent()) {
+                return new MethodMapping(List.of(e.getValue()), a.get());
+            }
+        }
+        Optional<AnnotationExpr> rm = getAnnotation(m, "RequestMapping");
+        if (rm.isPresent()) {
+            return new MethodMapping(verbsFrom(rm.get()), rm.get());
+        }
+        // composed / meta-annotation: a custom annotation itself meta-annotated with a mapping (verb from meta, path from usage)
+        for (AnnotationExpr a : m.getAnnotations()) {
+            TypeDeclaration<?> decl = types.get(a.getNameAsString());
+            if (decl instanceof AnnotationDeclaration) {
+                MethodMapping meta = metaMappingOf(decl);
+                if (meta != null) {
+                    boolean usageHasPath = memberExpr(a, "value", "path") != null;
+                    return new MethodMapping(meta.verbs(), usageHasPath ? a : meta.annotation());
+                }
+            }
+        }
+        return null;
+    }
+
+    private MethodMapping metaMappingOf(TypeDeclaration<?> annotationDecl) {
+        for (Map.Entry<String, HttpMethod> e : Map.of(
+                "GetMapping", HttpMethod.GET, "PostMapping", HttpMethod.POST, "PutMapping", HttpMethod.PUT,
+                "PatchMapping", HttpMethod.PATCH, "DeleteMapping", HttpMethod.DELETE).entrySet()) {
+            Optional<AnnotationExpr> a = getAnnotation(annotationDecl, e.getKey());
+            if (a.isPresent()) {
+                return new MethodMapping(List.of(e.getValue()), a.get());
+            }
+        }
+        Optional<AnnotationExpr> rm = getAnnotation(annotationDecl, "RequestMapping");
+        return rm.map(a -> new MethodMapping(verbsFrom(a), a)).orElse(null);
+    }
+
+    private List<HttpMethod> verbsFrom(AnnotationExpr rm) {
+        Expression me = memberExpr(rm, "method");
+        if (me == null) {
+            return List.of(HttpMethod.GET);
+        }
+        List<Expression> elems = me instanceof ArrayInitializerExpr arr ? arr.getValues() : List.of(me);
+        List<HttpMethod> out = new ArrayList<>();
+        for (Expression e : elems) {
+            out.add(verbFrom(e.toString()));
+        }
+        return out.isEmpty() ? List.of(HttpMethod.GET) : out;
+    }
+
+    /** All declared paths of a mapping annotation, resolving constants; records a blind spot for the unresolvable. */
+    private List<String> annotationPaths(AnnotationExpr a, Map<String, String> constants, List<String> blindSpots) {
+        Expression v = memberExpr(a, "value", "path");
+        if (v == null) {
+            return List.of("");
+        }
+        List<Expression> elems = v instanceof ArrayInitializerExpr arr ? arr.getValues() : List.of(v);
+        List<String> out = new ArrayList<>();
+        for (Expression e : elems) {
+            String r = resolvePathExpr(e, constants);
+            if (r == null) {
+                blindSpots.add("Path expression '" + e + "' could not be resolved to a literal — not compared to the spec.");
+                r = e.toString();
+            } else if (r.contains("${")) {
+                blindSpots.add("Path '" + r + "' uses an unresolved property placeholder — its real path is "
+                        + "environment-defined and is not compared to the spec.");
+            }
+            out.add(r);
+        }
+        return out.isEmpty() ? List.of("") : out;
+    }
+
+    /** Resolve a path expression: string literal, constant ref (from scanned sources), or concatenation. */
+    private String resolvePathExpr(Expression e, Map<String, String> constants) {
+        if (e instanceof StringLiteralExpr s) {
+            return s.asString();
+        }
+        if (e instanceof NameExpr n) {
+            return constants.get(n.getNameAsString());
+        }
+        if (e instanceof FieldAccessExpr fa) {
+            String full = fa.toString();
+            return constants.containsKey(full) ? constants.get(full) : constants.get(fa.getNameAsString());
+        }
+        if (e instanceof BinaryExpr b && b.getOperator() == BinaryExpr.Operator.PLUS) {
+            String l = resolvePathExpr(b.getLeft(), constants);
+            String r = resolvePathExpr(b.getRight(), constants);
+            return (l == null || r == null) ? null : l + r;
+        }
+        return null;
+    }
+
+    private Expression memberExpr(AnnotationExpr a, String... members) {
+        if (a instanceof SingleMemberAnnotationExpr sm) {
+            return sm.getMemberValue();
+        }
+        if (a instanceof NormalAnnotationExpr na) {
+            for (String member : members) {
+                for (var pair : na.getPairs()) {
+                    if (pair.getNameAsString().equals(member)) {
+                        return pair.getValue();
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /** Static String constants (incl. interface fields) from the scanned sources, keyed by name and Owner.NAME. */
+    private Map<String, String> collectStringConstants(List<CompilationUnit> units) {
+        Map<String, String> out = new HashMap<>();
+        for (CompilationUnit cu : units) {
+            for (TypeDeclaration<?> td : cu.findAll(TypeDeclaration.class)) {
+                String owner = td.getNameAsString();
+                for (FieldDeclaration fd : td.getFields()) {
+                    fd.getVariables().forEach(var -> var.getInitializer().ifPresent(init -> {
+                        if (init instanceof StringLiteralExpr s) {
+                            out.putIfAbsent(var.getNameAsString(), s.asString());
+                            out.put(owner + "." + var.getNameAsString(), s.asString());
+                        }
+                    }));
+                }
+            }
+        }
+        return out;
     }
 
     /** Required roles/scopes from method/class security annotations (@PreAuthorize / @Secured / @RolesAllowed). */
@@ -435,73 +582,6 @@ public class JavaSpringExtractor {
     }
 
     // ---- mapping detection ----
-
-    private record MappingInfo(HttpMethod method, String path) {}
-
-    private MappingInfo mappingOf(MethodDeclaration m, Map<String, TypeDeclaration<?>> types) {
-        MappingInfo direct = directMappingOf(m);
-        if (direct != null) {
-            return direct;
-        }
-        // composed / meta-annotations: a custom annotation that is itself meta-annotated with a mapping
-        for (AnnotationExpr a : m.getAnnotations()) {
-            TypeDeclaration<?> decl = types.get(a.getNameAsString());
-            if (decl instanceof com.github.javaparser.ast.body.AnnotationDeclaration) {
-                MappingInfo meta = directMappingOf(decl);
-                if (meta != null) {
-                    String path = firstString(a, "value", "path");   // usage path overrides the meta default
-                    return new MappingInfo(meta.method(), nz(path != null ? path : meta.path()));
-                }
-            }
-        }
-        return null;
-    }
-
-    private MappingInfo directMappingOf(NodeWithAnnotations<?> n) {
-        for (Map.Entry<String, HttpMethod> e : Map.of(
-                "GetMapping", HttpMethod.GET, "PostMapping", HttpMethod.POST, "PutMapping", HttpMethod.PUT,
-                "PatchMapping", HttpMethod.PATCH, "DeleteMapping", HttpMethod.DELETE).entrySet()) {
-            Optional<AnnotationExpr> a = getAnnotation(n, e.getKey());
-            if (a.isPresent()) {
-                return new MappingInfo(e.getValue(), nz(firstString(a.get(), "value", "path")));
-            }
-        }
-        Optional<AnnotationExpr> rm = getAnnotation(n, "RequestMapping");
-        if (rm.isPresent()) {
-            String methodMember = firstString(rm.get(), "method");
-            HttpMethod hm = methodMember == null ? HttpMethod.GET : verbFrom(methodMember);
-            return new MappingInfo(hm, nz(firstString(rm.get(), "value", "path")));
-        }
-        return null;
-    }
-
-    /** True if the method's mapping annotation declares an array of paths (e.g. {"/a","/b"}). */
-    private boolean mappingHasMultiplePaths(MethodDeclaration m) {
-        for (String ann : List.of("GetMapping", "PostMapping", "PutMapping", "PatchMapping", "DeleteMapping", "RequestMapping")) {
-            Optional<AnnotationExpr> a = getAnnotation(m, ann);
-            if (a.isPresent()) {
-                String raw = rawMember(a.get(), "value", "path");
-                return raw != null && raw.trim().startsWith("{") && raw.contains(",");
-            }
-        }
-        return false;
-    }
-
-    private String rawMember(AnnotationExpr a, String... members) {
-        if (a instanceof SingleMemberAnnotationExpr sm) {
-            return sm.getMemberValue().toString();
-        }
-        if (a instanceof NormalAnnotationExpr na) {
-            for (String member : members) {
-                for (var pair : na.getPairs()) {
-                    if (pair.getNameAsString().equals(member)) {
-                        return pair.getValue().toString();
-                    }
-                }
-            }
-        }
-        return null;
-    }
 
     private HttpMethod verbFrom(String requestMethod) {
         for (HttpMethod hm : HttpMethod.values()) {
