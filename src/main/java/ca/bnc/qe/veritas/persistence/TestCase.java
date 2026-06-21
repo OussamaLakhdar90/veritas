@@ -19,6 +19,8 @@ public class TestCase extends AuditableEntity {
     private String technique;
     private String priority;
     private String type;
+    private String level;          // test level: Unit | Integration | System | Acceptance
+    private String automation;     // MANUAL | AUTOMATED | CANDIDATE
 
     @Lob
     @Column(columnDefinition = "TEXT")
@@ -27,6 +29,9 @@ public class TestCase extends AuditableEntity {
     private String status;
     private String xrayKey;
     private String linkedRequirement;
+    private String dedupFingerprint;   // stable fingerprint for idempotent create / dedup
+    private String approvedBy;
+    private java.time.Instant approvedAt;
 
     /** Why this technique/case (ISTQB justification) — part of the structured deliverable. */
     @Lob

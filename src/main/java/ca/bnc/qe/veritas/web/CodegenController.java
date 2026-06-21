@@ -1,15 +1,19 @@
 package ca.bnc.qe.veritas.web;
 
+import java.nio.file.Path;
 import java.util.List;
 import ca.bnc.qe.veritas.codegen.CodegenService;
 import ca.bnc.qe.veritas.persistence.CodegenRun;
 import ca.bnc.qe.veritas.persistence.CodegenRunRepository;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Codegen runs (implement-tests): list/inspect, and the gated push+PR step. */
@@ -30,6 +34,17 @@ public class CodegenController {
         return runs.findAll();
     }
 
+    /**
+     * Trigger implement-tests: learn the template → analyze the service → generate + build-verify.
+     * Returns 202 with the run (files preview + build status + TODOs). The push/PR stays gated via publish.
+     */
+    @PostMapping("/services/{service}/implement-tests")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public CodegenRun implementTests(@PathVariable String service, @RequestBody ImplementRequest req) {
+        return codegen.generate(service, Path.of(req.serviceRepo()), Path.of(req.templatePath()),
+                Path.of(req.outputDir()), req.owner() == null ? "api" : req.owner());
+    }
+
     @GetMapping("/codegen-runs/{id}")
     public ResponseEntity<CodegenRun> get(@PathVariable String id) {
         return runs.findById(id).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
@@ -44,4 +59,6 @@ public class CodegenController {
                               @RequestParam(required = false, defaultValue = "false") boolean allowFailedBuild) {
         return codegen.publish(id, repoSlug, targetBranch, owner, allowFailedBuild);
     }
+
+    public record ImplementRequest(String serviceRepo, String templatePath, String outputDir, String owner) {}
 }

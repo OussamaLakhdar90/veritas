@@ -39,6 +39,21 @@ public class CoverageReportRenderer {
         return sb.toString();
     }
 
+    /** Same RTM as a PDF (openhtmltopdf), so {@code GET /test-plans/{id}/report?format=pdf} can serve it. */
+    public byte[] renderPdf(TestPlan plan, List<CoverageItem> items) {
+        String html = renderHtml(plan, items);
+        try (java.io.ByteArrayOutputStream os = new java.io.ByteArrayOutputStream()) {
+            com.openhtmltopdf.pdfboxout.PdfRendererBuilder builder = new com.openhtmltopdf.pdfboxout.PdfRendererBuilder();
+            builder.useFastMode();
+            builder.withHtmlContent(html, null);
+            builder.toStream(os);
+            builder.run();
+            return os.toByteArray();
+        } catch (Exception e) {
+            throw new IllegalStateException("RTM PDF render failed: " + e.getMessage(), e);
+        }
+    }
+
     private String nz(String s) {
         return s == null ? "" : s;
     }
