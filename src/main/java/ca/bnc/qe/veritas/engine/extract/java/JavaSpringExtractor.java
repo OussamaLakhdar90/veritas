@@ -87,9 +87,19 @@ public class JavaSpringExtractor {
                     .forEach(ctrl -> {
                         String base = classPath(ctrl);
                         List<String> classSecurity = securityOf(ctrl);
+                        int before = endpoints.size();
                         for (Object mo : ctrl.getMethods()) {
                             MethodDeclaration method = (MethodDeclaration) mo;
-                            toEndpoint(file, base, method, types, referenced, classSecurity).ifPresent(endpoints::add);
+                            toEndpoint(file, base, method, types, referenced, classSecurity, blindSpots)
+                                    .ifPresent(endpoints::add);
+                        }
+                        // Mappings declared on an implemented interface/abstract base aren't analysed — if a
+                        // controller yields no endpoints of its own yet implements interfaces, say so (don't drop silently).
+                        if (endpoints.size() == before && ctrl instanceof ClassOrInterfaceDeclaration coid
+                                && !coid.getImplementedTypes().isEmpty()) {
+                            blindSpots.add("Controller '" + ctrl.getNameAsString() + "' has no mappings on its own methods"
+                                    + " but implements " + coid.getImplementedTypes()
+                                    + "; mappings declared on interfaces are not analysed.");
                         }
                     });
         }
@@ -198,12 +208,25 @@ public class JavaSpringExtractor {
 
     private Optional<Endpoint> toEndpoint(String file, String base, MethodDeclaration m,
                                           Map<String, TypeDeclaration<?>> types, List<String> referenced,
-                                          List<String> classSecurity) {
+                                          List<String> classSecurity, List<String> blindSpots) {
         MappingInfo mapping = mappingOf(m, types);
         if (mapping == null) {
             return Optional.empty();
         }
         String path = joinPath(base, mapping.path());
+        // Surface non-literal paths instead of comparing a wrong path (which would emit a false MISSING_ENDPOINT).
+        String rawPath = nz(mapping.path());
+        if (rawPath.contains("${")) {
+            blindSpots.add("Endpoint " + mapping.method() + " '" + path + "' uses an unresolved property placeholder"
+                    + " — its real path is environment-defined and is not compared to the spec.");
+        } else if (rawPath.matches("[A-Za-z_][\\w]*(\\.[A-Za-z_][\\w]*)+")) {
+            blindSpots.add("Endpoint " + mapping.method() + " path is the constant reference '" + rawPath
+                    + "' which could not be resolved to a literal path.");
+        }
+        if (mappingHasMultiplePaths(m)) {
+            blindSpots.add("Endpoint " + mapping.method() + " " + path
+                    + " declares multiple paths; only the first is analysed.");
+        }
         List<ParamModel> params = new ArrayList<>();
         RequestBodyModel body = null;
         for (Parameter p : m.getParameters()) {
@@ -452,6 +475,34 @@ public class JavaSpringExtractor {
         return null;
     }
 
+    /** True if the method's mapping annotation declares an array of paths (e.g. {"/a","/b"}). */
+    private boolean mappingHasMultiplePaths(MethodDeclaration m) {
+        for (String ann : List.of("GetMapping", "PostMapping", "PutMapping", "PatchMapping", "DeleteMapping", "RequestMapping")) {
+            Optional<AnnotationExpr> a = getAnnotation(m, ann);
+            if (a.isPresent()) {
+                String raw = rawMember(a.get(), "value", "path");
+                return raw != null && raw.trim().startsWith("{") && raw.contains(",");
+            }
+        }
+        return false;
+    }
+
+    private String rawMember(AnnotationExpr a, String... members) {
+        if (a instanceof SingleMemberAnnotationExpr sm) {
+            return sm.getMemberValue().toString();
+        }
+        if (a instanceof NormalAnnotationExpr na) {
+            for (String member : members) {
+                for (var pair : na.getPairs()) {
+                    if (pair.getNameAsString().equals(member)) {
+                        return pair.getValue().toString();
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     private HttpMethod verbFrom(String requestMethod) {
         for (HttpMethod hm : HttpMethod.values()) {
             if (requestMethod.toUpperCase(Locale.ROOT).contains(hm.name())) {
@@ -481,22 +532,32 @@ public class JavaSpringExtractor {
                 && !cit.getTypeArguments().get().isEmpty()) {
             String outer = cit.getNameAsString();
             Type inner = cit.getTypeArguments().get().get(0);
-            boolean re = outer.equals("ResponseEntity");
-            if (outer.equals("ResponseEntity") || outer.equals("Mono") || outer.equals("Optional")) {
+            boolean re = outer.equals("ResponseEntity") || outer.equals("HttpEntity");
+            // Transparent wrappers — unwrap to the inner body type (envelope/async/reactive-single).
+            if (re || TRANSPARENT_WRAPPERS.contains(outer)) {
                 BodyType b = unwrap(inner);
                 return new BodyType(b.typeName(), b.array(), b.noBody(), re || b.responseEntity());
             }
-            if (outer.equals("List") || outer.equals("Set") || outer.equals("Collection") || outer.equals("Flux")) {
-                return new BodyType(simpleTypeName(inner), true, false, false);
+            // Collection-like — the body is an array of the inner type (incl. paged wrappers).
+            if (ARRAY_WRAPPERS.contains(outer)) {
+                BodyType b = unwrap(inner);
+                return new BodyType(b.typeName(), true, b.typeName() == null, false);
             }
         }
-        boolean known = !"object".equals(openApiType(simple)[0]);
-        if (known) {
-            // primitive/wrapper return — still a body, but not a DTO schema
-            return new BodyType(simple, false, false, false);
+        // Raw ResponseEntity/HttpEntity with no generics → genuinely unknown body, NOT a 'ResponseEntity' schema.
+        if ("ResponseEntity".equals(simple) || "HttpEntity".equals(simple)) {
+            return new BodyType(null, false, false, true);
         }
+        // primitive/wrapper or DTO return — still a body (openApiType decides scalar vs object schema).
         return new BodyType(simple, false, false, false);
     }
+
+    /** Wrappers whose single type argument IS the response body (Spring envelopes, reactive-single, async). */
+    private static final Set<String> TRANSPARENT_WRAPPERS = Set.of(
+            "Mono", "Optional", "CompletableFuture", "CompletionStage", "Future", "Callable", "DeferredResult");
+    /** Wrappers that mean "a collection of the inner type" (incl. Spring Data paged wrappers). */
+    private static final Set<String> ARRAY_WRAPPERS = Set.of(
+            "List", "Set", "Collection", "Flux", "Page", "Slice", "PagedModel", "CollectionModel");
 
     // ---- annotation helpers ----
 
@@ -576,6 +637,8 @@ public class JavaSpringExtractor {
         if (joined.length() > 1 && joined.endsWith("/")) {
             joined = joined.substring(0, joined.length() - 1);
         }
+        // Normalize regex path-variable constraints to the bare name: {id:\d+} -> {id} (Spring/OpenAPI match).
+        joined = joined.replaceAll("\\{([^}:]+):[^}]*\\}", "{$1}");
         return joined.isEmpty() ? "/" : joined;
     }
 
