@@ -36,4 +36,20 @@ class TestStrategyRevisionTest {
         assertThat(versions).hasSize(2);                         // both versions retained (immutable history)
         assertThat(versions.get(0).getVersion()).isEqualTo(2);  // newest first
     }
+
+    @Test
+    void generatesEverySectionAndRegeneratesOne() {
+        TestStrategy v1 = service.generate("svc-ps", "Endpoints:\n- GET /x\n", "CODE", "tester");
+        // per-section generation assembled all sections
+        assertThat(v1.getDeliverableJson())
+                .contains("summary").contains("scope").contains("riskRegister")
+                .contains("testApproach").contains("exitCriteria").contains("selfReview");
+        assertThat(v1.getContentMarkdown()).contains("# Test Strategy");
+
+        // regenerate just the risk register with the assistant → a new version, history kept
+        TestStrategy v2 = service.regenerateSection(v1.getId(), "riskRegister", "emphasise authorization risk", "qa-lead");
+        assertThat(v2.getVersion()).isEqualTo(2);
+        assertThat(v2.getLineageId()).isEqualTo(v1.getId());
+        assertThat(v2.getDeliverableJson()).contains("riskRegister");
+    }
 }

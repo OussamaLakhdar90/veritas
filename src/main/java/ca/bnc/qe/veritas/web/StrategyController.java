@@ -63,6 +63,14 @@ public class StrategyController {
         return service.reviseSection(id, key, edit.content(), edit.actor() == null ? "api" : edit.actor());
     }
 
+    /** Regenerate one section with the assistant (optional guidance) — stores a new version. */
+    @PostMapping("/strategies/{id}/sections/{key}/regenerate")
+    public TestStrategy regenerateSection(@PathVariable String id, @PathVariable String key,
+                                          @RequestBody(required = false) RegenRequest req) {
+        return service.regenerateSection(id, key, req != null ? req.guidance() : null,
+                req != null && req.actor() != null ? req.actor() : "api");
+    }
+
     /** Approve a strategy version (locks it as the basis release plans pin to). */
     @PostMapping("/strategies/{id}/approve")
     public TestStrategy approve(@PathVariable String id, @RequestBody(required = false) ApproveRequest req) {
@@ -70,6 +78,8 @@ public class StrategyController {
     }
 
     public record SectionEdit(String content, String actor) {}
+
+    public record RegenRequest(String guidance, String actor) {}
 
     public record ApproveRequest(String actor) {}
 

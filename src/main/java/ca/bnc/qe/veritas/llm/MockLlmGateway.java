@@ -27,6 +27,27 @@ public class MockLlmGateway implements LlmGateway {
             // the cheapest Copilot model). Keeps the report bilingual-capable without a real LLM in tests.
             return "Translations (mock).\n```json\n{}\n```\n";
         }
+        if (prompt != null && prompt.contains("[TEST-STRATEGY-SECTION:")) {
+            int i = prompt.indexOf("[TEST-STRATEGY-SECTION:") + "[TEST-STRATEGY-SECTION:".length();
+            int j = prompt.indexOf("]", i);
+            String key = j > i ? prompt.substring(i, j) : "";
+            String body = switch (key) {
+                case "summary" -> "{\"summary\":\"Test strategy executive summary (mock, per-section).\"}";
+                case "scope" -> "{\"scope\":{\"inScope\":[\"Policy create/read APIs\"],\"outOfScope\":[\"Batch jobs\"],"
+                        + "\"objectives\":[\"Validate functional correctness and authZ\"],\"assumptions\":[\"Stable env\"]}}";
+                case "riskRegister" -> "{\"riskRegister\":[{\"id\":\"R1\",\"description\":\"Policy creation accepts "
+                        + "invalid payloads\",\"category\":\"PRODUCT\",\"likelihood\":\"M\",\"impact\":\"H\",\"level\":"
+                        + "\"HIGH\",\"mitigation\":\"BVA + decision-table coverage\",\"citation\":\"CTAL-TM — Risk-Based Testing\"}]}";
+                case "testApproach" -> "{\"testApproach\":{\"levels\":[\"System\",\"Integration\"],\"types\":"
+                        + "[\"Functional\",\"Security\"],\"techniques\":[{\"name\":\"Boundary Value Analysis\","
+                        + "\"rationale\":\"Bounded fields on create\",\"riskId\":\"R1\",\"citation\":\"CTFL — Boundary Value Analysis\"}]}}";
+                case "exitCriteria" -> "{\"exitCriteria\":[{\"criterion\":\"Every HIGH risk has >=2 executed cases\","
+                        + "\"metric\":\"risk coverage %\",\"citation\":\"CTAL-TM — Exit Criteria\"}]}";
+                case "selfReview" -> "{\"selfReview\":{\"confidence\":80,\"blindSpots\":[\"No performance NFRs supplied\"]}}";
+                default -> "{\"" + key + "\":\"(mock section)\"}";
+            };
+            return "Strategy section (mock).\n```json\n" + body + "\n```\n";
+        }
         if (prompt != null && prompt.contains("[TEST-STRATEGY]")) {
             return """
                     Test strategy (mock — a real run uses Copilot).
