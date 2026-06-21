@@ -41,7 +41,9 @@ public class CodegenController {
     @PostMapping("/services/{service}/implement-tests")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public CodegenRun implementTests(@PathVariable String service, @RequestBody ImplementRequest req) {
-        return codegen.generate(service, Path.of(req.serviceRepo()), Path.of(req.templatePath()),
+        // templatePath is optional — null/blank uses the bundled BNC autotests template.
+        Path template = req.templatePath() == null || req.templatePath().isBlank() ? null : Path.of(req.templatePath());
+        return codegen.generate(service, Path.of(req.serviceRepo()), template,
                 Path.of(req.outputDir()), req.owner() == null ? "api" : req.owner());
     }
 

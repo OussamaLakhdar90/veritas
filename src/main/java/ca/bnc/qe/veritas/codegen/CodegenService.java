@@ -76,6 +76,26 @@ public class CodegenService {
      * Outward step of implement-tests: branch + commit + push the generated output repo and open a PR
      * (gated for human approval). Completes the Pillar-C flow; idempotent re-runs reuse the branch/PR.
      */
+    /** Default codegen template = the bundled BNC autotests template; copied to a temp file for TemplateLearner. */
+    static final String DEFAULT_TEMPLATE_RESOURCE = "veritas/templates/autotests-template.md";
+
+    private Path resolveTemplate(Path templatePath) {
+        if (templatePath != null) {
+            return templatePath;
+        }
+        try (java.io.InputStream in = getClass().getClassLoader().getResourceAsStream(DEFAULT_TEMPLATE_RESOURCE)) {
+            if (in == null) {
+                throw new IllegalStateException("bundled default template not found on classpath: " + DEFAULT_TEMPLATE_RESOURCE);
+            }
+            Path tmp = Files.createTempFile("veritas-autotests-template", ".md");
+            Files.copy(in, tmp, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            tmp.toFile().deleteOnExit();
+            return tmp;
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not load the bundled default template: " + e.getMessage(), e);
+        }
+    }
+
     public CodegenRun publish(String runId, String outputRepoSlug, String targetBranch, String owner) {
         return publish(runId, outputRepoSlug, targetBranch, owner, false);
     }
@@ -110,8 +130,9 @@ public class CodegenService {
     }
 
     public CodegenRun generate(String serviceName, Path serviceRepo, Path templatePath, Path outputDir, String owner) {
-        preflight.implementTests(serviceName, serviceRepo, templatePath, outputDir);
-        TemplateSpec spec = templateLearner.learn(templatePath);   // fails fast if template missing/invalid
+        Path effectiveTemplate = resolveTemplate(templatePath);   // null → bundled BNC autotests template
+        preflight.implementTests(serviceName, serviceRepo, effectiveTemplate, outputDir);
+        TemplateSpec spec = templateLearner.learn(effectiveTemplate);   // fails fast if template missing/invalid
         ApiModel code = javaSpringExtractor.extract(serviceRepo);
         List<String> endpoints = new ArrayList<>();
         code.endpoints().forEach(e -> endpoints.add(e.signature()));
