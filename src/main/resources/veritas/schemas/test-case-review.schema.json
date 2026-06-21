@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["score", "verdict"],
+  "properties": {
+    "score": { "type": "number" },
+    "verdict": { "type": "string" },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "severity": { "type": ["string", "null"] },
+          "issue": { "type": ["string", "null"] },
+          "cite": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "rubric": {
+      "type": "array",
+      "description": "ISTQB Test Analyst C1–C6 rubric scores.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "criterion": { "type": ["string", "null"] },
+          "score": { "type": ["number", "null"] },
+          "note": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "correctedSteps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+          "action": { "type": ["string", "null"] },
+          "data": { "type": ["string", "null"] },
+          "expected": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "selfReview": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "properties": {
+        "confidence": { "type": ["number", "null"] },
+        "blindSpots": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

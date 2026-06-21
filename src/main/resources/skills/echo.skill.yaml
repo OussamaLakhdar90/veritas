@@ -1,0 +1,13 @@
+apiVersion: veritas/v1
+kind: Skill
+name: echo
+description: Phase-0 smoke skill — exercises a deterministic step + an LLM step end-to-end.
+istqbSyllabus: none
+inputs:
+  - { name: text, type: string, required: true }
+tokens: []
+context: {}
+pipeline:
+  - { id: upper, kind: deterministic, handler: upperCaseHandler, out: upper }
+  - { id: echo,  kind: llm, tier: economy, promptSkill: echo.prompt.md, expectsJson: echo.schema.json, inputsFrom: [upper], out: echo }
+artifacts: []

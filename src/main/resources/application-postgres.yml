@@ -1,0 +1,16 @@
+# Server-ready datasource. Activate with: --spring.profiles.active=postgres (or SPRING_PROFILES_ACTIVE=postgres).
+# Connection + credentials come from the environment so no secrets live in this file.
+spring:
+  datasource:
+    url: ${VERITAS_DB_URL:jdbc:postgresql://localhost:5432/veritas}
+    username: ${VERITAS_DB_USER:veritas}
+    password: ${VERITAS_DB_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${VERITAS_DB_POOL_MAX:10}
+  jpa:
+    hibernate:
+      ddl-auto: update          # Flyway migrations are a later phase; update keeps the schema in sync for now
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect

@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["markdown", "requiredCases", "selfReview"],
+  "properties": {
+    "executiveSummary": { "type": ["string", "null"] },
+    "scope": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "properties": {
+        "inScope": { "type": "array", "items": { "type": "string" } },
+        "outOfScope": { "type": "array", "items": { "type": "string" } },
+        "objectives": { "type": "array", "items": { "type": "string" } },
+        "assumptions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "riskRegister": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id", "description", "level"],
+        "properties": {
+          "id": { "type": "string" },
+          "description": { "type": "string" },
+          "category": { "type": ["string", "null"] },
+          "qualityCharacteristic": { "type": ["string", "null"] },
+          "likelihood": { "type": ["string", "null"] },
+          "impact": { "type": ["string", "null"] },
+          "level": { "type": "string" },
+          "mitigation": { "type": ["string", "null"] },
+          "citation": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "testApproach": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "properties": {
+        "levels": { "type": "array", "items": { "type": "string" } },
+        "types": { "type": "array", "items": { "type": "string" } },
+        "techniques": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "name": { "type": "string" },
+              "rationale": { "type": ["string", "null"] },
+              "citation": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "entryCriteria": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "exitCriteria": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["criterion"],
+        "properties": {
+          "criterion": { "type": "string" },
+          "metric": { "type": ["string", "null"] },
+          "smart": { "type": ["boolean", "null"] },
+          "citation": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "estimation": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "properties": {
+        "technique": { "type": ["string", "null"] },
+        "effortDays": { "type": ["number", "null"] },
+        "basis": { "type": ["string", "null"] },
+        "citation": { "type": ["string", "null"] }
+      }
+    },
+    "requiredCases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["title"],
+        "properties": {
+          "title": { "type": "string" },
+          "technique": { "type": ["string", "null"] },
+          "priority": { "type": ["string", "null"] },
+          "level": { "type": ["string", "null"] },
+          "type": { "type": ["string", "null"] },
+          "requirementKey": { "type": ["string", "null"] },
+          "riskId": { "type": ["string", "null"] },
+          "citation": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "selfReview": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["confidence"],
+      "properties": {
+        "confidence": { "type": "number" },
+        "rubricChecks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "check": { "type": "string" },
+              "pass": { "type": ["boolean", "null"] },
+              "note": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "blindSpots": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "markdown": { "type": "string" }
+  }
+}

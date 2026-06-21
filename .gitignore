@@ -1,0 +1,15 @@
+target/
+*.db
+*.db-journal
+data/
+out/
+.idea/
+*.iml
+.vscode/
+dashboard/node_modules/
+dashboard/dist/
+.env
+.veritas/
+*.original
+*.log
+.DS_Store

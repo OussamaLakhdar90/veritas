@@ -1,0 +1,28 @@
+# Model catalog — editable as Copilot adds/removes models or changes billing. No code change needed.
+#
+# How GitHub Copilot billing actually works (researched June 2026 — docs.github.com/en/copilot/reference/copilot-billing):
+#   • USAGE_CREDITS (current, since 2026-06-01): billed PER TOKEN per model, converted to GitHub AI Credits.
+#       1 AI credit = $0.01 USD. So creditsPerMTok* below = (USD per 1M tokens) x 100.
+#       cost = (tokensIn/1e6 * creditsPerMTokIn + tokensOut/1e6 * creditsPerMTokOut) * creditUsd.
+#   • PER_REQUEST (legacy annual Pro/Pro+ plans): each call costs `requestMultiplier` premium requests;
+#       overage billed at pricePerRequestUsd per premium request.
+#   The live /models endpoint's billing.multiplier overrides requestMultiplier at runtime (LiveModelMultipliers).
+billingMode: USAGE_CREDITS       # USAGE_CREDITS (current) | PER_REQUEST (legacy annual plans)
+pricePerRequestUsd: 0.04         # legacy overage: USD per premium request
+creditUsd: 0.01                  # 1 GitHub AI Credit = $0.01 USD
+cliCountsAsPremium: true         # legacy: the CLI burns >= 1 premium request even on mult-0 models
+models:
+  # economy / lightweight
+  - { id: gpt-5-mini,        tier: economy,  requestMultiplier: 0.33, creditsPerMTokIn: 25,   creditsPerMTokOut: 200 }
+  - { id: gemini-3-flash,    tier: economy,  requestMultiplier: 0.33, creditsPerMTokIn: 50,   creditsPerMTokOut: 300 }
+  - { id: claude-haiku-4.5,  tier: economy,  requestMultiplier: 0.33, creditsPerMTokIn: 100,  creditsPerMTokOut: 500 }
+  # standard
+  - { id: claude-sonnet-4.6, tier: standard, requestMultiplier: 9,    creditsPerMTokIn: 300,  creditsPerMTokOut: 1500 }
+  - { id: claude-sonnet-4.5, tier: standard, requestMultiplier: 6,    creditsPerMTokIn: 300,  creditsPerMTokOut: 1500 }
+  # deep / reasoning
+  - { id: gpt-5.4,           tier: deep,     requestMultiplier: 6,    creditsPerMTokIn: 250,  creditsPerMTokOut: 1500 }
+  - { id: gemini-3.1-pro,    tier: deep,     requestMultiplier: 6,    creditsPerMTokIn: 200,  creditsPerMTokOut: 1200 }
+  # frontier
+  - { id: claude-opus-4.8,   tier: frontier, requestMultiplier: 27,   creditsPerMTokIn: 500,  creditsPerMTokOut: 2500 }
+  - { id: gpt-5.5,           tier: frontier, requestMultiplier: 57,   creditsPerMTokIn: 500,  creditsPerMTokOut: 3000 }
+  - { id: claude-fable-5,    tier: frontier, requestMultiplier: 30,   creditsPerMTokIn: 1000, creditsPerMTokOut: 5000 }

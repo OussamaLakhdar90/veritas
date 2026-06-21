@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["correctedYaml", "findings"],
+  "properties": {
+    "correctedYaml": { "type": "string" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["findingId"],
+        "properties": {
+          "findingId": { "type": "string" },
+          "explanation": { "type": ["string", "null"] },
+          "proposedFix": { "type": ["string", "null"] },
+          "citation": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "designFindings": {
+      "type": "array",
+      "description": "L5 design-quality + L6 test-basis-adequacy findings (LLM judgment).",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["layer", "summary"],
+        "properties": {
+          "layer": { "type": "string", "enum": ["L5", "L6"] },
+          "severity": { "type": ["string", "null"] },
+          "endpoint": { "type": ["string", "null"] },
+          "summary": { "type": "string" },
+          "explanation": { "type": ["string", "null"] },
+          "citation": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "selfReview": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "properties": {
+        "confidence": { "type": ["number", "null"] },
+        "blindSpots": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

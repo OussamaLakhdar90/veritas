@@ -1,0 +1,58 @@
+spring:
+  application:
+    name: veritas
+  datasource:
+    url: jdbc:sqlite:veritas.db
+    driver-class-name: org.sqlite.JDBC
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.community.dialect.SQLiteDialect
+    open-in-view: false
+
+server:
+  address: 127.0.0.1
+  port: 8080
+
+veritas:
+  llm:
+    mode: mock          # mock | copilot (CLI) | http (Copilot HTTP API, device flow)
+    model: claude-sonnet-4.6
+    timeout-seconds: 180
+    context-budget-chars: 16000   # per untrusted input block; oversized inputs trimmed head+tail to cut noise
+  http:                  # BNC-facing HTTP transport (Jira v2 + Copilot)
+    powershell-fallback: false      # set true if the JVM is blocked by the corporate firewall but powershell.exe is allowed
+    powershell-timeout-seconds: 60
+  copilot:               # used when llm.mode=http — the device-flow HTTP gateway (see docs/reference-contract-validator.md)
+    client-id: "Iv1.b507a08c87ecfe98"
+    github-base: "https://github.com"
+    api-base: "https://api.github.com"
+    copilot-base: "https://api.githubcopilot.com"
+    token-file: "${user.home}/.veritas/copilot-auth.json"   # owner-only perms set on write
+    editor-version: "vscode/1.100.0"
+    integration-id: "vscode-chat"
+    api-version: "2025-04-01"
+  connections:
+    bitbucket:
+      base-url: "https://api.bitbucket.org"   # or the internal vanity host (git.bnc) fronting Cloud
+      edition: CLOUD
+      workspace: ""                            # set to the BNC workspace
+      auth-type: APP_PASSWORD                  # APP_PASSWORD | OAUTH
+    jira:
+      base-url: ""
+      edition: SERVER_DC        # SERVER_DC (v2 + wiki-markup + Bearer PAT, matches BNC contract-validator) | CLOUD (v3 + ADF + Basic)
+      auth-type: BEARER         # BEARER (PAT) | BASIC (username + token)
+    confluence:
+      base-url: ""
+      edition: CLOUD
+      auth-type: BEARER
+    xray:
+      base-url: "https://xray.cloud.getxray.app"   # Cloud only; SERVER_DC uses the Jira base-url (Raven on the Jira host)
+      edition: SERVER_DC        # SERVER_DC (Raven REST on Jira host, matches BNC) | CLOUD (GraphQL)
+      auth-type: BEARER         # SERVER_DC: Bearer (Xray/Jira PAT) | CLOUD: CLIENT_CREDENTIALS
+
+logging:
+  level:
+    ca.bnc.qe.veritas: INFO

@@ -1,0 +1,36 @@
+package ca.bnc.qe.veritas.integration.jira;
+
+import java.util.List;
+
+/** Jira access. Core read/write is required; the enrichment methods have safe defaults for clients that
+ *  don't implement them (e.g. the Cloud client). The Server/DC client implements them all. */
+public interface JiraClient {
+    List<JiraIssue> search(String jql, List<String> fields, int maxResults);
+    JiraIssue getIssue(String key);
+
+    /** Create an issue; returns the new issue key. */
+    String createIssue(JiraCreateRequest request);
+
+    /** Current workflow status (name + stable category key) of an issue, for defect status sync. */
+    JiraStatus getStatus(String key);
+
+    /** Add a (wiki-markup) comment to an issue — e.g. a correction-notification when a fix changes. */
+    default void addComment(String key, String wikiBody) {
+        throw new UnsupportedOperationException("addComment not supported by this Jira client");
+    }
+
+    /** Attach a text file (e.g. the corrected OpenAPI YAML) to an issue. */
+    default void attachFile(String key, String fileName, String content) {
+        throw new UnsupportedOperationException("attachFile not supported by this Jira client");
+    }
+
+    /** Discover which fields the Create screen allows for a project+issuetype (and custom-field keys). */
+    default CreateMeta createMeta(String projectKey, String issueType) {
+        return CreateMeta.empty();
+    }
+
+    /** Project versions (fixVersions) — to resolve/validate a release link. Empty if unsupported/none. */
+    default List<JiraVersion> listVersions(String projectKey) {
+        return List.of();
+    }
+}

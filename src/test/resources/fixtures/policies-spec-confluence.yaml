@@ -1,0 +1,21 @@
+openapi: 3.0.1
+info:
+  title: Policies API
+  version: 1.0.0
+paths:
+  /api/v1/policies/{policyId}:
+    get:
+      parameters:
+        - name: policyId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+  /api/v1/policies:
+    post:
+      responses:
+        '201':
+          description: created

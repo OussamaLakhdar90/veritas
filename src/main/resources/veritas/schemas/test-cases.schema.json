@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["cases"],
+  "properties": {
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["title"],
+        "properties": {
+          "title": { "type": "string" },
+          "technique": { "type": ["string", "null"] },
+          "priority": { "type": ["string", "null"] },
+          "type": { "type": ["string", "null"] },
+          "rationale": { "type": ["string", "null"] },
+          "requirementKey": { "type": ["string", "null"] },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "action": { "type": ["string", "null"] },
+                "data": { "type": ["string", "null"] },
+                "expected": { "type": ["string", "null"] }
+              }
+            }
+          }
+        }
+      }
+    },
+    "selfReview": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "properties": {
+        "confidence": { "type": ["number", "null"] },
+        "blindSpots": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

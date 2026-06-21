@@ -1,0 +1,196 @@
+package ca.bnc.qe.veritas.vcs;
+
+import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+import ca.bnc.qe.veritas.config.ConnectionsProperties;
+import ca.bnc.qe.veritas.integration.Retries;
+import ca.bnc.qe.veritas.secret.SecretProvider;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import lombok.extern.slf4j.Slf4j;
+import org.eclipse.jgit.api.Git;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+
+/**
+ * Bitbucket Cloud git host: app-id (project key) → repo discovery, branch listing, shallow clone.
+ * REST {@code /2.0}; Basic (app password) or Bearer (OAuth) auth via the per-user {@link SecretProvider}.
+ * URI/auth building is package-visible for unit tests; the HTTP/clone calls are validated against git.bnc.
+ */
+@Component
+@Slf4j
+public class BitbucketCloudClient implements GitHost {
+
+    private final ConnectionsProperties connections;
+    private final SecretProvider secrets;
+    private final ObjectMapper mapper;
+    private final RestClient http = RestClient.builder().build();
+    private final Retries retries;
+
+    public BitbucketCloudClient(ConnectionsProperties connections, SecretProvider secrets, ObjectMapper mapper, Retries retries) {
+        this.connections = connections;
+        this.secrets = secrets;
+        this.mapper = mapper;
+        this.retries = retries;
+    }
+
+    @Override
+    public List<RepoInfo> discoverRepos(String appId) {
+        List<RepoInfo> repos = new ArrayList<>();
+        String uri = buildDiscoveryUri(appId);
+        try {
+            while (uri != null) {
+                final String pageUri = uri;
+                String body = retries.call(() -> http.get().uri(URI.create(pageUri))
+                        .header("Authorization", authHeader())
+                        .retrieve().body(String.class));
+                JsonNode root = mapper.readTree(body == null ? "{}" : body);
+                for (JsonNode v : root.path("values")) {
+                    repos.add(toRepo(v));
+                }
+                JsonNode next = root.path("next");
+                uri = next.isMissingNode() || next.isNull() ? null : next.asText(null);
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Bitbucket discovery failed for app-id '" + appId + "': " + e.getMessage(), e);
+        }
+        return repos;
+    }
+
+    @Override
+    public List<String> listBranches(String repoSlug) {
+        List<String> branches = new ArrayList<>();
+        String uri = base() + "/2.0/repositories/" + workspace() + "/" + repoSlug + "/refs/branches?pagelen=100";
+        try {
+            while (uri != null) {
+                final String pageUri = uri;
+                String body = retries.call(() -> http.get().uri(URI.create(pageUri))
+                        .header("Authorization", authHeader())
+                        .retrieve().body(String.class));
+                JsonNode root = mapper.readTree(body == null ? "{}" : body);
+                for (JsonNode v : root.path("values")) {
+                    branches.add(v.path("name").asText());
+                }
+                JsonNode next = root.path("next");
+                uri = next.isMissingNode() || next.isNull() ? null : next.asText(null);
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Bitbucket branch listing failed for '" + repoSlug + "': " + e.getMessage(), e);
+        }
+        return branches;
+    }
+
+    @Override
+    public Path clone(RepoInfo repo, String branch, Path destinationParent) {
+        Path target = destinationParent.resolve(repo.slug());
+        var cmd = Git.cloneRepository()
+                .setURI(repo.cloneUrl())
+                .setDirectory(target.toFile())
+                .setCredentialsProvider(new org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider(
+                        secret("GIT_USERNAME"), secret("GIT_TOKEN")))
+                .setDepth(1);
+        if (branch != null && !branch.isBlank()) {
+            cmd.setBranch(branch);
+        }
+        try (Git git = cmd.call()) {
+            log.info("Cloned {} ({}) to {}", repo.slug(), branch, target);
+            return target;
+        } catch (Exception e) {
+            throw new IllegalStateException("Clone failed for '" + repo.slug() + "': " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public String openPullRequest(String repoSlug, String sourceBranch, String targetBranch,
+                                  String title, String description) {
+        String uri = buildPullRequestUri(repoSlug);
+        try {
+            String payload = buildPullRequestPayload(sourceBranch, targetBranch, title, description);
+            String body = retries.call(() -> http.post().uri(URI.create(uri))
+                    .header("Authorization", authHeader())
+                    .header("Content-Type", "application/json")
+                    .body(payload)
+                    .retrieve().body(String.class));
+            JsonNode root = mapper.readTree(body == null ? "{}" : body);
+            String html = root.path("links").path("html").path("href").asText("");
+            return html.isBlank() ? root.path("id").asText("") : html;
+        } catch (Exception e) {
+            throw new IllegalStateException("Bitbucket PR creation failed for '" + repoSlug + "': " + e.getMessage(), e);
+        }
+    }
+
+    // ---- testable building blocks ----
+
+    String buildPullRequestUri(String repoSlug) {
+        return base() + "/2.0/repositories/" + workspace() + "/" + repoSlug + "/pullrequests";
+    }
+
+    String buildPullRequestPayload(String sourceBranch, String targetBranch, String title, String description)
+            throws Exception {
+        ObjectNode root = mapper.createObjectNode();
+        root.put("title", title);
+        if (description != null && !description.isBlank()) {
+            root.put("description", description);
+        }
+        root.set("source",
+                mapper.createObjectNode().set("branch", mapper.createObjectNode().put("name", sourceBranch)));
+        if (targetBranch != null && !targetBranch.isBlank()) {
+            root.set("destination",
+                    mapper.createObjectNode().set("branch", mapper.createObjectNode().put("name", targetBranch)));
+        }
+        return mapper.writeValueAsString(root);
+    }
+
+    String buildDiscoveryUri(String appId) {
+        String q = URLEncoder.encode("project.key=\"" + appId + "\"", StandardCharsets.UTF_8);
+        return base() + "/2.0/repositories/" + workspace() + "?q=" + q + "&pagelen=100";
+    }
+
+    String authHeader() {
+        String type = connections.getBitbucket().getAuthType();
+        if (type != null && type.equalsIgnoreCase("OAUTH")) {
+            return "Bearer " + secret("GIT_TOKEN");
+        }
+        String basic = secret("GIT_USERNAME") + ":" + secret("GIT_TOKEN");
+        return "Basic " + Base64.getEncoder().encodeToString(basic.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private RepoInfo toRepo(JsonNode v) {
+        String cloneUrl = "";
+        for (JsonNode c : v.path("links").path("clone")) {
+            if ("https".equalsIgnoreCase(c.path("name").asText())) {
+                cloneUrl = c.path("href").asText("");
+            }
+        }
+        return new RepoInfo(
+                v.path("slug").asText(v.path("name").asText("")),
+                v.path("name").asText(""),
+                v.path("description").asText(""),
+                v.path("mainbranch").path("name").asText(""),
+                cloneUrl,
+                v.path("project").path("key").asText(""),
+                v.path("updated_on").asText(""));
+    }
+
+    private String base() {
+        String b = connections.getBitbucket().getBaseUrl();
+        if (b == null) {
+            return "";
+        }
+        return b.endsWith("/") ? b.substring(0, b.length() - 1) : b;
+    }
+
+    private String workspace() {
+        return connections.getBitbucket().getWorkspace();
+    }
+
+    private String secret(String key) {
+        return secrets.get(key).orElse("");
+    }
+}

@@ -1,0 +1,31 @@
+swagger: "2.0"
+info:
+  title: Policies API
+  version: 1.0.0
+basePath: /
+paths:
+  /api/v1/policies/{policyId}:
+    get:
+      parameters:
+        - name: policyId
+          in: path
+          required: true
+          type: string
+      responses:
+        '200':
+          description: ok
+          schema:
+            $ref: '#/definitions/PolicyResponse'
+  /api/v1/policies/all:
+    get:
+      responses:
+        '200':
+          description: ok
+definitions:
+  PolicyResponse:
+    type: object
+    properties:
+      id:
+        type: string
+      name:
+        type: string

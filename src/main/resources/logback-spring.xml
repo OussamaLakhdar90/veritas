@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Wires LogMasker into all console output: %maskedMsg redacts Authorization Bearer/Basic tokens and any
+  resolved secret value (SecretRegistry) before the line is written. Spring Boot still applies
+  logging.level.* from application.yml / system properties on top of this configuration.
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <conversionRule conversionWord="maskedMsg"
+                    converterClass="ca.bnc.qe.veritas.secret.MaskingMessageConverter"/>
+
+    <property name="VERITAS_LOG_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %5level [%thread] %logger{36} - %maskedMsg%n"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${VERITAS_LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

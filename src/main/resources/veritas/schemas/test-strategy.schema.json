@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["markdown"],
+  "properties": {
+    "markdown": { "type": "string" },
+    "summary": { "type": ["string", "null"] },
+    "scope": { "type": ["object", "null"], "additionalProperties": true },
+    "riskRegister": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "testApproach": { "type": ["object", "null"], "additionalProperties": true },
+    "exitCriteria": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+    "selfReview": {
+      "type": ["object", "null"],
+      "additionalProperties": true,
+      "properties": {
+        "confidence": { "type": ["number", "null"] },
+        "rubricChecks": { "type": "array", "items": { "type": "object", "additionalProperties": true } },
+        "blindSpots": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

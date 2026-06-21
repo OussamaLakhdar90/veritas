@@ -1,0 +1,246 @@
+package ca.bnc.qe.veritas.integration.jira;
+
+import java.net.URI;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+import java.util.Map;
+import ca.bnc.qe.veritas.config.ConnectionsProperties;
+import ca.bnc.qe.veritas.integration.CorpHttp;
+import ca.bnc.qe.veritas.integration.Retries;
+import ca.bnc.qe.veritas.secret.SecretProvider;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClient;
+
+/**
+ * Jira <b>Server/Data-Center</b> REST v2 client — descriptions are <b>wiki markup</b> (plain string), auth is
+ * a <b>Bearer PAT</b> (or Basic if configured). This matches the BNC contract-validator app, which talks to
+ * {@code /rest/api/2} with a token (see docs/reference-contract-validator.md). Active when
+ * {@code veritas.connections.jira.edition=SERVER_DC} (the default); the Cloud v3/ADF client is used for CLOUD.
+ */
+@Component
+@ConditionalOnProperty(name = "veritas.connections.jira.edition", havingValue = "SERVER_DC", matchIfMissing = true)
+public class JiraServerClient implements JiraClient {
+
+    private final ConnectionsProperties connections;
+    private final SecretProvider secrets;
+    private final ObjectMapper mapper;
+    private final RestClient http = RestClient.builder().build();
+    private final Retries retries;
+    private final CorpHttp corp;
+
+    /** Per-request page size for paged JQL fetches (Jira Server caps a page at its configured maximum). */
+    private static final int PAGE_SIZE = 100;
+
+    public JiraServerClient(ConnectionsProperties connections, SecretProvider secrets, ObjectMapper mapper,
+                            Retries retries, CorpHttp corp) {
+        this.connections = connections;
+        this.secrets = secrets;
+        this.mapper = mapper;
+        this.retries = retries;
+        this.corp = corp;
+    }
+
+    private java.util.Map<String, String> authHeaders() {
+        return java.util.Map.of("Authorization", authHeader(), "Accept", "application/json");
+    }
+
+    @Override
+    public List<JiraIssue> search(String jql, List<String> fields, int maxResults) {
+        try {
+            // B3 — page through startAt/maxResults so large releases aren't truncated at the first page.
+            int cap = maxResults <= 0 ? Integer.MAX_VALUE : maxResults;
+            List<JiraIssue> issues = new ArrayList<>();
+            int startAt = 0;
+            while (issues.size() < cap) {
+                int pageSize = Math.min(cap - issues.size(), PAGE_SIZE);
+                String body = mapper.writeValueAsString(Map.of(
+                        "jql", jql, "fields", fields, "startAt", startAt, "maxResults", pageSize));
+                String resp = corp.post(base() + "/rest/api/2/search", authHeaders(), body, "application/json");
+                JsonNode root = mapper.readTree(resp == null ? "{}" : resp);
+                JsonNode page = root.path("issues");
+                int returned = page.size();
+                for (JsonNode issue : page) {
+                    issues.add(toIssue(issue));
+                }
+                int total = root.path("total").asInt(issues.size());
+                startAt += returned;
+                if (returned == 0 || startAt >= total) {
+                    break;
+                }
+            }
+            return issues;
+        } catch (Exception e) {
+            throw new IllegalStateException("Jira search failed: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public JiraIssue getIssue(String key) {
+        try {
+            String resp = corp.get(base() + "/rest/api/2/issue/" + key + "?fields=summary,description", authHeaders());
+            return toIssue(mapper.readTree(resp == null ? "{}" : resp));
+        } catch (Exception e) {
+            throw new IllegalStateException("Jira getIssue failed for " + key + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public String createIssue(JiraCreateRequest request) {
+        try {
+            String payload = buildCreatePayload(request);
+            String resp = corp.post(base() + "/rest/api/2/issue", authHeaders(), payload, "application/json");
+            return mapper.readTree(resp == null ? "{}" : resp).path("key").asText("");
+        } catch (Exception e) {
+            throw new IllegalStateException("Jira createIssue failed: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public JiraStatus getStatus(String key) {
+        try {
+            String resp = corp.get(base() + "/rest/api/2/issue/" + key + "?fields=status", authHeaders());
+            JsonNode status = mapper.readTree(resp == null ? "{}" : resp).path("fields").path("status");
+            return new JiraStatus(
+                    status.path("name").asText(""),
+                    status.path("statusCategory").path("key").asText(""));
+        } catch (Exception e) {
+            throw new IllegalStateException("Jira getStatus failed for " + key + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void addComment(String key, String wikiBody) {
+        try {
+            String body = mapper.writeValueAsString(Map.of("body", wikiBody == null ? "" : wikiBody));
+            corp.post(base() + "/rest/api/2/issue/" + key + "/comment", authHeaders(), body, "application/json");
+        } catch (Exception e) {
+            throw new IllegalStateException("Jira addComment failed for " + key + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void attachFile(String key, String fileName, String content) {
+        try {
+            String boundary = "----veritasBoundary7MA4YWxkTrZu0gW";
+            String head = "--" + boundary + "\r\n"
+                    + "Content-Disposition: form-data; name=\"file\"; filename=\"" + fileName + "\"\r\n"
+                    + "Content-Type: application/octet-stream\r\n\r\n";
+            String tail = "\r\n--" + boundary + "--\r\n";
+            java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+            buf.write(head.getBytes(StandardCharsets.UTF_8));
+            buf.write(content == null ? new byte[0] : content.getBytes(StandardCharsets.UTF_8));
+            buf.write(tail.getBytes(StandardCharsets.UTF_8));
+            byte[] body = buf.toByteArray();
+            retries.call(() -> http.post().uri(URI.create(base() + "/rest/api/2/issue/" + key + "/attachments"))
+                    .header("Authorization", authHeader())
+                    .header("X-Atlassian-Token", "no-check")   // required by Jira for attachments
+                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                    .body(body)
+                    .retrieve().body(String.class));
+        } catch (Exception e) {
+            throw new IllegalStateException("Jira attachFile failed for " + key + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public List<JiraVersion> listVersions(String projectKey) {
+        try {
+            String resp = corp.get(base() + "/rest/api/2/project/"
+                    + URLEncoder.encode(projectKey, StandardCharsets.UTF_8) + "/versions", authHeaders());
+            JsonNode root = mapper.readTree(resp == null ? "[]" : resp);
+            List<JiraVersion> out = new ArrayList<>();
+            for (JsonNode v : root) {
+                out.add(new JiraVersion(v.path("id").asText(""), v.path("name").asText(""),
+                        v.path("released").asBoolean(false), v.path("archived").asBoolean(false)));
+            }
+            return out;
+        } catch (Exception e) {
+            throw new IllegalStateException("Jira listVersions failed for " + projectKey + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public CreateMeta createMeta(String projectKey, String issueType) {
+        try {
+            String uri = base() + "/rest/api/2/issue/createmeta?projectKeys="
+                    + URLEncoder.encode(projectKey, StandardCharsets.UTF_8)
+                    + "&issuetypeNames=" + URLEncoder.encode(issueType, StandardCharsets.UTF_8)
+                    + "&expand=projects.issuetypes.fields";
+            String resp = corp.get(uri, authHeaders());
+            JsonNode fields = mapper.readTree(resp == null ? "{}" : resp)
+                    .path("projects").path(0).path("issuetypes").path(0).path("fields");
+            List<String> allowed = new ArrayList<>();
+            String epicLink = null;
+            String team = null;
+            var it = fields.fields();
+            while (it.hasNext()) {
+                var entry = it.next();
+                String fieldKey = entry.getKey();
+                allowed.add(fieldKey);
+                String name = entry.getValue().path("name").asText("");
+                if (epicLink == null && name.matches("(?i).*epic\\s*link.*")) {
+                    epicLink = fieldKey;
+                }
+                if (team == null && name.equalsIgnoreCase("team")) {
+                    team = fieldKey;
+                }
+            }
+            return new CreateMeta(allowed, epicLink, team);
+        } catch (Exception e) {
+            throw new IllegalStateException("Jira createMeta failed for " + projectKey + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** v2 description is wiki markup (a plain string), not ADF — paragraphs are joined with blank lines. */
+    public String buildCreatePayload(JiraCreateRequest request) throws Exception {
+        ObjectNode fields = mapper.createObjectNode();
+        fields.set("project", mapper.createObjectNode().put("key", request.projectKey()));
+        fields.set("issuetype", mapper.createObjectNode().put("name", request.issueType()));
+        fields.put("summary", request.summary());
+        List<String> paras = request.descriptionParagraphs() == null ? List.of() : request.descriptionParagraphs();
+        fields.put("description", String.join("\n\n", paras));
+        if (request.labels() != null && !request.labels().isEmpty()) {
+            ArrayNode labels = fields.putArray("labels");
+            request.labels().forEach(labels::add);
+        }
+        ObjectNode payload = mapper.createObjectNode();
+        payload.set("fields", fields);
+        return mapper.writeValueAsString(payload);
+    }
+
+    private JiraIssue toIssue(JsonNode issue) {
+        JsonNode fields = issue.path("fields");
+        JsonNode description = fields.get("description");   // wiki string on v2 (TextNode), or null
+        return new JiraIssue(issue.path("key").asText(""), fields.path("summary").asText(""),
+                description != null && !description.isNull() ? description : null);
+    }
+
+    String authHeader() {
+        String type = connections.getJira().getAuthType();
+        if (type != null && type.equalsIgnoreCase("BASIC")) {
+            String basic = secret("JIRA_USERNAME") + ":" + secret("JIRA_API_TOKEN");
+            return "Basic " + Base64.getEncoder().encodeToString(basic.getBytes(StandardCharsets.UTF_8));
+        }
+        return "Bearer " + secret("JIRA_API_TOKEN");
+    }
+
+    private String base() {
+        String b = connections.getJira().getBaseUrl();
+        if (b == null) {
+            return "";
+        }
+        return b.endsWith("/") ? b.substring(0, b.length() - 1) : b;
+    }
+
+    private String secret(String key) {
+        return secrets.get(key).orElse("");
+    }
+}

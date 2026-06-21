@@ -1,0 +1,9 @@
+target/
+.git/
+.github/
+dashboard/node_modules/
+dashboard/dist/
+*.db
+*.db-journal
+out/
+.idea/
