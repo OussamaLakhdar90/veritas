@@ -590,6 +590,14 @@ public class JavaSpringExtractor {
         String simple = simpleTypeName(type);
         String[] tf = openApiType(simple);
         ConstraintSet cs = constraintsOf(annotated);
+        // Collection field (List<Foo>, Set<Foo>, Foo[]) → an ARRAY of the element type, not a single {type:object}.
+        // type="array" matches the spec side; refSchema "Foo[]" lets the corrected-YAML render items (DTO elements
+        // only — a scalar element stays a bare array).
+        String element = collectionElement(type);
+        if (element != null) {
+            String elemRef = types.containsKey(element) ? element + "[]" : null;
+            return new FieldModel(jsonName, "array", null, required, cs, elemRef, null);
+        }
         // Enum-typed field → a string with an inline enum, not a phantom {type:object} ref.
         if (types.get(simple) instanceof EnumDeclaration ed) {
             return new FieldModel(jsonName, "string", null, required, cs.withEnumValues(enumValuesOf(ed)), null, null);
@@ -597,6 +605,23 @@ public class JavaSpringExtractor {
         String refSchema = "object".equals(tf[0]) && types.containsKey(simple) ? simple : null;
         return new FieldModel(jsonName, tf[0], tf[1], required, cs, refSchema, null);
     }
+
+    /** Element type of a collection/array field (List/Set/Collection/…&lt;E&gt; or E[]), else null. */
+    private String collectionElement(Type type) {
+        if (type instanceof com.github.javaparser.ast.type.ArrayType at) {
+            return simpleTypeName(at.getComponentType());
+        }
+        if (type instanceof ClassOrInterfaceType cit && COLLECTION_TYPES.contains(cit.getNameAsString())
+                && cit.getTypeArguments().isPresent() && cit.getTypeArguments().get().size() == 1) {
+            return simpleTypeName(cit.getTypeArguments().get().get(0));   // handles wildcard bounds too
+        }
+        return null;
+    }
+
+    /** Single-element collection field types (Map is excluded — it is a dictionary, not an array). */
+    private static final Set<String> COLLECTION_TYPES = Set.of(
+            "List", "Set", "Collection", "Iterable", "SortedSet", "NavigableSet", "Queue", "Deque",
+            "Flux", "Page", "Slice", "PagedModel", "CollectionModel", "Stream");
 
     @SuppressWarnings("unchecked")
     private ConstraintSet constraintsOf(NodeWithAnnotations<?> n) {

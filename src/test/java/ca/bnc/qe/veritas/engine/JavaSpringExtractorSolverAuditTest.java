@@ -103,6 +103,30 @@ class JavaSpringExtractorSolverAuditTest {
     }
 
     @Test
+    void collectionFieldBecomesArrayNotObject(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("LineItem.java"), "package demo; public class LineItem { public String sku; }");
+        Files.writeString(dir.resolve("Order.java"),
+                "package demo; import java.util.List;\npublic class Order { public List<LineItem> items;"
+                        + " public List<String> tags; public String[] codes; public String id; }");
+        Files.writeString(dir.resolve("OrderCtrl.java"),
+                HDR + "@RestController class OrderCtrl { @GetMapping(\"/o\") Order get(){return null;} }");
+
+        SchemaModel order = new JavaSpringExtractor().extract(dir).schemas().get("Order");
+        assertThat(order).isNotNull();
+
+        assertThat(field(order, "items").type()).isEqualTo("array");
+        assertThat(field(order, "items").refSchema()).isEqualTo("LineItem[]");   // DTO element captured
+        assertThat(field(order, "tags").type()).isEqualTo("array");
+        assertThat(field(order, "tags").refSchema()).isNull();                   // scalar element → bare array
+        assertThat(field(order, "codes").type()).isEqualTo("array");             // Java array String[]
+        assertThat(field(order, "id").type()).isEqualTo("string");              // non-collection field unaffected
+    }
+
+    private static FieldModel field(SchemaModel s, String name) {
+        return s.fields().stream().filter(f -> f.jsonName().equals(name)).findFirst().orElseThrow();
+    }
+
+    @Test
     void wildcardGenericRecoversBoundType(@TempDir Path dir) throws Exception {
         Files.writeString(dir.resolve("Foo.java"), "package demo; public class Foo { public String id; }");
         Files.writeString(dir.resolve("WildCtrl.java"),
