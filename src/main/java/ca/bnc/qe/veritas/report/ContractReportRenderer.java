@@ -26,11 +26,20 @@ public class ContractReportRenderer {
             "BLOCKER", "#6B21A8", "CRITICAL", "#C2122D", "MAJOR", "#C2410C", "MINOR", "#CA8A04", "INFO", "#3A4658");
 
     public String renderHtml(Scan scan, List<Finding> findings) {
-        return render(scan, findings, true);
+        return render(scan, findings, Map.of(), true);
+    }
+
+    /** Bilingual render: {@code fr} maps each English dynamic string to its French translation (see TranslationService). */
+    public String renderHtml(Scan scan, List<Finding> findings, Map<String, String> fr) {
+        return render(scan, findings, fr == null ? Map.of() : fr, true);
     }
 
     public byte[] renderPdf(Scan scan, List<Finding> findings) {
-        String html = render(scan, findings, false);   // no <script>; English default for a static render
+        return renderPdf(scan, findings, Map.of());
+    }
+
+    public byte[] renderPdf(Scan scan, List<Finding> findings, Map<String, String> fr) {
+        String html = render(scan, findings, fr == null ? Map.of() : fr, false);   // no <script>; English default
         try (java.io.ByteArrayOutputStream os = new java.io.ByteArrayOutputStream()) {
             com.openhtmltopdf.pdfboxout.PdfRendererBuilder builder = new com.openhtmltopdf.pdfboxout.PdfRendererBuilder();
             builder.useFastMode();
@@ -67,7 +76,7 @@ public class ContractReportRenderer {
 
     // ---- render ---------------------------------------------------------------------------------------------
 
-    private String render(Scan scan, List<Finding> findings, boolean interactive) {
+    private String render(Scan scan, List<Finding> findings, Map<String, String> fr, boolean interactive) {
         List<Finding> attention = new ArrayList<>();
         List<Finding> missing = new ArrayList<>();
         List<Finding> wrong = new ArrayList<>();
@@ -109,6 +118,17 @@ public class ContractReportRenderer {
                 .append(" · ").append(bi("specs", "specs")).append(": ").append(esc(nz(scan.getSpecSources())))
                 .append("</p>");
 
+        // Deterministic verdict + one-line executive summary (no LLM — pure counts).
+        String[] verdict = verdict(missing.size(), wrong.size(), dead.size());
+        sb.append("<div class=\"rating rating-").append(verdict[0]).append("\">")
+                .append(bi(verdict[1], verdict[2])).append("</div>");
+        sb.append("<p class=\"exec\">").append(bi(
+                counted + " counted finding(s): " + missing.size() + " missing, " + wrong.size()
+                        + " mismatch(es), " + dead.size() + " dead-spec; " + attention.size() + " item(s) need manual review.",
+                counted + " constat(s) compté(s) : " + missing.size() + " manquant(s), " + wrong.size()
+                        + " incohérence(s), " + dead.size() + " spéc. morte(s); " + attention.size() + " à vérifier."))
+                .append("</p>");
+
         // executive summary card row: distribution + category cards
         sb.append("<div class=\"dashboard-row\">");
         sb.append("<div class=\"dist-panel\"><div class=\"panel-h\">")
@@ -127,9 +147,9 @@ public class ContractReportRenderer {
         sb.append("</div></div>");
 
         // grouped findings
-        sb.append(section(bi("What's Missing", "Ce qui manque"), missing, "MISSING"));
-        sb.append(section(bi("What's Wrong", "Ce qui est incorrect"), wrong, "WRONG"));
-        sb.append(section(bi("Dead Spec (in YAML, not in code)", "Spéc. morte (dans le YAML, absente du code)"), dead, "DEAD"));
+        sb.append(section(bi("What's Missing", "Ce qui manque"), missing, fr));
+        sb.append(section(bi("What's Wrong", "Ce qui est incorrect"), wrong, fr));
+        sb.append(section(bi("Dead Spec (in YAML, not in code)", "Spéc. morte (dans le YAML, absente du code)"), dead, fr));
 
         // corrected YAML link
         boolean anyFix = findings.stream().anyMatch(f -> !isBlank(f.getProposedFix()));
@@ -150,7 +170,7 @@ public class ContractReportRenderer {
                                     + "<strong>pas comptés</strong> dans les totaux de sévérité ni la répartition. Veuillez les vérifier."))
                     .append("</p>");
             for (Finding f : attention) {
-                sb.append(findingCard(f));
+                sb.append(findingCard(f, fr));
             }
             sb.append("</div>");
         }
@@ -159,7 +179,7 @@ public class ContractReportRenderer {
         sb.append("<div class=\"blind-spots\"><h2>").append(bi("Blind spots &amp; Analysis Notes", "Angles morts et notes d'analyse"))
                 .append("</h2>");
         if (!isBlank(scan.getBlindSpots())) {
-            sb.append("<p>").append(esc(scan.getBlindSpots())).append("</p>");
+            sb.append("<p>").append(biDyn(scan.getBlindSpots(), fr)).append("</p>");
         } else {
             sb.append("<p class=\"muted\">").append(bi("No blind spots recorded.", "Aucun angle mort consigné.")).append("</p>");
         }
@@ -182,31 +202,31 @@ public class ContractReportRenderer {
         return sb.toString();
     }
 
-    private String section(String title, List<Finding> items, String kind) {
+    private String section(String title, List<Finding> items, Map<String, String> fr) {
         if (items.isEmpty()) {
             return "";
         }
         StringBuilder sb = new StringBuilder("<div class=\"section\"><h2 class=\"section-header\">")
                 .append(title).append(" <span class=\"count\">").append(items.size()).append("</span></h2>");
         for (Finding f : items) {
-            sb.append(findingCard(f));
+            sb.append(findingCard(f, fr));
         }
         return sb.append("</div>").toString();
     }
 
-    private String findingCard(Finding f) {
+    private String findingCard(Finding f, Map<String, String> fr) {
         String color = SEVERITY_COLOR.getOrDefault(f.getSeverity() != null ? f.getSeverity().name() : "", "#6B7280");
         StringBuilder sb = new StringBuilder("<div class=\"finding-card\">");
         sb.append("<div class=\"finding-header\">")
                 .append("<span class=\"severity-badge\" style=\"background:").append(color).append("\">")
                 .append(esc(f.getSeverity() != null ? f.getSeverity().name() : "")).append("</span>")
-                .append("<span class=\"finding-title\">").append(esc(nz(f.getSummary()))).append("</span>")
+                .append("<span class=\"finding-title\">").append(biDyn(nz(f.getSummary()), fr)).append("</span>")
                 .append("<span class=\"finding-meta\"><code>").append(esc(nz(f.getEndpoint()))).append("</code>")
                 .append(f.getLayer() != null ? " · " + f.getLayer().name() : "")
                 .append(f.getConfidence() != null ? " · " + f.getConfidence().name() : "").append("</span>")
                 .append("</div>");
         if (!isBlank(f.getExplanation())) {
-            sb.append("<div class=\"business-impact\">").append(esc(f.getExplanation())).append("</div>");
+            sb.append("<div class=\"business-impact\">").append(biDyn(f.getExplanation(), fr)).append("</div>");
         }
 
         String snippet = f.getCodeEvidence() != null ? f.getCodeEvidence().snippet() : null;
@@ -226,7 +246,7 @@ public class ContractReportRenderer {
             }
             if (!isBlank(proposedFix)) {
                 sb.append(panel("yaml-fix", bi("Proposed fix", "Correctif proposé"),
-                        "", "<div class=\"fix\">" + esc(proposedFix) + "</div>"));
+                        "", "<div class=\"fix\">" + biDyn(proposedFix, fr) + "</div>"));
             }
             sb.append("</div>");
         }
@@ -277,9 +297,28 @@ public class ContractReportRenderer {
                 + "<div class=\"label\">" + label + "</div></div>";
     }
 
-    /** Bilingual fragment: shows EN under body.lang-en, FR under body.lang-fr. */
+    /** Bilingual fragment for STATIC chrome (caller supplies safe HTML): EN under body.lang-en, FR under body.lang-fr. */
     private String bi(String en, String fr) {
         return "<span class=\"en\">" + en + "</span><span class=\"fr\">" + fr + "</span>";
+    }
+
+    /** Bilingual fragment for DYNAMIC text: HTML-escapes both sides; falls back to English when no translation. */
+    private String biDyn(String text, Map<String, String> fr) {
+        String en = nz(text);
+        String french = fr.getOrDefault(en, en);
+        return "<span class=\"en\">" + esc(en) + "</span><span class=\"fr\">" + esc(french) + "</span>";
+    }
+
+    /** Deterministic verdict from counts: {cssClass, EN label, FR label}. No LLM. */
+    private String[] verdict(int missing, int wrong, int dead) {
+        int total = missing + wrong + dead;
+        if (total == 0) {
+            return new String[] {"clean", "CLEAN — contract matches the code", "CONFORME — le contrat correspond au code"};
+        }
+        if (wrong > 0 || missing > 0) {
+            return new String[] {"action", "ACTION REQUIRED — contract drift detected", "ACTION REQUISE — dérive du contrat détectée"};
+        }
+        return new String[] {"minor", "MINOR — dead spec only", "MINEUR — spéc. morte seulement"};
     }
 
     private String loc(Finding f) {
@@ -329,6 +368,11 @@ public class ContractReportRenderer {
                 + ".lang-toggle button.active{background:rgba(255,255,255,.4)}"
                 + ".content{max-width:1100px;margin:0 auto;padding:1.5rem 2rem}"
                 + ".meta{color:#666;font-size:.85rem}"
+                + ".rating{display:inline-block;font-weight:700;font-size:.85rem;padding:.35rem .9rem;border-radius:999px;"
+                + "text-transform:uppercase;letter-spacing:.5px;margin:.25rem 0}"
+                + ".rating-clean{background:#e6f4ea;color:#1E8E5A}.rating-action{background:#fdecef;color:#C2122D}"
+                + ".rating-minor{background:#fff8e1;color:#8a6a1e}"
+                + ".exec{font-size:.95rem;color:#1a1a2e;margin:.5rem 0 1rem}"
                 + ".dashboard-row{display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem}"
                 + ".dist-panel{background:#fff;border:1px solid #e3e6eb;border-radius:12px;padding:1rem 1.25rem;flex:1;min-width:280px}"
                 + ".panel-h{font-size:.8rem;text-transform:uppercase;letter-spacing:.05px;color:#475069;margin-bottom:.6rem}"

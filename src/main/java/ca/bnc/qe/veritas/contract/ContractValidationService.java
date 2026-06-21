@@ -66,6 +66,10 @@ public class ContractValidationService {
     private final FindingRecordRepository findingRepository;
     private final ObjectMapper objectMapper;
     private final Preflight preflight;
+    private final ca.bnc.qe.veritas.report.TranslationService translationService;
+
+    @org.springframework.beans.factory.annotation.Value("${veritas.report.bilingual:true}")
+    private boolean bilingualReport;
 
     public ContractValidationService(JavaSpringExtractor javaSpringExtractor,
                                      OpenApiModelExtractor openApiModelExtractor,
@@ -81,7 +85,8 @@ public class ContractValidationService {
                                      ScanRepository scanRepository,
                                      FindingRecordRepository findingRepository,
                                      ObjectMapper objectMapper,
-                                     Preflight preflight) {
+                                     Preflight preflight,
+                                     ca.bnc.qe.veritas.report.TranslationService translationService) {
         this.javaSpringExtractor = javaSpringExtractor;
         this.openApiModelExtractor = openApiModelExtractor;
         this.correctedSpecBuilder = correctedSpecBuilder;
@@ -97,6 +102,7 @@ public class ContractValidationService {
         this.findingRepository = findingRepository;
         this.objectMapper = objectMapper;
         this.preflight = preflight;
+        this.translationService = translationService;
     }
 
     public ValidationResult validate(ValidationRequest req) {
@@ -158,12 +164,36 @@ public class ContractValidationService {
             persist(scan.getId(), findings, enrich);
             scan.setTotalFindings(findings.size());
 
-            String html = reportRenderer.renderHtml(scan, findings);
+            // Report generation is deterministic; the ONLY LLM use here is translating the dynamic strings to
+            // French on the cheapest tier (TranslationService). Non-fatal — falls back to English.
+            java.util.Map<String, String> fr = java.util.Map.of();
+            if (bilingualReport) {
+                java.util.LinkedHashSet<String> toTranslate = new java.util.LinkedHashSet<>();
+                for (Finding f : findings) {
+                    if (f.getSummary() != null) {
+                        toTranslate.add(f.getSummary());
+                    }
+                    if (f.getExplanation() != null) {
+                        toTranslate.add(f.getExplanation());
+                    }
+                    if (f.getProposedFix() != null) {
+                        toTranslate.add(f.getProposedFix());
+                    }
+                }
+                if (scan.getBlindSpots() != null) {
+                    toTranslate.add(scan.getBlindSpots());
+                }
+                if (!toTranslate.isEmpty()) {
+                    fr = translationService.toFrench(toTranslate, req.owner());
+                }
+            }
+
+            String html = reportRenderer.renderHtml(scan, findings, fr);
             String reportPath = writeOut("contract-report-" + scan.getId() + ".html", html);
             String reportPdfPath = null;
             try {
                 reportPdfPath = writeOutBytes("contract-report-" + scan.getId() + ".pdf",
-                        reportRenderer.renderPdf(scan, findings));
+                        reportRenderer.renderPdf(scan, findings, fr));
             } catch (Exception ex) {
                 log.warn("PDF report skipped: {}", ex.getMessage());
             }

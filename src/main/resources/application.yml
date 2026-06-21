@@ -22,6 +22,8 @@ veritas:
     model: claude-sonnet-4.6
     timeout-seconds: 180
     context-budget-chars: 16000   # per untrusted input block; oversized inputs trimmed head+tail to cut noise
+  report:
+    bilingual: true     # render EN/FR; translation is the ONLY LLM call in report generation and uses the cheapest tier
   http:                  # BNC-facing HTTP transport (Jira v2 + Copilot)
     powershell-fallback: false      # set true if the JVM is blocked by the corporate firewall but powershell.exe is allowed
     powershell-timeout-seconds: 60

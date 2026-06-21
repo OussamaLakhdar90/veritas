@@ -22,6 +22,11 @@ public class MockLlmGateway implements LlmGateway {
     @Override
     public String complete(String prompt, String model) {
         log.debug("MockLlmGateway.complete (model={}, promptChars={})", model, prompt == null ? 0 : prompt.length());
+        if (prompt != null && prompt.contains("[TRANSLATE]")) {
+            // Mock can't translate; return an empty map so the service falls back to English (a real run uses
+            // the cheapest Copilot model). Keeps the report bilingual-capable without a real LLM in tests.
+            return "Translations (mock).\n```json\n{}\n```\n";
+        }
         if (prompt != null && prompt.contains("[TEST-STRATEGY]")) {
             return """
                     Test strategy (mock — a real run uses Copilot).
