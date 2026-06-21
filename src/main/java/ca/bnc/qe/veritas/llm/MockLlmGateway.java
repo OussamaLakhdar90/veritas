@@ -57,6 +57,15 @@ public class MockLlmGateway implements LlmGateway {
                     ```
                     """;
         }
+        if (prompt != null && prompt.contains("[IMPLEMENT-TESTS-REPAIR]")) {
+            return """
+                    Repaired tests (mock).
+
+                    ```json
+                    {"files": [{"path": "src/test/java/RepairedApiTest.java", "content": "// repaired by Veritas (mock)\\nclass RepairedApiTest {}\\n"}]}
+                    ```
+                    """;
+        }
         if (prompt != null && prompt.contains("[IMPLEMENT-TESTS]")) {
             return """
                     Generated tests (mock).

@@ -38,4 +38,28 @@ class CodegenServiceTest {
         assertThat(run.getBuildStatus()).isEqualTo("SKIPPED");
         assertThat(Files.exists(outputDir.resolve("src/test/java/GeneratedApiTest.java"))).isTrue();
     }
+
+    @Test
+    void attemptsBoundedRepairWhenBuildFails() throws Exception {
+        Path template = Files.createTempFile("tmpl", ".md");
+        Files.writeString(template, """
+            ---
+            framework:
+              name: demo-framework
+              language: java
+            buildTool: maven
+            verifyCommand: "veritas-nonexistent-build-cmd-xyz"
+            layout: {}
+            ---
+            body
+            """);
+        Path serviceRepo = Path.of(getClass().getClassLoader().getResource("fixtures/policies").toURI());
+        Path outputDir = Files.createTempDirectory("veritas-out-fail-");
+
+        CodegenRun run = codegenService.generate("ciam-policies", serviceRepo, template, outputDir, "tester");
+
+        // The always-failing command can't be repaired, so it stays FAIL — but the repair pass DID run.
+        assertThat(run.getBuildStatus()).isEqualTo("FAIL");
+        assertThat(Files.exists(outputDir.resolve("src/test/java/RepairedApiTest.java"))).isTrue();
+    }
 }

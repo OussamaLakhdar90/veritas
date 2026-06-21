@@ -78,6 +78,40 @@ public class CodegenService {
      * Outward step of implement-tests: branch + commit + push the generated output repo and open a PR
      * (gated for human approval). Completes the Pillar-C flow; idempotent re-runs reuse the branch/PR.
      */
+    /**
+     * One bounded repair pass: ask the LLM to fix the non-compiling files given the build errors, rewrite them,
+     * and re-verify. Returns REPAIRED if it now compiles, else the (still-FAIL) result. Never PR a FAIL branch
+     * (the publish gate enforces that); REPAIRED is publishable. Non-fatal — any error keeps the original FAIL.
+     */
+    private BuildVerifier.BuildResult attemptRepair(Path outputDir, JsonNode originalFiles, String errors,
+                                                    TemplateSpec spec, String owner, List<String> written) {
+        try {
+            String contract = "The generated tests did NOT compile. Fix them so they compile against the template. "
+                    + "Reply with exactly one fenced ```json block: {\"files\":[{\"path\":string,\"content\":string}]}. "
+                    + "Only the corrected files. No prose after.";
+            String inputs = promptComposer.data("BUILD_ERRORS", errors)
+                    + promptComposer.data("CURRENT_FILES", originalFiles.toString());
+            String prompt = promptComposer.compose("[IMPLEMENT-TESTS-REPAIR]", "implement-api-tests.prompt.md",
+                    Set.of("1", "12"), inputs, contract);
+            String model = modelSelector.resolveTier(ModelTier.DEEP);
+            String raw = llm.complete(prompt, model);
+            costRecorder.record("implement-tests", "repair", model, prompt, raw, owner);
+            JsonNode node = objectMapper.readTree(jsonExtractor.extract(raw));
+            for (JsonNode f : node.path("files")) {
+                String rel = f.path("path").asText();
+                generatedFileWriter.write(outputDir.resolve(rel), rel, f.path("content").asText(""));
+                if (!written.contains(rel)) {
+                    written.add(rel);
+                }
+            }
+            BuildVerifier.BuildResult r2 = buildVerifier.verify(outputDir, spec.verifyCommand());
+            return "PASS".equals(r2.status()) ? new BuildVerifier.BuildResult("REPAIRED", r2.output()) : r2;
+        } catch (Exception e) {
+            log.warn("Repair pass failed: {}", e.getMessage());
+            return new BuildVerifier.BuildResult("FAIL", errors);
+        }
+    }
+
     /** Default codegen template = the bundled BNC autotests template; copied to a temp file for TemplateLearner. */
     static final String DEFAULT_TEMPLATE_RESOURCE = "veritas/templates/autotests-template.md";
 
@@ -171,6 +205,10 @@ public class CodegenService {
             written.add(httpFile);
 
             BuildVerifier.BuildResult build = buildVerifier.verify(outputDir, spec.verifyCommand());
+            if ("FAIL".equals(build.status())) {
+                // Bounded (single) LLM repair pass: feed the compile errors back, rewrite, re-verify.
+                build = attemptRepair(outputDir, node.path("files"), build.output(), spec, owner, written);
+            }
 
             CodegenRun run = new CodegenRun();
             run.setServiceName(serviceName);
