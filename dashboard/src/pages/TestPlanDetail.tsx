@@ -54,7 +54,10 @@ export function TestPlanDetail() {
           </div>
         )}
       </div>
-      <p className="muted">{plan.kind} · {plan.status} · est. ${(plan.estCostUsd ?? 0).toFixed(4)}</p>
+      <p className="muted">{plan.kind} · {plan.status} · est. ${(plan.estCostUsd ?? 0).toFixed(4)}
+        {' · '}<a href={api.testPlanReportUrl(plan.id, 'html')} target="_blank" rel="noreferrer">RTM report (HTML)</a>
+        {' · '}<a href={api.testPlanReportUrl(plan.id, 'pdf')} target="_blank" rel="noreferrer">PDF</a>
+      </p>
 
       {d.executiveSummary && (
         <Section title="Executive summary"><p>{d.executiveSummary}</p></Section>

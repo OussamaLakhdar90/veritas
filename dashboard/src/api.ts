@@ -109,6 +109,58 @@ export interface GateDecision {
   createdAt?: string
 }
 
+export interface CodegenRun {
+  id: string
+  serviceName: string
+  templateSource?: string
+  outputRepo?: string
+  branch?: string
+  prUrl?: string
+  buildStatus?: string
+  filesWritten?: string
+  todos?: string
+  approvedBy?: string
+  estCostUsd?: number
+  createdAt?: string
+}
+
+export interface TestCase {
+  id: string
+  serviceName?: string
+  title: string
+  technique?: string
+  priority?: string
+  type?: string
+  level?: string
+  automation?: string
+  status?: string
+  xrayKey?: string
+  linkedRequirement?: string
+  rationale?: string
+  confidence?: number
+  approvedBy?: string
+}
+
+export interface TestStrategy {
+  id: string
+  serviceName?: string
+  status?: string
+  confidence?: number
+  deliverableJson?: string
+  contentMarkdown?: string
+  createdAt?: string
+}
+
+export interface ReviewResult {
+  id: string
+  targetKey?: string
+  verdict?: string
+  score?: number
+  confidence?: number
+  deliverableJson?: string
+  createdAt?: string
+}
+
 /** Parsed structure of TestPlan.deliverableJson — the consultant-grade ISTQB deliverable. */
 export interface Deliverable {
   executiveSummary?: string
@@ -139,4 +191,29 @@ export const api = {
   gates: (status = 'PENDING') => get<GateDecision[]>(`/gates?status=${encodeURIComponent(status)}`),
   approveGate: (id: string, approver = 'dashboard') => post<GateDecision>(`/gates/${id}/approve`, { approver }),
   rejectGate: (id: string, approver = 'dashboard', note = '') => post<GateDecision>(`/gates/${id}/reject`, { approver, note }),
+
+  // Codegen (Generate-Tests workspace)
+  codegenRuns: () => get<CodegenRun[]>('/codegen-runs'),
+  codegenRun: (id: string) => get<CodegenRun>(`/codegen-runs/${id}`),
+  publishCodegen: (id: string, repoSlug: string, targetBranch = 'main', allowFailedBuild = false) =>
+    post<CodegenRun>(`/codegen-runs/${id}/publish?repoSlug=${encodeURIComponent(repoSlug)}&targetBranch=${encodeURIComponent(targetBranch)}&allowFailedBuild=${allowFailedBuild}`, {}),
+
+  // Release test plan trigger + RTM workspace
+  triggerReleasePlan: (service: string, body: { fixVersion: string; issuesJql?: string; testsJql?: string; projectKey?: string; createGaps?: boolean }) =>
+    post<{ planId: string; total: number; matched: number; gaps: number; created: number; orphans: number; confidence?: number; risks?: number }>(`/services/${encodeURIComponent(service)}/release-test-plans`, body),
+  testPlanReportUrl: (id: string, format = 'html') => `${BASE}/test-plans/${id}/report?format=${format}`,
+
+  // Test cases (RTM per-row actions + create-approved)
+  testCases: (service: string) => get<TestCase[]>(`/services/${encodeURIComponent(service)}/test-cases`),
+  patchTestCase: (id: string, body: { status?: string; title?: string; actor?: string }) =>
+    fetch(`${BASE}/test-cases/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<TestCase>),
+  pushTestCase: (id: string, projectKey: string) => post<TestCase>(`/test-cases/${id}/push`, { projectKey }),
+
+  // Findings triage
+  patchFinding: (id: string, status: string) =>
+    fetch(`${BASE}/findings/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) }).then((r) => r.json() as Promise<Finding>),
+
+  // Strategies / Reviews
+  strategies: (service: string) => get<TestStrategy[]>(`/services/${encodeURIComponent(service)}/strategies`),
+  reviews: (targetKey: string) => get<ReviewResult[]>(`/reviews?targetKey=${encodeURIComponent(targetKey)}`),
 }

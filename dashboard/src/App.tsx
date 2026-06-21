@@ -4,6 +4,8 @@ import { RepoPicker } from './pages/RepoPicker'
 import { Findings } from './pages/Findings'
 import { TestPlans } from './pages/TestPlans'
 import { TestPlanDetail } from './pages/TestPlanDetail'
+import { TestCases } from './pages/TestCases'
+import { Codegen } from './pages/Codegen'
 import { Costs } from './pages/Costs'
 import { Defects } from './pages/Defects'
 import { Gates } from './pages/Gates'
@@ -19,6 +21,8 @@ export function App() {
             <NavLink to="/repos">Validate (app-id)</NavLink>
             <NavLink to="/defects">Defects</NavLink>
             <NavLink to="/test-plans">Test Plans</NavLink>
+            <NavLink to="/test-cases">Test Cases</NavLink>
+            <NavLink to="/generate-tests">Generate Tests</NavLink>
             <NavLink to="/gates">Gates</NavLink>
             <NavLink to="/costs">Cost</NavLink>
           </nav>
@@ -32,6 +36,8 @@ export function App() {
             <Route path="/defects" element={<Defects />} />
             <Route path="/test-plans" element={<TestPlans />} />
             <Route path="/test-plans/:id" element={<TestPlanDetail />} />
+            <Route path="/test-cases" element={<TestCases />} />
+            <Route path="/generate-tests" element={<Codegen />} />
             <Route path="/gates" element={<Gates />} />
             <Route path="/costs" element={<Costs />} />
           </Routes>
