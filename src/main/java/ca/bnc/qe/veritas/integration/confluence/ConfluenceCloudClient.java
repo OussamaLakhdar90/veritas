@@ -46,8 +46,14 @@ public class ConfluenceCloudClient implements ConfluenceClient {
     }
 
     String authHeader() {
-        String basic = secret("JIRA_USERNAME") + ":" + secret("CONFLUENCE_API_TOKEN");
-        return "Basic " + Base64.getEncoder().encodeToString(basic.getBytes(StandardCharsets.UTF_8));
+        // Honor the configured auth-type (was hardcoded Basic). BNC + the application.yml default is BEARER (PAT),
+        // matching the Jira client; classic Confluence Cloud (email + API token) still works via auth-type: BASIC.
+        String type = connections.getConfluence().getAuthType();
+        if (type != null && type.equalsIgnoreCase("BASIC")) {
+            String basic = secret("JIRA_USERNAME") + ":" + secret("CONFLUENCE_API_TOKEN");
+            return "Basic " + Base64.getEncoder().encodeToString(basic.getBytes(StandardCharsets.UTF_8));
+        }
+        return "Bearer " + secret("CONFLUENCE_API_TOKEN");
     }
 
     private String base() {

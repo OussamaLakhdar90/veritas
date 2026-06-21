@@ -130,7 +130,19 @@ public class XrayServerClient implements XrayClient {
     }
 
     private Map<String, String> authHeaders() {
-        return Map.of("Authorization", "Bearer " + token(), "Accept", "application/json");
+        return Map.of("Authorization", authHeader(), "Accept", "application/json");
+    }
+
+    String authHeader() {
+        // Honor the configured auth-type (was hardcoded Bearer). BNC + the application.yml default is BEARER (PAT);
+        // a Basic-auth Raven host works via auth-type: BASIC.
+        String type = connections.getXray().getAuthType();
+        if (type != null && type.equalsIgnoreCase("BASIC")) {
+            String basic = secrets.get("JIRA_USERNAME").orElse("") + ":" + token();
+            return "Basic " + java.util.Base64.getEncoder()
+                    .encodeToString(basic.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+        return "Bearer " + token();
     }
 
     private String token() {
