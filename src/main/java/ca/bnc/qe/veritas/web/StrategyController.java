@@ -22,10 +22,13 @@ public class StrategyController {
 
     private final TestStrategyRepository repository;
     private final TestStrategyService service;
+    private final ca.bnc.qe.veritas.report.StrategyRationaleRenderer rationaleRenderer;
 
-    public StrategyController(TestStrategyRepository repository, TestStrategyService service) {
+    public StrategyController(TestStrategyRepository repository, TestStrategyService service,
+                             ca.bnc.qe.veritas.report.StrategyRationaleRenderer rationaleRenderer) {
         this.repository = repository;
         this.service = service;
+        this.rationaleRenderer = rationaleRenderer;
     }
 
     @GetMapping("/services/{service}/strategies")
@@ -36,6 +39,14 @@ public class StrategyController {
     @GetMapping("/strategies/{id}")
     public ResponseEntity<TestStrategy> get(@PathVariable String id) {
         return repository.findById(id).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** The "why" companion: a full ISTQB-grounded rationale document for the strategy (derived, can't drift). */
+    @GetMapping(value = "/strategies/{id}/rationale", produces = org.springframework.http.MediaType.TEXT_HTML_VALUE)
+    public ResponseEntity<String> rationale(@PathVariable String id) {
+        return repository.findById(id)
+                .map(s -> ResponseEntity.ok(rationaleRenderer.renderHtml(s)))
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     /** Version history for a strategy (newest first) — backs the revision/diff view. */
