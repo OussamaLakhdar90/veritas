@@ -23,7 +23,12 @@ public class CoverageItem extends AuditableEntity {
     private String requiredCaseRef;
 
     private String dimension;       // REQUIREMENT | RISK | LEVEL | TYPE | TECHNIQUE
-    private String matchStatus;     // MATCHED | GAP | CREATED | ORPHAN | DEAD
+    private String matchStatus;     // MATCHED | GAP | CREATED | SKIPPED_DUP | FAILED | ORPHAN | DEAD | NON_TESTABLE
     private String matchedTestKey;
     private String confidence;
+
+    /** Free-text context — e.g. the error message when creation FAILED (partial-failure-safe per-case result). */
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String note;
 }

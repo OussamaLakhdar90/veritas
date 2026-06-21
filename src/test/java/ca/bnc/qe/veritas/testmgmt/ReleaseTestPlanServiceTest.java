@@ -138,6 +138,25 @@ class ReleaseTestPlanServiceTest {
     }
 
     @Test
+    void partialCreateFailureIsRecordedNotFatal() {
+        when(jira.search(any(), any(), anyInt())).thenReturn(List.of(
+                new JiraIssue("CIAM-1", "Create policy", null),
+                new JiraIssue("CIAM-2", "Get policy", null)));
+        when(xray.getTestsByJql(any())).thenReturn(List.of());   // both required cases are gaps
+        when(jira.createIssue(any())).thenReturn("CIAM-TP1");
+        // One create fails, the other succeeds — the batch must survive (plan §3.9 / blind spots #4, #20).
+        when(xray.createTest(any())).thenThrow(new RuntimeException("Xray 500")).thenReturn("CIAM-NEW2");
+
+        CoverageSummary summary = service.generate("svc", "8.2", null, "project = CIAM", "CIAM", true, "tester");
+
+        assertThat(summary.created()).isEqualTo(1);   // the surviving create still counted
+        List<CoverageItem> cov = coverage.findByTestPlanId(summary.planId());
+        assertThat(cov).anyMatch(c -> "FAILED".equals(c.getMatchStatus())
+                && c.getNote() != null && c.getNote().contains("Xray 500"));   // failure recorded, not thrown
+        assertThat(cov).anyMatch(c -> "CREATED".equals(c.getMatchStatus()));    // the other still created
+    }
+
+    @Test
     void requiresAStrategyFirst() {
         assertThatThrownBy(() -> service.generate("no-strategy-svc", "8.2", null, "project = X", null, false, "tester"))
                 .isInstanceOf(PreconditionException.class)

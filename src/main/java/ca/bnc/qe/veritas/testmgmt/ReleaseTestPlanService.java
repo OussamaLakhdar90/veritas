@@ -6,7 +6,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.Set;
 import ca.bnc.qe.veritas.cost.CostRecorder;
 import ca.bnc.qe.veritas.cost.CostResult;
 import ca.bnc.qe.veritas.cost.ModelSelector;
@@ -33,6 +32,7 @@ import ca.bnc.qe.veritas.report.CoverageReportRenderer;
 import ca.bnc.qe.veritas.skill.GateService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
@@ -41,6 +41,7 @@ import org.springframework.stereotype.Service;
  * gap) → optionally create gap tests in Xray. Cost tracked.
  */
 @Service
+@Slf4j
 public class ReleaseTestPlanService {
 
     private final LlmGateway llm;
@@ -224,12 +225,20 @@ public class ReleaseTestPlanService {
                             item.setMatchedTestKey(dup);
                             item.setMatchStatus("SKIPPED_DUP");
                         } else {
-                            String key = xray.createTest(
-                                    new XrayTestSpec(projectKey, m.requiredTitle(), "Manual", List.of()));
-                            keyByFingerprint.put(fp, key);
-                            item.setMatchedTestKey(key);
-                            item.setMatchStatus("CREATED");
-                            created++;
+                            // Partial-failure-safe (plan §3.9 / blind spot #4, #20): one failed create must not
+                            // abort the batch or lose the rows already persisted. Record FAILED + reason; continue.
+                            try {
+                                String key = xray.createTest(
+                                        new XrayTestSpec(projectKey, m.requiredTitle(), "Manual", List.of()));
+                                keyByFingerprint.put(fp, key);
+                                item.setMatchedTestKey(key);
+                                item.setMatchStatus("CREATED");
+                                created++;
+                            } catch (RuntimeException ex) {
+                                item.setMatchStatus("FAILED");
+                                item.setNote("Xray create failed: " + ex.getMessage());
+                                log.warn("Xray createTest failed for '{}': {}", m.requiredTitle(), ex.getMessage());
+                            }
                         }
                     }
                 }
