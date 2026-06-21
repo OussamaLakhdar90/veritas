@@ -82,6 +82,42 @@ class PreflightTest {
     }
 
     @Test
+    void requireLlmFailsClearlyWhenUnavailableAndPassesWhenAvailable() {
+        Preflight pf = new Preflight(k -> Optional.empty(), props());
+        assertThatThrownBy(() -> pf.requireLlm(unavailableLlm(), "test-strategy"))
+                .isInstanceOf(PreconditionException.class)
+                .hasMessageContaining("Copilot is not available")
+                .hasMessageContaining("copilot-login");
+        assertThatThrownBy(() -> pf.requireLlm(null, "test-strategy"))
+                .isInstanceOf(PreconditionException.class);
+        assertThatCode(() -> pf.requireLlm(availableLlm(), "test-strategy")).doesNotThrowAnyException();
+    }
+
+    private ca.bnc.qe.veritas.llm.LlmGateway unavailableLlm() {
+        return new ca.bnc.qe.veritas.llm.LlmGateway() {
+            public boolean isAvailable() {
+                return false;
+            }
+
+            public String complete(String prompt, String model) {
+                return "";
+            }
+        };
+    }
+
+    private ca.bnc.qe.veritas.llm.LlmGateway availableLlm() {
+        return new ca.bnc.qe.veritas.llm.LlmGateway() {
+            public boolean isAvailable() {
+                return true;
+            }
+
+            public String complete(String prompt, String model) {
+                return "";
+            }
+        };
+    }
+
+    @Test
     void gitWriteScopeRequiresToken() {
         assertThatThrownBy(() -> new Preflight(k -> Optional.empty(), props()).requireGitWriteScope())
                 .isInstanceOf(PreconditionException.class)

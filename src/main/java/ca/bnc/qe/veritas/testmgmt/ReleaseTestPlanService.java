@@ -88,6 +88,7 @@ public class ReleaseTestPlanService {
     public CoverageSummary generate(String serviceName, String fixVersion, String issuesJql, String testsJql,
                                     String projectKey, boolean createGaps, String owner) {
         preflight.releaseTestPlan(fixVersion, issuesJql, createGaps, projectKey);
+        preflight.requireLlm(llm, "release-test-plan");
         // B1 — resolve/validate the release against the project's versions (when discoverable). This is a
         // precondition, so it propagates as PreconditionException (a 400-style config error), not a wrapped 500.
         if (projectKey != null && issuesJql == null) {

@@ -103,6 +103,21 @@ public class Preflight {
         }
     }
 
+    /**
+     * Require an available LLM before a GENERATIVE skill (strategy / plan / cases / review / implement). Unlike
+     * contract-validation — which has a deterministic core and degrades to diff-only when Copilot is absent — these
+     * skills cannot run without the model, so fail fast with a clear remediation instead of a cryptic mid-run parse
+     * error (blind spot #11).
+     */
+    public void requireLlm(ca.bnc.qe.veritas.llm.LlmGateway llm, String skill) {
+        if (llm == null || !llm.isAvailable()) {
+            throw new PreconditionException(skill, List.of(
+                    "Copilot is not available and this skill is generative — it cannot run deterministically. "
+                            + "Sign in with `veritas copilot-login` (or set veritas.llm.mode), then retry. "
+                            + "Run `veritas doctor` to check connectivity."));
+        }
+    }
+
     // ---- token-scope preconditions checked at the moment of an outward write (after the human gate) ----
     // These fail fast with the exact missing permission so a run never dies on a mid-flight 401/403. A true
     // server-side scope probe needs a live BNC instance (Workstream F); locally we enforce token presence by

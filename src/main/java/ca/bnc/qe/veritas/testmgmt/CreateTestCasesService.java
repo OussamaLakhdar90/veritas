@@ -57,6 +57,7 @@ public class CreateTestCasesService {
 
     public List<TestCase> generate(String serviceName, String basisText, String owner) {
         preflight.createTestCases(serviceName, basisText);
+        preflight.requireLlm(llm, "create-test-cases");
         try {
             String outputContract = "Generate test cases applying black-box techniques (EP, BVA, decision "
                     + "tables, state transition). Each case: title, technique, priority, type, a one-line rationale "

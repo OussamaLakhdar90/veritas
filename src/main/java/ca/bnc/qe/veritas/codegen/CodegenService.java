@@ -196,6 +196,7 @@ public class CodegenService {
     public CodegenRun generate(String serviceName, Path serviceRepo, Path templatePath, Path outputDir, String owner) {
         Path effectiveTemplate = resolveTemplate(templatePath);   // null → bundled BNC autotests template
         preflight.implementTests(serviceName, serviceRepo, effectiveTemplate, outputDir);
+        preflight.requireLlm(llm, "implement-tests");
         TemplateSpec spec = templateLearner.learn(effectiveTemplate);   // fails fast if template missing/invalid
         ApiModel code = javaSpringExtractor.extract(serviceRepo);
         List<String> endpoints = new ArrayList<>();

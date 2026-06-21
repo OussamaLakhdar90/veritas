@@ -60,6 +60,7 @@ public class ReviewService {
 
     public List<ReviewResult> reviewByJql(String jql, String owner, boolean apply) {
         preflight.reviewTestCases(jql);
+        preflight.requireLlm(llm, "review-test-cases");
         List<ReviewResult> results = new ArrayList<>();
         for (XrayTest test : xray.getTestsByJql(jql)) {
             results.add(reviewOne(test, owner, apply));

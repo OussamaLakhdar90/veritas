@@ -68,6 +68,7 @@ public class TestStrategyService {
 
     public TestStrategy generate(String serviceName, String basisText, String source, String owner) {
         preflight.testStrategy(serviceName, basisText);
+        preflight.requireLlm(llm, "test-strategy");
         try {
             // Per-section generation: each section is its own focused, ISTQB-grounded, cost-routed LLM call.
             com.fasterxml.jackson.databind.node.ObjectNode deliverable = objectMapper.createObjectNode();
