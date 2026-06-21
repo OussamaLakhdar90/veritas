@@ -53,11 +53,7 @@ public class ContractReportRenderer {
     // ---- classification -------------------------------------------------------------------------------------
 
     private boolean isNeedsAttention(Finding f) {
-        String type = f.getType() != null ? f.getType().name() : "";
-        boolean designOnly = type.equals("DESIGN_QUALITY") || type.equals("TEST_BASIS_GAP");
-        boolean llm = f.getOrigin() != null && !f.getOrigin().equalsIgnoreCase("DETERMINISTIC");
-        boolean lowConf = f.getConfidence() != null && f.getConfidence().name().equals("LOW");
-        return designOnly || llm || lowConf;
+        return FidelityScore.isNeedsAttention(f);   // shared with the score so report + KPI never drift
     }
 
     private String bucket(Finding f) {
@@ -93,7 +89,7 @@ public class ContractReportRenderer {
         counted.addAll(missing);
         counted.addAll(wrong);
         counted.addAll(dead);
-        int score = fidelityScore(counted);
+        int score = FidelityScore.of(counted);
         long blocking = counted.stream().filter(f -> f.getSeverity() != null
                 && (f.getSeverity().name().equals("BLOCKER") || f.getSeverity().name().equals("CRITICAL"))).count();
         String[] band = scoreBand(score);
@@ -145,6 +141,24 @@ public class ContractReportRenderer {
                         + " élément(s) supplémentaire(s) nécessitent une revue manuelle et ne sont pas notés.")))
                 .append("</p>");
 
+        // Quality gate (pass/fail vs threshold) + trend vs the previous scan — the two things management acts on.
+        boolean pass = score >= FidelityScore.PASS_THRESHOLD;
+        sb.append("<p class=\"gate gate-").append(pass ? "pass" : "fail").append("\">").append(bi(
+                "Quality gate: " + (pass ? "PASS" : "FAIL") + " — fidelity " + score + " vs target ≥ " + FidelityScore.PASS_THRESHOLD,
+                "Seuil qualité : " + (pass ? "RÉUSSI" : "ÉCHEC") + " — fidélité " + score + " vs cible ≥ " + FidelityScore.PASS_THRESHOLD))
+                .append("</p>");
+        if (scan.getPreviousFidelityScore() != null) {
+            int prev = scan.getPreviousFidelityScore();
+            int delta = score - prev;
+            String arrow = delta > 0 ? "▲" : (delta < 0 ? "▼" : "●");
+            String tcls = delta > 0 ? "up" : (delta < 0 ? "down" : "flat");
+            String sign = delta >= 0 ? "+" : "";
+            sb.append("<p class=\"trend trend-").append(tcls).append("\">").append(bi(
+                    "Trend: " + arrow + " " + sign + delta + " vs previous scan (was " + prev + ")",
+                    "Tendance : " + arrow + " " + sign + delta + " vs analyse précédente (était " + prev + ")"))
+                    .append("</p>");
+        }
+
         // KPI scorecard
         sb.append("<div class=\"kpis\">");
         sb.append(kpi(score + "<span class=\"unit\">/100</span>", bi("Contract fidelity", "Fidélité du contrat"), band[0]));
@@ -188,11 +202,19 @@ public class ContractReportRenderer {
 
         // ---- 3. Recommended actions ----
         List<String[]> actions = recommendations(missing.size(), wrong.size(), dead.size(), attention.size());
-        sb.append("<section><h2>").append(bi("3. Recommended actions", "3. Actions recommandées")).append("</h2><ol class=\"actions\">");
+        sb.append("<section><h2>").append(bi("3. Recommended actions", "3. Actions recommandées")).append("</h2>")
+                .append("<table class=\"actions\"><thead><tr><th>#</th><th>").append(bi("Action", "Action"))
+                .append("</th><th>").append(bi("Priority", "Priorité")).append("</th><th>").append(bi("Owner", "Responsable"))
+                .append("</th><th>").append(bi("Target date", "Échéance")).append("</th></tr></thead><tbody>");
+        int ai = 1;
         for (String[] a : actions) {
-            sb.append("<li>").append(bi(a[0], a[1])).append("</li>");
+            String pr = ai == 1 ? bi("High", "Élevée") : (ai == 2 ? bi("Medium", "Moyenne") : bi("Normal", "Normale"));
+            sb.append("<tr><td>").append(ai).append("</td><td>").append(bi(a[0], a[1])).append("</td><td>").append(pr)
+                    .append("</td><td class=\"tbd\">").append(bi("TBD", "À définir")).append("</td>")
+                    .append("<td class=\"tbd\">").append(bi("TBD", "À définir")).append("</td></tr>");
+            ai++;
         }
-        sb.append("</ol></section>");
+        sb.append("</tbody></table></section>");
 
         // ---- 4. Detailed findings ----
         if (!counted.isEmpty()) {
@@ -359,20 +381,6 @@ public class ContractReportRenderer {
 
     // ---- deterministic narrative helpers (no LLM) -----------------------------------------------------------
 
-    private int fidelityScore(List<Finding> counted) {
-        int penalty = 0;
-        for (Finding f : counted) {
-            switch (f.getSeverity() != null ? f.getSeverity().name() : "") {
-                case "BLOCKER" -> penalty += 25;
-                case "CRITICAL" -> penalty += 15;
-                case "MAJOR" -> penalty += 8;
-                case "MINOR" -> penalty += 3;
-                default -> { }
-            }
-        }
-        return Math.max(0, 100 - penalty);
-    }
-
     /** {cssClass, EN label, FR label}. */
     private String[] scoreBand(int s) {
         if (s >= 90) {
@@ -524,7 +532,13 @@ public class ContractReportRenderer {
                 + "table.impact th,table.impact td{text-align:left;padding:9px 12px;font-size:.88rem;border-top:1px solid #eef1f5;vertical-align:top}"
                 + "table.impact thead th{background:#f1f3f6;color:#475069;font-size:.72rem;text-transform:uppercase;border-top:0}"
                 + ".sev-pill{color:#fff;font-size:.7rem;font-weight:700;text-transform:uppercase;padding:2px 9px;border-radius:999px}"
-                + "ol.actions{padding-left:1.2rem}ol.actions li{margin:.35rem 0}"
+                + ".gate{display:inline-block;font-weight:700;font-size:.9rem;padding:.4rem .9rem;border-radius:8px;margin:.3rem 0}"
+                + ".gate-pass{background:#e6f4ea;color:#1E8E5A}.gate-fail{background:#fdecef;color:#C2122D}"
+                + ".trend{font-size:.85rem;margin:.2rem 0}.trend-up{color:#1E8E5A}.trend-down{color:#C2122D}.trend-flat{color:#475069}"
+                + "table.actions{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e3e6eb;border-radius:10px;overflow:hidden}"
+                + "table.actions th,table.actions td{text-align:left;padding:8px 12px;font-size:.86rem;border-top:1px solid #eef1f5;vertical-align:top}"
+                + "table.actions thead th{background:#f1f3f6;color:#475069;font-size:.72rem;text-transform:uppercase;border-top:0}"
+                + "table.actions .tbd{color:#9aa1ae;font-style:italic}"
                 + ".finding-card{background:#fff;border:1px solid #e3e6eb;border-radius:10px;padding:1rem 1.25rem;margin-top:.7rem}"
                 + ".finding-header{display:flex;align-items:center;gap:10px;flex-wrap:wrap}"
                 + ".severity-badge{color:#fff;font-size:.7rem;font-weight:700;text-transform:uppercase;padding:2px 9px;border-radius:999px}"

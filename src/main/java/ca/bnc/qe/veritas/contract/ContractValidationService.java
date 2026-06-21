@@ -180,6 +180,15 @@ public class ContractValidationService {
             persist(scan.getId(), findings, enrich);
             scan.setTotalFindings(findings.size());
 
+            // Contract Fidelity Score + trend vs the previous scan of this service (deterministic, management KPI).
+            final Scan current = scan;
+            current.setFidelityScore(ca.bnc.qe.veritas.report.FidelityScore.of(findings));
+            scanRepository.findAllByOrderByStartedAtDesc().stream()
+                    .filter(s -> req.serviceName() != null && req.serviceName().equals(s.getServiceName()))
+                    .filter(s -> s.getFidelityScore() != null && !s.getId().equals(current.getId()))
+                    .findFirst()
+                    .ifPresent(prev -> current.setPreviousFidelityScore(prev.getFidelityScore()));
+
             // Report generation is deterministic; the ONLY LLM use here is translating the dynamic strings to
             // French on the cheapest tier (TranslationService). Non-fatal — falls back to English.
             java.util.Map<String, String> fr = java.util.Map.of();

@@ -45,6 +45,10 @@ public class Scan extends AuditableEntity {
     /** Deterministic count of per-scan coverage gaps (files that didn't parse, DTOs that didn't resolve). */
     private Integer coverageGaps;
 
+    /** Contract Fidelity Score 0–100 (deterministic) + the previous scan's score for trend. */
+    private Integer fidelityScore;
+    private Integer previousFidelityScore;
+
     @Column(length = 2000)
     private String errorMessage;
 }
