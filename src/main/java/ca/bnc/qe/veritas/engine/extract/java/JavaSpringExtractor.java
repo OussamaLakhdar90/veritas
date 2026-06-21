@@ -59,16 +59,23 @@ public class JavaSpringExtractor {
         JavaParser parser = symbolAwareParser(sourceRoot);
         Map<String, TypeDeclaration<?>> types = new LinkedHashMap<>();
         List<CompilationUnit> units = new ArrayList<>();
+        List<String> blindSpots = new ArrayList<>();   // never silently drop static-analysis gaps
         try (Stream<Path> files = Files.walk(sourceRoot)) {
             files.filter(p -> p.toString().endsWith(".java"))
                     .filter(p -> !p.toString().contains(File.separator + "test" + File.separator))
-                    .forEach(p -> parse(parser, p).ifPresent(cu -> {
-                        units.add(cu);
-                        cu.findAll(TypeDeclaration.class).forEach(td ->
+                    .forEach(p -> {
+                        Optional<CompilationUnit> cu = parse(parser, p);
+                        if (cu.isEmpty()) {
+                            blindSpots.add("Could not parse " + sourceRoot.relativize(p) + " — its endpoints/types are not analysed.");
+                            return;
+                        }
+                        units.add(cu.get());
+                        cu.get().findAll(TypeDeclaration.class).forEach(td ->
                                 types.put(td.getNameAsString(), (TypeDeclaration<?>) td));
-                    }));
+                    });
         } catch (Exception e) {
             log.warn("Walk failed for {}: {}", sourceRoot, e.getMessage());
+            blindSpots.add("Source walk failed for " + sourceRoot + ": " + e.getMessage());
         }
 
         List<Endpoint> endpoints = new ArrayList<>();
@@ -103,13 +110,53 @@ public class JavaSpringExtractor {
         }
 
         Map<String, SchemaModel> schemas = new LinkedHashMap<>();
+        Set<String> unresolved = new java.util.LinkedHashSet<>();
         for (String name : referenced) {
             String simple = name.replace("[]", "");
             if (types.containsKey(simple) && !schemas.containsKey(simple)) {
                 schemas.put(simple, buildSchema(types.get(simple), types));
+            } else if (!types.containsKey(simple) && isResolvableSchemaName(simple)) {
+                // Referenced DTO not in the scanned sources — try the symbol solver before flagging it.
+                unresolved.add(simple);
             }
         }
-        return new ApiModel("code", null, null, null, endpoints, schemas);
+        for (String name : unresolved) {
+            if (!resolvesViaSolver(units, name)) {
+                blindSpots.add("Type '" + name + "' is referenced by an endpoint but could not be resolved from the "
+                        + "scanned sources; its schema is omitted (likely an external/library DTO).");
+            }
+        }
+        return new ApiModel("code", null, null, null, endpoints, schemas, blindSpots);
+    }
+
+    /** A simple name worth resolving (not a primitive/JDK scalar the IR already maps to an OpenAPI type). */
+    private boolean isResolvableSchemaName(String simple) {
+        if (simple == null || simple.isBlank() || !Character.isUpperCase(simple.charAt(0))) {
+            return false;   // primitives/lowercase handled by openApiType()
+        }
+        return !Set.of("String", "Integer", "Long", "Double", "Float", "Boolean", "BigDecimal", "BigInteger",
+                "Object", "Void", "LocalDate", "LocalDateTime", "Instant", "UUID", "Date").contains(simple);
+    }
+
+    /**
+     * Genuinely consult the {@link JavaSymbolSolver}: try to resolve any same-named type used in the sources.
+     * Returns true if the solver resolves it (a known JDK/library type — not a blind spot). Never throws.
+     */
+    private boolean resolvesViaSolver(List<CompilationUnit> units, String simpleName) {
+        for (CompilationUnit cu : units) {
+            for (ClassOrInterfaceType t : cu.findAll(ClassOrInterfaceType.class)) {
+                if (!t.getNameAsString().equals(simpleName)) {
+                    continue;
+                }
+                try {
+                    t.resolve();   // symbol-solver resolution; throws UnsolvedSymbolException if unknown
+                    return true;
+                } catch (Throwable ignore) {
+                    return false;   // genuinely unresolved → caller records a blind spot
+                }
+            }
+        }
+        return false;
     }
 
     private Optional<CompilationUnit> parse(JavaParser parser, Path p) {

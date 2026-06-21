@@ -151,6 +151,14 @@ public class ContractValidationService {
                 scan.setBlindSpots(rr.blindSpots());
             }
 
+            // Always surface deterministic static-analysis blind spots (unparsed files, unresolved DTOs),
+            // merged with any LLM self-review blind spots — never silently dropped.
+            if (code.blindSpots() != null && !code.blindSpots().isEmpty()) {
+                String existing = scan.getBlindSpots();
+                String extractor = String.join(" ", code.blindSpots());
+                scan.setBlindSpots(existing == null || existing.isBlank() ? extractor : existing + " " + extractor);
+            }
+
             // Corrected YAML: prefer the LLM-reconciled spec IF it round-trips; else the deterministic
             // code-wins spec; never write a spec that fails to re-parse.
             String corrected = chooseCorrectedYaml(llmCorrected, code, req.serviceName());

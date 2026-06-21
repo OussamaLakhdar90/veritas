@@ -13,5 +13,12 @@ public record ApiModel(
         String version,
         String openApiVersion,    // "2.0" | "3.0.x" | "3.1.x" | null for code
         List<Endpoint> endpoints,
-        Map<String, SchemaModel> schemas
-) {}
+        Map<String, SchemaModel> schemas,
+        List<String> blindSpots   // static-analysis gaps surfaced to the user (never silently dropped)
+) {
+    /** Back-compat: most producers have no blind spots. */
+    public ApiModel(String source, String title, String version, String openApiVersion,
+                    List<Endpoint> endpoints, Map<String, SchemaModel> schemas) {
+        this(source, title, version, openApiVersion, endpoints, schemas, List.of());
+    }
+}
