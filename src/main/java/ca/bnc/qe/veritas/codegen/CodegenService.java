@@ -48,6 +48,7 @@ public class CodegenService {
     private final ca.bnc.qe.veritas.skill.GateService gateService;
     private final GeneratedFileWriter generatedFileWriter;
     private final HttpRequestsEmitter httpRequestsEmitter;
+    private final SuiteXmlEmitter suiteXmlEmitter;
 
     public CodegenService(LlmGateway llm, JsonBlockExtractor jsonExtractor, ResponseSchemaValidator schemaValidator,
                           ModelSelector modelSelector, CostRecorder costRecorder, PromptComposer promptComposer,
@@ -55,7 +56,8 @@ public class CodegenService {
                           JavaSpringExtractor javaSpringExtractor, CodegenRunRepository repository,
                           BuildVerifier buildVerifier, ca.bnc.qe.veritas.preflight.Preflight preflight,
                           PrPublisher prPublisher, ca.bnc.qe.veritas.skill.GateService gateService,
-                          GeneratedFileWriter generatedFileWriter, HttpRequestsEmitter httpRequestsEmitter) {
+                          GeneratedFileWriter generatedFileWriter, HttpRequestsEmitter httpRequestsEmitter,
+                          SuiteXmlEmitter suiteXmlEmitter) {
         this.llm = llm;
         this.jsonExtractor = jsonExtractor;
         this.schemaValidator = schemaValidator;
@@ -72,6 +74,7 @@ public class CodegenService {
         this.gateService = gateService;
         this.generatedFileWriter = generatedFileWriter;
         this.httpRequestsEmitter = httpRequestsEmitter;
+        this.suiteXmlEmitter = suiteXmlEmitter;
     }
 
     /**
@@ -203,6 +206,13 @@ public class CodegenService {
             String httpFile = serviceName.replaceAll("[^A-Za-z0-9._-]", "-") + ".http";
             generatedFileWriter.write(outputDir.resolve(httpFile), httpFile, httpRequestsEmitter.emit(serviceName, code));
             written.add(httpFile);
+
+            // Deterministic TestNG suites (smoke / regression / full) from the generated test classes — no LLM.
+            for (var suite : suiteXmlEmitter.emit(serviceName, written).entrySet()) {
+                String rel = "suites/" + suite.getKey();
+                generatedFileWriter.write(outputDir.resolve(rel), rel, suite.getValue());
+                written.add(rel);
+            }
 
             BuildVerifier.BuildResult build = buildVerifier.verify(outputDir, spec.verifyCommand());
             if ("FAIL".equals(build.status())) {
