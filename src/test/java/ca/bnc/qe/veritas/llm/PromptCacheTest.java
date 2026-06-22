@@ -39,4 +39,20 @@ class PromptCacheTest {
         assertThat(PromptCache.key("modelA", "p")).isNotEqualTo(PromptCache.key("modelB", "p"));
         assertThat(PromptCache.key("m", "p")).isEqualTo(PromptCache.key("m", "p"));
     }
+
+    @Test
+    void evictsLeastRecentlyUsedPastTheBound() {
+        PromptCache cache = new PromptCache();
+        org.springframework.test.util.ReflectionTestUtils.setField(cache, "maxEntries", 2);
+
+        cache.put("m", "a", "1");
+        cache.put("m", "b", "2");
+        cache.get("m", "a");          // touch 'a' → 'b' becomes the least-recently-used
+        cache.put("m", "c", "3");     // over the bound of 2 → evict 'b'
+
+        assertThat(cache.size()).isEqualTo(2);
+        assertThat(cache.get("m", "a")).contains("1");
+        assertThat(cache.get("m", "c")).contains("3");
+        assertThat(cache.get("m", "b")).isEmpty();   // evicted
+    }
 }

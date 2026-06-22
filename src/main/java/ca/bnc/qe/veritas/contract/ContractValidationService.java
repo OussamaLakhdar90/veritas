@@ -5,10 +5,12 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import ca.bnc.qe.veritas.cost.BillingMode;
 import ca.bnc.qe.veritas.cost.CostRecorder;
 import ca.bnc.qe.veritas.cost.CostResult;
 import ca.bnc.qe.veritas.cost.ModelSelector;
@@ -40,6 +42,7 @@ import ca.bnc.qe.veritas.report.ContractReportRenderer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
@@ -67,6 +70,10 @@ public class ContractValidationService {
     private final ObjectMapper objectMapper;
     private final Preflight preflight;
     private final ca.bnc.qe.veritas.report.TranslationService translationService;
+
+    /** Per-batch token budget for the reconcile findings list (chunk-and-merge for large scans). 0 = never batch. */
+    @Value("${veritas.llm.batch-input-tokens:24000}")
+    private int batchInputTokens;
 
     @org.springframework.beans.factory.annotation.Value("${veritas.report.bilingual:true}")
     private boolean bilingualReport;
@@ -249,14 +256,10 @@ public class ContractValidationService {
         for (Finding f : findings) {
             brief.add(Map.of("findingId", f.getFindingId(), "type", f.getType().name(), "summary", nz(f.getSummary())));
         }
-        String findingsJson = objectMapper.writeValueAsString(brief);
         String codeEps = code.endpoints().stream().map(Endpoint::signature).toList().toString();
         List<String> specEps = new ArrayList<>();
         specs.forEach(s -> s.endpoints().forEach(e -> specEps.add(e.signature())));
 
-        String inputs = promptComposer.data("DETERMINISTIC_FINDINGS", findingsJson)
-                + promptComposer.data("CODE_ENDPOINTS", codeEps)
-                + promptComposer.data("SPEC_ENDPOINTS", specEps.toString());
         String outputContract = "Code is the source of truth for behaviour. For each finding add a short "
                 + "explanation and a proposed fix; then produce a reconciled corrected OpenAPI YAML (code wins on "
                 + "behaviour). ALSO add L5 (design-quality) and L6 (test-basis adequacy) judgements in "
@@ -266,30 +269,100 @@ public class ContractValidationService {
                 + "{\"correctedYaml\": string, \"findings\": [{\"findingId\": string, \"explanation\": string, "
                 + "\"proposedFix\": string}], \"designFindings\": [{\"layer\": \"L5\"|\"L6\", \"severity\": string, "
                 + "\"endpoint\": string, \"summary\": string, \"explanation\": string}]}. No prose after the json.";
-        String prompt = promptComposer.compose("[CONTRACT-RECONCILE]", "validate-service-contract.prompt.md",
-                Set.of("1", "6", "12"), inputs, outputContract);   // terminology, techniques, API heuristics
 
+        // Chunk-and-merge: a large finding set would otherwise have its middle elided by the prompt cap.
+        // Batch the findings (deterministic) and merge the per-finding enrichment; the corrected YAML and design
+        // findings come from the first batch (it carries the full endpoint context). Small scans → one call.
+        List<List<Map<String, String>>> batches = partitionByTokens(brief, batchInputTokens);
         String model = modelSelector.resolveTier(ModelTier.STANDARD);
-        String raw = llm.complete(prompt, model);
-        JsonNode node = objectMapper.readTree(jsonExtractor.extract(raw));
-        schemaValidator.validate(node, "contract-reconcile.schema.json");
-        CostResult cost = costRecorder.record("validate-contract", "reconcile", model, prompt, raw, owner, scanId);
 
         Map<String, JsonNode> enrich = new HashMap<>();
-        if (node.get("findings") != null) {
-            for (JsonNode fn : node.get("findings")) {
-                if (fn.hasNonNull("findingId")) {
-                    enrich.put(fn.get("findingId").asText(), fn);
+        List<Finding> design = new ArrayList<>();
+        Set<String> designIds = new HashSet<>();
+        String correctedYaml = null;
+        Double confidence = null;
+        List<String> blind = new ArrayList<>();
+        double premium = 0;
+        double costUsd = 0;
+        long tokIn = 0;
+        long tokOut = 0;
+        BillingMode mode = null;
+
+        for (List<Map<String, String>> batch : batches) {
+            String batchJson = objectMapper.writeValueAsString(batch);
+            String inputs = promptComposer.data("DETERMINISTIC_FINDINGS", batchJson)
+                    + promptComposer.data("CODE_ENDPOINTS", codeEps)
+                    + promptComposer.data("SPEC_ENDPOINTS", specEps.toString());
+            String prompt = promptComposer.compose("[CONTRACT-RECONCILE]", "validate-service-contract.prompt.md",
+                    Set.of("1", "6", "12"), inputs, outputContract, modelSelector.promptTokenCap(model));
+            String raw = llm.complete(prompt, model);
+            JsonNode node = objectMapper.readTree(jsonExtractor.extract(raw));
+            schemaValidator.validate(node, "contract-reconcile.schema.json");
+            CostResult c = costRecorder.record("validate-contract", "reconcile", model, prompt, raw, owner, scanId);
+            premium += c.premiumRequests();
+            costUsd += c.estCostUsd();
+            tokIn += c.estTokensIn();
+            tokOut += c.estTokensOut();
+            mode = c.billingMode();
+
+            if (node.get("findings") != null) {
+                for (JsonNode fn : node.get("findings")) {
+                    if (fn.hasNonNull("findingId")) {
+                        enrich.put(fn.get("findingId").asText(), fn);
+                    }
                 }
             }
+            for (Finding df : parseDesignFindings(node)) {
+                if (designIds.add(df.getFindingId())) {
+                    design.add(df);
+                }
+            }
+            if (correctedYaml == null && node.hasNonNull("correctedYaml")) {
+                correctedYaml = node.get("correctedYaml").asText();
+            }
+            JsonNode sr = node.path("selfReview");
+            if (sr.hasNonNull("confidence")) {
+                double cf = sr.path("confidence").asDouble();
+                confidence = confidence == null ? cf : Math.min(confidence, cf);
+            }
+            sr.path("blindSpots").forEach(n -> {
+                if (!blind.contains(n.asText())) {
+                    blind.add(n.asText());
+                }
+            });
         }
-        String correctedYaml = node.hasNonNull("correctedYaml") ? node.get("correctedYaml").asText() : null;
-        JsonNode sr = node.path("selfReview");
-        Double confidence = sr.hasNonNull("confidence") ? sr.path("confidence").asDouble() : null;
-        List<String> bs = new ArrayList<>();
-        sr.path("blindSpots").forEach(n -> bs.add(n.asText()));
-        String blindSpots = bs.isEmpty() ? null : String.join("; ", bs);
-        return new ReconcileResult(correctedYaml, enrich, cost, parseDesignFindings(node), confidence, blindSpots);
+        if (batches.size() > 1) {
+            blind.add("Reconcile ran in " + batches.size() + " batches over " + findings.size()
+                    + " findings to fit the model context; per-finding enrichment is merged across batches.");
+        }
+        CostResult cost = new CostResult(model, mode == null ? BillingMode.PER_REQUEST : mode, premium, tokIn, tokOut,
+                Math.round(costUsd * 10_000.0) / 10_000.0);
+        String blindSpots = blind.isEmpty() ? null : String.join("; ", blind);
+        return new ReconcileResult(correctedYaml, enrich, cost, design, confidence, blindSpots);
+    }
+
+    /** Split findings into batches whose serialized JSON stays within a per-call token budget (≥1 batch). */
+    private List<List<Map<String, String>>> partitionByTokens(List<Map<String, String>> items, int budgetTokens)
+            throws Exception {
+        List<List<Map<String, String>>> out = new ArrayList<>();
+        if (items.isEmpty() || budgetTokens <= 0) {
+            out.add(new ArrayList<>(items));
+            return out;
+        }
+        List<Map<String, String>> current = new ArrayList<>();
+        int curTokens = 0;
+        for (Map<String, String> it : items) {
+            int t = PromptComposer.estimateTokens(objectMapper.writeValueAsString(it));
+            if (!current.isEmpty() && curTokens + t > budgetTokens) {
+                out.add(current);
+                current = new ArrayList<>();
+                curTokens = 0;
+            }
+            current.add(it);
+            curTokens += t;
+        }
+        out.add(current);
+        return out;
     }
 
     /** L5/L6 LLM judgement findings (design quality + test-basis adequacy) from the reconcile reply. */

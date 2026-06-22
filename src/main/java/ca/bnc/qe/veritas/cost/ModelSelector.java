@@ -27,6 +27,14 @@ public class ModelSelector {
     @Value("${veritas.llm.model:claude-sonnet-4.6}")
     private String defaultModel;
 
+    /** Default whole-prompt cap when a model has no configured context window. */
+    @Value("${veritas.llm.max-prompt-tokens:60000}")
+    private int maxPromptTokens;
+
+    /** Per-model context windows (tokens), e.g. {@code veritas.llm.context-windows: {claude-opus-4.8: 200000}}. */
+    @Value("#{${veritas.llm.context-windows:{:}}}")
+    private java.util.Map<String, Integer> contextWindows = java.util.Map.of();
+
     @org.springframework.beans.factory.annotation.Autowired
     public ModelSelector(ModelCatalog catalog, ModelPolicy policy, LiveModelMultipliers live) {
         this.catalog = catalog;
@@ -37,6 +45,16 @@ public class ModelSelector {
     /** Convenience for unit tests: no live multipliers. */
     public ModelSelector(ModelCatalog catalog, ModelPolicy policy) {
         this(catalog, policy, new LiveModelMultipliers());
+    }
+
+    /**
+     * The whole-prompt token cap to use for a given model — its configured context window, or the global
+     * {@code veritas.llm.max-prompt-tokens} default. Pass this to {@code PromptComposer.compose(...,cap)} so a
+     * bigger-context model gets a bigger prompt budget (per-model context routing).
+     */
+    public int promptTokenCap(String modelId) {
+        Integer window = modelId == null ? null : contextWindows.get(modelId);
+        return window != null && window > 0 ? window : maxPromptTokens;
     }
 
     public String resolve(Step step) {

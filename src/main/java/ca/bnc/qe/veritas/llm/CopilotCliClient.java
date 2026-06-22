@@ -31,6 +31,10 @@ public class CopilotCliClient implements LlmGateway {
     @Value("${veritas.llm.timeout-seconds:180}")
     private long timeoutSeconds;
 
+    /** Bounded retries on a failed/empty CLI invocation (transient process errors, truncated output). */
+    @Value("${veritas.llm.max-attempts:2}")
+    private int maxAttempts;
+
     @Override
     public boolean isAvailable() {
         try {
@@ -49,6 +53,27 @@ public class CopilotCliClient implements LlmGateway {
 
     @Override
     public String complete(String prompt, String model) {
+        int attempts = Math.max(1, maxAttempts);
+        RuntimeException last = null;
+        for (int attempt = 1; attempt <= attempts; attempt++) {
+            try {
+                String out = runOnce(prompt, model);
+                if (out != null && !out.isBlank()) {
+                    return out;
+                }
+                last = new IllegalStateException("Copilot CLI returned empty output");
+            } catch (RuntimeException e) {
+                last = e;
+            }
+            if (attempt < attempts) {
+                log.warn("Copilot CLI attempt {}/{} failed ({}); retrying", attempt, attempts,
+                        last == null ? "empty" : last.getMessage());
+            }
+        }
+        throw last != null ? last : new IllegalStateException("Copilot CLI failed");
+    }
+
+    private String runOnce(String prompt, String model) {
         List<String> command = new ArrayList<>();
         command.add(binary);
         command.add("-p");

@@ -165,7 +165,7 @@ public class ReleaseTestPlanService {
                 String inputs = strategyData + promptComposer.data("RELEASE_ISSUES", chunk);
                 String prompt = promptComposer.compose("[TEST-PLAN]", "generate-test-plan.prompt.md",
                         Set.of("1", "5", "6", "8", "9", "10"),   // terms, ISO 25010, techniques, planning, risk, monitoring
-                        inputs, outputContract);
+                        inputs, outputContract, modelSelector.promptTokenCap(model));
                 String raw = llm.complete(prompt, model);
                 JsonNode part = objectMapper.readTree(jsonExtractor.extract(raw));
                 schemaValidator.validate(part, "test-plan.schema.json");
