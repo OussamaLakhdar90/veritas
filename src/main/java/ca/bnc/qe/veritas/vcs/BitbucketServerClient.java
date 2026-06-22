@@ -6,6 +6,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import ca.bnc.qe.veritas.config.ConnectionsProperties;
 import ca.bnc.qe.veritas.integration.HttpFactory;
 import ca.bnc.qe.veritas.integration.Retries;
@@ -14,7 +15,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
+import org.eclipse.jgit.api.CloneCommand;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.transport.TransportHttp;
+import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -92,14 +96,26 @@ public class BitbucketServerClient implements GitHost {
     @Override
     public Path clone(RepoInfo repo, String branch, Path destinationParent) {
         Path target = destinationParent.resolve(repo.slug());
-        var cmd = Git.cloneRepository()
+        CloneCommand cmd = Git.cloneRepository()
                 .setURI(repo.cloneUrl())
                 .setDirectory(target.toFile())
-                .setCredentialsProvider(new org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider(
-                        secret("GIT_USERNAME"), secret("GIT_TOKEN")))
                 .setDepth(1);
         if (branch != null && !branch.isBlank()) {
             cmd.setBranch(branch);
+        }
+        // Server/DC git-over-HTTPS: an HTTP access token authenticates as a Bearer header (BEARER), which also
+        // works without a username; BASIC uses username + password. Empty-username Basic is what Bitbucket
+        // Server rejects as "not authorized".
+        String type = connections.getBitbucket().getAuthType();
+        if (type != null && type.equalsIgnoreCase("BASIC")) {
+            cmd.setCredentialsProvider(new UsernamePasswordCredentialsProvider(secret("GIT_USERNAME"), secret("GIT_TOKEN")));
+        } else {
+            String bearer = "Bearer " + secret("GIT_TOKEN");
+            cmd.setTransportConfigCallback(transport -> {
+                if (transport instanceof TransportHttp http) {
+                    http.setAdditionalHeaders(Map.of("Authorization", bearer));
+                }
+            });
         }
         try (Git git = cmd.call()) {
             log.info("Cloned {} ({}) to {}", repo.slug(), branch, target);
