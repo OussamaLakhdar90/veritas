@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Search, ShieldCheck, GitBranch, FileCode, Star, Clock } from 'lucide-react';
+import { Search, ShieldCheck, GitBranch, FileCode, Star, Clock,
+  Code2, GitCompare, Sparkles, FileText, Check, AlertTriangle, Loader2 } from 'lucide-react';
 import { api, Repo } from '../api';
 import { Button, Card, CardBody, EmptyState, Field, Input, PageHeader, Select, Spinner } from '../components/ui';
 import { Modal } from '../components/Modal';
@@ -167,14 +168,30 @@ export function RepoPicker() {
   );
 }
 
-/* ── Guided "Validate" form (replaces window.prompt) ─────────────────────────── */
+/* ── The live progress steps, in order. RECONCILING is shown but may be skipped
+      (no findings, or AI disabled) — the order-based status handles that gracefully. ── */
+const SCAN_STEPS: { key: string; label: string; detail: string; icon: typeof GitBranch }[] = [
+  { key: 'CLONING', label: 'Cloning the repository', detail: 'Fetching the branch from Bitbucket', icon: GitBranch },
+  { key: 'RESOLVING_SPEC', label: 'Locating the OpenAPI spec', detail: 'Reading the contract you selected', icon: FileCode },
+  { key: 'EXTRACTING', label: 'Reading the API from the code', detail: 'Static analysis of the controllers (no app run)', icon: Code2 },
+  { key: 'DIFFING', label: 'Comparing code against the spec', detail: 'Endpoints, params, schemas, status codes', icon: GitCompare },
+  { key: 'RECONCILING', label: 'AI review & corrected spec', detail: 'Copilot explains findings and drafts a fix', icon: Sparkles },
+  { key: 'REPORTING', label: 'Building the report', detail: 'Scoring fidelity and rendering the results', icon: FileText },
+];
+const STAGE_ORDER: Record<string, number> = {
+  QUEUED: 0, CLONING: 1, RESOLVING_SPEC: 2, EXTRACTING: 3, DIFFING: 4, RECONCILING: 5, REPORTING: 6, DONE: 7, FAILED: 7,
+};
+
+/* ── Guided "Validate" form → live progress stepper (no window.prompt, full visibility) ── */
 function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; onClose: () => void }) {
   const toast = useToast();
   const navigate = useNavigate();
   const [branch, setBranch] = useState(repo.defaultBranch || '');
   const [specKind, setSpecKind] = useState<'REPO_PATH' | 'LIVE_DOCS' | 'CONFLUENCE'>('REPO_PATH');
   const [specRef, setSpecRef] = useState('openapi.yaml');
-  const [busy, setBusy] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [scanId, setScanId] = useState<string | null>(null);
+  const [navigated, setNavigated] = useState(false);
 
   const SPEC = {
     REPO_PATH: { label: 'File in the repo', field: 'Spec path', placeholder: 'openapi.yaml',
@@ -195,68 +212,177 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
     }
   }, [branches]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const run = async () => {
+  // Poll the scan once it's been kicked off; stop when it's no longer RUNNING.
+  const scanQ = useQuery({
+    queryKey: ['scan', scanId],
+    queryFn: () => api.scan(scanId as string),
+    enabled: !!scanId,
+    refetchInterval: (q) => {
+      const s = q.state.data?.status;
+      return s && s !== 'RUNNING' ? false : 1100;
+    },
+  });
+  const scan = scanQ.data;
+  const stage = scan?.stage ?? 'QUEUED';
+  const failed = scan?.status === 'FAILED';
+  const done = scan?.status === 'COMPLETED';
+  const running = !!scanId && !failed && !done;
+
+  // On success, hand off to the findings view (once).
+  useEffect(() => {
+    if (done && scan && !navigated) {
+      setNavigated(true);
+      toast.push('success', `Scan complete — ${scan.totalFindings} finding${scan.totalFindings === 1 ? '' : 's'}.`);
+      onClose();
+      navigate(`/findings/${scan.id}`);
+    }
+  }, [done, scan, navigated]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const start = async () => {
     if (!specRef.trim()) { toast.push('error', `Enter the ${SPEC.field.toLowerCase()}.`); return; }
-    setBusy(true);
+    setStarting(true);
     try {
-      const common = { appId, repoSlug: repo.slug, branch: branch.trim() || undefined };
+      const common = { serviceName: repo.slug, appId, repoSlug: repo.slug, branch: branch.trim() || undefined };
       const res = await api.triggerScan(specKind === 'REPO_PATH'
         ? { ...common, specPaths: [specRef.trim()] }
         : { ...common, specSources: [{ kind: specKind, ref: specRef.trim() }] });
-      toast.push('success', `Scan complete — ${res.totalFindings} finding${res.totalFindings === 1 ? '' : 's'}.`);
-      onClose();
-      navigate(`/findings/${res.scanId}`);
+      setScanId(res.scanId);
     } catch (e) {
-      toast.push('error', `Validation failed: ${(e as Error).message}`);
+      toast.push('error', `Could not start the scan: ${(e as Error).message}`);
     } finally {
-      setBusy(false);
+      setStarting(false);
     }
   };
 
+  const retry = () => { setScanId(null); setNavigated(false); };
+
+  const title = scanId ? `Validating ${repo.slug}` : `Validate ${repo.slug}`;
+
+  // Footer changes with the phase: form → starting; running → background; failed → retry.
+  const footer = !scanId ? (
+    <>
+      <Button variant="secondary" onClick={onClose}>Cancel</Button>
+      <Button onClick={start} loading={starting}><ShieldCheck className="h-4 w-4" /> Run validation</Button>
+    </>
+  ) : failed ? (
+    <>
+      <Button variant="secondary" onClick={onClose}>Close</Button>
+      <Button onClick={retry}><ShieldCheck className="h-4 w-4" /> Try again</Button>
+    </>
+  ) : (
+    <Button variant="secondary" onClick={onClose}>Run in background</Button>
+  );
+
   return (
-    <Modal open title={`Validate ${repo.slug}`} onClose={busy ? () => { /* lock while running */ } : onClose}
-      footer={<>
-        <Button variant="secondary" onClick={onClose} disabled={busy}>Cancel</Button>
-        <Button onClick={run} loading={busy}><ShieldCheck className="h-4 w-4" /> Run validation</Button>
-      </>}>
-      <p className="mb-4 text-[13px] text-muted">
-        Veritas clones <span className="font-medium text-ink-900">{repo.slug}</span>, extracts the API from the code,
-        and compares it to the spec below. No changes are written to the repo.
-      </p>
-      <div className="space-y-4">
-        <Field label="Branch"
-          hint={branchesQ.isLoading ? 'Loading branches…' : branches.length > 0 ? 'Default branch listed first.' : 'Type the branch (branch list unavailable).'}>
-          <div className="relative">
-            <GitBranch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted z-10" />
-            {branches.length > 0 ? (
-              <Select className="pl-8" value={branch} onChange={(e) => setBranch(e.target.value)}>
-                {branches.map((b) => <option key={b} value={b}>{b}</option>)}
+    <Modal open title={title} onClose={onClose} footer={footer}>
+      {!scanId ? (
+        <>
+          <p className="mb-4 text-[13px] text-muted">
+            Veritas clones <span className="font-medium text-ink-900">{repo.slug}</span>, extracts the API from the code,
+            and compares it to the spec below. No changes are written to the repo.
+          </p>
+          <div className="space-y-4">
+            <Field label="Branch"
+              hint={branchesQ.isLoading ? 'Loading branches…' : branches.length > 0 ? 'Default branch listed first.' : 'Type the branch (branch list unavailable).'}>
+              <div className="relative">
+                <GitBranch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted z-10" />
+                {branches.length > 0 ? (
+                  <Select className="pl-8" value={branch} onChange={(e) => setBranch(e.target.value)}>
+                    {branches.map((b) => <option key={b} value={b}>{b}</option>)}
+                  </Select>
+                ) : (
+                  <Input className="pl-8" placeholder="master" value={branch} onChange={(e) => setBranch(e.target.value)} />
+                )}
+              </div>
+            </Field>
+            <Field label="Spec source" hint="Where the OpenAPI/Swagger spec lives.">
+              <Select value={specKind} onChange={(e) => {
+                const k = e.target.value as 'REPO_PATH' | 'LIVE_DOCS' | 'CONFLUENCE';
+                setSpecKind(k);
+                setSpecRef(k === 'REPO_PATH' ? 'openapi.yaml' : '');   // reset the ref to a sensible default per kind
+              }}>
+                <option value="REPO_PATH">File in the repo</option>
+                <option value="LIVE_DOCS">Live /v3/api-docs URL</option>
+                <option value="CONFLUENCE">Confluence page</option>
               </Select>
-            ) : (
-              <Input className="pl-8" placeholder="master" value={branch} onChange={(e) => setBranch(e.target.value)} />
-            )}
+            </Field>
+            <Field label={SPEC.field} hint={SPEC.hint}>
+              <div className="relative">
+                <FileCode className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                <Input className="pl-8" placeholder={SPEC.placeholder} value={specRef}
+                  onChange={(e) => setSpecRef(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && !starting && start()} />
+              </div>
+            </Field>
           </div>
-        </Field>
-        <Field label="Spec source" hint="Where the OpenAPI/Swagger spec lives.">
-          <Select value={specKind} onChange={(e) => {
-            const k = e.target.value as 'REPO_PATH' | 'LIVE_DOCS' | 'CONFLUENCE';
-            setSpecKind(k);
-            setSpecRef(k === 'REPO_PATH' ? 'openapi.yaml' : '');   // reset the ref to a sensible default per kind
-          }}>
-            <option value="REPO_PATH">File in the repo</option>
-            <option value="LIVE_DOCS">Live /v3/api-docs URL</option>
-            <option value="CONFLUENCE">Confluence page</option>
-          </Select>
-        </Field>
-        <Field label={SPEC.field} hint={SPEC.hint}>
-          <div className="relative">
-            <FileCode className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-            <Input className="pl-8" placeholder={SPEC.placeholder} value={specRef}
-              onChange={(e) => setSpecRef(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && !busy && run()} />
-          </div>
-        </Field>
-      </div>
+        </>
+      ) : (
+        <ScanProgress stage={stage} failed={failed} errorMessage={scan?.errorMessage} onRetry={retry} />
+      )}
     </Modal>
+  );
+}
+
+/* ── Friendly step-by-step tracker the user can follow while a scan runs ── */
+function ScanProgress({ stage, failed, errorMessage, onRetry }:
+  { stage: string; failed: boolean; errorMessage?: string; onRetry: () => void }) {
+  const current = STAGE_ORDER[stage] ?? 0;
+  // Which step the failure happened on (the last step we'd entered), for a clear "failed at …" line.
+  const failedStepIdx = failed ? Math.max(0, Math.min(SCAN_STEPS.length - 1, current - 1)) : -1;
+
+  return (
+    <div>
+      <p className="mb-4 text-[13px] text-muted">
+        {failed
+          ? 'The scan stopped before it finished. Nothing was written to the repo.'
+          : 'Veritas is working through the contract check. You can keep this open or run it in the background.'}
+      </p>
+      <ol className="space-y-1">
+        {SCAN_STEPS.map((step, i) => {
+          const order = STAGE_ORDER[step.key];
+          const isFailedHere = failed && i === failedStepIdx;
+          const status: 'done' | 'active' | 'pending' | 'error' =
+            isFailedHere ? 'error'
+              : failed && i > failedStepIdx ? 'pending'
+              : current > order ? 'done'
+              : current === order ? 'active'
+              : 'pending';
+          const Icon = step.icon;
+          return (
+            <li key={step.key} className="flex items-start gap-3 rounded-lg px-2 py-2">
+              <span className={cn('mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ring-1',
+                status === 'done' && 'bg-success/10 text-success ring-success/30',
+                status === 'active' && 'bg-brand-50 text-brand-600 ring-brand-600/30',
+                status === 'error' && 'bg-danger/10 text-danger ring-danger/30',
+                status === 'pending' && 'bg-ink-50 text-muted/60 ring-border')}>
+                {status === 'done' ? <Check className="h-4 w-4" />
+                  : status === 'active' ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : status === 'error' ? <AlertTriangle className="h-4 w-4" />
+                  : <Icon className="h-4 w-4" />}
+              </span>
+              <div className="min-w-0">
+                <p className={cn('text-[13px] font-medium',
+                  status === 'pending' ? 'text-muted' : 'text-ink-900')}>
+                  {step.label}
+                  {status === 'active' && <span className="ml-2 text-[12px] font-normal text-brand-600">working…</span>}
+                </p>
+                <p className="text-[12px] text-muted">{isFailedHere && errorMessage ? errorMessage : step.detail}</p>
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      {failed && (
+        <div className="mt-4 rounded-lg border border-danger/30 bg-danger/5 p-3">
+          <p className="flex items-center gap-1.5 text-[13px] font-semibold text-danger">
+            <AlertTriangle className="h-4 w-4" /> Validation failed
+          </p>
+          {errorMessage && <p className="mt-1 break-words text-[12px] text-ink-700">{errorMessage}</p>}
+          <button onClick={onRetry} className="mt-2 text-[12px] font-medium text-brand-600 hover:underline">
+            Adjust the inputs and try again
+          </button>
+        </div>
+      )}
+    </div>
   );
 }

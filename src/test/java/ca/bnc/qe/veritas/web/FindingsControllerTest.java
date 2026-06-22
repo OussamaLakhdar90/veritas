@@ -11,6 +11,8 @@ import java.util.List;
 import java.util.Optional;
 import ca.bnc.qe.veritas.persistence.FindingRecord;
 import ca.bnc.qe.veritas.persistence.FindingRecordRepository;
+import ca.bnc.qe.veritas.persistence.RunStatus;
+import ca.bnc.qe.veritas.persistence.Scan;
 import ca.bnc.qe.veritas.persistence.ScanRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,6 +46,26 @@ class FindingsControllerTest {
         when(findingRepository.findById("f1")).thenReturn(Optional.of(f));
         mvc.perform(patch("/api/v1/findings/f1").contentType("application/json").content("{\"status\":\"BOGUS\"}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void scanByIdExposesLiveStageForThePollingStepper() throws Exception {
+        Scan s = new Scan();
+        s.setServiceName("ciam-policies");
+        s.setStatus(RunStatus.RUNNING);
+        s.setStage("CLONING");
+        when(scanRepository.findById("s1")).thenReturn(Optional.of(s));
+
+        mvc.perform(get("/api/v1/scans/s1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RUNNING"))
+                .andExpect(jsonPath("$.stage").value("CLONING"));
+    }
+
+    @Test
+    void scanByIdReturns404WhenUnknown() throws Exception {
+        when(scanRepository.findById("nope")).thenReturn(Optional.empty());
+        mvc.perform(get("/api/v1/scans/nope")).andExpect(status().isNotFound());
     }
 
     @Test

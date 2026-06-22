@@ -28,6 +28,10 @@ public class Scan extends AuditableEntity {
     @Column(length = 20)
     private RunStatus status;
 
+    /** Live progress stage for the dashboard stepper: QUEUED|CLONING|EXTRACTING|DIFFING|RECONCILING|REPORTING|DONE. */
+    @Column(length = 20)
+    private String stage;
+
     private int totalFindings;
     private String owner;
     private Instant startedAt;

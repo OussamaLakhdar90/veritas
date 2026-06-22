@@ -6,6 +6,7 @@ import ca.bnc.qe.veritas.persistence.FindingRecord;
 import ca.bnc.qe.veritas.persistence.FindingRecordRepository;
 import ca.bnc.qe.veritas.persistence.Scan;
 import ca.bnc.qe.veritas.persistence.ScanRepository;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -34,6 +35,14 @@ public class FindingsController {
         return (service == null || service.isBlank())
                 ? scanRepository.findAllByOrderByStartedAtDesc()
                 : scanRepository.findByServiceNameOrderByStartedAtDesc(service);
+    }
+
+    /** One scan — its live {@code stage}/{@code status} drive the dashboard progress stepper while it runs. */
+    @GetMapping("/scans/{id}")
+    public ResponseEntity<Scan> scan(@PathVariable String id) {
+        return scanRepository.findById(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND).build());
     }
 
     /** A scan's findings, optionally faceted by severity / layer / status (server-side filtering for scale). */

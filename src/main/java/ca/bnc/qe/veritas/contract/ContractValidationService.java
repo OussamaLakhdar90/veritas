@@ -115,7 +115,13 @@ public class ContractValidationService {
         this.translationService = translationService;
     }
 
+    /** Synchronous entry (CLI/tests): create the scan row, then run the pipeline on the current thread. */
     public ValidationResult validate(ValidationRequest req) {
+        return runInto(createScanRow(req), req);
+    }
+
+    /** Create the RUNNING scan row up front so an async caller can return its id immediately and track stages. */
+    public Scan createScanRow(ValidationRequest req) {
         preflight.validateContract(req);   // fail fast with clear remediation if inputs/config are missing
         Scan scan = new Scan();
         scan.setServiceName(req.serviceName());
@@ -124,15 +130,27 @@ public class ContractValidationService {
         scan.setGitRef(req.gitRef());
         scan.setOwner(req.owner());
         scan.setStatus(RunStatus.RUNNING);
+        scan.setStage("QUEUED");
         scan.setStartedAt(Instant.now());
         scan.setSpecSources(String.join(",", req.specs().stream().map(SpecInput::id).toList()));
-        scan = scanRepository.save(scan);
+        return scanRepository.save(scan);
+    }
 
+    /** Updates the live progress stage on the scan (drives the dashboard stepper). */
+    private void stage(Scan scan, String stage) {
+        scan.setStage(stage);
+        scanRepository.save(scan);
+    }
+
+    /** Run extract → diff → reconcile → report into a pre-created scan row, updating its stage as it goes. */
+    public ValidationResult runInto(Scan scan, ValidationRequest req) {
         List<Finding> findings = new ArrayList<>();
         Map<String, JsonNode> enrich = new HashMap<>();
         String correctedYamlPath = null;
         try {
+            stage(scan, "EXTRACTING");
             ApiModel code = javaSpringExtractor.extract(req.repoPath());
+            stage(scan, "DIFFING");
             List<ApiModel> specModels = new ArrayList<>();
             for (SpecInput s : req.specs()) {
                 SpecParse parse = openApiModelExtractor.extract(s.id(), s.content());
@@ -151,6 +169,7 @@ public class ContractValidationService {
 
             String llmCorrected = null;
             if (req.llmEnabled() && !findings.isEmpty() && llm.isAvailable()) {
+                stage(scan, "RECONCILING");
                 ReconcileResult rr = reconcile(code, specModels, findings, req.owner(), scan.getId());
                 enrich.putAll(rr.enrich());
                 scan.setTotalPremiumRequests(rr.cost().premiumRequests());
@@ -171,6 +190,7 @@ public class ContractValidationService {
                 scan.setBlindSpots(existing == null || existing.isBlank() ? extractor : existing + " " + extractor);
             }
 
+            stage(scan, "REPORTING");
             // Corrected YAML: prefer the LLM-reconciled spec IF it round-trips; else the deterministic
             // code-wins spec; never write a spec that fails to re-parse.
             String primarySpecYaml = req.specs().isEmpty() ? null : req.specs().get(0).content();
@@ -233,6 +253,7 @@ public class ContractValidationService {
                 log.warn("PDF report skipped: {}", ex.getMessage());
             }
             scan.setStatus(RunStatus.COMPLETED);
+            scan.setStage("DONE");
             scan.setFinishedAt(Instant.now());
             // Atomic: the findings and the COMPLETED scan are written together (one transaction).
             scanPersistence.complete(scan, findings, enrich);
@@ -242,6 +263,7 @@ public class ContractValidationService {
         } catch (Exception ex) {
             log.error("validate-contract failed for {}", req.serviceName(), ex);
             scan.setStatus(RunStatus.FAILED);
+            scan.setStage("FAILED");
             scan.setErrorMessage(ex.getMessage());
             scan.setFinishedAt(Instant.now());
             scanRepository.save(scan);

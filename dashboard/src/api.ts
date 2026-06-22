@@ -50,10 +50,13 @@ export interface Scan {
   id: string
   serviceName: string
   status: string
+  /** Live progress step while RUNNING: QUEUED | CLONING | RESOLVING_SPEC | EXTRACTING | DIFFING | RECONCILING | REPORTING | DONE | FAILED. */
+  stage?: string
   totalFindings: number
   totalEstCostUsd: number
   startedAt: string
   specSources: string
+  errorMessage?: string
 }
 
 export interface Finding {
@@ -80,7 +83,8 @@ export interface Repo {
 }
 
 export interface DefectResult { jiraKey: string; jiraUrl: string }
-export interface ScanResult { scanId: string; status: string; totalFindings: number }
+/** 202 body from POST /scans — the scan runs in the background; poll {@link api.scan} for stage/status. */
+export interface ScanAccepted { scanId: string; status: string }
 
 export interface TestPlan {
   id: string
@@ -201,6 +205,7 @@ export interface Deliverable {
 
 export const api = {
   scans: (service?: string) => get<Scan[]>(`/scans${service ? `?service=${encodeURIComponent(service)}` : ''}`),
+  scan: (id: string) => get<Scan>(`/scans/${encodeURIComponent(id)}`),
   findings: (scanId: string, facets?: { severity?: string; layer?: string; status?: string }) => {
     const qs = new URLSearchParams()
     if (facets?.severity) qs.set('severity', facets.severity)
@@ -214,9 +219,9 @@ export const api = {
     get<string[]>(`/repos/${encodeURIComponent(slug)}/branches?appId=${encodeURIComponent(appId)}`),
   createDefect: (findingId: string, projectKey: string) =>
     post<DefectResult>(`/findings/${findingId}/defect`, { projectKey, issueType: 'Bug' }),
-  triggerScan: (body: { appId?: string; repoSlug?: string; branch?: string; repoPath?: string;
-    specPaths?: string[]; specSources?: { kind: string; ref: string }[] }) =>
-    post<ScanResult>('/scans', body),
+  triggerScan: (body: { serviceName?: string; appId?: string; repoSlug?: string; branch?: string; repoPath?: string;
+    specPaths?: string[]; specSources?: { kind: string; ref: string }[]; llmEnabled?: boolean }) =>
+    post<ScanAccepted>('/scans', body),
   reportUrl: (scanId: string) => `${BASE}/scans/${scanId}/report`,
   testPlans: () => get<TestPlan[]>('/test-plans'),
   testPlan: (id: string) => get<TestPlanDetail>(`/test-plans/${id}`),
