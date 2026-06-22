@@ -1,0 +1,75 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── NBC design tokens as RGB channel triplets (so Tailwind opacity modifiers work). Dark mode flips them. ── */
+:root {
+  --brand-50: 253 236 239;
+  --brand-600: 227 24 55;     /* NBC red — logo / primary action / active nav only, never body text */
+  --brand-700: 179 18 44;
+  --gold: 138 106 30;
+  --gold-fill: 181 133 42;
+  --gold-tint: 247 239 217;
+
+  --ink-50: 247 249 252;
+  --ink-100: 227 230 235;
+  --ink-600: 107 114 128;
+  --ink-700: 45 58 87;
+  --ink-900: 14 23 38;
+
+  --bg: 244 246 250;
+  --surface: 255 255 255;
+  --border: 227 230 235;
+  --muted: 107 114 128;
+  --text: 14 23 38;
+  --sidebar: 14 23 38;
+
+  --success: 30 142 90;
+  --warning: 194 65 12;
+  --danger: 194 18 45;
+  --info: 58 70 88;
+
+  --sev-blocker: 107 33 168;
+  --sev-critical: 194 18 45;
+  --sev-major: 194 65 12;
+  --sev-minor: 202 138 4;
+  --sev-info: 58 70 88;
+}
+
+.dark {
+  --brand-50: 42 11 18;
+  --brand-600: 255 77 106;
+  --brand-700: 227 24 55;
+  --gold: 216 178 90;
+  --gold-tint: 42 36 18;
+
+  --ink-50: 26 36 56;
+  --ink-100: 36 48 73;
+  --ink-600: 148 163 184;
+  --ink-900: 229 234 242;
+
+  --bg: 11 18 32;
+  --surface: 19 28 46;
+  --border: 36 48 73;
+  --muted: 148 163 184;
+  --text: 229 234 242;
+  --sidebar: 11 18 32;
+
+  --success: 52 211 153;
+  --warning: 251 146 60;
+  --danger: 248 113 113;
+  --info: 148 163 184;
+}
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    margin: 0;
+    background: rgb(var(--bg));
+    color: rgb(var(--text));
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  code, pre { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+}

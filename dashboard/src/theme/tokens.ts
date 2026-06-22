@@ -1,0 +1,25 @@
+// Static Tailwind class maps (kept whole here so Tailwind's content scan never purges them).
+
+export type Severity = 'BLOCKER' | 'CRITICAL' | 'MAJOR' | 'MINOR' | 'INFO';
+
+/** Severity pill styling — colored text + ring + subtle tint on the surface. */
+export const SEVERITY_BADGE: Record<string, string> = {
+  BLOCKER: 'bg-sev-blocker/10 text-sev-blocker ring-1 ring-sev-blocker/30',
+  CRITICAL: 'bg-sev-critical/10 text-sev-critical ring-1 ring-sev-critical/30',
+  MAJOR: 'bg-sev-major/10 text-sev-major ring-1 ring-sev-major/30',
+  MINOR: 'bg-sev-minor/10 text-sev-minor ring-1 ring-sev-minor/30',
+  INFO: 'bg-sev-info/10 text-sev-info ring-1 ring-sev-info/30',
+};
+
+export function severityBadge(sev?: string): string {
+  return SEVERITY_BADGE[(sev || 'INFO').toUpperCase()] ?? SEVERITY_BADGE.INFO;
+}
+
+/** Generic status tone → pill classes (for gates, defect status, connection tests, build status…). */
+export const TONE: Record<string, string> = {
+  ok: 'bg-success/10 text-success ring-1 ring-success/30',
+  warn: 'bg-warning/10 text-warning ring-1 ring-warning/30',
+  danger: 'bg-danger/10 text-danger ring-1 ring-danger/30',
+  info: 'bg-info/10 text-info ring-1 ring-info/30',
+  muted: 'bg-ink-600/10 text-muted ring-1 ring-ink-600/20',
+};
