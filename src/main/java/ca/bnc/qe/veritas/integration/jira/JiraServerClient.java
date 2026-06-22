@@ -49,6 +49,16 @@ public class JiraServerClient implements JiraClient {
         this.corp = corp;
     }
 
+    @Override
+    public String whoAmI() {
+        try {
+            String resp = corp.get(base() + "/rest/api/2/myself", authHeaders());
+            return mapper.readTree(resp == null ? "{}" : resp).path("displayName").asText("authenticated");
+        } catch (Exception e) {
+            throw new IllegalStateException("Jira /myself failed: " + e.getMessage(), e);
+        }
+    }
+
     private java.util.Map<String, String> authHeaders() {
         return java.util.Map.of("Authorization", authHeader(), "Accept", "application/json");
     }

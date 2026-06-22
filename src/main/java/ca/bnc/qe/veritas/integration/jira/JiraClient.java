@@ -33,4 +33,9 @@ public interface JiraClient {
     default List<JiraVersion> listVersions(String projectKey) {
         return List.of();
     }
+
+    /** Cheap authenticated identity probe (`/myself`) for Test Connection; returns the account name or throws. */
+    default String whoAmI() {
+        throw new UnsupportedOperationException("whoAmI not supported by this Jira client");
+    }
 }

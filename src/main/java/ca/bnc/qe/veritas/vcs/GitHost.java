@@ -21,4 +21,9 @@ public interface GitHost {
      */
     String openPullRequest(String repoSlug, String sourceBranch, String targetBranch,
                            String title, String description);
+
+    /** Cheap authenticated identity probe (current user) for Test Connection; returns the username or throws. */
+    default String whoAmI() {
+        throw new UnsupportedOperationException("whoAmI not supported by this git host");
+    }
 }

@@ -46,6 +46,19 @@ public class ConfluenceCloudClient implements ConfluenceClient {
         }
     }
 
+    @Override
+    public String whoAmI() {
+        try {
+            String resp = retries.call(() -> http.get()
+                    .uri(URI.create(base() + "/wiki/rest/api/user/current"))
+                    .header("Authorization", authHeader())
+                    .retrieve().body(String.class));
+            return mapper.readTree(resp == null ? "{}" : resp).path("displayName").asText("authenticated");
+        } catch (Exception e) {
+            throw new IllegalStateException("Confluence current-user failed: " + e.getMessage(), e);
+        }
+    }
+
     String authHeader() {
         // Honor the configured auth-type (was hardcoded Basic). BNC + the application.yml default is BEARER (PAT),
         // matching the Jira client; classic Confluence Cloud (email + API token) still works via auth-type: BASIC.

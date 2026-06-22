@@ -92,6 +92,17 @@ public class JiraCloudClient implements JiraClient {
     }
 
     @Override
+    public String whoAmI() {
+        try {
+            String resp = retries.call(() -> http.get().uri(URI.create(base() + "/rest/api/3/myself"))
+                    .header("Authorization", authHeader()).retrieve().body(String.class));
+            return mapper.readTree(resp == null ? "{}" : resp).path("displayName").asText("authenticated");
+        } catch (Exception e) {
+            throw new IllegalStateException("Jira /myself failed: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
     public String createIssue(JiraCreateRequest request) {
         try {
             String payload = buildCreatePayload(request);
