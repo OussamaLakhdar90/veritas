@@ -54,6 +54,8 @@ export function Settings() {
         </CardBody>
       </Card>
 
+      <EngineCard />
+
       <CopilotCard />
 
       {conns.isLoading || secrets.isLoading ? (
@@ -75,6 +77,61 @@ export function Settings() {
         </div>
       ) : <p className="text-sm text-danger">Could not load settings.</p>}
     </div>
+  );
+}
+
+/* ── LLM engine (mock vs live) ───────────────────────────────────────────── */
+function EngineCard() {
+  const qc = useQueryClient();
+  const toast = useToast();
+  const llm = useQuery({ queryKey: ['llm'], queryFn: api.llmSettings });
+  const [mode, setMode] = useState<string | null>(null);
+
+  const save = useMutation({
+    mutationFn: (m: string) => api.saveLlmSettings(m),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ['llm'] });
+      toast.push(r.restartRequiredFields.length ? 'info' : 'success',
+        r.restartRequiredFields.length ? 'Saved — restart Veritas to switch the engine.' : 'Saved.');
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+
+  const active = llm.data?.active ?? 'mock';
+  const desired = mode ?? llm.data?.desired ?? active;
+  const simulated = llm.data?.simulated ?? true;
+  const pendingRestart = desired.toLowerCase() !== active.toLowerCase();
+
+  return (
+    <Card className="mb-6">
+      <CardHeader title="LLM engine"
+        subtitle="Which engine runs the skills. Mock returns simulated results; switch to Copilot for real analysis."
+        action={<span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${simulated ? 'bg-warning/10 text-warning ring-1 ring-warning/30' : 'bg-success/10 text-success ring-1 ring-success/30'}`}>
+          {simulated ? 'Mock · simulated' : 'Copilot · live'}</span>} />
+      <CardBody className="space-y-4">
+        {simulated && (
+          <div className="flex items-start gap-2 rounded-lg bg-warning/5 p-3 text-[13px] text-ink-700">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+            <span>You're in <strong>mock</strong> mode — skill results are simulated and the Copilot sign-in below is not used.
+              Switch to Copilot and restart to run real analysis.</span>
+          </div>
+        )}
+        <div className="flex items-end justify-between gap-4">
+          <Field label="Engine" hint="Takes effect after a restart (the gateway is wired at startup).">
+            <Select value={desired} onChange={(e) => setMode(e.target.value)}>
+              <option value="mock">Mock — simulated (no tokens needed)</option>
+              <option value="http">Copilot — HTTP device-flow (recommended)</option>
+              <option value="copilot">Copilot — CLI binary</option>
+            </Select>
+          </Field>
+          <Button size="sm" loading={save.isPending} disabled={desired.toLowerCase() === (llm.data?.desired ?? active).toLowerCase()}
+            onClick={() => save.mutate(desired)}>Save</Button>
+        </div>
+        {pendingRestart && (
+          <p className="text-[12px] text-warning">Pending: <strong>{desired}</strong> will be active after the next restart (currently running <strong>{active}</strong>).</p>
+        )}
+      </CardBody>
+    </Card>
   );
 }
 

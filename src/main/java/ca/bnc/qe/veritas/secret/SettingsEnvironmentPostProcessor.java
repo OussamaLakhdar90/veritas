@@ -45,6 +45,34 @@ public class SettingsEnvironmentPostProcessor implements EnvironmentPostProcesso
         if (!conn.isEmpty()) {
             env.getPropertySources().addFirst(new MapPropertySource("veritas-connections-file", conn));
         }
+
+        // Overlay the persisted LLM engine (chooses the @ConditionalOnProperty gateway bean) — but an explicit
+        // -Dveritas.llm.mode / VERITAS_LLM_MODE always wins, so a developer's flag is never overridden by the file.
+        boolean modeExplicit = System.getProperty("veritas.llm.mode") != null
+                || System.getenv("VERITAS_LLM_MODE") != null;
+        if (!modeExplicit) {
+            String mode = loadPersistedLlmMode();
+            if (mode != null && !mode.isBlank()) {
+                env.getPropertySources().addFirst(new MapPropertySource("veritas-llm-file",
+                        Map.of("veritas.llm.mode", mode)));
+            }
+        }
+    }
+
+    /** Read the persisted engine ({@code mode}) from {@code ~/.veritas/llm.json}; null when absent/corrupt. */
+    @SuppressWarnings("unchecked")
+    private String loadPersistedLlmMode() {
+        try {
+            Path file = Path.of(System.getProperty("user.home"), ".veritas", "llm.json");
+            if (!Files.exists(file)) {
+                return null;
+            }
+            Object mode = new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readValue(Files.readString(file), Map.class).get("mode");
+            return mode == null ? null : mode.toString();
+        } catch (Exception ignore) {
+            return null;
+        }
     }
 
     /** Flatten {@code ~/.veritas/connections.json} into {@code veritas.connections.<svc>.<field>} props. */
