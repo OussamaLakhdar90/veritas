@@ -7,7 +7,7 @@ import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toast';
 
 type ServiceKey = 'bitbucket' | 'jira' | 'xray' | 'confluence';
-interface TokenField { key: string; label: string; optional?: boolean }
+interface TokenField { key: string; label: string; optional?: boolean; role?: 'username' | 'secret' }
 interface ServiceDef {
   key: ServiceKey; label: string; editions: string[];
   /** Auth types offered per edition (Cloud and Server/DC use different mechanisms). */
@@ -18,22 +18,28 @@ interface ServiceDef {
   note?: Record<string, string>;   // optional per-edition hint shown on the card
 }
 
+// Auth types that require a username (Basic = user+password; App-password = user+token). Bearer/OAuth/Client-creds don't.
+const NEEDS_USERNAME = new Set(['BASIC', 'APP_PASSWORD']);
+
 const SERVICES: ServiceDef[] = [
   { key: 'bitbucket', label: 'Bitbucket', editions: ['CLOUD', 'SERVER_DC'],
     authByEdition: { CLOUD: ['APP_PASSWORD', 'OAUTH'], SERVER_DC: ['BEARER', 'BASIC'] },
     workspaceEditions: ['CLOUD'],
-    tokens: [{ key: 'GIT_USERNAME', label: 'Username (BASIC auth only)', optional: true },
-             { key: 'GIT_TOKEN', label: 'HTTP access token / app password' }],
-    note: { SERVER_DC: 'Server/DC: use BEARER with an HTTP access token (PAT). No workspace — enter the project key (app-id) on the Validate screen.' } },
+    tokens: [{ key: 'GIT_USERNAME', label: 'Username', role: 'username', optional: true },
+             { key: 'GIT_TOKEN', label: 'HTTP access token', role: 'secret' }],
+    note: { SERVER_DC: 'Server/DC: BEARER = an HTTP access token (PAT); BASIC = your BNC username + password. No workspace — the project key (app-id) is entered on the Validate screen.' } },
   { key: 'jira', label: 'Jira', editions: ['SERVER_DC', 'CLOUD'],
     authByEdition: { SERVER_DC: ['BEARER', 'BASIC'], CLOUD: ['BEARER', 'BASIC'] },
-    tokens: [{ key: 'JIRA_USERNAME', label: 'Username (BASIC auth only)', optional: true }, { key: 'JIRA_API_TOKEN', label: 'API token / PAT' }] },
+    tokens: [{ key: 'JIRA_USERNAME', label: 'Username', role: 'username', optional: true },
+             { key: 'JIRA_API_TOKEN', label: 'HTTP access token', role: 'secret' }] },
   { key: 'xray', label: 'Xray', editions: ['SERVER_DC', 'CLOUD'],
-    authByEdition: { SERVER_DC: ['BEARER'], CLOUD: ['CLIENT_CREDENTIALS', 'BEARER'] },
-    tokens: [{ key: 'XRAY_API_TOKEN', label: 'Token (Server/DC may reuse the Jira token)', optional: true }] },
+    authByEdition: { SERVER_DC: ['BEARER', 'BASIC'], CLOUD: ['CLIENT_CREDENTIALS', 'BEARER'] },
+    tokens: [{ key: 'JIRA_USERNAME', label: 'Username', role: 'username', optional: true },
+             { key: 'XRAY_API_TOKEN', label: 'HTTP access token (may reuse the Jira token)', role: 'secret', optional: true }] },
   { key: 'confluence', label: 'Confluence', editions: ['CLOUD', 'SERVER_DC'],
     authByEdition: { CLOUD: ['BEARER', 'BASIC'], SERVER_DC: ['BEARER', 'BASIC'] },
-    tokens: [{ key: 'CONFLUENCE_API_TOKEN', label: 'API token' }] },
+    tokens: [{ key: 'JIRA_USERNAME', label: 'Username', role: 'username', optional: true },
+             { key: 'CONFLUENCE_API_TOKEN', label: 'HTTP access token', role: 'secret' }] },
 ];
 
 export function Settings() {
@@ -284,13 +290,25 @@ function ServiceCard({ def, initial, secrets, onSaved, onError }: {
         </div>
         {note && <p className="text-[12px] text-muted">{note}</p>}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {def.tokens.map((t) => (
-            <Field key={t.key} label={t.label}
-              hint={secrets[t.key] ? '● configured — leave blank to keep' : (t.optional ? 'optional' : 'not set')}>
-              <Input type="password" autoComplete="off" placeholder={secrets[t.key] ? '••••••••' : ''}
-                value={tokens[t.key] ?? ''} onChange={(e) => setTokens((s) => ({ ...s, [t.key]: e.target.value }))} />
-            </Field>
-          ))}
+          {def.tokens
+            // Username only matters for username+secret schemes (BASIC / APP_PASSWORD); hide it for token-only auth.
+            .filter((t) => t.role !== 'username' || NEEDS_USERNAME.has(authType ?? ''))
+            .map((t) => {
+              const label = t.role === 'secret'
+                ? (authType === 'BASIC' ? 'Password' : authType === 'BEARER' ? 'HTTP access token (PAT)' : t.label)
+                : t.label;
+              const isUsername = t.role === 'username';
+              return (
+                <Field key={t.key} label={label}
+                  hint={isUsername
+                    ? (secrets[t.key] ? '● set — leave blank to keep' : 'your BNC username')
+                    : (secrets[t.key] ? '● configured — leave blank to keep' : (t.optional ? 'optional' : 'required'))}>
+                  <Input type={isUsername ? 'text' : 'password'} autoComplete="off"
+                    placeholder={secrets[t.key] ? (isUsername ? '(set)' : '••••••••') : ''}
+                    value={tokens[t.key] ?? ''} onChange={(e) => setTokens((s) => ({ ...s, [t.key]: e.target.value }))} />
+                </Field>
+              );
+            })}
         </div>
         <div className="flex items-center justify-between">
           {test ? <span className={`inline-flex items-center gap-1.5 text-[13px] ${testTone}`}>

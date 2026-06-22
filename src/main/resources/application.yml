@@ -45,24 +45,26 @@ veritas:
     editor-version: "vscode/1.100.0"
     integration-id: "vscode-chat"
     api-version: "2025-04-01"
+  # Recommended BNC defaults (Server/DC, HTTP access token). All editable in the Settings UI; a saved
+  # connections.json overrides these at next start. Auth: BEARER (HTTP access token) | BASIC (username + password).
   connections:
     bitbucket:
-      base-url: "https://api.bitbucket.org"   # or the internal vanity host (git.bnc) fronting Cloud
-      edition: CLOUD
-      workspace: ""                            # set to the BNC workspace
-      auth-type: APP_PASSWORD                  # APP_PASSWORD | OAUTH
+      base-url: "https://git.bnc.ca"
+      edition: SERVER_DC                       # SERVER_DC (BNC) | CLOUD — switches live via GitHostRouter
+      workspace: ""                            # Cloud only; on Server/DC the project key is the app-id (entered on Validate)
+      auth-type: BEARER                        # BEARER (HTTP access token) | BASIC (username + password)
     jira:
-      base-url: ""
-      edition: SERVER_DC        # SERVER_DC (v2 + wiki-markup + Bearer PAT, matches BNC contract-validator) | CLOUD (v3 + ADF + Basic)
-      auth-type: BEARER         # BEARER (PAT) | BASIC (username + token)
+      base-url: "https://jira.bnc.ca"
+      edition: SERVER_DC        # SERVER_DC (v2 + wiki-markup + Bearer PAT, matches BNC) | CLOUD (v3 + ADF)
+      auth-type: BEARER         # BEARER (HTTP access token) | BASIC (username + password)
     confluence:
-      base-url: ""
-      edition: CLOUD
+      base-url: "https://wiki.bnc.ca"
+      edition: SERVER_DC
       auth-type: BEARER
     xray:
-      base-url: "https://xray.cloud.getxray.app"   # Cloud only; SERVER_DC uses the Jira base-url (Raven on the Jira host)
+      base-url: "https://jira.bnc.ca"          # Server/DC: Raven REST on the Jira host
       edition: SERVER_DC        # SERVER_DC (Raven REST on Jira host, matches BNC) | CLOUD (GraphQL)
-      auth-type: BEARER         # SERVER_DC: Bearer (Xray/Jira PAT) | CLOUD: CLIENT_CREDENTIALS
+      auth-type: BEARER         # SERVER_DC: BEARER (Xray/Jira token) | CLOUD: CLIENT_CREDENTIALS
 
 logging:
   level:
