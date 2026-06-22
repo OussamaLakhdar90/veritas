@@ -26,6 +26,9 @@ veritas:
     model: claude-sonnet-4.6
     timeout-seconds: 180
     context-budget-chars: 16000   # per untrusted input block; oversized inputs trimmed head+tail to cut noise
+    max-prompt-tokens: 60000      # whole-prompt cap (est. ~4 chars/token). Over this, untrusted inputs are squeezed
+                                  # to fit the model's context window; 0 disables the cap. Tune to the model context size.
+    output-headroom-tokens: 8000  # tokens reserved for the model's reply inside the context window
   report:
     bilingual: true     # render EN/FR; translation is the ONLY LLM call in report generation and uses the cheapest tier
   http:                  # BNC-facing HTTP transport (Jira v2 + Copilot)
