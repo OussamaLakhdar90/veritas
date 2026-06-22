@@ -84,6 +84,11 @@ public class OpenApiModelExtractor {
             }
         }
         RequestBodyModel body = toRequestBody(specId, path, op.getRequestBody());
+        // consumes = request-body content types; produces = union of response content types (for the media-type diff).
+        // mediaTypes(...) is null when a body/response has no content, so coalesce to empty everywhere.
+        List<String> consumes = op.getRequestBody() == null ? List.of()
+                : orEmpty(mediaTypes(op.getRequestBody().getContent()));
+        java.util.LinkedHashSet<String> producesSet = new java.util.LinkedHashSet<>();
         List<ResponseModel> responses = new ArrayList<>();
         if (op.getResponses() != null) {
             for (Map.Entry<String, ApiResponse> r : op.getResponses().entrySet()) {
@@ -91,8 +96,9 @@ public class OpenApiModelExtractor {
                 if (status == null) {
                     continue;
                 }
-                responses.add(new ResponseModel(status, contentSchemaRef(r.getValue() == null ? null : r.getValue().getContent()),
-                        mediaTypes(r.getValue() == null ? null : r.getValue().getContent()), "SPEC",
+                var content = r.getValue() == null ? null : r.getValue().getContent();
+                producesSet.addAll(orEmpty(mediaTypes(content)));
+                responses.add(new ResponseModel(status, contentSchemaRef(content), mediaTypes(content), "SPEC",
                         SourceRef.spec(specId, "/paths" + path + "/" + method.name().toLowerCase() + "/responses/" + status, null)));
             }
         }
@@ -103,7 +109,8 @@ public class OpenApiModelExtractor {
         if (sec != null) {
             sec.forEach(r -> security.addAll(r.keySet()));
         }
-        return new Endpoint(method, path, op.getOperationId(), params, body, responses, null, null, security,
+        return new Endpoint(method, path, op.getOperationId(), params, body, responses,
+                consumes, new ArrayList<>(producesSet), security,
                 SourceRef.spec(specId, "/paths" + path + "/" + method.name().toLowerCase(), null));
     }
 
@@ -194,6 +201,10 @@ public class OpenApiModelExtractor {
 
     private List<String> mediaTypes(io.swagger.v3.oas.models.media.Content content) {
         return content == null ? null : new ArrayList<>(content.keySet());
+    }
+
+    private List<String> orEmpty(List<String> v) {
+        return v == null ? List.of() : v;
     }
 
     private String refName(String ref) {

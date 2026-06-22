@@ -65,6 +65,38 @@ class DiffEngineDeepTest {
                 List.of(ep("Foo", List.of(new ResponseModel(200, "Foo", null, origin, src)))), Map.of("Foo", s));
     }
 
+    private Endpoint epMedia(String origin, List<String> consumes, List<String> produces) {
+        return new Endpoint(HttpMethod.POST, "/m", "m", List.of(), null,
+                List.of(new ResponseModel(200, null, null, origin, src)), consumes, produces, List.of(), src);
+    }
+
+    @Test
+    void producesMediaTypeDivergenceIsFlaggedButMatchingIsNot() {
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(epMedia("RETURN", List.of(), List.of("application/json"))), Map.of());
+        ApiModel specXml = new ApiModel("repo-spec", null, null, null,
+                List.of(epMedia("SPEC", List.of(), List.of("application/xml"))), Map.of());
+        assertThat(diff.diffCodeVsSpec(code, specXml).stream().map(Finding::getType))
+                .contains(FindingType.CONSUMES_PRODUCES_MISMATCH);
+
+        // same base type, different charset param → NOT flagged
+        ApiModel specJsonCharset = new ApiModel("repo-spec", null, null, null,
+                List.of(epMedia("SPEC", List.of(), List.of("application/json;charset=UTF-8"))), Map.of());
+        assertThat(diff.diffCodeVsSpec(code, specJsonCharset).stream().map(Finding::getType))
+                .doesNotContain(FindingType.CONSUMES_PRODUCES_MISMATCH);
+    }
+
+    @Test
+    void mediaTypeNotFlaggedWhenCodeDeclaresNone() {
+        // code declares no media types (defaults to JSON) — comparing would be noise, so no finding
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(epMedia("RETURN", List.of(), List.of())), Map.of());
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(epMedia("SPEC", List.of(), List.of("application/xml"))), Map.of());
+        assertThat(diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType))
+                .doesNotContain(FindingType.CONSUMES_PRODUCES_MISMATCH);
+    }
+
     @Test
     void specSecuredButCodeCentralizesAuthIsNotFalselyFlagged() {
         Endpoint codeOpen = new Endpoint(HttpMethod.GET, "/s", "getS", List.of(), null,

@@ -210,6 +210,11 @@ public class DiffEngine {
                     "Spec requires security (" + String.join(", ", se.security())
                             + ") but the code enforces none on this endpoint", ce, Confidence.MEDIUM));
         }
+        // consumes/produces media-type divergence. Only when the CODE side declares them (most endpoints default
+        // to JSON and declare nothing — comparing those would be noise). Compared as case-insensitive sets.
+        mediaTypeMismatch(findings, ce, spec, "produces", ce.produces(), se.produces());
+        mediaTypeMismatch(findings, ce, spec, "consumes", ce.consumes(), se.consumes());
+
         // success-response body schema differs between code and spec
         String codeRef = successSchemaRef(ce);
         String specRef = successSchemaRef(se);
@@ -230,6 +235,35 @@ public class DiffEngine {
 
     private String normRef(String ref) {
         return ref == null ? null : ref.replace("[]", "").toLowerCase(Locale.ROOT);
+    }
+
+    /** Flag a consumes/produces divergence only when the code side declares media types (else it's noise). */
+    private void mediaTypeMismatch(List<Finding> findings, Endpoint ce, ApiModel spec, String which,
+                                   java.util.List<String> code, java.util.List<String> specMt) {
+        if (code == null || code.isEmpty() || specMt == null || specMt.isEmpty()) {
+            return;
+        }
+        if (!mediaSet(code).equals(mediaSet(specMt))) {
+            findings.add(finding(FindingType.CONSUMES_PRODUCES_MISMATCH, label(ce), spec.source(),
+                    which + " media types — code " + code + " vs spec " + specMt, ce, Confidence.LOW));
+        }
+    }
+
+    /** Media types compared by base type, case-insensitive, ignoring parameters (e.g. {@code ;charset=utf-8}). */
+    private java.util.Set<String> mediaSet(java.util.List<String> v) {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        for (String x : v) {
+            if (x == null) {
+                continue;
+            }
+            String base = x.toLowerCase(Locale.ROOT);
+            int semi = base.indexOf(';');
+            base = (semi >= 0 ? base.substring(0, semi) : base).trim();
+            if (!base.isEmpty()) {
+                out.add(base);
+            }
+        }
+        return out;
     }
 
     /** True when the code model flagged that authorization is centralized in a SecurityFilterChain/HttpSecurity bean. */

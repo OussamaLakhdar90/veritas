@@ -294,6 +294,8 @@ public class JavaSpringExtractor {
             return List.of();
         }
         List<String> methodPaths = annotationPaths(mm.annotation(), constants, blindSpots);
+        List<String> consumes = stringList(mm.annotation(), "consumes");   // @*Mapping(consumes=…)
+        List<String> produces = stringList(mm.annotation(), "produces");   // @*Mapping(produces=…)
 
         // --- params / body / responses are identical across the method's path×verb combinations ---
         List<ParamModel> params = new ArrayList<>();
@@ -341,7 +343,7 @@ public class JavaSpringExtractor {
                 String path = joinPath(b, mp);
                 for (HttpMethod verb : mm.verbs()) {
                     out.add(new Endpoint(verb, path, m.getNameAsString(), params, body, responses,
-                            null, null, security, src));
+                            consumes, produces, security, src));
                 }
             }
         }
@@ -496,6 +498,32 @@ public class JavaSpringExtractor {
             }
         }
         return null;
+    }
+
+    /**
+     * All string literals from a NAMED annotation member (single value or array), e.g. {@code consumes}/
+     * {@code produces}. Only named pairs are read — never the single-member form (which is the path/value), so
+     * {@code @GetMapping("/x")} yields no produces. Returns an empty list when the member is absent.
+     */
+    private List<String> stringList(AnnotationExpr a, String member) {
+        if (!(a instanceof NormalAnnotationExpr na)) {
+            return List.of();
+        }
+        for (var pair : na.getPairs()) {
+            if (pair.getNameAsString().equals(member)) {
+                Expression e = pair.getValue();
+                List<Expression> elems = e instanceof ArrayInitializerExpr arr ? arr.getValues() : List.of(e);
+                List<String> out = new ArrayList<>();
+                for (Expression x : elems) {
+                    String v = literal(x.toString());
+                    if (v != null && !v.isBlank()) {
+                        out.add(v);
+                    }
+                }
+                return out;
+            }
+        }
+        return List.of();
     }
 
     /** Static String constants (incl. interface fields) from the scanned sources, keyed by name and Owner.NAME. */
