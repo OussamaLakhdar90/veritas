@@ -59,8 +59,9 @@ public class ConnectionsConfigService {
                 throw new IllegalArgumentException("Invalid edition '" + in.edition() + "' for " + name
                         + " — expected one of " + EDITIONS);
             }
-            if (!edition.equalsIgnoreCase(ep.getEdition())) {
-                restart.add(name + ".edition");   // bean wiring is startup-fixed → surface "restart to activate"
+            // Bitbucket switches live via GitHostRouter; the other clients are @ConditionalOnProperty (startup-fixed).
+            if (!edition.equalsIgnoreCase(ep.getEdition()) && !"bitbucket".equals(name)) {
+                restart.add(name + ".edition");   // surface "restart to activate" for the startup-wired clients
             }
             ep.setEdition(edition);
         }

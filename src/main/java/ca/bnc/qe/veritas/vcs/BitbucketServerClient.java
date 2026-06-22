@@ -15,19 +15,17 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.jgit.api.Git;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 /**
- * Bitbucket <b>Server/Data Center</b> git host (REST {@code /rest/api/1.0}). Active when
- * {@code veritas.connections.bitbucket.edition=SERVER_DC}; the {@link BitbucketCloudClient} is the default.
- * The app-id is the Server/DC <b>project key</b>; the configured {@code workspace} holds the project key used
- * for branch/PR paths. Bearer PAT (default) or Basic auth via the per-user {@link SecretProvider}.
+ * Bitbucket <b>Server/Data Center</b> git host (REST {@code /rest/api/1.0}). Selected by {@link GitHostRouter}
+ * when {@code bitbucket.edition=SERVER_DC} (live, no restart). The app-id is the Server/DC <b>project key</b>
+ * (entered on the Validate screen for discovery); branch/PR paths fall back to the configured {@code workspace}
+ * as the project key. Bearer PAT (default, an HTTP access token) or Basic auth via the {@link SecretProvider}.
  * Page traversal uses Server/DC's {@code isLastPage}/{@code nextPageStart} envelope.
  */
 @Component
-@ConditionalOnProperty(name = "veritas.connections.bitbucket.edition", havingValue = "SERVER_DC")
 @Slf4j
 public class BitbucketServerClient implements GitHost {
 

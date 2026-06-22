@@ -16,7 +16,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.jgit.api.Git;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -25,10 +24,11 @@ import org.springframework.web.client.RestClient;
  * REST {@code /2.0}; Basic (app password) or Bearer (OAuth) auth via the per-user {@link SecretProvider}.
  * URI/auth building is package-visible for unit tests; the HTTP/clone calls are validated against git.bnc.
  *
- * <p>Default git host; {@link BitbucketServerClient} takes over when {@code …bitbucket.edition=SERVER_DC}.
+ * <p>Both this and {@link BitbucketServerClient} are always beans; {@link GitHostRouter} (the {@code @Primary}
+ * {@link GitHost}) picks between them per request from the live {@code bitbucket.edition} — so a setting change
+ * applies without a restart.
  */
 @Component
-@ConditionalOnProperty(name = "veritas.connections.bitbucket.edition", havingValue = "CLOUD", matchIfMissing = true)
 @Slf4j
 public class BitbucketCloudClient implements GitHost {
 

@@ -9,17 +9,30 @@ import { useToast } from '../components/Toast';
 type ServiceKey = 'bitbucket' | 'jira' | 'xray' | 'confluence';
 interface TokenField { key: string; label: string; optional?: boolean }
 interface ServiceDef {
-  key: ServiceKey; label: string; editions: string[]; authTypes: string[]; showWorkspace?: boolean; tokens: TokenField[];
+  key: ServiceKey; label: string; editions: string[];
+  /** Auth types offered per edition (Cloud and Server/DC use different mechanisms). */
+  authByEdition: Record<string, string[]>;
+  /** Editions for which the Workspace field applies (Cloud only — Server/DC keys repos by project). */
+  workspaceEditions?: string[];
+  tokens: TokenField[];
+  note?: Record<string, string>;   // optional per-edition hint shown on the card
 }
 
 const SERVICES: ServiceDef[] = [
-  { key: 'bitbucket', label: 'Bitbucket', editions: ['CLOUD', 'SERVER_DC'], authTypes: ['APP_PASSWORD', 'OAUTH'], showWorkspace: true,
-    tokens: [{ key: 'GIT_USERNAME', label: 'Username (app-password auth)', optional: true }, { key: 'GIT_TOKEN', label: 'Token / app password' }] },
-  { key: 'jira', label: 'Jira', editions: ['SERVER_DC', 'CLOUD'], authTypes: ['BEARER', 'BASIC'],
-    tokens: [{ key: 'JIRA_USERNAME', label: 'Username (Basic auth)', optional: true }, { key: 'JIRA_API_TOKEN', label: 'API token / PAT' }] },
-  { key: 'xray', label: 'Xray', editions: ['SERVER_DC', 'CLOUD'], authTypes: ['BEARER', 'CLIENT_CREDENTIALS'],
+  { key: 'bitbucket', label: 'Bitbucket', editions: ['CLOUD', 'SERVER_DC'],
+    authByEdition: { CLOUD: ['APP_PASSWORD', 'OAUTH'], SERVER_DC: ['BEARER', 'BASIC'] },
+    workspaceEditions: ['CLOUD'],
+    tokens: [{ key: 'GIT_USERNAME', label: 'Username (BASIC auth only)', optional: true },
+             { key: 'GIT_TOKEN', label: 'HTTP access token / app password' }],
+    note: { SERVER_DC: 'Server/DC: use BEARER with an HTTP access token (PAT). No workspace — enter the project key (app-id) on the Validate screen.' } },
+  { key: 'jira', label: 'Jira', editions: ['SERVER_DC', 'CLOUD'],
+    authByEdition: { SERVER_DC: ['BEARER', 'BASIC'], CLOUD: ['BEARER', 'BASIC'] },
+    tokens: [{ key: 'JIRA_USERNAME', label: 'Username (BASIC auth only)', optional: true }, { key: 'JIRA_API_TOKEN', label: 'API token / PAT' }] },
+  { key: 'xray', label: 'Xray', editions: ['SERVER_DC', 'CLOUD'],
+    authByEdition: { SERVER_DC: ['BEARER'], CLOUD: ['CLIENT_CREDENTIALS', 'BEARER'] },
     tokens: [{ key: 'XRAY_API_TOKEN', label: 'Token (Server/DC may reuse the Jira token)', optional: true }] },
-  { key: 'confluence', label: 'Confluence', editions: ['CLOUD', 'SERVER_DC'], authTypes: ['BEARER', 'BASIC'],
+  { key: 'confluence', label: 'Confluence', editions: ['CLOUD', 'SERVER_DC'],
+    authByEdition: { CLOUD: ['BEARER', 'BASIC'], SERVER_DC: ['BEARER', 'BASIC'] },
     tokens: [{ key: 'CONFLUENCE_API_TOKEN', label: 'API token' }] },
 ];
 
@@ -244,6 +257,12 @@ function ServiceCard({ def, initial, secrets, onSaved, onError }: {
   const set = (k: keyof EndpointCfg, val: string) => setCfg((c) => ({ ...c, [k]: val }));
   const testTone = useMemo(() => !test ? '' : test.authenticated ? 'text-success' : test.reachable ? 'text-warning' : 'text-danger', [test]);
 
+  const edition = cfg.edition ?? def.editions[0];
+  const authTypes = def.authByEdition[edition] ?? Object.values(def.authByEdition)[0];
+  const authType = authTypes.includes(cfg.authType ?? '') ? cfg.authType : authTypes[0];
+  const showWorkspace = (def.workspaceEditions ?? []).includes(edition);
+  const note = def.note?.[edition];
+
   return (
     <Card>
       <CardHeader title={def.label}
@@ -252,17 +271,18 @@ function ServiceCard({ def, initial, secrets, onSaved, onError }: {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Base URL"><Input value={cfg.baseUrl ?? ''} placeholder="https://…" onChange={(e) => set('baseUrl', e.target.value)} /></Field>
           <Field label="Edition">
-            <Select value={cfg.edition ?? def.editions[0]} onChange={(e) => set('edition', e.target.value)}>
+            <Select value={edition} onChange={(e) => set('edition', e.target.value)}>
               {def.editions.map((ed) => <option key={ed} value={ed}>{ed}</option>)}
             </Select>
           </Field>
-          {def.showWorkspace && <Field label="Workspace"><Input value={cfg.workspace ?? ''} onChange={(e) => set('workspace', e.target.value)} /></Field>}
+          {showWorkspace && <Field label="Workspace"><Input value={cfg.workspace ?? ''} onChange={(e) => set('workspace', e.target.value)} /></Field>}
           <Field label="Auth type">
-            <Select value={cfg.authType ?? def.authTypes[0]} onChange={(e) => set('authType', e.target.value)}>
-              {def.authTypes.map((a) => <option key={a} value={a}>{a}</option>)}
+            <Select value={authType} onChange={(e) => set('authType', e.target.value)}>
+              {authTypes.map((a) => <option key={a} value={a}>{a}</option>)}
             </Select>
           </Field>
         </div>
+        {note && <p className="text-[12px] text-muted">{note}</p>}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {def.tokens.map((t) => (
             <Field key={t.key} label={t.label}
