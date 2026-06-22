@@ -249,10 +249,27 @@ public class DiffEngine {
         if (!Objects.equals(c.pattern(), s.pattern())) {
             return "pattern code=" + c.pattern() + " spec=" + s.pattern();
         }
-        if (!Objects.equals(c.enumValues(), s.enumValues())) {
+        if (!sameValueSet(c.enumValues(), s.enumValues())) {
             return "enum code=" + c.enumValues() + " spec=" + s.enumValues();
         }
         return null;
+    }
+
+    /** Enum equivalence is by VALUE SET, case-insensitive — declaration order and casing differences are not drift. */
+    private boolean sameValueSet(java.util.List<String> a, java.util.List<String> b) {
+        return normSet(a).equals(normSet(b));
+    }
+
+    private java.util.Set<String> normSet(java.util.List<String> v) {
+        java.util.Set<String> out = new java.util.HashSet<>();
+        if (v != null) {
+            for (String x : v) {
+                if (x != null) {
+                    out.add(x.toLowerCase(Locale.ROOT));
+                }
+            }
+        }
+        return out;
     }
 
     private void compareSchema(List<Finding> findings, String specSource, String name, SchemaModel codeS, SchemaModel specS) {

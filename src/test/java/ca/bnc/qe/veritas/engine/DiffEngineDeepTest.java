@@ -57,6 +57,32 @@ class DiffEngineDeepTest {
                 && f.getSummary().contains("maxLength"));
     }
 
+    private ApiModel withEnumField(String specId, String origin, List<String> enumValues) {
+        ConstraintSet c = new ConstraintSet(null, null, null, null, null, null, null, enumValues, null);
+        SchemaModel s = new SchemaModel("Foo", "object",
+                List.of(new FieldModel("status", "string", null, false, c, null, null)), null, src);
+        return new ApiModel(specId, null, null, null,
+                List.of(ep("Foo", List.of(new ResponseModel(200, "Foo", null, origin, src)))), Map.of("Foo", s));
+    }
+
+    @Test
+    void enumValueSetIgnoresOrderAndCase() {
+        ApiModel code = withEnumField("code", "RETURN", List.of("ACTIVE", "CLOSED"));
+        ApiModel spec = withEnumField("repo-spec", "SPEC", List.of("closed", "active"));   // same set, diff order+case
+
+        assertThat(diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType))
+                .doesNotContain(FindingType.CONSTRAINT_GAP);
+    }
+
+    @Test
+    void genuineEnumValueDifferenceIsStillFlagged() {
+        ApiModel code = withEnumField("code", "RETURN", List.of("ACTIVE", "CLOSED"));
+        ApiModel spec = withEnumField("repo-spec", "SPEC", List.of("ACTIVE", "PENDING"));   // genuinely different set
+
+        assertThat(diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType))
+                .contains(FindingType.CONSTRAINT_GAP);
+    }
+
     @Test
     void detectsSecurityMismatchWhenCodeEnforcesAuthButSpecDoesNot() {
         Endpoint secured = new Endpoint(HttpMethod.GET, "/s", "getS", List.of(), null,

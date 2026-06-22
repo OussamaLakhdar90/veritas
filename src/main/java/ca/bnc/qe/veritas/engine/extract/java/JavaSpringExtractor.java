@@ -289,9 +289,9 @@ public class JavaSpringExtractor {
                         .orElse(true);
                 params.add(param(file, p, ParamLocation.QUERY, required));
             } else if (hasMeta(p, "RequestHeader", types)) {
-                params.add(param(file, p, ParamLocation.HEADER, true));
+                params.add(param(file, p, ParamLocation.HEADER, bindingRequired(p, "RequestHeader")));
             } else if (hasMeta(p, "CookieValue", types)) {
-                params.add(param(file, p, ParamLocation.COOKIE, true));
+                params.add(param(file, p, ParamLocation.COOKIE, bindingRequired(p, "CookieValue")));
             } else if (hasMeta(p, "RequestBody", types)) {
                 BodyType bt = unwrap(p.getType());
                 if (bt.typeName() != null) {
@@ -521,6 +521,13 @@ public class JavaSpringExtractor {
         getAnnotation(n, "RolesAllowed").map(a -> firstString(a, "value")).filter(s -> s != null).ifPresent(out::add);
     }
 
+    /** Spring binding-param required flag: default true, but false when required=false or a defaultValue is set. */
+    private boolean bindingRequired(Parameter p, String annName) {
+        return getAnnotation(p, annName)
+                .map(a -> !"false".equals(firstString(a, "required")) && firstString(a, "defaultValue") == null)
+                .orElse(true);
+    }
+
     private ParamModel param(String file, Parameter p, ParamLocation loc, boolean required) {
         String annName = getAnnotation(p, switch (loc) {
             case PATH -> "PathVariable";
@@ -633,9 +640,8 @@ public class JavaSpringExtractor {
         Integer minLen = null, maxLen = null;
         Double min = null, max = null;
         String pattern = null, format = null;
-        if (has(n, "NotBlank")) {
-            minLen = 1;
-        }
+        // NOTE: @NotBlank is captured via the field's `required` flag, NOT as minLength=1 — synthesizing a
+        // length constraint produced spurious CONSTRAINT_GAP findings against specs that (correctly) omit minLength.
         Optional<AnnotationExpr> size = getAnnotation(n, "Size");
         if (size.isPresent()) {
             String mn = firstString(size.get(), "min");
