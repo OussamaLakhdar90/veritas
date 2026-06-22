@@ -38,6 +38,43 @@ public class SettingsEnvironmentPostProcessor implements EnvironmentPostProcesso
             // addFirst so it wins over the empty default; real env/yaml passphrase (checked above) is never overridden.
             env.getPropertySources().addFirst(new MapPropertySource("veritas-machine-key", props));
         }
+
+        // Overlay persisted connection settings BEFORE binding so a saved `edition` re-wires the
+        // @ConditionalOnProperty client beans (which are decided at context build, before ApplicationRunner).
+        Map<String, Object> conn = loadPersistedConnections();
+        if (!conn.isEmpty()) {
+            env.getPropertySources().addFirst(new MapPropertySource("veritas-connections-file", conn));
+        }
+    }
+
+    /** Flatten {@code ~/.veritas/connections.json} into {@code veritas.connections.<svc>.<field>} props. */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> loadPersistedConnections() {
+        Map<String, Object> out = new HashMap<>();
+        try {
+            Path file = Path.of(System.getProperty("user.home"), ".veritas", "connections.json");
+            if (!Files.exists(file)) {
+                return out;
+            }
+            Map<String, Object> root = new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readValue(Files.readString(file), Map.class);
+            Map<String, String> fieldToProp = Map.of(
+                    "baseUrl", "base-url", "edition", "edition", "workspace", "workspace", "authType", "auth-type");
+            for (Map.Entry<String, Object> svc : root.entrySet()) {
+                if (!(svc.getValue() instanceof Map<?, ?> fields)) {
+                    continue;
+                }
+                fieldToProp.forEach((field, prop) -> {
+                    Object v = fields.get(field);
+                    if (v != null && !v.toString().isBlank()) {
+                        out.put("veritas.connections." + svc.getKey() + "." + prop, v.toString());
+                    }
+                });
+            }
+        } catch (Exception ignore) {
+            // corrupt/unreadable → fall back to yaml defaults (no crash, pre-context so no logger)
+        }
+        return out;
     }
 
     /** Read the machine key, creating it on first run. Returns null if it can't be created (store stays disabled). */
