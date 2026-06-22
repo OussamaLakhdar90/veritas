@@ -561,11 +561,16 @@ public class JavaSpringExtractor {
         }
         if (td instanceof RecordDeclaration rec) {
             for (Parameter c : rec.getParameters()) {
+                if (has(c, "JsonIgnore")) {
+                    continue;   // not serialized → not part of the JSON contract
+                }
                 addField(out, seenNames, fieldOf(c.getNameAsString(), c.getType(), c, types));
             }
         } else {
             for (FieldDeclaration fd : td.getFields()) {
-                if (fd.isStatic()) {
+                // Skip statics and fields excluded from JSON (@JsonIgnore) — including them produces false
+                // SCHEMA_FIELD_MISSING/EXTRA diffs against a spec that (correctly) omits them.
+                if (fd.isStatic() || has(fd, "JsonIgnore")) {
                     continue;
                 }
                 fd.getVariables().forEach(v -> addField(out, seenNames, fieldOf(v.getNameAsString(), v.getType(), fd, types)));

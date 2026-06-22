@@ -118,6 +118,22 @@ class JavaSpringExtractorSolverAuditTest {
     }
 
     @Test
+    void jsonIgnoredFieldsAreExcludedFromSchema(@TempDir Path dir) throws Exception {
+        Files.writeString(dir.resolve("Account.java"),
+                "package demo; import com.fasterxml.jackson.annotation.JsonIgnore;\n"
+                        + "public class Account { public String id; @JsonIgnore public String internalSecret;"
+                        + " @JsonIgnore private String passwordHash; }");
+        Files.writeString(dir.resolve("AccountCtrl.java"),
+                HDR + "@RestController class AccountCtrl { @GetMapping(\"/a\") Account get(){return null;} }");
+
+        SchemaModel acct = new JavaSpringExtractor().extract(dir).schemas().get("Account");
+        assertThat(acct).isNotNull();
+        assertThat(acct.fields().stream().map(FieldModel::jsonName))
+                .contains("id")                                    // serialized field kept
+                .doesNotContain("internalSecret", "passwordHash"); // @JsonIgnore fields excluded
+    }
+
+    @Test
     void collectionFieldBecomesArrayNotObject(@TempDir Path dir) throws Exception {
         Files.writeString(dir.resolve("LineItem.java"), "package demo; public class LineItem { public String sku; }");
         Files.writeString(dir.resolve("Order.java"),
