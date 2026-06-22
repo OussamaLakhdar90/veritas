@@ -202,7 +202,10 @@ public class DiffEngine {
             findings.add(finding(FindingType.SECURITY_MISMATCH, label(ce), spec.source(),
                     "Code enforces authorization (" + String.join(", ", ce.security())
                             + ") but the spec declares no security for this operation", ce, Confidence.HIGH));
-        } else if (!codeSecured && specSecured) {
+        } else if (!codeSecured && specSecured && !centralizesSecurity(code)) {
+            // Only fire when code authz is annotation-based and genuinely absent. If the project centralizes
+            // authorization in a SecurityFilterChain/HttpSecurity bean (invisible to annotation analysis), we
+            // cannot conclude the endpoint is unsecured — suppress to avoid a false UNSECURED on every endpoint.
             findings.add(finding(FindingType.SECURITY_MISMATCH, label(ce), spec.source(),
                     "Spec requires security (" + String.join(", ", se.security())
                             + ") but the code enforces none on this endpoint", ce, Confidence.MEDIUM));
@@ -227,6 +230,12 @@ public class DiffEngine {
 
     private String normRef(String ref) {
         return ref == null ? null : ref.replace("[]", "").toLowerCase(Locale.ROOT);
+    }
+
+    /** True when the code model flagged that authorization is centralized in a SecurityFilterChain/HttpSecurity bean. */
+    private boolean centralizesSecurity(ApiModel code) {
+        return code.blindSpots() != null && code.blindSpots().stream()
+                .anyMatch(b -> b != null && (b.contains("SecurityFilterChain") || b.contains("HttpSecurity")));
     }
 
     /** First constraint keyword whose value differs between two non-empty sets, or null if equivalent. */

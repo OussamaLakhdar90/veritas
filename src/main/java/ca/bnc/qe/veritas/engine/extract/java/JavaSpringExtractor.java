@@ -135,6 +135,15 @@ public class JavaSpringExtractor {
                     });
         }
 
+        // Centralized authorization (SecurityFilterChain/HttpSecurity/WebSecurityConfigurerAdapter) is enforced by
+        // URL pattern in a config bean, not by method annotations — invisible to this AST. Flag it so the DiffEngine
+        // does not falsely report every endpoint as UNSECURED against a spec that declares a global security scheme.
+        if (usesCentralizedSecurity(units)) {
+            blindSpots.add("Authorization appears centralized in a Spring Security configuration "
+                    + "(SecurityFilterChain/HttpSecurity); per-endpoint authorization is enforced there by URL pattern "
+                    + "and is not visible to annotation-based static analysis.");
+        }
+
         // @ControllerAdvice / @RestControllerAdvice error responses are global — attach them to every endpoint.
         List<ResponseModel> adviceResponses = extractAdvice(units, referenced);
         if (!adviceResponses.isEmpty()) {
@@ -226,6 +235,15 @@ public class JavaSpringExtractor {
             log.warn("Symbol solver unavailable for {}, parsing syntactically: {}", sourceRoot, e.getMessage());
         }
         return new JavaParser(cfg);
+    }
+
+    /** Types that mean the project centralizes Spring Security authorization (vs per-method annotations). */
+    private static final Set<String> SECURITY_CONFIG_TYPES = Set.of(
+            "SecurityFilterChain", "HttpSecurity", "WebSecurityConfigurerAdapter");
+
+    private boolean usesCentralizedSecurity(List<CompilationUnit> units) {
+        return units.stream().anyMatch(cu -> cu.findAll(ClassOrInterfaceType.class).stream()
+                .anyMatch(t -> SECURITY_CONFIG_TYPES.contains(t.getNameAsString())));
     }
 
     private boolean isController(TypeDeclaration<?> td, Map<String, TypeDeclaration<?>> types) {

@@ -66,6 +66,21 @@ class DiffEngineDeepTest {
     }
 
     @Test
+    void specSecuredButCodeCentralizesAuthIsNotFalselyFlagged() {
+        Endpoint codeOpen = new Endpoint(HttpMethod.GET, "/s", "getS", List.of(), null,
+                List.of(new ResponseModel(200, null, null, "RETURN", src)), null, null, List.of(), src);
+        Endpoint specSecured = new Endpoint(HttpMethod.GET, "/s", "getS", List.of(), null,
+                List.of(new ResponseModel(200, null, null, "SPEC", src)), null, null, List.of("bearerAuth"), src);
+        // code model flags centralized security (SecurityFilterChain) via a blind spot
+        ApiModel code = new ApiModel("code", null, null, null, List.of(codeOpen), Map.of(),
+                List.of("Authorization appears centralized in a Spring Security configuration (SecurityFilterChain)."));
+        ApiModel spec = new ApiModel("repo-spec", null, null, null, List.of(specSecured), Map.of());
+
+        assertThat(diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType))
+                .doesNotContain(FindingType.SECURITY_MISMATCH);   // suppressed — annotation analysis can't see filter-chain authz
+    }
+
+    @Test
     void enumValueSetIgnoresOrderAndCase() {
         ApiModel code = withEnumField("code", "RETURN", List.of("ACTIVE", "CLOSED"));
         ApiModel spec = withEnumField("repo-spec", "SPEC", List.of("closed", "active"));   // same set, diff order+case
