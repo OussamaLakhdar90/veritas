@@ -130,16 +130,17 @@ public class ContractValidationService {
         scan.setGitRef(req.gitRef());
         scan.setOwner(req.owner());
         scan.setStatus(RunStatus.RUNNING);
-        scan.setStage("QUEUED");
+        scan.setStage(ScanStages.QUEUED);
         scan.setStartedAt(Instant.now());
         scan.setSpecSources(String.join(",", req.specs().stream().map(SpecInput::id).toList()));
         return scanRepository.save(scan);
     }
 
-    /** Updates the live progress stage on the scan (drives the dashboard stepper). */
+    /** Updates the live progress stage on the scan — drives the dashboard stepper AND logs the advance. */
     private void stage(Scan scan, String stage) {
         scan.setStage(stage);
         scanRepository.save(scan);
+        log.info("Scan {} [{}] → {} — {}", scan.getId(), scan.getServiceName(), stage, ScanStages.describe(stage));
     }
 
     /** Run extract → diff → reconcile → report into a pre-created scan row, updating its stage as it goes. */
@@ -148,9 +149,9 @@ public class ContractValidationService {
         Map<String, JsonNode> enrich = new HashMap<>();
         String correctedYamlPath = null;
         try {
-            stage(scan, "EXTRACTING");
+            stage(scan, ScanStages.EXTRACTING);
             ApiModel code = javaSpringExtractor.extract(req.repoPath());
-            stage(scan, "DIFFING");
+            stage(scan, ScanStages.DIFFING);
             List<ApiModel> specModels = new ArrayList<>();
             for (SpecInput s : req.specs()) {
                 SpecParse parse = openApiModelExtractor.extract(s.id(), s.content());
@@ -169,8 +170,13 @@ public class ContractValidationService {
 
             String llmCorrected = null;
             if (req.llmEnabled() && !findings.isEmpty() && llm.isAvailable()) {
-                stage(scan, "RECONCILING");
+                stage(scan, ScanStages.RECONCILING);
+                long t0 = System.currentTimeMillis();
+                log.info("Scan {} [{}] asking Copilot to reconcile {} finding(s) — this is the long step, please wait…",
+                        scan.getId(), scan.getServiceName(), findings.size());
                 ReconcileResult rr = reconcile(code, specModels, findings, req.owner(), scan.getId());
+                log.info("Scan {} [{}] AI reconcile finished in {}s",
+                        scan.getId(), scan.getServiceName(), (System.currentTimeMillis() - t0) / 1000);
                 enrich.putAll(rr.enrich());
                 scan.setTotalPremiumRequests(rr.cost().premiumRequests());
                 scan.setTotalEstCostUsd(rr.cost().estCostUsd());
@@ -190,7 +196,7 @@ public class ContractValidationService {
                 scan.setBlindSpots(existing == null || existing.isBlank() ? extractor : existing + " " + extractor);
             }
 
-            stage(scan, "REPORTING");
+            stage(scan, ScanStages.REPORTING);
             // Corrected YAML: prefer the LLM-reconciled spec IF it round-trips; else the deterministic
             // code-wins spec; never write a spec that fails to re-parse.
             String primarySpecYaml = req.specs().isEmpty() ? null : req.specs().get(0).content();
@@ -253,17 +259,19 @@ public class ContractValidationService {
                 log.warn("PDF report skipped: {}", ex.getMessage());
             }
             scan.setStatus(RunStatus.COMPLETED);
-            scan.setStage("DONE");
+            scan.setStage(ScanStages.DONE);
             scan.setFinishedAt(Instant.now());
             // Atomic: the findings and the COMPLETED scan are written together (one transaction).
             scanPersistence.complete(scan, findings, enrich);
+            log.info("Scan {} [{}] → DONE — {} finding(s), fidelity {}/100",
+                    scan.getId(), scan.getServiceName(), findings.size(), scan.getFidelityScore());
 
             return new ValidationResult(scan.getId(), scan.getStatus().name(), findings.size(),
                     bySeverity(findings), reportPath, reportPdfPath, correctedYamlPath, scan.getTotalEstCostUsd());
         } catch (Exception ex) {
-            log.error("validate-contract failed for {}", req.serviceName(), ex);
+            log.error("Scan {} [{}] → FAILED — {}", scan.getId(), req.serviceName(), ex.getMessage(), ex);
             scan.setStatus(RunStatus.FAILED);
-            scan.setStage("FAILED");
+            scan.setStage(ScanStages.FAILED);
             scan.setErrorMessage(ex.getMessage());
             scan.setFinishedAt(Instant.now());
             scanRepository.save(scan);
@@ -313,7 +321,12 @@ public class ContractValidationService {
         long tokOut = 0;
         BillingMode mode = null;
 
+        int batchNo = 0;
         for (List<Map<String, String>> batch : batches) {
+            batchNo++;
+            if (batches.size() > 1) {
+                log.info("Scan {} reconcile batch {}/{} ({} finding(s))…", scanId, batchNo, batches.size(), batch.size());
+            }
             String batchJson = objectMapper.writeValueAsString(batch);
             String inputs = promptComposer.data("DETERMINISTIC_FINDINGS", batchJson)
                     + promptComposer.data("CODE_ENDPOINTS", codeEps)

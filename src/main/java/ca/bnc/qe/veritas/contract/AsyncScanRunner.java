@@ -58,23 +58,30 @@ public class AsyncScanRunner {
         scan.setGitRef(branch);
         scan.setOwner(owner);
         scan.setStatus(RunStatus.RUNNING);
-        scan.setStage("QUEUED");
+        scan.setStage(ScanStages.QUEUED);
         scan.setStartedAt(Instant.now());
         scan = scans.save(scan);
         final Scan saved = scan;
+        log.info("Scan {} [{}] queued — validating {} on branch '{}'",
+                scan.getId(), scan.getServiceName(), repoSlug, branch);
         pool.submit(() -> run(saved, appId, repoSlug, branch, repoPath, specs, llmEnabled, owner));
         return scan.getId();
+    }
+
+    /** Updates the live progress stage — drives the dashboard stepper AND logs the advance to the console. */
+    private void stage(Scan scan, String stage) {
+        scan.setStage(stage);
+        scans.save(scan);
+        log.info("Scan {} [{}] → {} — {}", scan.getId(), scan.getServiceName(), stage, ScanStages.describe(stage));
     }
 
     private void run(Scan scan, String appId, String repoSlug, String branch, String repoPath,
                      List<SpecRef> specRefs, boolean llmEnabled, String owner) {
         try {
-            scan.setStage("CLONING");
-            scans.save(scan);
+            stage(scan, ScanStages.CLONING);
             Path repo = workspace.resolve(appId, repoSlug, branch, repoPath);
 
-            scan.setStage("RESOLVING_SPEC");
-            scans.save(scan);
+            stage(scan, ScanStages.RESOLVING_SPEC);
             List<SpecInput> specs = new ArrayList<>();
             for (SpecRef r : specRefs) {
                 specs.add(specResolver.resolve(new SpecSource(r.kind(), r.ref()), repo));
@@ -89,9 +96,9 @@ public class AsyncScanRunner {
             // Hand off to the engine, which continues the stages (EXTRACTING → … → DONE) on the same row.
             validation.runInto(scan, req);
         } catch (Exception e) {
-            log.error("Async scan {} failed: {}", scan.getId(), e.getMessage());
+            log.error("Scan {} [{}] → FAILED — {}", scan.getId(), scan.getServiceName(), e.getMessage(), e);
             scan.setStatus(RunStatus.FAILED);
-            scan.setStage("FAILED");
+            scan.setStage(ScanStages.FAILED);
             scan.setErrorMessage(e.getMessage());
             scan.setFinishedAt(Instant.now());
             scans.save(scan);
