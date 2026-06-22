@@ -20,7 +20,7 @@ class PromptCacheTest {
         when(delegate.complete("p2", "m")).thenReturn("r2");
 
         PromptCache cache = new PromptCache();
-        CachingLlmGateway gw = new CachingLlmGateway(List.of(delegate), cache);
+        CachingLlmGateway gw = new CachingLlmGateway(List.of(delegate), cache, new LlmCallContext());
 
         assertThat(gw.complete("p1", "m")).isEqualTo("r1");
         assertThat(gw.complete("p1", "m")).isEqualTo("r1");   // served from cache

@@ -17,16 +17,18 @@ public class CachingLlmGateway implements LlmGateway {
 
     private final LlmGateway delegate;
     private final PromptCache cache;
+    private final LlmCallContext callContext;
 
     @Value("${veritas.llm.cache:true}")
     private boolean enabled = true;
 
-    public CachingLlmGateway(List<LlmGateway> gateways, PromptCache cache) {
+    public CachingLlmGateway(List<LlmGateway> gateways, PromptCache cache, LlmCallContext callContext) {
         this.delegate = gateways.stream()
                 .filter(g -> !(g instanceof CachingLlmGateway))
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("No underlying LlmGateway to wrap"));
         this.cache = cache;
+        this.callContext = callContext;
     }
 
     @Override
@@ -37,9 +39,12 @@ public class CachingLlmGateway implements LlmGateway {
     @Override
     public String complete(String prompt, String model) {
         if (!enabled) {
+            callContext.markCached(false);
             return delegate.complete(prompt, model);
         }
-        return cache.get(model, prompt).orElseGet(() -> {
+        var hit = cache.get(model, prompt);
+        callContext.markCached(hit.isPresent());   // a hit spent no tokens — the cost recorder bills it as zero
+        return hit.orElseGet(() -> {
             String response = delegate.complete(prompt, model);
             cache.put(model, prompt, response);
             return response;
