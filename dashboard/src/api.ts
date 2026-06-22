@@ -1,10 +1,28 @@
 const BASE = '/api/v1'
 
+/**
+ * Global hook the Copilot auth-gate registers: when any API call fails with the RFC-7807
+ * `code: "copilot-auth-required"`, we invoke this so the UI can pop the sign-in flow instead of just
+ * showing a red toast. Set by CopilotAuthProvider; null otherwise.
+ */
+let copilotAuthHandler: (() => void) | null = null
+export function onCopilotAuthRequired(fn: (() => void) | null) { copilotAuthHandler = fn }
+
+/** Turn a non-OK response into a friendly Error, and fire the Copilot sign-in hook if that's the cause. */
+async function fail(res: Response): Promise<never> {
+  let detail = `${res.status} ${res.statusText}`
+  let code: string | undefined
+  try {
+    const j = await res.json()
+    if (j) { detail = j.detail || j.message || detail; code = j.code }
+  } catch { /* non-JSON body */ }
+  if (code === 'copilot-auth-required' && copilotAuthHandler) copilotAuthHandler()
+  throw new Error(detail)
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(BASE + path)
-  if (!res.ok) {
-    throw new Error(`${res.status} ${res.statusText}`)
-  }
+  if (!res.ok) return fail(res)
   return res.json() as Promise<T>
 }
 
@@ -14,9 +32,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!res.ok) {
-    throw new Error(`${res.status} ${res.statusText}`)
-  }
+  if (!res.ok) return fail(res)
   return res.json() as Promise<T>
 }
 
@@ -27,11 +43,7 @@ async function send<T>(method: string, path: string, body?: unknown): Promise<T>
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
-  if (!res.ok) {
-    let detail = `${res.status} ${res.statusText}`
-    try { const j = await res.json(); if (j && (j.detail || j.message)) detail = j.detail || j.message } catch { /* non-JSON */ }
-    throw new Error(detail)
-  }
+  if (!res.ok) return fail(res)
   if (res.status === 204) return undefined as T
   const text = await res.text()
   return (text ? JSON.parse(text) : undefined) as T
@@ -273,7 +285,7 @@ export const api = {
   llmSettings: () => get<{ active: string; desired: string; simulated: boolean; model: string }>('/settings/llm'),
   saveLlmSettings: (mode: string) =>
     send<{ applied: boolean; restartRequiredFields: string[] }>('PUT', '/settings/llm', { mode }),
-  copilotStatus: () => get<{ authenticated: boolean }>('/settings/copilot/status'),
+  copilotStatus: () => get<{ authenticated: boolean; connected?: boolean }>('/settings/copilot/status'),
   copilotLoginStart: () => send<CopilotLoginStart>('POST', '/settings/copilot/login/start'),
   copilotLoginStatus: (id: string) => get<CopilotLoginStatus>(`/settings/copilot/login/status?id=${encodeURIComponent(id)}`),
   copilotSignout: () => send<void>('POST', '/settings/copilot/signout'),

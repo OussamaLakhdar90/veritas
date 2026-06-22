@@ -4,6 +4,7 @@ import { ListChecks, Play } from 'lucide-react';
 import { api, ReviewResult } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, PageHeader, Table, Td, Th, Row } from '../components/ui';
 import { useToast } from '../components/Toast';
+import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
 
 const verdictTone = (v?: string) => {
@@ -16,6 +17,7 @@ const verdictTone = (v?: string) => {
 /** ISTQB Test-Analyst review wizard: score Xray tests selected by JQL against the C1–C6 rubric. */
 export function Reviews() {
   const toast = useToast();
+  const { blocked, notice } = useCopilotGate();
   const [jql, setJql] = useState('');
   const [apply, setApply] = useState(false);
   const [results, setResults] = useState<ReviewResult[] | null>(null);
@@ -35,7 +37,7 @@ export function Reviews() {
         <CardBody className="space-y-4">
           <Field label="JQL" hint='Which Xray tests to review, e.g. project = CIAM AND issuetype = Test'>
             <Input placeholder="project = CIAM AND issuetype = Test" value={jql} onChange={(e) => setJql(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && jql.trim() && run.mutate()} />
+              onKeyDown={(e) => e.key === 'Enter' && jql.trim() && !blocked && run.mutate()} />
           </Field>
           <div className="flex items-center justify-between">
             <label className="inline-flex items-center gap-2 text-[13px] text-ink-700">
@@ -43,9 +45,13 @@ export function Reviews() {
                 checked={apply} onChange={(e) => setApply(e.target.checked)} />
               Post the review as a Jira comment (gated write)
             </label>
-            <Button loading={run.isPending} onClick={() => jql.trim() ? run.mutate() : toast.push('error', 'Enter a JQL query.')}>
-              <Play className="h-4 w-4" /> Run review
-            </Button>
+            <span className="flex items-center gap-3">
+              {notice}
+              <Button loading={run.isPending} disabled={blocked}
+                onClick={() => jql.trim() ? run.mutate() : toast.push('error', 'Enter a JQL query.')}>
+                <Play className="h-4 w-4" /> Run review
+              </Button>
+            </span>
           </div>
         </CardBody>
       </Card>

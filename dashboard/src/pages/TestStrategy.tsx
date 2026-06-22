@@ -4,6 +4,7 @@ import { ClipboardList, Play, FileText, ExternalLink } from 'lucide-react';
 import { api } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, PageHeader, Select, Spinner, Table, Td, Th, Row, Textarea } from '../components/ui';
 import { useToast } from '../components/Toast';
+import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
 
 /** ISTQB Test-Manager strategy wizard: synthesize a structured strategy from a basis, then review versions. */
@@ -15,6 +16,7 @@ export function TestStrategy() {
   const [basis, setBasis] = useState('');
   const [source, setSource] = useState('CODE');
 
+  const { blocked, notice } = useCopilotGate();
   const list = useQuery({ queryKey: ['strategies', loaded], queryFn: () => api.strategies(loaded), enabled: !!loaded });
 
   const generate = useMutation({
@@ -48,8 +50,9 @@ export function TestStrategy() {
           <Field label="Basis" hint="Paste the test basis (endpoints, user stories, requirements) the strategy should cover.">
             <Textarea placeholder="e.g. POST /policies — create a policy; GET /policies/{id} — fetch…" value={basis} onChange={(e) => setBasis(e.target.value)} />
           </Field>
-          <div className="flex justify-end">
-            <Button loading={generate.isPending}
+          <div className="flex items-center justify-end gap-3">
+            {notice}
+            <Button loading={generate.isPending} disabled={blocked}
               onClick={() => (service && basis.trim()) ? generate.mutate() : toast.push('error', 'Service and basis are required.')}>
               <Play className="h-4 w-4" /> Generate strategy
             </Button>

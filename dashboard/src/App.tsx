@@ -18,6 +18,7 @@ import { Defects } from './pages/Defects';
 import { Gates } from './pages/Gates';
 import { Settings as SettingsPage } from './pages/Settings';
 import { useDarkMode } from './lib/theme';
+import { CopilotAuthProvider } from './lib/copilotAuth';
 import { cn } from './components/cn';
 
 const NAV = [
@@ -67,6 +68,7 @@ export function App() {
 
         {/* Main column */}
         <div className="flex min-w-0 flex-1 flex-col">
+        <CopilotAuthProvider>
           <header className="flex h-14 items-center justify-between border-b border-border bg-surface px-6">
             <span className="rounded-full bg-ink-50 px-2.5 py-1 text-[11px] font-medium text-muted ring-1 ring-border">
               Local · 127.0.0.1
@@ -94,6 +96,7 @@ export function App() {
               <Route path="/settings" element={<SettingsPage />} />
             </Routes>
           </main>
+        </CopilotAuthProvider>
         </div>
       </div>
     </HashRouter>

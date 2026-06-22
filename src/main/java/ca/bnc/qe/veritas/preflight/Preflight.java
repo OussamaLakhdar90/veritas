@@ -111,10 +111,8 @@ public class Preflight {
      */
     public void requireLlm(ca.bnc.qe.veritas.llm.LlmGateway llm, String skill) {
         if (llm == null || !llm.isAvailable()) {
-            throw new PreconditionException(skill, List.of(
-                    "Copilot is not available and this skill is generative — it cannot run deterministically. "
-                            + "Sign in with `veritas copilot-login` (or set veritas.llm.mode), then retry. "
-                            + "Run `veritas doctor` to check connectivity."));
+            // Distinct from a generic precondition: the UI catches this code and opens the Copilot sign-in.
+            throw new CopilotAuthRequiredException(skill);
         }
     }
 

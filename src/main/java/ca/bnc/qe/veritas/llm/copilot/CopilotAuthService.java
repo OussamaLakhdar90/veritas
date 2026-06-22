@@ -127,6 +127,24 @@ public class CopilotAuthService {
         return storedOAuth() != null;
     }
 
+    /**
+     * Whether Copilot is actually usable right now — not just that a token file exists. Verifies by
+     * obtaining a session token (cached/refreshed, so it only hits the network when the cache is empty or
+     * expired), so a revoked/expired OAuth token reads as not-connected instead of falsely "signed in".
+     */
+    public boolean verifyConnected() {
+        if (storedOAuth() == null) {
+            return false;
+        }
+        try {
+            getSessionToken();
+            return true;
+        } catch (Exception e) {
+            log.debug("Copilot not connected: {}", e.getMessage());
+            return false;
+        }
+    }
+
     /** Sign out: drop the cached session token and delete the stored OAuth token file. */
     public void signOut() {
         sessionCache = null;

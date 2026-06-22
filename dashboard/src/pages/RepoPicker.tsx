@@ -7,6 +7,7 @@ import { api, Repo } from '../api';
 import { Button, Card, CardBody, EmptyState, Field, Input, PageHeader, Select, Spinner } from '../components/ui';
 import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toast';
+import { useCopilotAuth } from '../lib/copilotAuth';
 import { cn } from '../components/cn';
 
 const RECENTS_KEY = 'veritas-recent-appids';
@@ -186,6 +187,7 @@ const STAGE_ORDER: Record<string, number> = {
 function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; onClose: () => void }) {
   const toast = useToast();
   const navigate = useNavigate();
+  const { needsCopilot, connected, signIn } = useCopilotAuth();
   const [branch, setBranch] = useState(repo.defaultBranch || '');
   const [specKind, setSpecKind] = useState<'REPO_PATH' | 'LIVE_DOCS' | 'CONFLUENCE'>('REPO_PATH');
   const [specRef, setSpecRef] = useState('openapi.yaml');
@@ -281,6 +283,15 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
             Veritas clones <span className="font-medium text-ink-900">{repo.slug}</span>, extracts the API from the code,
             and compares it to the spec below. No changes are written to the repo.
           </p>
+          {needsCopilot && !connected && (
+            <div className="mb-4 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-[12px] text-ink-700">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              <span>Not connected to GitHub Copilot — the <strong>AI review &amp; corrected spec</strong> step will be skipped.
+                You'll still get the full deterministic contract findings and fidelity score.
+                <button type="button" onClick={signIn} className="ml-1 font-medium text-brand-600 hover:underline">Connect now</button>
+              </span>
+            </div>
+          )}
           <div className="space-y-4">
             <Field label="Branch"
               hint={branchesQ.isLoading ? 'Loading branches…' : branches.length > 0 ? 'Default branch listed first.' : 'Type the branch (branch list unavailable).'}>

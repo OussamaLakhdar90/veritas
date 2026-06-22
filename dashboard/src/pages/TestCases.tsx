@@ -4,6 +4,7 @@ import { ListChecks, Search, Check, X, Upload, Sparkles } from 'lucide-react';
 import { api, TestCase } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, PageHeader, Spinner, Table, Td, Th, Row, Textarea } from '../components/ui';
 import { useToast } from '../components/Toast';
+import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
 
 const tone = (s?: string) => {
@@ -16,6 +17,7 @@ const tone = (s?: string) => {
 export function TestCases() {
   const toast = useToast();
   const qc = useQueryClient();
+  const { blocked, notice } = useCopilotGate();
   const [svc, setSvc] = useState('');
   const [query, setQuery] = useState('');
   const [projectKey, setProjectKey] = useState('');
@@ -60,8 +62,9 @@ export function TestCases() {
             <Textarea placeholder="e.g. POST /policies — create; GET /policies/{id} — fetch; 404 when missing…" value={basis}
               onChange={(e) => setBasis(e.target.value)} />
           </Field>
-          <div className="flex justify-end">
-            <Button loading={generate.isPending}
+          <div className="flex items-center justify-end gap-3">
+            {notice}
+            <Button loading={generate.isPending} disabled={blocked}
               onClick={() => (svc && basis.trim()) ? generate.mutate() : toast.push('error', 'Service and basis are required.')}>
               <Sparkles className="h-4 w-4" /> Generate
             </Button>

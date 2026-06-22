@@ -1,5 +1,6 @@
 package ca.bnc.qe.veritas.web;
 
+import ca.bnc.qe.veritas.preflight.CopilotAuthRequiredException;
 import ca.bnc.qe.veritas.preflight.PreconditionException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -14,6 +15,16 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 @Slf4j
 public class ApiExceptionHandler {
+
+    @ExceptionHandler(CopilotAuthRequiredException.class)
+    public ProblemDetail onCopilotAuthRequired(CopilotAuthRequiredException e) {
+        // Same 422 + problem list as any precondition, plus a stable code the dashboard keys on to open sign-in.
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
+        pd.setTitle("Connect GitHub Copilot");
+        pd.setProperty("code", CopilotAuthRequiredException.CODE);
+        pd.setProperty("problems", e.problems());
+        return pd;
+    }
 
     @ExceptionHandler(PreconditionException.class)
     public ProblemDetail onPrecondition(PreconditionException e) {

@@ -19,10 +19,14 @@ public class CopilotLoginController {
         this.service = service;
     }
 
-    /** Whether a Copilot OAuth token is already stored. */
+    /**
+     * Copilot sign-in status. {@code authenticated} = a token is stored; {@code connected} = it actually
+     * works right now (a session token can be obtained — catches expired/revoked tokens). The dashboard
+     * gates the AI features on {@code connected}.
+     */
     @GetMapping("/status")
     public Map<String, Boolean> status() {
-        return Map.of("authenticated", service.isAuthenticated());
+        return Map.of("authenticated", service.isAuthenticated(), "connected", service.connected());
     }
 
     /** Begin sign-in: returns the user code + verification URL to display. */

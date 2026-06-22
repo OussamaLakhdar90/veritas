@@ -93,6 +93,11 @@ public class CopilotLoginService {
         return auth.isAuthenticated();
     }
 
+    /** Whether Copilot is usable right now (token present AND a session token can be obtained). */
+    public boolean connected() {
+        return auth.verifyConnected();
+    }
+
     public void signOut() {
         auth.signOut();
     }

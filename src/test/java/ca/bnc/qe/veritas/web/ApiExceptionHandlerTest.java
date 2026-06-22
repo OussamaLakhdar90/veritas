@@ -3,6 +3,7 @@ package ca.bnc.qe.veritas.web;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import ca.bnc.qe.veritas.preflight.CopilotAuthRequiredException;
 import ca.bnc.qe.veritas.preflight.PreconditionException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -19,6 +20,14 @@ class ApiExceptionHandlerTest {
         assertThat(pd.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY.value());
         assertThat(pd.getProperties()).containsKey("problems");
         assertThat(pd.getProperties().get("remediation").toString()).contains("doctor");
+    }
+
+    @Test
+    void copilotAuthRequiredCarriesTheCodeTheUiKeysOn() {
+        ProblemDetail pd = handler.onCopilotAuthRequired(new CopilotAuthRequiredException("test-strategy"));
+        assertThat(pd.getStatus()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY.value());
+        assertThat(pd.getProperties().get("code")).isEqualTo(CopilotAuthRequiredException.CODE);
+        assertThat(pd.getProperties()).containsKey("problems");
     }
 
     @Test

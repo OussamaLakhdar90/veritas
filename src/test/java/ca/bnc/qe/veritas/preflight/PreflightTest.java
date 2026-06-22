@@ -85,11 +85,11 @@ class PreflightTest {
     void requireLlmFailsClearlyWhenUnavailableAndPassesWhenAvailable() {
         Preflight pf = new Preflight(k -> Optional.empty(), props());
         assertThatThrownBy(() -> pf.requireLlm(unavailableLlm(), "test-strategy"))
+                .isInstanceOf(CopilotAuthRequiredException.class)   // distinct so the UI can open sign-in
                 .isInstanceOf(PreconditionException.class)
-                .hasMessageContaining("Copilot is not available")
-                .hasMessageContaining("copilot-login");
+                .hasMessageContaining("Copilot is not connected");
         assertThatThrownBy(() -> pf.requireLlm(null, "test-strategy"))
-                .isInstanceOf(PreconditionException.class);
+                .isInstanceOf(CopilotAuthRequiredException.class);
         assertThatCode(() -> pf.requireLlm(availableLlm(), "test-strategy")).doesNotThrowAnyException();
     }
 
