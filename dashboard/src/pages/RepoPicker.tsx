@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { Search, ShieldCheck, GitBranch, FileCode, Star, Clock } from 'lucide-react';
 import { api, Repo } from '../api';
-import { Button, Card, CardBody, EmptyState, Field, Input, PageHeader, Spinner } from '../components/ui';
+import { Button, Card, CardBody, EmptyState, Field, Input, PageHeader, Select, Spinner } from '../components/ui';
 import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toast';
 import { cn } from '../components/cn';
@@ -170,9 +171,18 @@ export function RepoPicker() {
 function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; onClose: () => void }) {
   const toast = useToast();
   const navigate = useNavigate();
-  const [branch, setBranch] = useState(repo.defaultBranch || 'main');
+  const [branch, setBranch] = useState(repo.defaultBranch || '');
   const [specPath, setSpecPath] = useState('openapi.yaml');
   const [busy, setBusy] = useState(false);
+
+  // Discover the repo's real branches so the user picks (e.g.) master, not a hardcoded "main".
+  const branchesQ = useQuery({ queryKey: ['branches', appId, repo.slug], queryFn: () => api.branches(appId, repo.slug) });
+  const branches = branchesQ.data ?? [];
+  useEffect(() => {
+    if (branches.length > 0 && !branches.includes(branch)) {
+      setBranch(branches[0]);   // listBranches returns the default branch first
+    }
+  }, [branches]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const run = async () => {
     if (!specPath.trim()) { toast.push('error', 'Enter the spec path.'); return; }
@@ -202,10 +212,17 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
         and compares it to the spec below. No changes are written to the repo.
       </p>
       <div className="space-y-4">
-        <Field label="Branch" hint="Defaults to the repository's default branch.">
+        <Field label="Branch"
+          hint={branchesQ.isLoading ? 'Loading branches…' : branches.length > 0 ? 'Default branch listed first.' : 'Type the branch (branch list unavailable).'}>
           <div className="relative">
-            <GitBranch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-            <Input className="pl-8" value={branch} onChange={(e) => setBranch(e.target.value)} />
+            <GitBranch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted z-10" />
+            {branches.length > 0 ? (
+              <Select className="pl-8" value={branch} onChange={(e) => setBranch(e.target.value)}>
+                {branches.map((b) => <option key={b} value={b}>{b}</option>)}
+              </Select>
+            ) : (
+              <Input className="pl-8" placeholder="master" value={branch} onChange={(e) => setBranch(e.target.value)} />
+            )}
           </div>
         </Field>
         <Field label="Spec path" hint="Path to the OpenAPI/Swagger file, relative to the repo root.">

@@ -26,7 +26,7 @@ public class ReposController {
     }
 
     @GetMapping("/repos/{slug}/branches")
-    public List<String> branches(@PathVariable String slug) {
-        return gitHost.listBranches(slug);
+    public List<String> branches(@PathVariable String slug, @RequestParam(required = false) String appId) {
+        return gitHost.listBranches(appId, slug);
     }
 }

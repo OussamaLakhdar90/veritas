@@ -210,6 +210,8 @@ export const api = {
     return get<Finding[]>(`/scans/${scanId}/findings${q ? `?${q}` : ''}`)
   },
   repos: (appId: string) => get<Repo[]>(`/repos?appId=${encodeURIComponent(appId)}`),
+  branches: (appId: string, slug: string) =>
+    get<string[]>(`/repos/${encodeURIComponent(slug)}/branches?appId=${encodeURIComponent(appId)}`),
   createDefect: (findingId: string, projectKey: string) =>
     post<DefectResult>(`/findings/${findingId}/defect`, { projectKey, issueType: 'Bug' }),
   triggerScan: (body: { appId?: string; repoSlug?: string; branch?: string; repoPath?: string; specPaths: string[] }) =>

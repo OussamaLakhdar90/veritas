@@ -69,7 +69,7 @@ public class BitbucketCloudClient implements GitHost {
     }
 
     @Override
-    public List<String> listBranches(String repoSlug) {
+    public List<String> listBranches(String appId, String repoSlug) {
         List<String> branches = new ArrayList<>();
         String uri = base() + "/2.0/repositories/" + workspace() + "/" + repoSlug + "/refs/branches?pagelen=100";
         try {

@@ -41,7 +41,7 @@ class PrPublisherTest {
             public List<RepoInfo> discoverRepos(String appId) {
                 return List.of();
             }
-            public List<String> listBranches(String repoSlug) {
+            public List<String> listBranches(String appId, String repoSlug) {
                 return List.of();
             }
             public Path clone(RepoInfo repo, String branch, Path destinationParent) {

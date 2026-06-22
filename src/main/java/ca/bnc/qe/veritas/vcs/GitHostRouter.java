@@ -37,8 +37,8 @@ public class GitHostRouter implements GitHost {
     }
 
     @Override
-    public List<String> listBranches(String repoSlug) {
-        return active().listBranches(repoSlug);
+    public List<String> listBranches(String appId, String repoSlug) {
+        return active().listBranches(appId, repoSlug);
     }
 
     @Override

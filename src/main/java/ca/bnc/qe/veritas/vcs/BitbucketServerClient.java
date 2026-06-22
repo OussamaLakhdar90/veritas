@@ -70,25 +70,35 @@ public class BitbucketServerClient implements GitHost {
     }
 
     @Override
-    public List<String> listBranches(String repoSlug) {
+    public List<String> listBranches(String appId, String repoSlug) {
+        String project = (appId != null && !appId.isBlank()) ? appId : project();   // app-id is the Server/DC project key
         List<String> branches = new ArrayList<>();
+        String defaultBranch = null;
         try {
             int start = 0;
             boolean last = false;
             while (!last) {
-                final String pageUri = base() + "/rest/api/1.0/projects/" + project() + "/repos/" + repoSlug
+                final String pageUri = base() + "/rest/api/1.0/projects/" + project + "/repos/" + repoSlug
                         + "/branches?limit=100&start=" + start;
                 String body = retries.call(() -> http.get().uri(URI.create(pageUri))
                         .header("Authorization", authHeader()).retrieve().body(String.class));
                 JsonNode root = mapper.readTree(body == null ? "{}" : body);
                 for (JsonNode v : root.path("values")) {
-                    branches.add(v.path("displayId").asText(v.path("id").asText("")));
+                    String name = v.path("displayId").asText(v.path("id").asText(""));
+                    branches.add(name);
+                    if (v.path("isDefault").asBoolean(false)) {
+                        defaultBranch = name;
+                    }
                 }
                 last = root.path("isLastPage").asBoolean(true);
                 start = root.path("nextPageStart").asInt(start);
             }
         } catch (Exception e) {
             throw new IllegalStateException("Bitbucket Server branch listing failed for '" + repoSlug + "': " + e.getMessage(), e);
+        }
+        // Surface the default branch first so the Validate form pre-selects the right one (e.g. master, not main).
+        if (defaultBranch != null && branches.remove(defaultBranch)) {
+            branches.add(0, defaultBranch);
         }
         return branches;
     }

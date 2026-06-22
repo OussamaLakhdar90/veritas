@@ -9,8 +9,8 @@ public interface GitHost {
     /** Repos under an app-id (Bitbucket Cloud project key within the configured workspace), token-filtered. */
     List<RepoInfo> discoverRepos(String appId);
 
-    /** Branch names for a repo. */
-    List<String> listBranches(String repoSlug);
+    /** Branch names for a repo (default branch first). {@code appId} is the project key (Server/DC). */
+    List<String> listBranches(String appId, String repoSlug);
 
     /** Shallow-clone a repo at a branch into {@code destinationParent/<slug>}; returns the clone path. */
     Path clone(RepoInfo repo, String branch, Path destinationParent);
