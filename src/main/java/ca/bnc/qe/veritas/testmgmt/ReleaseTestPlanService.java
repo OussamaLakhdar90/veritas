@@ -7,7 +7,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import ca.bnc.qe.veritas.cost.CostRecorder;
-import ca.bnc.qe.veritas.cost.CostResult;
 import ca.bnc.qe.veritas.cost.ModelSelector;
 import ca.bnc.qe.veritas.cost.ModelTier;
 import ca.bnc.qe.veritas.coverage.CoverageMatcher;
@@ -20,6 +19,7 @@ import ca.bnc.qe.veritas.integration.xray.XrayTest;
 import ca.bnc.qe.veritas.integration.xray.XrayTestSpec;
 import ca.bnc.qe.veritas.llm.JsonBlockExtractor;
 import ca.bnc.qe.veritas.llm.LlmGateway;
+import ca.bnc.qe.veritas.llm.PromptChunker;
 import ca.bnc.qe.veritas.llm.PromptComposer;
 import ca.bnc.qe.veritas.llm.ResponseSchemaValidator;
 import ca.bnc.qe.veritas.persistence.CoverageItem;
@@ -32,7 +32,10 @@ import ca.bnc.qe.veritas.report.CoverageReportRenderer;
 import ca.bnc.qe.veritas.skill.GateService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
@@ -60,6 +63,11 @@ public class ReleaseTestPlanService {
     private final CoverageReportRenderer coverageReportRenderer;
     private final Preflight preflight;
     private final ca.bnc.qe.veritas.persistence.TestStrategyRepository strategyRepository;
+
+    /** Per-batch token budget for the release-issues list. Large releases are synthesized in batches then merged
+     *  (so no requirement is silently elided to fit one prompt). 0 = never batch (single call). */
+    @Value("${veritas.llm.batch-input-tokens:24000}")
+    private int batchInputTokens;
 
     public ReleaseTestPlanService(LlmGateway llm, JsonBlockExtractor jsonExtractor, ResponseSchemaValidator schemaValidator,
                                   ModelSelector modelSelector, CostRecorder costRecorder, PromptComposer promptComposer,
@@ -115,13 +123,13 @@ public class ReleaseTestPlanService {
             List<JiraIssue> issues = jira.search(jql, List.of("summary"), 200);
             // B2 — classify testable vs non-testable (infra/docs/spike) with a recorded reason (no silent drop).
             List<JiraIssue> nonTestable = new ArrayList<>();
-            StringBuilder basis = new StringBuilder("Release " + fixVersion + " issues:\n");
+            List<String> issueLines = new ArrayList<>();
             for (JiraIssue i : issues) {
                 if (isNonTestable(i.summary())) {
                     nonTestable.add(i);
                     continue;
                 }
-                basis.append("- [").append(i.key()).append("] ").append(i.summary()).append("\n");
+                issueLines.add("- [" + i.key() + "] " + i.summary());
             }
 
             // Output contract MUST mirror test-plan.schema.json (required: markdown, requiredCases, selfReview)
@@ -141,16 +149,31 @@ public class ReleaseTestPlanService {
                     + "\"selfReview\": {\"confidence\": number, \"rubricChecks\": [{\"check\": string, \"pass\": boolean, \"note\": string}], \"blindSpots\": [string]}, "
                     + "\"markdown\": string}. "
                     + "Each requiredCase traces to a requirementKey and a riskId; every HIGH/VERY-HIGH risk needs >=2 cases.";
-            String inputs = promptComposer.data("TEST_STRATEGY", strategyBasis == null ? "" : strategyBasis)
-                    + promptComposer.data("RELEASE_ISSUES", basis.toString());
-            String prompt = promptComposer.compose("[TEST-PLAN]", "generate-test-plan.prompt.md",
-                    Set.of("1", "5", "6", "8", "9", "10"),   // terms, ISO 25010, techniques, planning, risk, monitoring
-                    inputs, outputContract);
+            // Chunk-and-merge (blind spot #8): a big release would otherwise have its issue list elided to fit one
+            // prompt — silently dropping requirements. Instead batch the issues to a token budget, synthesize each
+            // batch, and merge the deliverables deterministically. Small releases stay one call (unchanged behaviour).
+            String strategyData = promptComposer.data("TEST_STRATEGY", strategyBasis == null ? "" : strategyBasis);
             String model = modelSelector.resolveTier(ModelTier.DEEP);
-            String raw = llm.complete(prompt, model);
-            JsonNode node = objectMapper.readTree(jsonExtractor.extract(raw));
-            schemaValidator.validate(node, "test-plan.schema.json");
-            CostResult cost = costRecorder.record("release-test-plan", "synthesize-plan", model, prompt, raw, owner);
+            List<String> chunks = PromptChunker.chunkLines("Release " + fixVersion + " issues:", issueLines, batchInputTokens);
+            if (chunks.size() > 1) {
+                log.info("Release {} has {} testable issues — synthesizing in {} batches to fit the context window.",
+                        fixVersion, issueLines.size(), chunks.size());
+            }
+            List<JsonNode> parts = new ArrayList<>();
+            double estCostUsd = 0.0;
+            for (String chunk : chunks) {
+                String inputs = strategyData + promptComposer.data("RELEASE_ISSUES", chunk);
+                String prompt = promptComposer.compose("[TEST-PLAN]", "generate-test-plan.prompt.md",
+                        Set.of("1", "5", "6", "8", "9", "10"),   // terms, ISO 25010, techniques, planning, risk, monitoring
+                        inputs, outputContract);
+                String raw = llm.complete(prompt, model);
+                JsonNode part = objectMapper.readTree(jsonExtractor.extract(raw));
+                schemaValidator.validate(part, "test-plan.schema.json");
+                parts.add(part);
+                estCostUsd += costRecorder.record("release-test-plan", "synthesize-plan", model, prompt, raw, owner)
+                        .estCostUsd();
+            }
+            JsonNode node = parts.size() == 1 ? parts.get(0) : mergePlanNodes(parts, issueLines.size());
 
             TestPlan plan = new TestPlan();
             plan.setServiceName(serviceName);
@@ -163,7 +186,7 @@ public class ReleaseTestPlanService {
             plan.setRiskCount(node.path("riskRegister").size());
             plan.setStatus("DRAFT");
             plan.setOwner(owner);
-            plan.setEstCostUsd(cost.estCostUsd());
+            plan.setEstCostUsd(Math.round(estCostUsd * 10_000.0) / 10_000.0);
             plan = planRepository.save(plan);
 
             String testsQuery = testsJql != null ? testsJql : (projectKey != null ? "project = " + projectKey : null);
@@ -311,7 +334,7 @@ public class ReleaseTestPlanService {
 
             String reportPath = writeRtm(plan, items);
             return new CoverageSummary(plan.getId(), required.size(), matched, gaps, created, orphans,
-                    cost.estCostUsd(), reportPath, plan.getConfidence(), plan.getRiskCount());
+                    plan.getEstCostUsd(), reportPath, plan.getConfidence(), plan.getRiskCount());
         } catch (Exception e) {
             throw new IllegalStateException("release-test-plan failed: " + e.getMessage(), e);
         }
@@ -324,6 +347,131 @@ public class ReleaseTestPlanService {
         }
         return summary.toLowerCase(java.util.Locale.ROOT)
                 .matches(".*\\b(spike|investigat|research|chore|infra|documentation)\\b.*|.*\\[doc.*");
+    }
+
+    /**
+     * Deterministically merge the per-batch plan deliverables into one (chunk-and-merge): union the requiredCases
+     * (dedup by requirementKey+title) and riskRegister (dedup by id), union the list-valued scope/approach/exit
+     * fields, take the most conservative self-review confidence, and keep batch-1's narrative (exec summary /
+     * estimation / markdown) with a transparent blind spot noting the batch assembly. No LLM call here.
+     */
+    private JsonNode mergePlanNodes(List<JsonNode> parts, int totalIssues) {
+        ObjectNode merged = parts.get(0).deepCopy();
+
+        ArrayNode cases = objectMapper.createArrayNode();
+        Set<String> seenCase = new HashSet<>();
+        ArrayNode risks = objectMapper.createArrayNode();
+        Set<String> seenRisk = new HashSet<>();
+        double minConfidence = Double.MAX_VALUE;
+        List<String> blindSpots = new ArrayList<>();
+        Set<String> seenBlind = new HashSet<>();
+
+        for (JsonNode p : parts) {
+            for (JsonNode c : p.path("requiredCases")) {
+                String key = c.path("requirementKey").asText("") + "|" + norm(c.path("title").asText(""));
+                if (seenCase.add(key)) {
+                    cases.add(c);
+                }
+            }
+            for (JsonNode r : p.path("riskRegister")) {
+                String id = r.path("id").asText("");
+                String key = id.isBlank() ? "desc:" + norm(r.path("description").asText("")) : id;
+                if (seenRisk.add(key)) {
+                    risks.add(r);
+                }
+            }
+            double conf = p.path("selfReview").path("confidence").asDouble(Double.MAX_VALUE);
+            if (conf < minConfidence) {
+                minConfidence = conf;
+            }
+            for (JsonNode b : p.path("selfReview").path("blindSpots")) {
+                if (seenBlind.add(b.asText())) {
+                    blindSpots.add(b.asText());
+                }
+            }
+        }
+        merged.set("requiredCases", cases);
+        merged.set("riskRegister", risks);
+
+        // Union the list-valued narrative fields so nothing from later batches is lost.
+        if (merged.path("scope").isObject()) {
+            ObjectNode scope = (ObjectNode) merged.get("scope");
+            for (String f : List.of("inScope", "outOfScope", "objectives", "assumptions")) {
+                scope.set(f, unionStrings(parts, "scope", f));
+            }
+        }
+        if (merged.path("testApproach").isObject()) {
+            ObjectNode ta = (ObjectNode) merged.get("testApproach");
+            for (String f : List.of("levels", "types", "entryCriteria")) {
+                ta.set(f, unionStrings(parts, "testApproach", f));
+            }
+            ta.set("techniques", unionObjects(parts, "testApproach", "techniques", "name"));
+        }
+        merged.set("exitCriteria", unionObjectsTop(parts, "exitCriteria", "criterion"));
+
+        ObjectNode self = merged.path("selfReview").isObject()
+                ? (ObjectNode) merged.get("selfReview") : objectMapper.createObjectNode();
+        if (minConfidence != Double.MAX_VALUE) {
+            self.put("confidence", minConfidence);
+        }
+        blindSpots.add("Plan synthesized in " + parts.size() + " batches over " + totalIssues + " release issues to "
+                + "fit the model context window; required cases and risks are merged across all batches, narrative "
+                + "sections reflect the first batch.");
+        ArrayNode bs = objectMapper.createArrayNode();
+        blindSpots.forEach(bs::add);
+        self.set("blindSpots", bs);
+        merged.set("selfReview", self);
+
+        String md = merged.path("markdown").asText("");
+        merged.put("markdown", md + "\n\n> _Note: assembled from " + parts.size()
+                + " batches of release issues to respect the model context window._");
+        return merged;
+    }
+
+    /** Union of a nested string array field across all parts, order-preserving and de-duplicated. */
+    private ArrayNode unionStrings(List<JsonNode> parts, String parent, String field) {
+        ArrayNode out = objectMapper.createArrayNode();
+        Set<String> seen = new HashSet<>();
+        for (JsonNode p : parts) {
+            for (JsonNode v : p.path(parent).path(field)) {
+                if (seen.add(v.asText())) {
+                    out.add(v.asText());
+                }
+            }
+        }
+        return out;
+    }
+
+    /** Union of a nested object array (e.g. techniques) deduped by one identity field. */
+    private ArrayNode unionObjects(List<JsonNode> parts, String parent, String field, String idField) {
+        ArrayNode out = objectMapper.createArrayNode();
+        Set<String> seen = new HashSet<>();
+        for (JsonNode p : parts) {
+            for (JsonNode v : p.path(parent).path(field)) {
+                if (seen.add(norm(v.path(idField).asText("")))) {
+                    out.add(v);
+                }
+            }
+        }
+        return out;
+    }
+
+    /** Union of a top-level object array (e.g. exitCriteria) deduped by one identity field. */
+    private ArrayNode unionObjectsTop(List<JsonNode> parts, String field, String idField) {
+        ArrayNode out = objectMapper.createArrayNode();
+        Set<String> seen = new HashSet<>();
+        for (JsonNode p : parts) {
+            for (JsonNode v : p.path(field)) {
+                if (seen.add(norm(v.path(idField).asText("")))) {
+                    out.add(v);
+                }
+            }
+        }
+        return out;
+    }
+
+    private static String norm(String s) {
+        return s == null ? "" : s.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
     }
 
     private void addDimension(List<CoverageItem> items, String planId, String dimension, JsonNode value, String title) {
