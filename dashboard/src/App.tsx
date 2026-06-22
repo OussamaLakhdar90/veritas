@@ -1,9 +1,10 @@
 import { HashRouter, Routes, Route, NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, ShieldCheck, Bug, ClipboardList, ListChecks, Code2, GitPullRequestArrow,
-  Coins, Settings, Moon, Sun, Target, ClipboardCheck,
+  Coins, Settings, Moon, Sun, Target, ClipboardCheck, Rocket,
 } from 'lucide-react';
 import { Dashboard } from './pages/Dashboard';
+import { Onboarding } from './pages/Onboarding';
 import { RepoPicker } from './pages/RepoPicker';
 import { Findings } from './pages/Findings';
 import { TestStrategy } from './pages/TestStrategy';
@@ -21,6 +22,7 @@ import { cn } from './components/cn';
 
 const NAV = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/onboarding', label: 'Get started', icon: Rocket },
   { to: '/repos', label: 'Validate', icon: ShieldCheck },
   { to: '/defects', label: 'Defects', icon: Bug },
   { to: '/test-strategy', label: 'Test Strategy', icon: Target },
@@ -77,6 +79,7 @@ export function App() {
           <main className="min-w-0 flex-1 overflow-auto p-6">
             <Routes>
               <Route path="/" element={<Dashboard />} />
+              <Route path="/onboarding" element={<Onboarding />} />
               <Route path="/repos" element={<RepoPicker />} />
               <Route path="/findings/:scanId" element={<Findings />} />
               <Route path="/defects" element={<Defects />} />

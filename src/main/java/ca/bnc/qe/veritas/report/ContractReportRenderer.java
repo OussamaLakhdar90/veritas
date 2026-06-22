@@ -123,8 +123,26 @@ public class ContractReportRenderer {
 
         sb.append("<div class=\"content\">");
 
+        // ---- Table of contents (anchors to each section present) ----
+        boolean anyFix = findings.stream().anyMatch(f -> !isBlank(f.getProposedFix()));
+        sb.append("<nav class=\"toc\"><div class=\"toc-h\">").append(bi("Contents", "Sommaire")).append("</div><ol>");
+        sb.append(tocItem("sec-1", bi("Executive summary", "Sommaire exécutif")));
+        sb.append(tocItem("sec-2", bi("Risk &amp; business impact", "Risque et impact d'affaires")));
+        sb.append(tocItem("sec-3", bi("Recommended actions", "Actions recommandées")));
+        if (!counted.isEmpty()) {
+            sb.append(tocItem("sec-4", bi("Detailed findings", "Constats détaillés")));
+        }
+        if (anyFix) {
+            sb.append(tocItem("sec-5", bi("Corrected OpenAPI specification", "Spécification OpenAPI corrigée")));
+        }
+        if (!attention.isEmpty()) {
+            sb.append(tocItem("sec-6", bi("Items needing manual review", "Éléments à vérifier manuellement")));
+        }
+        sb.append(tocItem("sec-7", bi("Analysis coverage", "Couverture de l'analyse")));
+        sb.append("</ol></nav>");
+
         // ---- 1. Executive summary ----
-        sb.append("<section><h2>").append(bi("1. Executive summary", "1. Sommaire exécutif")).append("</h2>");
+        sb.append("<section id=\"sec-1\"><h2>").append(bi("1. Executive summary", "1. Sommaire exécutif")).append("</h2>");
         sb.append("<p class=\"lead\">").append(bi(
                 "This report compares the published OpenAPI contract for " + esc(nz(scan.getServiceName()))
                         + " against its Spring implementation. The deterministic analysis identified " + counted.size()
@@ -179,7 +197,7 @@ public class ContractReportRenderer {
         sb.append("</section>");
 
         // ---- 2. Risk & business impact ----
-        sb.append("<section><h2>").append(bi("2. Risk &amp; business impact", "2. Risque et impact d'affaires")).append("</h2>");
+        sb.append("<section id=\"sec-2\"><h2>").append(bi("2. Risk &amp; business impact", "2. Risque et impact d'affaires")).append("</h2>");
         sb.append("<table class=\"impact\"><thead><tr><th>").append(bi("Severity", "Sévérité")).append("</th><th>")
                 .append(bi("Count", "Nombre")).append("</th><th>").append(bi("What it means", "Ce que cela implique"))
                 .append("</th></tr></thead><tbody>");
@@ -202,7 +220,7 @@ public class ContractReportRenderer {
 
         // ---- 3. Recommended actions ----
         List<String[]> actions = recommendations(missing.size(), wrong.size(), dead.size(), attention.size());
-        sb.append("<section><h2>").append(bi("3. Recommended actions", "3. Actions recommandées")).append("</h2>")
+        sb.append("<section id=\"sec-3\"><h2>").append(bi("3. Recommended actions", "3. Actions recommandées")).append("</h2>")
                 .append("<table class=\"actions\"><thead><tr><th>#</th><th>").append(bi("Action", "Action"))
                 .append("</th><th>").append(bi("Priority", "Priorité")).append("</th><th>").append(bi("Owner", "Responsable"))
                 .append("</th><th>").append(bi("Target date", "Échéance")).append("</th></tr></thead><tbody>");
@@ -218,17 +236,16 @@ public class ContractReportRenderer {
 
         // ---- 4. Detailed findings ----
         if (!counted.isEmpty()) {
-            sb.append("<section><h2>").append(bi("4. Detailed findings", "4. Constats détaillés")).append("</h2>");
+            sb.append("<section id=\"sec-4\"><h2>").append(bi("4. Detailed findings", "4. Constats détaillés")).append("</h2>");
             sb.append(subsection(bi("4.1 Missing from the specification", "4.1 Manquant dans la spécification"), missing, fr));
             sb.append(subsection(bi("4.2 Contract mismatches", "4.2 Incohérences du contrat"), wrong, fr));
             sb.append(subsection(bi("4.3 Dead spec (documented, not in code)", "4.3 Spéc. morte (documentée, absente du code)"), dead, fr));
             sb.append("</section>");
         }
 
-        // corrected YAML link
-        boolean anyFix = findings.stream().anyMatch(f -> !isBlank(f.getProposedFix()));
+        // corrected YAML link (anyFix computed above for the TOC)
         if (anyFix) {
-            sb.append("<section><h2>").append(bi("5. Corrected OpenAPI specification", "5. Spécification OpenAPI corrigée"))
+            sb.append("<section id=\"sec-5\"><h2>").append(bi("5. Corrected OpenAPI specification", "5. Spécification OpenAPI corrigée"))
                     .append("</h2><p><a href=\"./").append(esc(slug(scan.getServiceName())))
                     .append("_corrected.yaml\" target=\"_blank\" rel=\"noreferrer\">")
                     .append(bi("Download the corrected OpenAPI YAML", "Télécharger le YAML OpenAPI corrigé"))
@@ -238,7 +255,7 @@ public class ContractReportRenderer {
 
         // ---- needs attention (not counted) ----
         if (!attention.isEmpty()) {
-            sb.append("<section class=\"needs-attention\"><h2>")
+            sb.append("<section id=\"sec-6\" class=\"needs-attention\"><h2>")
                     .append(bi("6. Items needing manual review", "6. Éléments à vérifier manuellement")).append("</h2>")
                     .append("<p class=\"ns-intro\">").append(bi(
                             "Raised by the assistant, not deterministically proven — <strong>not counted</strong> in the "
@@ -253,7 +270,7 @@ public class ContractReportRenderer {
         }
 
         // ---- analysis coverage (deterministic limitations) ----
-        sb.append("<section class=\"blind-spots\"><h2>").append(bi("7. Analysis coverage", "7. Couverture de l'analyse")).append("</h2>");
+        sb.append("<section id=\"sec-7\" class=\"blind-spots\"><h2>").append(bi("7. Analysis coverage", "7. Couverture de l'analyse")).append("</h2>");
         if (!isBlank(scan.getBlindSpots())) {
             sb.append("<p class=\"cov-warn\">").append(bi(
                             "Limitations — these areas could not be fully analysed, so the absence of a finding here is "
@@ -447,6 +464,10 @@ public class ContractReportRenderer {
                 + "<div class=\"kpi-l\">" + label + "</div></div>";
     }
 
+    private String tocItem(String id, String label) {
+        return "<li><a href=\"#" + id + "\">" + label + "</a></li>";
+    }
+
     private String bi(String en, String fr) {
         return "<span class=\"en\">" + en + "</span><span class=\"fr\">" + fr + "</span>";
     }
@@ -512,7 +533,11 @@ public class ContractReportRenderer {
                 + ".cover-meta th{text-align:left;color:rgba(255,255,255,.7);font-weight:400;padding:3px 18px 3px 0;vertical-align:top}"
                 + ".cover-meta td{padding:3px 0;color:#fff}"
                 + ".content{max-width:900px;margin:0 auto;padding:1.5rem 2rem 3rem}"
-                + "section{margin-top:1.8rem}"
+                + ".toc{margin:0 0 1rem;padding:1rem 1.2rem;background:#F7F9FC;border:1px solid #E3E6EB;border-radius:10px}"
+                + ".toc-h{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6B7280;margin-bottom:.4rem}"
+                + ".toc ol{margin:0;padding-left:1.2rem;columns:2;font-size:13px}"
+                + ".toc a{color:#8A6A1E;text-decoration:none}.toc a:hover{text-decoration:underline}"
+                + "section{margin-top:1.8rem;scroll-margin-top:1rem}"
                 + "h2{font-size:1.2rem;font-weight:600;border-bottom:2px solid #e3e6eb;padding-bottom:.4rem;margin-bottom:.8rem}"
                 + "h3.subhead{font-size:1rem;font-weight:600;margin:1.1rem 0 .4rem;color:#0f3460}"
                 + ".lead{font-size:1rem}"
