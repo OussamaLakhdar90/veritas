@@ -50,8 +50,8 @@ public class DefectService {
     public DefectLink createDefect(String findingId, String projectKey, String issueType, String owner) {
         preflight.createDefect(findingId, projectKey);
         var existing = defectRepository.findByFindingId(findingId);
-        if (existing.isPresent()) {
-            return existing.get();   // idempotent — no duplicate ticket
+        if (existing.isPresent() && existing.get().isCreatedInJira()) {
+            return existing.get();   // already created — fully idempotent, no duplicate ticket
         }
         GateService.Decision gate = gateService.await(findingId, "CREATE_DEFECT", owner);
         if (!gate.approved()) {
@@ -64,16 +64,29 @@ public class DefectService {
         String serviceName = scanRepository.findById(finding.getScanId())
                 .map(Scan::getServiceName).orElse(null);
 
+        // Reserve the idempotency slot (unique on findingId) BEFORE the outward Jira write. This commits on its
+        // own, so a crash after the reservation but before/after createIssue leaves a createdInJira=false row that
+        // a retry reuses (no duplicate ticket); two concurrent callers race on the unique constraint, the loser
+        // re-reads the winner's row. (A reserved-but-uncreated row is what the top-of-method guard tolerates.)
+        DefectLink link = existing.orElseGet(DefectLink::new);
+        if (existing.isEmpty()) {
+            link.setFindingId(findingId);
+            link.setScanId(finding.getScanId());
+            link.setCreatedInJira(false);
+            link.setCreatedBy(owner);
+            try {
+                link = defectRepository.save(link);
+            } catch (org.springframework.dao.DataIntegrityViolationException raced) {
+                return defectRepository.findByFindingId(findingId).orElseThrow(() -> raced);
+            }
+        }
+
         JiraCreateRequest request = composer.compose(finding, serviceName, projectKey, issueType);
         String key = jira.createIssue(request);
 
-        DefectLink link = new DefectLink();
-        link.setFindingId(findingId);
-        link.setScanId(finding.getScanId());
         link.setJiraKey(key);
         link.setJiraUrl(browseUrl(key));
         link.setCreatedInJira(true);
-        link.setCreatedBy(owner);
         link.setLastSyncedAt(Instant.now());
         link = defectRepository.save(link);
 
