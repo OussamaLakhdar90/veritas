@@ -52,7 +52,7 @@ class GateServiceTest {
         gateService.reject(pending.getId(), "carol", "no");
         // a decided (REJECTED) gate must not be flippable to APPROVED
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> gateService.approve(pending.getId(), "mallory"))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(ConflictException.class)   // maps to HTTP 409, not a masked 500
                 .hasMessageContaining("already REJECTED");
     }
 

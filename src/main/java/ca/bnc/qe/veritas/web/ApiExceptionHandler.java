@@ -31,6 +31,14 @@ public class ApiExceptionHandler {
         return pd;
     }
 
+    @ExceptionHandler(ca.bnc.qe.veritas.skill.ConflictException.class)
+    public ProblemDetail onConflict(ca.bnc.qe.veritas.skill.ConflictException e) {
+        // e.g. deciding an already-decided gate (concurrent double-click / re-submit) — a conflict, not a 500.
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+        pd.setTitle("Conflict");
+        return pd;
+    }
+
     @ExceptionHandler(Exception.class)
     public ProblemDetail onUnexpected(Exception e) {
         log.error("Unhandled API error", e);

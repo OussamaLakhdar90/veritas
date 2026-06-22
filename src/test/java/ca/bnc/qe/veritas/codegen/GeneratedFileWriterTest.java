@@ -57,6 +57,17 @@ class GeneratedFileWriterTest {
     }
 
     @Test
+    void deepMergeOnKeyCollisionDoesNotClobberExistingData(@TempDir Path dir) throws Exception {
+        Path f = dir.resolve("data-manager.json");
+        Files.writeString(f, "{\"policies\": {\"P-1\": {\"id\": 1}}, \"ids\": [\"a\"]}");
+        // Same top-level keys, different nested content — prior data must survive (no-clobber, #14).
+        writer.write(f, "data-manager.json", "{\"policies\": {\"P-2\": {\"id\": 2}}, \"ids\": [\"b\"]}");
+        String merged = Files.readString(f);
+        assertThat(merged).contains("P-1").contains("P-2");   // nested object deep-merged, not overwritten
+        assertThat(merged).contains("\"a\"").contains("\"b\"");   // nested array appended, not replaced
+    }
+
+    @Test
     void mergesJsonArraysWithDedup(@TempDir Path dir) throws Exception {
         Path f = dir.resolve("ids.json");
         Files.writeString(f, "[\"x\",\"y\"]");

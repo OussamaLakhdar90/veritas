@@ -99,6 +99,18 @@ public class EncryptedFileSecretStore implements SecretProvider {
             Files.createDirectories(f.getParent());
         }
         Files.writeString(f, b64(salt) + "." + b64(iv) + "." + b64(ct));
+        restrictToOwner(f);   // owner-only perms (best-effort; no-op on non-POSIX filesystems like Windows)
+    }
+
+    /** Narrow the secret file to owner read/write where the OS supports it (POSIX); silently skip on Windows. */
+    private void restrictToOwner(Path f) {
+        try {
+            Files.setPosixFilePermissions(f, java.util.EnumSet.of(
+                    java.nio.file.attribute.PosixFilePermission.OWNER_READ,
+                    java.nio.file.attribute.PosixFilePermission.OWNER_WRITE));
+        } catch (UnsupportedOperationException | java.io.IOException ignore) {
+            // non-POSIX (Windows) — file already lives under the per-user home; ACL hardening is out of scope here
+        }
     }
 
     private SecretKey deriveKey(byte[] salt) throws Exception {

@@ -66,7 +66,7 @@ public class GateService {
         GateDecision d = repository.findById(gateId)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown gate " + gateId));
         if (!"PENDING".equals(d.getStatus())) {
-            throw new IllegalStateException("Gate " + gateId + " is already " + d.getStatus()
+            throw new ConflictException("Gate " + gateId + " is already " + d.getStatus()
                     + "; only a PENDING gate can be approved or rejected.");
         }
         return d;

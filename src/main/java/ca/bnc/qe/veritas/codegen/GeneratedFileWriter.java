@@ -95,24 +95,48 @@ public class GeneratedFileWriter {
             JsonNode a = mapper.readTree(existing);
             JsonNode b = mapper.readTree(incoming);
             if (a.isObject() && b.isObject()) {
-                ObjectNode merged = ((ObjectNode) a).deepCopy();
-                b.fields().forEachRemaining(e -> merged.set(e.getKey(), e.getValue()));   // incoming wins per key, old kept
+                ObjectNode merged = deepMerge((ObjectNode) a.deepCopy(), (ObjectNode) b);
                 return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(merged);
             }
             if (a.isArray() && b.isArray()) {
-                ArrayNode merged = ((ArrayNode) a).deepCopy();
-                Set<String> seen = new HashSet<>();
-                a.forEach(n -> seen.add(n.toString()));
-                for (JsonNode n : b) {
-                    if (seen.add(n.toString())) {
-                        merged.add(n);
-                    }
-                }
+                ArrayNode merged = appendUnique((ArrayNode) a.deepCopy(), (ArrayNode) b);
                 return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(merged);
             }
         } catch (Exception ignore) {
             // not mergeable JSON — caller overwrites
         }
         return null;
+    }
+
+    /**
+     * Deep-merge {@code incoming} into {@code base} WITHOUT clobbering existing data (the no-clobber guarantee for
+     * shared registries like data-manager.json): a new key is added; two objects recurse; two arrays append-unique;
+     * a scalar/type collision keeps the existing value (never silently overwritten).
+     */
+    private ObjectNode deepMerge(ObjectNode base, ObjectNode incoming) {
+        incoming.fields().forEachRemaining(e -> {
+            JsonNode existing = base.get(e.getKey());
+            JsonNode in = e.getValue();
+            if (existing == null) {
+                base.set(e.getKey(), in);
+            } else if (existing.isObject() && in.isObject()) {
+                base.set(e.getKey(), deepMerge((ObjectNode) existing, (ObjectNode) in));
+            } else if (existing.isArray() && in.isArray()) {
+                base.set(e.getKey(), appendUnique((ArrayNode) existing, (ArrayNode) in));
+            }
+            // else: scalar or type conflict on an existing key → keep what's already there.
+        });
+        return base;
+    }
+
+    private ArrayNode appendUnique(ArrayNode base, ArrayNode incoming) {
+        Set<String> seen = new HashSet<>();
+        base.forEach(n -> seen.add(n.toString()));
+        for (JsonNode n : incoming) {
+            if (seen.add(n.toString())) {
+                base.add(n);
+            }
+        }
+        return base;
     }
 }

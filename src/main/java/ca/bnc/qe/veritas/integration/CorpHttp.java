@@ -96,19 +96,31 @@ public class CorpHttp {
             if (body != null) {
                 pb.environment().put("VERITAS_BODY", body);
             }
-            Process p = pb.redirectErrorStream(false).start();
-            StringBuilder out = new StringBuilder();
-            try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = r.readLine()) != null) {
-                    out.append(line).append('\n');
+            // Merge stderr into stdout (one stream, no second pipe to deadlock on) and drain it on a separate
+            // thread so a large/blocked output never wedges the process before waitFor can enforce the timeout.
+            Process p = pb.redirectErrorStream(true).start();
+            java.util.concurrent.CompletableFuture<String> reader = java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                StringBuilder out = new StringBuilder();
+                try (BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = r.readLine()) != null) {
+                        out.append(line).append('\n');
+                    }
+                } catch (java.io.IOException ex) {
+                    throw new java.io.UncheckedIOException(ex);
+                }
+                return out.toString();
+            });
+            try {
+                if (!p.waitFor(powershellTimeoutSeconds, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("PowerShell HTTP timed out after " + powershellTimeoutSeconds + "s");
+                }
+                return reader.get(5, TimeUnit.SECONDS).trim();
+            } finally {
+                if (p.isAlive()) {
+                    p.destroyForcibly();   // never leak the child on timeout/error/success
                 }
             }
-            if (!p.waitFor(powershellTimeoutSeconds, TimeUnit.SECONDS)) {
-                p.destroyForcibly();
-                throw new IllegalStateException("PowerShell HTTP timed out");
-            }
-            return out.toString().trim();
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
