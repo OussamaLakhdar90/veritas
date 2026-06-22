@@ -17,6 +17,10 @@ server:
   port: 8080
 
 veritas:
+  secret:
+    auto-passphrase: true   # local-first: auto-generate a machine-bound key (~/.veritas/secret.key) so in-app token
+                            # entry works without editing YAML. The `server` (EC2) profile sets this false — a
+                            # home-dir key is unsafe on a shared host; use Vault/KMS + per-user keys there.
   llm:
     mode: mock          # mock | copilot (CLI) | http (Copilot HTTP API, device flow)
     model: claude-sonnet-4.6
