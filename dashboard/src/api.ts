@@ -214,7 +214,8 @@ export const api = {
     get<string[]>(`/repos/${encodeURIComponent(slug)}/branches?appId=${encodeURIComponent(appId)}`),
   createDefect: (findingId: string, projectKey: string) =>
     post<DefectResult>(`/findings/${findingId}/defect`, { projectKey, issueType: 'Bug' }),
-  triggerScan: (body: { appId?: string; repoSlug?: string; branch?: string; repoPath?: string; specPaths: string[] }) =>
+  triggerScan: (body: { appId?: string; repoSlug?: string; branch?: string; repoPath?: string;
+    specPaths?: string[]; specSources?: { kind: string; ref: string }[] }) =>
     post<ScanResult>('/scans', body),
   reportUrl: (scanId: string) => `${BASE}/scans/${scanId}/report`,
   testPlans: () => get<TestPlan[]>('/test-plans'),

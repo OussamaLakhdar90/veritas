@@ -172,8 +172,18 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
   const toast = useToast();
   const navigate = useNavigate();
   const [branch, setBranch] = useState(repo.defaultBranch || '');
-  const [specPath, setSpecPath] = useState('openapi.yaml');
+  const [specKind, setSpecKind] = useState<'REPO_PATH' | 'LIVE_DOCS' | 'CONFLUENCE'>('REPO_PATH');
+  const [specRef, setSpecRef] = useState('openapi.yaml');
   const [busy, setBusy] = useState(false);
+
+  const SPEC = {
+    REPO_PATH: { label: 'File in the repo', field: 'Spec path', placeholder: 'openapi.yaml',
+      hint: 'Path to the OpenAPI/Swagger file, relative to the repo root.' },
+    LIVE_DOCS: { label: 'Live /v3/api-docs URL', field: 'API docs URL', placeholder: 'https://service.bnc.ca/v3/api-docs',
+      hint: 'A running endpoint that serves the OpenAPI JSON.' },
+    CONFLUENCE: { label: 'Confluence page', field: 'Confluence page ID', placeholder: '123456',
+      hint: 'The page ID that holds the spec (wiki.bnc.ca).' },
+  }[specKind];
 
   // Discover the repo's real branches so the user picks (e.g.) master, not a hardcoded "main".
   const branchesQ = useQuery({ queryKey: ['branches', appId, repo.slug], queryFn: () => api.branches(appId, repo.slug) });
@@ -185,12 +195,13 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
   }, [branches]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const run = async () => {
-    if (!specPath.trim()) { toast.push('error', 'Enter the spec path.'); return; }
+    if (!specRef.trim()) { toast.push('error', `Enter the ${SPEC.field.toLowerCase()}.`); return; }
     setBusy(true);
     try {
-      const res = await api.triggerScan({
-        appId, repoSlug: repo.slug, branch: branch.trim() || undefined, specPaths: [specPath.trim()],
-      });
+      const common = { appId, repoSlug: repo.slug, branch: branch.trim() || undefined };
+      const res = await api.triggerScan(specKind === 'REPO_PATH'
+        ? { ...common, specPaths: [specRef.trim()] }
+        : { ...common, specSources: [{ kind: specKind, ref: specRef.trim() }] });
       toast.push('success', `Scan complete — ${res.totalFindings} finding${res.totalFindings === 1 ? '' : 's'}.`);
       onClose();
       navigate(`/findings/${res.scanId}`);
@@ -225,11 +236,22 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
             )}
           </div>
         </Field>
-        <Field label="Spec path" hint="Path to the OpenAPI/Swagger file, relative to the repo root.">
+        <Field label="Spec source" hint="Where the OpenAPI/Swagger spec lives.">
+          <Select value={specKind} onChange={(e) => {
+            const k = e.target.value as 'REPO_PATH' | 'LIVE_DOCS' | 'CONFLUENCE';
+            setSpecKind(k);
+            setSpecRef(k === 'REPO_PATH' ? 'openapi.yaml' : '');   // reset the ref to a sensible default per kind
+          }}>
+            <option value="REPO_PATH">File in the repo</option>
+            <option value="LIVE_DOCS">Live /v3/api-docs URL</option>
+            <option value="CONFLUENCE">Confluence page</option>
+          </Select>
+        </Field>
+        <Field label={SPEC.field} hint={SPEC.hint}>
           <div className="relative">
             <FileCode className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-            <Input className="pl-8" placeholder="openapi.yaml" value={specPath}
-              onChange={(e) => setSpecPath(e.target.value)}
+            <Input className="pl-8" placeholder={SPEC.placeholder} value={specRef}
+              onChange={(e) => setSpecRef(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && !busy && run()} />
           </div>
         </Field>
