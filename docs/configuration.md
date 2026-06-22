@@ -94,3 +94,63 @@ Connection details come from the environment so no secrets sit in the image or r
 
 The profile switches the Hibernate dialect to `PostgreSQLDialect` and the driver to `org.postgresql.Driver`;
 `ddl-auto=update` keeps the schema in sync until Flyway migrations land (later phase).
+
+## Self-serve configuration (in the app — no terminal, no env vars)
+
+A non-technical QA configures everything from the dashboard **Settings** page; nothing above needs to be
+hand-edited. The page is backed by the `settings/` REST API (`/api/v1/settings/**`) and reuses the existing
+secret store and connection beans:
+
+| What | UI | Endpoint | Stored |
+|---|---|---|---|
+| Connection URLs / edition / workspace / auth-type | per-service cards | `GET`/`PUT /settings/connections` | `~/.veritas/connections.json` (non-secret) |
+| Tokens / passwords | write-only fields ("● configured" vs "not set") | `POST /settings/secrets` (204, never echoed); `GET` returns booleans only | encrypted `secrets.enc` (AES-GCM) |
+| Live "Test connection" | button → status pill | `POST /settings/connections/{service}/test` | nothing (read-only `whoAmI`) |
+| GitHub → Copilot sign-in | device-flow modal (user code + link) | `POST /settings/copilot/login/start` → poll `…/login/status`; `…/status`; `…/signout` | `copilot-auth.json` (owner-only) |
+| Setup checklist | readiness list on Settings + a banner on the dashboard | `GET /preflight` | — |
+
+Notes:
+- **Passphrase bootstrap (local).** On first start, a `SettingsEnvironmentPostProcessor` auto-generates a
+  machine-bound, owner-only `~/.veritas/secret.key` and injects it as `veritas.secret.passphrase` before any
+  binding, so the AES-GCM store works with **zero setup**. Gated by `veritas.secret.auto-passphrase: true`
+  (default) — set **false** on the `server` profile (see below) to require Vault/KMS instead.
+- **`connections.json` overlay.** The same post-processor overlays the persisted file pre-binding; most fields
+  apply immediately because clients read `ConnectionsProperties` per request. **`edition` is the exception** —
+  its client wiring is fixed at startup, so `PUT /settings/connections` returns `restartRequiredFields` and
+  the UI shows "restart to apply" when only the edition changed.
+- **Secrets never leave the box** in DB rows, DTOs, logs, YAML, or generated files; the GET status endpoint
+  returns booleans, never values.
+
+## Building the dashboard
+
+The compiled dashboard is **committed** under `src/main/resources/static`, so the default build is
+**node-free** (CI- and offline-friendly):
+
+```
+mvn package                 # uses the committed UI build
+```
+
+To rebuild the UI from source, use the opt-in profile (needs Node; downloads a pinned v22.11.0 and runs
+`npm ci` + `npm run build`, which vite writes back into `src/main/resources/static`):
+
+```
+mvn -Pdashboard package
+```
+
+## EC2 / multi-user (server profile) — required before any off-box exposure
+
+Locally the server binds to **127.0.0.1** and trusts the single OS user. **Before** Veritas is reachable off
+the box (EC2, shared host), the `server` Spring profile must be completed — do **not** expose the settings
+endpoints without it:
+
+- **`veritas.secret.auto-passphrase: false`** — no machine-key bootstrap; secrets come from **Vault/KMS**,
+  stored **per `principalId()`** (the `CurrentUser` seam already keys state by principal).
+- **Authentication** — a `SecurityFilterChain` over `/api/v1/**` (SSO/OIDC), so token entry, connection
+  edits, and Copilot sign-in are per-authenticated-user. Without it, anyone reaching the port could read
+  connection metadata and trigger logins.
+- **TLS** in front (the device-flow user code and all settings traffic must not cross the network in clear).
+- **Bind address** widened past `127.0.0.1` **only** once the above are in place.
+
+The seams exist today (`CurrentUser`/`LocalCurrentUser`, the `auto-passphrase` gate, the `postgres` profile);
+the auth filter + Vault wiring are built when EC2 lands. See
+[security-auth-and-credentials.md](security-auth-and-credentials.md).

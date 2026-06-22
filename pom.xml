@@ -159,4 +159,65 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+          Opt-in front-end build. The compiled dashboard is committed under
+          src/main/resources/static, so the DEFAULT build is node-free (CI-friendly, offline).
+          Run `mvn -Pdashboard package` on a machine with internet to rebuild the UI from source
+          (downloads a pinned Node, runs `npm ci` + `npm run build` → vite writes back into static).
+        -->
+        <profile>
+            <id>dashboard</id>
+            <properties>
+                <node.version>v22.11.0</node.version>
+                <frontend-maven-plugin.version>1.15.1</frontend-maven-plugin.version>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.github.eirslett</groupId>
+                        <artifactId>frontend-maven-plugin</artifactId>
+                        <version>${frontend-maven-plugin.version}</version>
+                        <configuration>
+                            <workingDirectory>dashboard</workingDirectory>
+                            <installDirectory>target</installDirectory>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>install-node-and-npm</id>
+                                <goals>
+                                    <goal>install-node-and-npm</goal>
+                                </goals>
+                                <phase>generate-resources</phase>
+                                <configuration>
+                                    <nodeVersion>${node.version}</nodeVersion>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>npm-ci</id>
+                                <goals>
+                                    <goal>npm</goal>
+                                </goals>
+                                <phase>generate-resources</phase>
+                                <configuration>
+                                    <arguments>ci</arguments>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>npm-build</id>
+                                <goals>
+                                    <goal>npm</goal>
+                                </goals>
+                                <phase>generate-resources</phase>
+                                <configuration>
+                                    <arguments>run build</arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
