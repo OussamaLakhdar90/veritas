@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { cn } from './cn';
 
 /* ── Button ─────────────────────────────────────────────────────────────── */
@@ -152,6 +152,57 @@ export function Td({ className, children, ...rest }: React.TdHTMLAttributes<HTML
 }
 export function Row({ className, children, ...rest }: React.HTMLAttributes<HTMLTableRowElement>) {
   return <tr className={cn('border-b border-border/60 align-top last:border-0 hover:bg-ink-50/60', className)} {...rest}>{children}</tr>;
+}
+
+/* ── Client-side sorting ────────────────────────────────────────────────── */
+export type SortDir = 'asc' | 'desc';
+export interface SortState { key?: string; dir: SortDir; toggle: (k: string) => void; }
+
+/** Sort `rows` by a column key (optional custom accessor map — keep it stable, e.g. module-level/useMemo). */
+export function useSort<T>(rows: T[], initial?: { key: string; dir?: SortDir },
+  accessors?: Record<string, (r: T) => string | number | null | undefined>): { sorted: T[] } & SortState {
+  const [key, setKey] = React.useState<string | undefined>(initial?.key);
+  const [dir, setDir] = React.useState<SortDir>(initial?.dir ?? 'asc');
+  const toggle = (k: string) => {
+    if (k === key) {
+      setDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setKey(k);
+      setDir('asc');
+    }
+  };
+  const sorted = React.useMemo(() => {
+    if (!key) return rows;
+    const acc = accessors?.[key] ?? ((r: T) => (r as Record<string, unknown>)[key] as string | number);
+    return [...rows].sort((a, b) => {
+      const av = acc(a);
+      const bv = acc(b);
+      let c: number;
+      if (av == null && bv == null) c = 0;
+      else if (av == null) c = -1;
+      else if (bv == null) c = 1;
+      else if (typeof av === 'number' && typeof bv === 'number') c = av - bv;
+      else c = String(av).localeCompare(String(bv));
+      return dir === 'asc' ? c : -c;
+    });
+  }, [rows, key, dir, accessors]);
+  return { sorted, key, dir, toggle };
+}
+
+/** Clickable, accessible sort header. */
+export function SortableTh({ label, sortKey, sort, className }:
+  { label: string; sortKey: string; sort: SortState; className?: string }) {
+  const active = sort.key === sortKey;
+  const Icon = !active ? ArrowUpDown : sort.dir === 'asc' ? ArrowUp : ArrowDown;
+  return (
+    <th className={cn('px-5 py-3 font-medium', className)}
+      aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <button type="button" onClick={() => sort.toggle(sortKey)}
+        className="inline-flex items-center gap-1 hover:text-ink-900 focus-visible:underline focus-visible:outline-none">
+        {label}<Icon className={cn('h-3 w-3', active ? 'text-ink-700' : 'text-muted/50')} />
+      </button>
+    </th>
+  );
 }
 
 /* ── Page header ────────────────────────────────────────────────────────── */

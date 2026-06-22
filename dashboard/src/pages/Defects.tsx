@@ -1,9 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bug, RefreshCw, ExternalLink } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, Card, CardBody, EmptyState, PageHeader, Spinner, Table, Td, Th, Row } from '../components/ui';
+import { Badge, Button, Card, CardBody, EmptyState, PageHeader, Spinner, Table, Td, Row, SortableTh, useSort } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
+import { DefectLink } from '../api';
+
+const DEFECT_ACCESSORS: Record<string, (d: DefectLink) => string | number> = {
+  jiraKey: (d) => d.jiraKey ?? '',
+  status: (d) => d.jiraStatus ?? '',
+  createdBy: (d) => d.createdBy ?? '',
+  lastSyncedAt: (d) => d.lastSyncedAt ?? '',
+};
 
 function statusTone(category?: string): string {
   const c = (category || '').toLowerCase();
@@ -23,7 +31,8 @@ export function Defects() {
     onError: (e: Error) => toast.push('error', `Sync failed: ${e.message}`),
   });
 
-  const rows = q.data ?? [];
+  const sort = useSort(q.data ?? [], { key: 'jiraKey' }, DEFECT_ACCESSORS);
+  const rows = sort.sorted;
   return (
     <div>
       <PageHeader title="Defects" subtitle="Jira defects raised from contract findings, with live status."
@@ -40,7 +49,12 @@ export function Defects() {
       ) : (
         <Card>
           <CardBody className="p-0">
-            <Table head={<><Th>Jira</Th><Th>Status</Th><Th>Created by</Th><Th>Last synced</Th></>}>
+            <Table head={<>
+              <SortableTh label="Jira" sortKey="jiraKey" sort={sort} />
+              <SortableTh label="Status" sortKey="status" sort={sort} />
+              <SortableTh label="Created by" sortKey="createdBy" sort={sort} />
+              <SortableTh label="Last synced" sortKey="lastSyncedAt" sort={sort} />
+            </>}>
               {rows.map((d) => (
                 <Row key={d.id}>
                   <Td className="font-medium text-ink-900">
