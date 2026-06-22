@@ -37,4 +37,15 @@ class TestCaseControllerTest {
                 .andExpect(jsonPath("$.status").value("APPROVED"))
                 .andExpect(jsonPath("$.approvedBy").value("qa-lead"));
     }
+
+    @Test
+    void illegalLifecycleTransitionIsConflict() throws Exception {
+        TestCase tc = new TestCase();
+        tc.setStatus("IMPLEMENTED");   // terminal — cannot go back to PROPOSED
+        when(repository.findById("tc1")).thenReturn(Optional.of(tc));
+
+        mvc.perform(patch("/api/v1/test-cases/tc1").contentType("application/json")
+                        .content("{\"status\":\"PROPOSED\"}"))
+                .andExpect(status().isConflict());
+    }
 }

@@ -11,9 +11,11 @@ import ca.bnc.qe.veritas.contract.SpecSourceKind;
 import ca.bnc.qe.veritas.contract.ValidationRequest;
 import ca.bnc.qe.veritas.contract.ValidationResult;
 import ca.bnc.qe.veritas.vcs.WorkspaceService;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Triggers a contract-validation scan (used by the dashboard "Validate" action). */
@@ -32,6 +34,7 @@ public class ScanController {
     }
 
     @PostMapping("/scans")
+    @ResponseStatus(HttpStatus.ACCEPTED)   // long-running validation; matches the other skill triggers' 202
     public ValidationResult scan(@RequestBody ScanRequest req) {
         Path repoPath = workspace.resolve(req.appId(), req.repoSlug(), req.branch(), req.repoPath());
         List<SpecInput> specs = new ArrayList<>();

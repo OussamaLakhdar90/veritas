@@ -16,7 +16,7 @@ function statusTone(status?: string): string {
 }
 
 export function Dashboard() {
-  const scansQ = useQuery({ queryKey: ['scans'], queryFn: api.scans });
+  const scansQ = useQuery({ queryKey: ['scans'], queryFn: () => api.scans() });
   const preflightQ = useQuery({ queryKey: ['preflight'], queryFn: api.preflight });
   const costQ = useQuery({ queryKey: ['costs'], queryFn: api.costSummary });
   const defectsQ = useQuery({ queryKey: ['defects'], queryFn: api.defects });

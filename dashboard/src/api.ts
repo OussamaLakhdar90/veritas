@@ -200,8 +200,15 @@ export interface Deliverable {
 }
 
 export const api = {
-  scans: () => get<Scan[]>('/scans'),
-  findings: (scanId: string) => get<Finding[]>(`/scans/${scanId}/findings`),
+  scans: (service?: string) => get<Scan[]>(`/scans${service ? `?service=${encodeURIComponent(service)}` : ''}`),
+  findings: (scanId: string, facets?: { severity?: string; layer?: string; status?: string }) => {
+    const qs = new URLSearchParams()
+    if (facets?.severity) qs.set('severity', facets.severity)
+    if (facets?.layer) qs.set('layer', facets.layer)
+    if (facets?.status) qs.set('status', facets.status)
+    const q = qs.toString()
+    return get<Finding[]>(`/scans/${scanId}/findings${q ? `?${q}` : ''}`)
+  },
   repos: (appId: string) => get<Repo[]>(`/repos?appId=${encodeURIComponent(appId)}`),
   createDefect: (findingId: string, projectKey: string) =>
     post<DefectResult>(`/findings/${findingId}/defect`, { projectKey, issueType: 'Bug' }),

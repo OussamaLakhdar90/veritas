@@ -2,9 +2,11 @@ package ca.bnc.qe.veritas.web;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import ca.bnc.qe.veritas.persistence.TestCase;
 import ca.bnc.qe.veritas.persistence.TestCaseRepository;
+import ca.bnc.qe.veritas.skill.ConflictException;
 import ca.bnc.qe.veritas.testmgmt.CreateTestCasesService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -27,6 +29,15 @@ public class TestCaseController {
 
     private static final Set<String> ALLOWED_STATUS = Set.of(
             "PROPOSED", "APPROVED", "REJECTED", "CREATED_IN_XRAY", "ATTACHED", "IMPLEMENTED");
+
+    /** Permitted lifecycle transitions (PROPOSED→APPROVED→CREATED_IN_XRAY→ATTACHED→IMPLEMENTED, with reject/re-open). */
+    private static final Map<String, Set<String>> TRANSITIONS = Map.of(
+            "PROPOSED", Set.of("APPROVED", "REJECTED"),
+            "APPROVED", Set.of("REJECTED", "CREATED_IN_XRAY", "ATTACHED", "IMPLEMENTED"),
+            "REJECTED", Set.of("PROPOSED", "APPROVED"),
+            "CREATED_IN_XRAY", Set.of("ATTACHED", "IMPLEMENTED"),
+            "ATTACHED", Set.of("IMPLEMENTED"),
+            "IMPLEMENTED", Set.of());
 
     private final TestCaseRepository repository;
     private final CreateTestCasesService service;
@@ -65,6 +76,11 @@ public class TestCaseController {
             if (!ALLOWED_STATUS.contains(s)) {
                 throw new IllegalArgumentException("Unknown test-case status '" + patch.status()
                         + "'. Allowed: " + ALLOWED_STATUS);
+            }
+            String current = tc.getStatus() == null ? "PROPOSED" : tc.getStatus().toUpperCase(Locale.ROOT);
+            if (!s.equals(current) && !TRANSITIONS.getOrDefault(current, Set.of()).contains(s)) {
+                throw new ConflictException("Illegal test-case status transition " + current + " → " + s
+                        + " (allowed from " + current + ": " + TRANSITIONS.getOrDefault(current, Set.of()) + ")");
             }
             tc.setStatus(s);
             if ("APPROVED".equals(s)) {

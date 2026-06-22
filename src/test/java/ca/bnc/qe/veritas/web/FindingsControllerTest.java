@@ -2,10 +2,12 @@ package ca.bnc.qe.veritas.web;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.List;
 import java.util.Optional;
 import ca.bnc.qe.veritas.persistence.FindingRecord;
 import ca.bnc.qe.veritas.persistence.FindingRecordRepository;
@@ -42,5 +44,21 @@ class FindingsControllerTest {
         when(findingRepository.findById("f1")).thenReturn(Optional.of(f));
         mvc.perform(patch("/api/v1/findings/f1").contentType("application/json").content("{\"status\":\"BOGUS\"}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void findingsAreFacetedBySeverityServerSide() throws Exception {
+        FindingRecord crit = new FindingRecord();
+        crit.setSeverity("CRITICAL");
+        crit.setSummary("a blocker");
+        FindingRecord minor = new FindingRecord();
+        minor.setSeverity("MINOR");
+        minor.setSummary("a nit");
+        when(findingRepository.findByScanId("s1")).thenReturn(List.of(crit, minor));
+
+        mvc.perform(get("/api/v1/scans/s1/findings?severity=critical"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].severity").value("CRITICAL"));
     }
 }
