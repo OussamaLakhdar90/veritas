@@ -248,7 +248,13 @@ export const api = {
 
   // Strategies / Reviews
   strategies: (service: string) => get<TestStrategy[]>(`/services/${encodeURIComponent(service)}/strategies`),
+  generateStrategy: (service: string, body: { basis: string; source?: string; owner?: string }) =>
+    send<TestStrategy>('POST', `/services/${encodeURIComponent(service)}/strategies`, body),
+  strategyRationaleUrl: (id: string) => `${BASE}/strategies/${id}/rationale`,
   reviews: (targetKey: string) => get<ReviewResult[]>(`/reviews?targetKey=${encodeURIComponent(targetKey)}`),
+  runReview: (body: { jql: string; apply: boolean; owner?: string }) => send<ReviewResult[]>('POST', '/reviews', body),
+  generateTestCases: (service: string, body: { basis: string; owner?: string }) =>
+    send<TestCase[]>('POST', `/services/${encodeURIComponent(service)}/test-cases`, body),
 
   // ── Settings: secrets, connections, test-connection, Copilot sign-in ──
   secretsStatus: () => get<SecretStatus>('/settings/secrets'),

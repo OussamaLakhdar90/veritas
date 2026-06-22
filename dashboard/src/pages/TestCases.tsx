@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ListChecks, Search, Check, X, Upload } from 'lucide-react';
+import { ListChecks, Search, Check, X, Upload, Sparkles } from 'lucide-react';
 import { api, TestCase } from '../api';
-import { Badge, Button, Card, CardBody, EmptyState, Field, Input, PageHeader, Spinner, Table, Td, Th, Row } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, PageHeader, Spinner, Table, Td, Th, Row, Textarea } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
 
@@ -19,8 +19,15 @@ export function TestCases() {
   const [svc, setSvc] = useState('');
   const [query, setQuery] = useState('');
   const [projectKey, setProjectKey] = useState('');
+  const [basis, setBasis] = useState('');
 
   const q = useQuery({ queryKey: ['test-cases', query], queryFn: () => api.testCases(query), enabled: !!query });
+
+  const generate = useMutation({
+    mutationFn: () => api.generateTestCases(svc, { basis }),
+    onSuccess: () => { setQuery(svc); qc.invalidateQueries({ queryKey: ['test-cases', svc] }); toast.push('success', 'Test cases generated.'); },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
 
   const act = useMutation({
     mutationFn: ({ tc, fn }: { tc: TestCase; fn: () => Promise<unknown> }) => fn(),
@@ -42,6 +49,22 @@ export function TestCases() {
             <div className="flex-1"><Field label="Project key" hint="needed to push to Xray"><Input placeholder="CIAM" value={projectKey}
               onChange={(e) => setProjectKey(e.target.value.toUpperCase())} /></Field></div>
             <Button onClick={() => setQuery(svc)} disabled={!svc} className="sm:mb-0.5"><Search className="h-4 w-4" /> Load</Button>
+          </div>
+        </CardBody>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader title="Generate test cases" subtitle="ISTQB Test-Analyst cases from a basis (endpoints or stories) for the service above." />
+        <CardBody className="space-y-4">
+          <Field label="Basis" hint="What to design cases for — paste endpoints, acceptance criteria or stories.">
+            <Textarea placeholder="e.g. POST /policies — create; GET /policies/{id} — fetch; 404 when missing…" value={basis}
+              onChange={(e) => setBasis(e.target.value)} />
+          </Field>
+          <div className="flex justify-end">
+            <Button loading={generate.isPending}
+              onClick={() => (svc && basis.trim()) ? generate.mutate() : toast.push('error', 'Service and basis are required.')}>
+              <Sparkles className="h-4 w-4" /> Generate
+            </Button>
           </div>
         </CardBody>
       </Card>

@@ -1,14 +1,16 @@
 import { HashRouter, Routes, Route, NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, ShieldCheck, Bug, ClipboardList, ListChecks, Code2, GitPullRequestArrow,
-  Coins, Settings, Moon, Sun,
+  Coins, Settings, Moon, Sun, Target, ClipboardCheck,
 } from 'lucide-react';
 import { Dashboard } from './pages/Dashboard';
 import { RepoPicker } from './pages/RepoPicker';
 import { Findings } from './pages/Findings';
+import { TestStrategy } from './pages/TestStrategy';
 import { TestPlans } from './pages/TestPlans';
 import { TestPlanDetail } from './pages/TestPlanDetail';
 import { TestCases } from './pages/TestCases';
+import { Reviews } from './pages/Reviews';
 import { Codegen } from './pages/Codegen';
 import { Costs } from './pages/Costs';
 import { Defects } from './pages/Defects';
@@ -21,8 +23,10 @@ const NAV = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/repos', label: 'Validate', icon: ShieldCheck },
   { to: '/defects', label: 'Defects', icon: Bug },
+  { to: '/test-strategy', label: 'Test Strategy', icon: Target },
   { to: '/test-plans', label: 'Test Plans', icon: ClipboardList },
   { to: '/test-cases', label: 'Test Cases', icon: ListChecks },
+  { to: '/review-test-cases', label: 'Reviews', icon: ClipboardCheck },
   { to: '/generate-tests', label: 'Generate Tests', icon: Code2 },
   { to: '/gates', label: 'Gates', icon: GitPullRequestArrow },
   { to: '/costs', label: 'Cost', icon: Coins },
@@ -76,9 +80,11 @@ export function App() {
               <Route path="/repos" element={<RepoPicker />} />
               <Route path="/findings/:scanId" element={<Findings />} />
               <Route path="/defects" element={<Defects />} />
+              <Route path="/test-strategy" element={<TestStrategy />} />
               <Route path="/test-plans" element={<TestPlans />} />
               <Route path="/test-plans/:id" element={<TestPlanDetail />} />
               <Route path="/test-cases" element={<TestCases />} />
+              <Route path="/review-test-cases" element={<Reviews />} />
               <Route path="/generate-tests" element={<Codegen />} />
               <Route path="/gates" element={<Gates />} />
               <Route path="/costs" element={<Costs />} />

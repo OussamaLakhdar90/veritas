@@ -98,6 +98,10 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
 export function Select({ className, children, ...rest }: React.SelectHTMLAttributes<HTMLSelectElement>) {
   return <select className={cn(fieldCls, className)} {...rest}>{children}</select>;
 }
+export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(
+  function Textarea({ className, ...rest }, ref) {
+    return <textarea ref={ref} className={cn(fieldCls, 'h-auto min-h-[110px] py-2 font-mono text-[13px]', className)} {...rest} />;
+  });
 
 /* ── KPI tile ───────────────────────────────────────────────────────────── */
 export function KpiTile({ label, value, sub, tone = 'ink' }:
