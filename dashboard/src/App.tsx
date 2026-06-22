@@ -13,6 +13,7 @@ import { Codegen } from './pages/Codegen';
 import { Costs } from './pages/Costs';
 import { Defects } from './pages/Defects';
 import { Gates } from './pages/Gates';
+import { Settings as SettingsPage } from './pages/Settings';
 import { useDarkMode } from './lib/theme';
 import { cn } from './components/cn';
 
@@ -81,16 +82,11 @@ export function App() {
               <Route path="/generate-tests" element={<Codegen />} />
               <Route path="/gates" element={<Gates />} />
               <Route path="/costs" element={<Costs />} />
-              <Route path="/settings" element={<SettingsPlaceholder />} />
+              <Route path="/settings" element={<SettingsPage />} />
             </Routes>
           </main>
         </div>
       </div>
     </HashRouter>
   );
-}
-
-/** Placeholder until P3 ships the real Settings page (keeps the route + nav live now). */
-function SettingsPlaceholder() {
-  return <div className="text-sm text-muted">Settings — connections, tokens & Copilot sign-in (coming in the next slice).</div>;
 }

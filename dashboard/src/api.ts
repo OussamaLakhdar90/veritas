@@ -20,6 +20,32 @@ async function post<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>
 }
 
+/** Method-flexible sender that tolerates 204 and surfaces an RFC-7807 `detail`/`message` on error (friendly toasts). */
+async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const res = await fetch(BASE + path, {
+    method,
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  })
+  if (!res.ok) {
+    let detail = `${res.status} ${res.statusText}`
+    try { const j = await res.json(); if (j && (j.detail || j.message)) detail = j.detail || j.message } catch { /* non-JSON */ }
+    throw new Error(detail)
+  }
+  if (res.status === 204) return undefined as T
+  const text = await res.text()
+  return (text ? JSON.parse(text) : undefined) as T
+}
+
+// ── Settings types (Part A backend) ──────────────────────────────────────────
+export type SecretStatus = Record<string, boolean>
+export interface EndpointCfg { baseUrl?: string; edition?: string; workspace?: string; authType?: string }
+export interface ConnectionsCfg { bitbucket: EndpointCfg; jira: EndpointCfg; confluence: EndpointCfg; xray: EndpointCfg }
+export interface UpdateConnectionsResult { applied: boolean; restartRequiredFields: string[] }
+export interface ConnectionTestResult { service: string; reachable: boolean; authenticated: boolean; status: number; message: string }
+export interface CopilotLoginStart { id: string; userCode: string; verificationUri: string; expiresIn: number }
+export interface CopilotLoginStatus { state: 'PENDING' | 'AUTHORIZED' | 'EXPIRED' | 'ERROR'; message: string }
+
 export interface Scan {
   id: string
   serviceName: string
@@ -216,4 +242,15 @@ export const api = {
   // Strategies / Reviews
   strategies: (service: string) => get<TestStrategy[]>(`/services/${encodeURIComponent(service)}/strategies`),
   reviews: (targetKey: string) => get<ReviewResult[]>(`/reviews?targetKey=${encodeURIComponent(targetKey)}`),
+
+  // ── Settings: secrets, connections, test-connection, Copilot sign-in ──
+  secretsStatus: () => get<SecretStatus>('/settings/secrets'),
+  setSecret: (key: string, value: string) => send<void>('POST', '/settings/secrets', { key, value }),
+  connections: () => get<ConnectionsCfg>('/settings/connections'),
+  saveConnections: (cfg: ConnectionsCfg) => send<UpdateConnectionsResult>('PUT', '/settings/connections', cfg),
+  testConnection: (service: string) => send<ConnectionTestResult>('POST', `/settings/connections/${encodeURIComponent(service)}/test`),
+  copilotStatus: () => get<{ authenticated: boolean }>('/settings/copilot/status'),
+  copilotLoginStart: () => send<CopilotLoginStart>('POST', '/settings/copilot/login/start'),
+  copilotLoginStatus: (id: string) => get<CopilotLoginStatus>(`/settings/copilot/login/status?id=${encodeURIComponent(id)}`),
+  copilotSignout: () => send<void>('POST', '/settings/copilot/signout'),
 }
