@@ -64,7 +64,19 @@ public class PromptComposer {
 
     /** Fence a block of untrusted content with a clear label so the model treats it as data (no trimming). */
     public static String untrusted(String label, String content) {
-        return "<<<UNTRUSTED " + label + "\n" + (content == null ? "" : content) + "\n>>>END " + label + "\n";
+        return "<<<UNTRUSTED " + label + "\n" + defang(content) + "\n>>>END " + label + "\n";
+    }
+
+    /**
+     * Prompt-injection hardening: break any occurrence of the fence sentinels inside untrusted content so a
+     * payload cannot forge the closing marker and smuggle the rest as trusted instructions. A space is inserted
+     * into the token — visually clear, and it no longer matches the real {@code <<<UNTRUSTED} / {@code >>>END} fence.
+     */
+    static String defang(String content) {
+        if (content == null) {
+            return "";
+        }
+        return content.replace("<<<UNTRUSTED", "<<< UNTRUSTED").replace(">>>END", ">>> END");
     }
 
     /** Deterministic budget trim: keep ~60% head + tail, elide the noisy middle with a visible marker. */

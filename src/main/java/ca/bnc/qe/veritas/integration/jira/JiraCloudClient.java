@@ -7,6 +7,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import ca.bnc.qe.veritas.config.ConnectionsProperties;
+import ca.bnc.qe.veritas.integration.HttpFactory;
 import ca.bnc.qe.veritas.integration.Retries;
 import ca.bnc.qe.veritas.secret.SecretProvider;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -29,7 +30,7 @@ public class JiraCloudClient implements JiraClient {
     private final ConnectionsProperties connections;
     private final SecretProvider secrets;
     private final ObjectMapper mapper;
-    private final RestClient http = RestClient.builder().build();
+    private final RestClient http = RestClient.builder().requestFactory(HttpFactory.bounded()).build();
     private final Retries retries;
 
     /** Per-request page size for paged JQL fetches. */
