@@ -1,6 +1,7 @@
 package ca.bnc.qe.veritas.contract;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,6 +23,25 @@ class SpecResolverTest {
                 .resolve(new SpecSource(SpecSourceKind.REPO_PATH, "openapi.yaml"), repo);
         assertThat(spec.id()).isEqualTo("openapi");
         assertThat(spec.content()).contains("openapi: 3.0.0");
+    }
+
+    @Test
+    void autoDiscoversSpecWhenGivenPathIsMissing(@TempDir Path repo) throws Exception {
+        Files.createDirectories(repo.resolve("src/main/resources"));
+        Files.writeString(repo.resolve("src/main/resources/api.yaml"), "openapi: 3.0.1\npaths: {}\n");
+        // user kept the default "openapi.yaml" (absent) → the single real spec is found and used
+        SpecInput spec = resolver(id -> null)
+                .resolve(new SpecSource(SpecSourceKind.REPO_PATH, "openapi.yaml"), repo);
+        assertThat(spec.content()).contains("openapi: 3.0.1");
+    }
+
+    @Test
+    void clearErrorWhenNoSpecInRepo(@TempDir Path repo) throws Exception {
+        Files.writeString(repo.resolve("README.md"), "# no spec here");
+        assertThatThrownBy(() -> resolver(id -> null)
+                .resolve(new SpecSource(SpecSourceKind.REPO_PATH, "openapi.yaml"), repo))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("No OpenAPI/Swagger spec found");
     }
 
     @Test
