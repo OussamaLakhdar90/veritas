@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Code2, FileCode, ExternalLink, GitPullRequestArrow } from 'lucide-react';
 import { api, CodegenRun } from '../api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, PageHeader, Spinner } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Field, Input, PageHeader, Spinner } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
@@ -40,6 +40,8 @@ export function Codegen() {
 
       {q.isLoading ? (
         <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> Loading…</CardBody></Card>
+      ) : q.isError ? (
+        <ErrorState message={(q.error as Error).message} />
       ) : runs.length === 0 ? (
         <EmptyState icon={Code2} title="No generation runs yet"
           body="Trigger implement-tests for a service (via its workspace or the CLI) to review generated tests here." />

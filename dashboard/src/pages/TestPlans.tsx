@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ClipboardList, Play, ArrowRight } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, PageHeader, Spinner, Table, Td, Th, Row } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Field, Input, PageHeader, Spinner, Table, Td, Th, Row } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
 
@@ -55,6 +55,8 @@ export function TestPlans() {
 
       {q.isLoading ? (
         <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> Loading…</CardBody></Card>
+      ) : q.isError ? (
+        <ErrorState message={(q.error as Error).message} />
       ) : plans.length === 0 ? (
         <EmptyState icon={ClipboardList} title="No test plans yet" body="Generate a release test plan above to see its deliverable and RTM here." />
       ) : (

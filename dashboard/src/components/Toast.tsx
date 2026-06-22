@@ -29,14 +29,16 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   return (
     <Ctx.Provider value={{ push }}>
       {children}
-      <div className="fixed bottom-4 right-4 z-[60] flex w-80 flex-col gap-2">
+      {/* Live region so screen readers announce toasts; errors assert, others are polite. */}
+      <div className="fixed bottom-4 right-4 z-[60] flex w-80 flex-col gap-2" aria-live="polite" aria-atomic="false">
         {toasts.map((t) => {
           const Icon = icon[t.kind];
           return (
-            <div key={t.id} className={cn('flex items-start gap-3 rounded-lg bg-surface p-3 shadow-pop ring-1', tone[t.kind])}>
+            <div key={t.id} role={t.kind === 'error' ? 'alert' : 'status'}
+              className={cn('flex items-start gap-3 rounded-lg bg-surface p-3 shadow-pop ring-1', tone[t.kind])}>
               <Icon className="mt-0.5 h-4 w-4 shrink-0" />
               <p className="flex-1 text-[13px] text-ink-900">{t.message}</p>
-              <button onClick={() => remove(t.id)} aria-label="Dismiss"><X className="h-3.5 w-3.5 text-muted" /></button>
+              <button onClick={() => remove(t.id)} aria-label="Dismiss toast"><X className="h-3.5 w-3.5 text-muted" /></button>
             </div>
           );
         })}

@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Coins } from 'lucide-react';
 import { api } from '../api';
-import { Card, CardBody, CardHeader, EmptyState, KpiTile, PageHeader, Skeleton, Table, Td, Th, Row } from '../components/ui';
+import { Card, CardBody, CardHeader, EmptyState, ErrorState, KpiTile, PageHeader, Skeleton, Table, Td, Th, Row } from '../components/ui';
 
 export function Costs() {
   const q = useQuery({ queryKey: ['costs'], queryFn: api.costSummary });
@@ -29,6 +29,8 @@ export function Costs() {
         <CardBody className="p-0">
           {q.isLoading ? (
             <div className="space-y-2 p-5">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-8" />)}</div>
+          ) : q.isError ? (
+            <div className="p-5"><ErrorState message={(q.error as Error).message} /></div>
           ) : rows.length === 0 ? (
             <div className="p-5"><EmptyState icon={Coins} title="No spend yet" body="Run a skill that calls the LLM and its cost will be tracked here." /></div>
           ) : (

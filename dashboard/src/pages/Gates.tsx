@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { GitPullRequestArrow, Check, X } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, Card, CardBody, EmptyState, PageHeader, Spinner, Table, Td, Th, Row } from '../components/ui';
+import { Badge, Button, Card, CardBody, EmptyState, ErrorState, PageHeader, Spinner, Table, Td, Th, Row } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
@@ -41,6 +41,8 @@ export function Gates() {
 
       {q.isLoading ? (
         <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> Loading…</CardBody></Card>
+      ) : q.isError ? (
+        <ErrorState message={(q.error as Error).message} />
       ) : rows.length === 0 ? (
         <EmptyState icon={GitPullRequestArrow} title={`No ${status.toLowerCase()} gates`}
           body={status === 'PENDING' ? 'When a skill needs approval before writing to Jira, Xray or Git, it will appear here.' : undefined} />

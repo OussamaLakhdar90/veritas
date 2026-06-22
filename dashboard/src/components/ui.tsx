@@ -77,6 +77,19 @@ export function EmptyState({ icon: Icon, title, body, action }:
   );
 }
 
+/* ── Error state ────────────────────────────────────────────────────────── */
+export function ErrorState({ message }: { message?: string }) {
+  return (
+    <Card className="border-l-4 border-l-danger">
+      <CardBody>
+        <p className="text-sm text-danger" role="alert">
+          Couldn’t load this data{message ? `: ${message}` : '.'} Check your connection settings and try again.
+        </p>
+      </CardBody>
+    </Card>
+  );
+}
+
 /* ── Form fields ────────────────────────────────────────────────────────── */
 export function Field({ label, hint, error, children }:
   { label: string; hint?: string; error?: string; children: React.ReactNode }) {
