@@ -137,20 +137,24 @@ To rebuild the UI from source, use the opt-in profile (needs Node; downloads a p
 mvn -Pdashboard package
 ```
 
-## EC2 / multi-user (server profile) — required before any off-box exposure
+## EC2 / multi-user (server profile)
 
-Locally the server binds to **127.0.0.1** and trusts the single OS user. **Before** Veritas is reachable off
-the box (EC2, shared host), the `server` Spring profile must be completed — do **not** expose the settings
-endpoints without it:
+Locally the server binds to **127.0.0.1** and trusts the single OS user. For off-box (EC2, shared host)
+deployment, activate the **`server`** profile (`application-server.yml`), e.g.
+`--spring.profiles.active=server,postgres`. It turns on:
 
-- **`veritas.secret.auto-passphrase: false`** — no machine-key bootstrap; secrets come from **Vault/KMS**,
-  stored **per `principalId()`** (the `CurrentUser` seam already keys state by principal).
-- **Authentication** — a `SecurityFilterChain` over `/api/v1/**` (SSO/OIDC), so token entry, connection
-  edits, and Copilot sign-in are per-authenticated-user. Without it, anyone reaching the port could read
-  connection metadata and trigger logins.
-- **TLS** in front (the device-flow user code and all settings traffic must not cross the network in clear).
-- **Bind address** widened past `127.0.0.1` **only** once the above are in place.
+- **Authentication** — `ServerApiAuthFilter` guards `/api/v1/**` with a bearer token
+  (`veritas.server.api-token`, from a secret manager). It **fails closed**: if the token is unset on the
+  server profile, every API request is rejected (503). This is the working seam; swap it for an **OIDC/SAML**
+  resource-server filter once the bank's IdP is chosen — the controllers and `CurrentUser` contract don't change.
+- **Per-principal secrets** — `veritas.secret.per-principal: true` stores each user's tokens under
+  `~/.veritas/secrets/<principal>.enc`, and `auto-passphrase: false` disables the home-dir machine key (provide
+  `veritas.secret.passphrase` from **Vault/KMS**). The principal is `ServerCurrentUser` (request-scoped, reads
+  the `X-Veritas-User` / `X-Forwarded-User` header the auth proxy/OIDC filter sets).
+- **TLS** — `server.ssl.*` is wired in `application-server.yml` (env-driven keystore); terminate TLS here or at
+  a fronting proxy so the device-flow user code and settings traffic never cross the network in clear.
+- **Bind address** — `server.address` defaults to `0.0.0.0` on this profile, safe **only** because the auth
+  filter + TLS above are active.
 
-The seams exist today (`CurrentUser`/`LocalCurrentUser`, the `auto-passphrase` gate, the `postgres` profile);
-the auth filter + Vault wiring are built when EC2 lands. See
+Still external (not code): provisioning the actual Vault/KMS passphrase and the OIDC IdP. See
 [security-auth-and-credentials.md](security-auth-and-credentials.md).

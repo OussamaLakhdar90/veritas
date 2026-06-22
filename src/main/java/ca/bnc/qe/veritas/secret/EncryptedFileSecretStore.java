@@ -41,8 +41,16 @@ public class EncryptedFileSecretStore implements SecretProvider {
     @Value("${veritas.secret.file:}")
     private String filePath;
 
+    /** When true (server/multi-user), each principal gets its own encrypted file so sessions can't read each other. */
+    @Value("${veritas.secret.per-principal:false}")
+    private boolean perPrincipal;
+
     private final ObjectMapper mapper = new ObjectMapper();
     private final SecureRandom random = new SecureRandom();
+
+    /** Lazy so the singleton store works with a request-scoped CurrentUser on the server profile. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private org.springframework.beans.factory.ObjectProvider<ca.bnc.qe.veritas.settings.CurrentUser> currentUser;
 
     @Override
     public Optional<String> get(String key) {
@@ -121,9 +129,30 @@ public class EncryptedFileSecretStore implements SecretProvider {
 
     private Path file() {
         if (filePath != null && !filePath.isBlank()) {
-            return Path.of(filePath);
+            return Path.of(filePath);   // explicit single-file override (local/tests)
         }
-        return Path.of(System.getProperty("user.home"), ".veritas", "secrets.enc");
+        Path base = Path.of(System.getProperty("user.home"), ".veritas");
+        if (perPrincipal) {
+            // Per-user file under ~/.veritas/secrets/<principal>.enc so one session never decrypts another's tokens.
+            return base.resolve("secrets").resolve(safePrincipal() + ".enc");
+        }
+        return base.resolve("secrets.enc");
+    }
+
+    /** Filesystem-safe principal id (defaults to "local" when no CurrentUser is wired or no request is bound). */
+    private String safePrincipal() {
+        String id = "local";
+        if (currentUser != null) {
+            try {
+                ca.bnc.qe.veritas.settings.CurrentUser u = currentUser.getIfAvailable();
+                if (u != null && u.principalId() != null && !u.principalId().isBlank()) {
+                    id = u.principalId();
+                }
+            } catch (RuntimeException outsideRequestScope) {
+                id = "local";   // request-scoped principal resolved outside a request → safe default
+            }
+        }
+        return id.replaceAll("[^A-Za-z0-9._-]", "_");
     }
 
     private byte[] randomBytes(int n) {

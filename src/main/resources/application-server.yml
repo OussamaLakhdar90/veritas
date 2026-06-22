@@ -1,0 +1,24 @@
+# Server / EC2 (multi-user) profile. Activate with: --spring.profiles.active=server,postgres
+# Everything here is the hardening the local profile intentionally omits. Do NOT expose Veritas off-box
+# without this profile active (auth filter + TLS + per-principal secrets).
+veritas:
+  secret:
+    # No machine-bound home-dir key on a shared host. Provide the passphrase from a secret manager (Vault/KMS),
+    # e.g. VERITAS_SECRET_PASSPHRASE, and keep per-principal files so one session can't read another's tokens.
+    auto-passphrase: false
+    per-principal: true
+    passphrase: ${VERITAS_SECRET_PASSPHRASE:}
+  server:
+    # Bearer token the ServerApiAuthFilter requires on /api/v1/**. MUST be set (from a secret manager) or the
+    # filter fails closed. Replace the filter with an OIDC/SAML resource server once the IdP is chosen.
+    api-token: ${VERITAS_API_TOKEN:}
+
+server:
+  # Bind all interfaces — SAFE only because the auth filter above guards the API and TLS below encrypts it.
+  address: ${SERVER_ADDRESS:0.0.0.0}
+  ssl:
+    enabled: ${VERITAS_TLS_ENABLED:false}
+    key-store: ${VERITAS_TLS_KEYSTORE:}
+    key-store-password: ${VERITAS_TLS_KEYSTORE_PASSWORD:}
+    key-store-type: ${VERITAS_TLS_KEYSTORE_TYPE:PKCS12}
+    key-alias: ${VERITAS_TLS_KEY_ALIAS:veritas}
