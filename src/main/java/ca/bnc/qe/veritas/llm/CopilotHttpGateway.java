@@ -1,5 +1,6 @@
 package ca.bnc.qe.veritas.llm;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import ca.bnc.qe.veritas.integration.CorpHttp;
@@ -49,25 +50,63 @@ public class CopilotHttpGateway implements LlmGateway {
     public String complete(String prompt, String model) {
         String token = auth.getSessionToken();
         try {
+            // Stream the response (SSE). Generating a full corrected spec + explanations takes minutes, and a
+            // single whole-body read would trip the read timeout; streaming makes the timeout a per-chunk
+            // budget. Matches the BNC contract-validator reference app's Copilot integration.
             String body = mapper.writeValueAsString(Map.of(
                     "model", model == null ? "" : model,
                     "messages", List.of(Map.of("role", "user", "content", prompt == null ? "" : prompt)),
                     "temperature", 0,
-                    "stream", false));
-            String resp = corp.postLong(props.getCopilotBase() + "/chat/completions", Map.of(
+                    "stream", true));
+            log.info("Copilot chat: model={}, prompt {} chars (streaming)", model, prompt == null ? 0 : prompt.length());
+            Map<String, String> headers = Map.of(
                     "Authorization", "Bearer " + token,
-                    "Accept", "application/json",
+                    "Accept", "text/event-stream",
                     "X-GitHub-Api-Version", props.getApiVersion(),
                     "editor-version", props.getEditorVersion(),
-                    "Copilot-Integration-Id", props.getIntegrationId()), body, "application/json");
-            JsonNode root = mapper.readTree(resp == null ? "{}" : resp);
-            JsonNode choice = root.path("choices").path(0);
-            // Non-streaming: message.content. (If a server streamed, content may live under delta.)
-            String content = choice.path("message").path("content").asText(null);
-            if (content == null) {
-                content = choice.path("delta").path("content").asText("");
+                    "Copilot-Integration-Id", props.getIntegrationId());
+
+            StringBuilder content = new StringBuilder();
+            List<String> rawLines = new ArrayList<>();
+            corp.postStreamLines(props.getCopilotBase() + "/chat/completions", headers, body, "application/json", line -> {
+                rawLines.add(line);
+                String t = line.trim();
+                if (!t.startsWith("data:")) {
+                    return;   // SSE comment / blank keep-alive line
+                }
+                String data = t.substring(5).trim();
+                if (data.isEmpty() || "[DONE]".equals(data)) {
+                    return;
+                }
+                try {
+                    JsonNode choice = mapper.readTree(data).path("choices").path(0);
+                    String delta = choice.path("delta").path("content").asText(null);
+                    if (delta != null) {
+                        content.append(delta);
+                    } else {
+                        String msg = choice.path("message").path("content").asText(null);
+                        if (msg != null) {
+                            content.append(msg);
+                        }
+                    }
+                } catch (Exception ignore) {
+                    // a non-JSON data line (e.g. a server keep-alive) — skip it
+                }
+            });
+
+            if (content.length() == 0) {
+                // The server answered with a single JSON object instead of an SSE stream — parse the whole body.
+                String joined = String.join("\n", rawLines).trim();
+                JsonNode choice = mapper.readTree(joined.isEmpty() ? "{}" : joined).path("choices").path(0);
+                String c = choice.path("message").path("content").asText(null);
+                if (c == null) {
+                    c = choice.path("delta").path("content").asText("");
+                }
+                log.info("Copilot chat: received {} chars (non-streamed)", c == null ? 0 : c.length());
+                return c;
             }
-            return content;
+            log.info("Copilot chat: received {} chars (streamed)", content.length());
+            return content.toString();
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {

@@ -127,6 +127,27 @@ class CopilotHttpWireMockTest {
     }
 
     @Test
+    void gatewayAccumulatesStreamedSseChunks() throws Exception {
+        long future = Instant.now().plusSeconds(3600).getEpochSecond();
+        wm.stubFor(get(urlPathEqualTo("/copilot_internal/v2/token")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"token\":\"sess-1\",\"expires_at\":" + future + "}")));
+        // Server-Sent-Events: token-by-token deltas terminated by [DONE], as Copilot streams.
+        wm.stubFor(post(urlPathEqualTo("/chat/completions")).willReturn(aResponse()
+                .withHeader("Content-Type", "text/event-stream")
+                .withBody("data: {\"choices\":[{\"delta\":{\"content\":\"hello \"}}]}\n\n"
+                        + "data: {\"choices\":[{\"delta\":{\"content\":\"from \"}}]}\n\n"
+                        + "data: {\"choices\":[{\"delta\":{\"content\":\"copilot\"}}]}\n\n"
+                        + "data: [DONE]\n\n")));
+
+        CopilotProperties p = props();
+        writeStoredOAuth(p);
+        CopilotAuthService auth = new CopilotAuthService(p, mapper, corp);
+        CopilotHttpGateway gw = new CopilotHttpGateway(auth, p, mapper, corp);
+        assertThat(gw.complete("hi", "claude-sonnet-4")).isEqualTo("hello from copilot");
+    }
+
+    @Test
     void modelsRefreshFeedsLiveMultiplierAndCost() throws Exception {
         long future = Instant.now().plusSeconds(3600).getEpochSecond();
         wm.stubFor(get(urlPathEqualTo("/copilot_internal/v2/token")).willReturn(aResponse()

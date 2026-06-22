@@ -67,6 +67,49 @@ public class CorpHttp {
         return exec(longHttp, "POST", url, headers, body, contentType);
     }
 
+    /**
+     * POST and consume the response body line-by-line (for an SSE/streaming LLM response). The read timeout
+     * then applies <em>between</em> chunks rather than to the whole body, so a multi-minute generation that
+     * streams tokens no longer trips a single whole-body read timeout. Not retried — a half-consumed stream
+     * can't be safely replayed.
+     */
+    public void postStreamLines(String url, Map<String, String> headers, String body, String contentType,
+                                java.util.function.Consumer<String> lineConsumer) {
+        RestClient.RequestBodySpec req = longHttp.method(HttpMethod.POST).uri(URI.create(url));
+        if (headers != null) {
+            req.headers(h -> headers.forEach((k, v) -> {
+                if (v != null) {
+                    h.set(k, v);
+                }
+            }));
+        }
+        if (contentType != null) {
+            req.header("Content-Type", contentType);
+        }
+        if (body != null) {
+            req.body(body);
+        }
+        req.exchange((request, response) -> {
+            try (var in = response.getBody();
+                 BufferedReader r = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+                if (response.getStatusCode().isError()) {
+                    StringBuilder err = new StringBuilder();
+                    String l;
+                    while ((l = r.readLine()) != null && err.length() < 500) {
+                        err.append(l);
+                    }
+                    throw new IllegalStateException("HTTP " + response.getStatusCode().value() + " from " + url
+                            + (err.length() == 0 ? "" : ": " + err));
+                }
+                String line;
+                while ((line = r.readLine()) != null) {
+                    lineConsumer.accept(line);
+                }
+            }
+            return null;
+        });
+    }
+
     private String exec(RestClient client, String method, String url, Map<String, String> headers, String body, String contentType) {
         try {
             return retries.call(() -> {
