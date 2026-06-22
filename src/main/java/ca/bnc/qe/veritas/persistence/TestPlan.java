@@ -17,7 +17,6 @@ public class TestPlan extends AuditableEntity {
     private String serviceName;
     private String kind;            // GLOBAL | RELEASE
     private String fixVersion;
-    private String releaseVersionId;
 
     @Lob
     @Column(columnDefinition = "TEXT")
@@ -33,7 +32,6 @@ public class TestPlan extends AuditableEntity {
 
     private String description;
     private String xrayTestPlanKey;
-    private String strategyId;
     private String status;
     private String owner;
     private double estCostUsd;

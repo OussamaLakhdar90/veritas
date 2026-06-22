@@ -69,6 +69,7 @@ public class ContractValidationService {
     private final FindingRecordRepository findingRepository;
     private final ObjectMapper objectMapper;
     private final Preflight preflight;
+    private final ScanPersistence scanPersistence;
     private final ca.bnc.qe.veritas.report.TranslationService translationService;
 
     /** Per-batch token budget for the reconcile findings list (chunk-and-merge for large scans). 0 = never batch. */
@@ -93,6 +94,7 @@ public class ContractValidationService {
                                      FindingRecordRepository findingRepository,
                                      ObjectMapper objectMapper,
                                      Preflight preflight,
+                                     ScanPersistence scanPersistence,
                                      ca.bnc.qe.veritas.report.TranslationService translationService) {
         this.javaSpringExtractor = javaSpringExtractor;
         this.openApiModelExtractor = openApiModelExtractor;
@@ -109,6 +111,7 @@ public class ContractValidationService {
         this.findingRepository = findingRepository;
         this.objectMapper = objectMapper;
         this.preflight = preflight;
+        this.scanPersistence = scanPersistence;
         this.translationService = translationService;
     }
 
@@ -185,7 +188,6 @@ public class ContractValidationService {
                     .map(f -> f.toBuilder().citation(ca.bnc.qe.veritas.finding.StandardsReference.forType(f.getType())).build())
                     .toList();
 
-            persist(scan.getId(), findings, enrich);
             scan.setTotalFindings(findings.size());
 
             // Contract Fidelity Score + trend vs the previous scan of this service (deterministic, management KPI).
@@ -232,7 +234,8 @@ public class ContractValidationService {
             }
             scan.setStatus(RunStatus.COMPLETED);
             scan.setFinishedAt(Instant.now());
-            scan = scanRepository.save(scan);
+            // Atomic: the findings and the COMPLETED scan are written together (one transaction).
+            scanPersistence.complete(scan, findings, enrich);
 
             return new ValidationResult(scan.getId(), scan.getStatus().name(), findings.size(),
                     bySeverity(findings), reportPath, reportPdfPath, correctedYamlPath, scan.getTotalEstCostUsd());
@@ -434,55 +437,6 @@ public class ContractValidationService {
             out.add(fragment == null ? f : f.toBuilder().currentYamlFragment(fragment).build());
         }
         return out;
-    }
-
-    private void persist(String scanId, List<Finding> findings, Map<String, JsonNode> enrich) {
-        List<FindingRecord> records = new ArrayList<>();
-        for (Finding f : findings) {
-            FindingRecord r = new FindingRecord();
-            r.setScanId(scanId);
-            r.setFingerprint(f.getFindingId());
-            r.setType(f.getType().name());
-            r.setLayer(f.getLayer() != null ? f.getLayer().name() : null);
-            r.setSeverity(f.getSeverity().name());
-            r.setConfidence(f.getConfidence() != null ? f.getConfidence().name() : null);
-            r.setOrigin(f.getOrigin());
-            r.setEndpoint(f.getEndpoint());
-            r.setSpecSource(f.getSpecSource());
-            r.setSummary(f.getSummary());
-            r.setCurrentYamlFragment(f.getCurrentYamlFragment());
-            r.setProposedFix(f.getProposedFix());
-            r.setCitation(f.getCitation());
-            r.setStatus(f.getStatus());
-            SourceRef ref = f.getCodeEvidence();
-            if (ref != null) {
-                r.setCodeFile(ref.location());
-                r.setCodeStartLine(ref.startLine());
-                r.setCodeEndLine(ref.endLine());
-                r.setCodeSnippet(ref.snippet());
-            }
-            JsonNode e = enrich.get(f.getFindingId());
-            if (e != null) {
-                if (e.hasNonNull("explanation")) r.setExplanation(e.get("explanation").asText());
-                if (e.hasNonNull("proposedFix")) r.setProposedFix(e.get("proposedFix").asText());
-                // citation is set deterministically above (StandardsReference) — never from the LLM.
-            }
-            carryForwardStatus(r, scanId);
-            records.add(r);
-        }
-        findingRepository.saveAll(records);
-    }
-
-    /** Carry a prior finding's triage status forward to the same fingerprint on a re-scan. */
-    private void carryForwardStatus(FindingRecord r, String scanId) {
-        if (r.getFingerprint() == null) {
-            return;
-        }
-        findingRepository.findByFingerprintOrderByCreatedAtDesc(r.getFingerprint()).stream()
-                .filter(prior -> !scanId.equals(prior.getScanId()))
-                .filter(prior -> prior.getStatus() != null && !"OPEN".equals(prior.getStatus()))
-                .findFirst()
-                .ifPresent(prior -> r.setStatus(prior.getStatus()));
     }
 
     private Map<String, Long> bySeverity(List<Finding> findings) {

@@ -6,4 +6,5 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface ScanRepository extends JpaRepository<Scan, String> {
     List<Scan> findAllByOrderByStartedAtDesc();
     List<Scan> findByServiceNameOrderByStartedAtDesc(String serviceName);
+    List<Scan> findByStatus(RunStatus status);
 }
