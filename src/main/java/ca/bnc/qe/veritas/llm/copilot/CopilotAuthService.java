@@ -127,6 +127,16 @@ public class CopilotAuthService {
         return storedOAuth() != null;
     }
 
+    /** Sign out: drop the cached session token and delete the stored OAuth token file. */
+    public void signOut() {
+        sessionCache = null;
+        try {
+            Files.deleteIfExists(Path.of(props.getTokenFile()));
+        } catch (Exception e) {
+            log.warn("Could not delete Copilot token file: {}", e.getMessage());
+        }
+    }
+
     public StoredOAuthToken storedOAuth() {
         Path file = Path.of(props.getTokenFile());
         if (!Files.exists(file)) {
