@@ -90,11 +90,14 @@ class HttpClientsWireMockTest {
 
     @Test
     void confluenceGetPageParsesStorageBody() {
-        wm.stubFor(get(urlPathEqualTo("/wiki/rest/api/content/777")).willReturn(aResponse()
+        // props() defaults confluence edition to SERVER_DC → REST at the host root (no /wiki Cloud prefix).
+        wm.stubFor(get(urlPathEqualTo("/rest/api/content/777")).willReturn(aResponse()
                 .withHeader("Content-Type", "application/json")
                 .withBody("{\"id\":\"777\",\"title\":\"Spec\",\"body\":{\"storage\":{\"value\":\"<p>hi</p>\"}}}")));
 
-        ConfluencePage page = new ConfluenceCloudClient(props(), secrets, mapper, retries).getPage("777");
+        // also proves a full page URL is accepted (not just a bare id)
+        ConfluencePage page = new ConfluenceCloudClient(props(), secrets, mapper, retries)
+                .getPage("https://wiki.bnc.ca/spaces/IAMAS/pages/777/Spec");
         assertThat(page.title()).isEqualTo("Spec");
         assertThat(page.storageXhtml()).isEqualTo("<p>hi</p>");
     }

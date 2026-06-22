@@ -181,8 +181,9 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
       hint: 'Path to the OpenAPI/Swagger file, relative to the repo root.' },
     LIVE_DOCS: { label: 'Live /v3/api-docs URL', field: 'API docs URL', placeholder: 'https://service.bnc.ca/v3/api-docs',
       hint: 'A running endpoint that serves the OpenAPI JSON.' },
-    CONFLUENCE: { label: 'Confluence page', field: 'Confluence page ID', placeholder: '123456',
-      hint: 'The page ID that holds the spec (wiki.bnc.ca).' },
+    CONFLUENCE: { label: 'Confluence page', field: 'Confluence page (URL or ID)',
+      placeholder: 'https://wiki.bnc.ca/spaces/IAMAS/pages/1725186990/… or 1725186990',
+      hint: 'Paste the page URL or just its numeric ID — the page must hold the OpenAPI/Swagger spec.' },
   }[specKind];
 
   // Discover the repo's real branches so the user picks (e.g.) master, not a hardcoded "main".

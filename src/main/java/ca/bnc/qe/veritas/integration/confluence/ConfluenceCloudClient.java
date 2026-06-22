@@ -33,26 +33,42 @@ public class ConfluenceCloudClient implements ConfluenceClient {
     }
 
     @Override
-    public ConfluencePage getPage(String pageId) {
+    public ConfluencePage getPage(String pageRef) {
+        String id = pageId(pageRef);   // accept a full page URL or a bare id
         try {
             String resp = retries.call(() -> http.get()
-                    .uri(URI.create(base() + "/wiki/rest/api/content/" + pageId + "?expand=body.storage"))
+                    .uri(URI.create(apiBase() + "/content/" + id + "?expand=body.storage"))
                     .header("Authorization", authHeader())
                     .retrieve().body(String.class));
             JsonNode root = mapper.readTree(resp == null ? "{}" : resp);
             return new ConfluencePage(
-                    root.path("id").asText(pageId),
+                    root.path("id").asText(id),
                     root.path("title").asText(""),
                     root.path("body").path("storage").path("value").asText(""));
         } catch (Exception e) {
-            throw new IllegalStateException("Confluence getPage failed for " + pageId + ": " + e.getMessage(), e);
+            throw new IllegalStateException("Confluence getPage failed for " + pageRef + ": " + e.getMessage(), e);
         }
+    }
+
+    /** REST root: Confluence Cloud serves under /wiki; Server/DC serves at the host root. */
+    private String apiBase() {
+        String prefix = "SERVER_DC".equalsIgnoreCase(connections.getConfluence().getEdition()) ? "" : "/wiki";
+        return base() + prefix + "/rest/api";
+    }
+
+    /** Extract the numeric page id from a Confluence URL (…/pages/<id>/…), or return a bare id as-is. */
+    static String pageId(String ref) {
+        if (ref == null) {
+            return "";
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("/pages/(\\d+)").matcher(ref);
+        return m.find() ? m.group(1) : ref.trim();
     }
 
     @Override
     public List<ConfluencePage> getPagesBySpace(String spaceKey) {
         List<ConfluencePage> pages = new ArrayList<>();
-        String uri = base() + "/wiki/rest/api/content?spaceKey="
+        String uri = apiBase() + "/content?spaceKey="
                 + URLEncoder.encode(spaceKey, StandardCharsets.UTF_8) + "&type=page&limit=100";
         try {
             while (uri != null) {
@@ -77,7 +93,7 @@ public class ConfluenceCloudClient implements ConfluenceClient {
     public String whoAmI() {
         try {
             String resp = retries.call(() -> http.get()
-                    .uri(URI.create(base() + "/wiki/rest/api/user/current"))
+                    .uri(URI.create(apiBase() + "/user/current"))
                     .header("Authorization", authHeader())
                     .retrieve().body(String.class));
             return mapper.readTree(resp == null ? "{}" : resp).path("displayName").asText("authenticated");
