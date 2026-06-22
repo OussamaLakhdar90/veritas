@@ -1,105 +1,116 @@
-import { useEffect, useState } from 'react'
-import { api, CodegenRun } from '../api'
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Code2, FileCode, ExternalLink, GitPullRequestArrow } from 'lucide-react';
+import { api, CodegenRun } from '../api';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, PageHeader, Spinner } from '../components/ui';
+import { useToast } from '../components/Toast';
+import { TONE } from '../theme/tokens';
+import { cn } from '../components/cn';
 
-function buildBadge(status?: string) {
-  const map: Record<string, string> = { PASS: 'sev-info', REPAIRED: 'sev-minor', FAIL: 'sev-major', SKIPPED: 'sev-minor' }
-  return <span className={map[status ?? ''] ?? 'sev-minor'}>{status ?? '—'}</span>
+function buildTone(status?: string): string {
+  const map: Record<string, string> = { PASS: TONE.ok, REPAIRED: TONE.warn, FAIL: TONE.danger, SKIPPED: TONE.muted };
+  return map[status ?? ''] ?? TONE.muted;
 }
-
 function parseList(json?: string): string[] {
-  if (!json) return []
-  try {
-    const v = JSON.parse(json)
-    return Array.isArray(v) ? v : []
-  } catch {
-    return []
-  }
+  if (!json) return [];
+  try { const v = JSON.parse(json); return Array.isArray(v) ? v : []; } catch { return []; }
 }
 
 export function Codegen() {
-  const [runs, setRuns] = useState<CodegenRun[] | null>(null)
-  const [sel, setSel] = useState<CodegenRun | null>(null)
-  const [err, setErr] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [repoSlug, setRepoSlug] = useState('')
+  const toast = useToast();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['codegen-runs'], queryFn: api.codegenRuns });
+  const [selId, setSelId] = useState<string | null>(null);
+  const [repoSlug, setRepoSlug] = useState('');
 
-  function load() {
-    api.codegenRuns().then(setRuns).catch((e) => setErr(String(e)))
-  }
-  useEffect(load, [])
+  const runs = q.data ?? [];
+  const sel = runs.find((r) => r.id === selId) ?? null;
 
-  async function publish(run: CodegenRun, allowFailedBuild = false) {
-    if (!repoSlug) {
-      setErr('Enter the output repo slug to open a PR.')
-      return
-    }
-    setBusy(true)
-    setErr('')
-    try {
-      const updated = await api.publishCodegen(run.id, repoSlug, 'main', allowFailedBuild)
-      setSel(updated)
-      load()
-    } catch (e) {
-      setErr(String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  if (err && !runs) return <p className="muted">No codegen runs yet ({err}).</p>
-  if (!runs) return <p className="muted">Loading…</p>
+  const publish = useMutation({
+    mutationFn: ({ run, allowFailedBuild }: { run: CodegenRun; allowFailedBuild: boolean }) =>
+      api.publishCodegen(run.id, repoSlug, 'main', allowFailedBuild),
+    onSuccess: (updated) => { qc.invalidateQueries({ queryKey: ['codegen-runs'] }); setSelId(updated.id); toast.push('success', 'PR opened.'); },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
 
   return (
     <div>
-      <h1>Generate Tests</h1>
-      <p className="muted">Template-driven test generation. Inspect a run's files, build status, and TODOs, then Approve &amp; Open PR.</p>
-      {err && <p className="sev-major">{err}</p>}
-      <div style={{ display: 'flex', gap: 16 }}>
-        <div style={{ flex: '0 0 320px' }}>
-          <table>
-            <thead><tr><th>Service</th><th>Build</th></tr></thead>
-            <tbody>
-              {runs.length === 0 && <tr><td colSpan={2} className="muted">No runs. Trigger via POST /services/{'{'}service{'}'}/implement-tests or the CLI.</td></tr>}
+      <PageHeader title="Generate tests"
+        subtitle="Template-driven test generation — inspect the files, build status and TODOs, then approve & open a PR." />
+
+      {q.isLoading ? (
+        <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> Loading…</CardBody></Card>
+      ) : runs.length === 0 ? (
+        <EmptyState icon={Code2} title="No generation runs yet"
+          body="Trigger implement-tests for a service (via its workspace or the CLI) to review generated tests here." />
+      ) : (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
+          {/* Run list */}
+          <Card className="h-fit">
+            <CardHeader title="Runs" />
+            <CardBody className="p-2">
               {runs.map((r) => (
-                <tr key={r.id} style={{ cursor: 'pointer', background: sel?.id === r.id ? '#F1F3F6' : undefined }} onClick={() => setSel(r)}>
-                  <td>{r.serviceName}</td>
-                  <td>{buildBadge(r.buildStatus)}</td>
-                </tr>
+                <button key={r.id} onClick={() => setSelId(r.id)}
+                  className={cn('flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition',
+                    sel?.id === r.id ? 'bg-ink-50 ring-1 ring-border' : 'hover:bg-ink-50/60')}>
+                  <span className="truncate font-medium text-ink-900">{r.serviceName}</span>
+                  <Badge className={buildTone(r.buildStatus)}>{r.buildStatus ?? '—'}</Badge>
+                </button>
               ))}
-            </tbody>
-          </table>
-        </div>
-        <div style={{ flex: 1 }}>
-          {!sel ? <p className="muted">Select a run.</p> : (
-            <div>
-              <h2 style={{ fontSize: 16 }}>{sel.serviceName} — build {buildBadge(sel.buildStatus)}</h2>
-              <div className="card" style={{ margin: '8px 0' }}>
-                <strong>Generated files</strong>
-                <ul>{parseList(sel.filesWritten).map((f) => <li key={f}><code>{f}</code></li>)}</ul>
-                {parseList(sel.todos).length > 0 && (
-                  <>
-                    <strong>TODOs (data/IDs that must pre-exist)</strong>
-                    <ul>{parseList(sel.todos).map((t, i) => <li key={i}>{t}</li>)}</ul>
-                  </>
-                )}
-              </div>
-              {sel.prUrl ? (
-                <p>PR opened: <a href={sel.prUrl} target="_blank" rel="noreferrer">{sel.prUrl}</a></p>
-              ) : (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <input placeholder="output repo slug" value={repoSlug} onChange={(e) => setRepoSlug(e.target.value)} />
-                  <button onClick={() => publish(sel)} disabled={busy}>{busy ? 'Publishing…' : 'Approve & Open PR'}</button>
-                  {sel.buildStatus === 'FAIL' && (
-                    <button onClick={() => publish(sel, true)} disabled={busy} title="Build failed — override the no-PR-on-FAIL guard">
-                      Override (build failed)
-                    </button>
-                  )}
+            </CardBody>
+          </Card>
+
+          {/* Detail */}
+          {!sel ? (
+            <Card><CardBody><EmptyState icon={FileCode} title="Select a run" body="Pick a generation run to see its files and open a PR." /></CardBody></Card>
+          ) : (
+            <Card>
+              <CardHeader title={<span className="inline-flex items-center gap-2">{sel.serviceName}<Badge className={buildTone(sel.buildStatus)}>build {sel.buildStatus ?? '—'}</Badge></span>}
+                subtitle={sel.templateSource ? `Template: ${sel.templateSource}` : undefined} />
+              <CardBody className="space-y-5">
+                <div>
+                  <p className="mb-1.5 text-[13px] font-semibold text-ink-900">Generated files</p>
+                  <ul className="space-y-1">
+                    {parseList(sel.filesWritten).map((f) => (
+                      <li key={f} className="flex items-center gap-2 font-mono text-[12.5px] text-muted"><FileCode className="h-3.5 w-3.5 shrink-0" /> {f}</li>
+                    ))}
+                    {parseList(sel.filesWritten).length === 0 && <li className="text-[13px] text-muted">—</li>}
+                  </ul>
                 </div>
-              )}
-            </div>
+
+                {parseList(sel.todos).length > 0 && (
+                  <div className="rounded-lg border-l-4 border-l-warning bg-warning/5 p-3">
+                    <p className="mb-1 text-[13px] font-semibold text-ink-900">TODOs (data / IDs that must pre-exist)</p>
+                    <ul className="list-disc space-y-0.5 pl-5 text-[13px] text-ink-700">
+                      {parseList(sel.todos).map((t, i) => <li key={i}>{t}</li>)}
+                    </ul>
+                  </div>
+                )}
+
+                {sel.prUrl ? (
+                  <p className="text-sm">PR opened: <a href={sel.prUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-medium text-gold hover:underline">{sel.prUrl} <ExternalLink className="h-3.5 w-3.5" /></a></p>
+                ) : (
+                  <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-end">
+                    <div className="flex-1"><Field label="Output repo slug" hint="The repo where the PR will be opened.">
+                      <Input placeholder="ciam-autotests" value={repoSlug} onChange={(e) => setRepoSlug(e.target.value)} /></Field></div>
+                    <Button loading={publish.isPending && !publish.variables?.allowFailedBuild}
+                      onClick={() => repoSlug ? publish.mutate({ run: sel, allowFailedBuild: false }) : toast.push('error', 'Enter the output repo slug.')}>
+                      <GitPullRequestArrow className="h-4 w-4" /> Approve & open PR
+                    </Button>
+                    {sel.buildStatus === 'FAIL' && (
+                      <Button variant="secondary" loading={publish.isPending && publish.variables?.allowFailedBuild}
+                        title="Build failed — override the no-PR-on-FAIL guard"
+                        onClick={() => repoSlug ? publish.mutate({ run: sel, allowFailedBuild: true }) : toast.push('error', 'Enter the output repo slug.')}>
+                        Override (build failed)
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </CardBody>
+            </Card>
           )}
         </div>
-      </div>
+      )}
     </div>
-  )
+  );
 }

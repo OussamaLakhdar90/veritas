@@ -1,156 +1,149 @@
-import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
-import { api, CoverageItem, Deliverable, TestPlan } from '../api'
+import { useQuery } from '@tanstack/react-query';
+import { useParams } from 'react-router-dom';
+import { FileText } from 'lucide-react';
+import { api, Deliverable } from '../api';
+import { Badge, Card, CardBody, PageHeader, Spinner, Table, Td, Th, Row } from '../components/ui';
+import { severityBadge, TONE } from '../theme/tokens';
 
-const RISK_COLOR: Record<string, string> = {
-  'VERY HIGH': '#6B21A8', VH: '#6B21A8', HIGH: '#C2122D', H: '#C2122D',
-  MEDIUM: '#C2410C', M: '#C2410C', LOW: '#CA8A04', L: '#CA8A04', 'VERY LOW': '#3A4658', VL: '#3A4658',
-}
-const MATCH_COLOR: Record<string, string> = {
-  MATCHED: '#1E8E5A', CREATED: '#8A6A1E', GAP: '#C2410C', ORPHAN: '#6B7280', DEAD: '#6B7280',
-}
-
-function Badge({ text, color }: { text: string; color: string }) {
-  return <span style={{ background: color, color: '#fff', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 999 }}>{text}</span>
-}
+const RISK_TO_SEV: Record<string, string> = {
+  'VERY HIGH': 'BLOCKER', VH: 'BLOCKER', HIGH: 'CRITICAL', H: 'CRITICAL',
+  MEDIUM: 'MAJOR', M: 'MAJOR', LOW: 'MINOR', L: 'MINOR', 'VERY LOW': 'INFO', VL: 'INFO',
+};
+const riskBadge = (lvl?: string) => severityBadge(RISK_TO_SEV[(lvl || '').toUpperCase()] ?? 'INFO');
+const matchTone = (m?: string) => {
+  const v = (m || '').toUpperCase();
+  if (v === 'MATCHED') return TONE.ok;
+  if (v === 'CREATED') return 'bg-gold/10 text-gold ring-1 ring-gold/30';
+  if (v === 'GAP') return TONE.warn;
+  return TONE.muted; // ORPHAN / DEAD
+};
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section style={{ marginTop: 22 }}>
-      <h2 style={{ fontSize: 16, borderBottom: '1px solid #E3E6EB', paddingBottom: 6 }}>{title}</h2>
-      {children}
-    </section>
-  )
+    <Card className="mb-5">
+      <div className="border-b border-border px-5 py-3"><h2 className="text-[15px] font-semibold text-ink-900">{title}</h2></div>
+      <CardBody>{children}</CardBody>
+    </Card>
+  );
 }
 
 export function TestPlanDetail() {
-  const { id } = useParams()
-  const [plan, setPlan] = useState<TestPlan | null>(null)
-  const [coverage, setCoverage] = useState<CoverageItem[]>([])
-  const [err, setErr] = useState('')
+  const { id } = useParams();
+  const q = useQuery({ queryKey: ['test-plan', id], queryFn: () => api.testPlan(id!), enabled: !!id });
 
-  useEffect(() => {
-    if (!id) return
-    api.testPlan(id).then((r) => { setPlan(r.plan); setCoverage(r.coverage || []) }).catch((e) => setErr(String(e)))
-  }, [id])
+  if (q.isLoading) return <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> Loading…</CardBody></Card>;
+  if (q.isError || !q.data) return <Card><CardBody className="text-sm text-danger">Could not load plan: {(q.error as Error)?.message}</CardBody></Card>;
 
-  if (err) return <p className="muted">Could not load plan ({err}).</p>
-  if (!plan) return <p className="muted">Loading…</p>
-
-  let d: Deliverable = {}
-  try { d = plan.deliverableJson ? JSON.parse(plan.deliverableJson) : {} } catch { /* keep empty */ }
-  const conf = d.selfReview?.confidence ?? plan.confidence
+  const { plan, coverage = [] } = q.data;
+  let d: Deliverable = {};
+  try { d = plan.deliverableJson ? JSON.parse(plan.deliverableJson) : {}; } catch { /* keep empty */ }
+  const conf = d.selfReview?.confidence ?? plan.confidence;
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <h1 style={{ marginBottom: 0 }}>
-          {plan.serviceName} — Release Test Plan {plan.fixVersion ? `(${plan.fixVersion})` : ''}
-        </h1>
-        {conf != null && (
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 26, fontWeight: 700, color: conf >= 70 ? '#1E8E5A' : '#C2410C' }}>{Math.round(conf)}%</div>
-            <div className="muted" style={{ fontSize: 11 }}>self-review confidence</div>
+      <PageHeader
+        title={`${plan.serviceName} — Release Test Plan${plan.fixVersion ? ` (${plan.fixVersion})` : ''}`}
+        subtitle={`${plan.kind} · ${plan.status} · est. $${(plan.estCostUsd ?? 0).toFixed(4)}`}
+        actions={
+          <div className="flex items-center gap-2">
+            <a href={api.testPlanReportUrl(plan.id, 'html')} target="_blank" rel="noreferrer"
+              className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[13px] font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50"><FileText className="h-4 w-4" /> HTML</a>
+            <a href={api.testPlanReportUrl(plan.id, 'pdf')} target="_blank" rel="noreferrer"
+              className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[13px] font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50"><FileText className="h-4 w-4" /> PDF</a>
           </div>
-        )}
-      </div>
-      <p className="muted">{plan.kind} · {plan.status} · est. ${(plan.estCostUsd ?? 0).toFixed(4)}
-        {' · '}<a href={api.testPlanReportUrl(plan.id, 'html')} target="_blank" rel="noreferrer">RTM report (HTML)</a>
-        {' · '}<a href={api.testPlanReportUrl(plan.id, 'pdf')} target="_blank" rel="noreferrer">PDF</a>
-      </p>
+        } />
 
-      {d.executiveSummary && (
-        <Section title="Executive summary"><p>{d.executiveSummary}</p></Section>
+      {conf != null && (
+        <Card className="mb-5"><CardBody className="flex items-center gap-4">
+          <div className={`text-4xl font-semibold tabular-nums ${conf >= 70 ? 'text-success' : 'text-warning'}`}>{Math.round(conf)}%</div>
+          <div className="text-[13px] text-muted">self-review confidence</div>
+        </CardBody></Card>
       )}
+
+      {d.executiveSummary && <Section title="Executive summary"><p className="text-sm leading-relaxed text-ink-900">{d.executiveSummary}</p></Section>}
 
       {d.scope && (
         <Section title="Scope & objectives">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-            <div><strong>Objectives</strong><ul>{(d.scope.objectives || []).map((x, i) => <li key={i}>{x}</li>)}</ul></div>
-            <div><strong>In scope</strong><ul>{(d.scope.inScope || []).map((x, i) => <li key={i}>{x}</li>)}</ul>
-              <strong>Out of scope</strong><ul>{(d.scope.outOfScope || []).map((x, i) => <li key={i}>{x}</li>)}</ul></div>
+          <div className="grid grid-cols-1 gap-6 text-sm sm:grid-cols-2">
+            <div><p className="mb-1 font-semibold text-ink-900">Objectives</p><ul className="list-disc space-y-0.5 pl-5 text-ink-700">{(d.scope.objectives || []).map((x, i) => <li key={i}>{x}</li>)}</ul></div>
+            <div>
+              <p className="mb-1 font-semibold text-ink-900">In scope</p><ul className="list-disc space-y-0.5 pl-5 text-ink-700">{(d.scope.inScope || []).map((x, i) => <li key={i}>{x}</li>)}</ul>
+              <p className="mb-1 mt-3 font-semibold text-ink-900">Out of scope</p><ul className="list-disc space-y-0.5 pl-5 text-ink-700">{(d.scope.outOfScope || []).map((x, i) => <li key={i}>{x}</li>)}</ul>
+            </div>
           </div>
-          {d.scope.assumptions?.length ? <p className="muted">Assumptions: {d.scope.assumptions.join('; ')}</p> : null}
+          {d.scope.assumptions?.length ? <p className="mt-3 text-[13px] text-muted">Assumptions: {d.scope.assumptions.join('; ')}</p> : null}
         </Section>
       )}
 
       {d.riskRegister?.length ? (
         <Section title={`Risk register (${d.riskRegister.length})`}>
-          <table>
-            <thead><tr><th>ID</th><th>Risk</th><th>Quality char.</th><th>L</th><th>I</th><th>Level</th><th>Mitigation</th><th>Cite</th></tr></thead>
-            <tbody>
-              {d.riskRegister.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.id}</td><td>{r.description}</td><td>{r.qualityCharacteristic ?? '—'}</td>
-                  <td>{r.likelihood ?? '—'}</td><td>{r.impact ?? '—'}</td>
-                  <td><Badge text={r.level} color={RISK_COLOR[r.level?.toUpperCase()] || '#3A4658'} /></td>
-                  <td>{r.mitigation ?? '—'}</td><td className="muted">{r.citation ?? ''}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <Table head={<><Th>ID</Th><Th>Risk</Th><Th>Quality char.</Th><Th>L</Th><Th>I</Th><Th>Level</Th><Th>Mitigation</Th><Th>Cite</Th></>}>
+            {d.riskRegister.map((r) => (
+              <Row key={r.id}>
+                <Td className="font-medium text-ink-900">{r.id}</Td><Td className="text-ink-900">{r.description}</Td>
+                <Td className="text-muted">{r.qualityCharacteristic ?? '—'}</Td><Td className="text-muted">{r.likelihood ?? '—'}</Td><Td className="text-muted">{r.impact ?? '—'}</Td>
+                <Td><Badge className={riskBadge(r.level)}>{r.level}</Badge></Td>
+                <Td className="text-muted">{r.mitigation ?? '—'}</Td><Td className="text-[12px] text-muted">{r.citation ?? ''}</Td>
+              </Row>
+            ))}
+          </Table>
         </Section>
       ) : null}
 
       {d.testApproach && (
         <Section title="Test approach">
-          <p><strong>Levels:</strong> {(d.testApproach.levels || []).join(', ')} · <strong>Types:</strong> {(d.testApproach.types || []).join(', ')}</p>
+          <p className="mb-3 text-sm text-ink-900"><span className="font-semibold">Levels:</span> {(d.testApproach.levels || []).join(', ')} · <span className="font-semibold">Types:</span> {(d.testApproach.types || []).join(', ')}</p>
           {d.testApproach.techniques?.length ? (
-            <table>
-              <thead><tr><th>Technique</th><th>Rationale</th><th>Cite</th></tr></thead>
-              <tbody>{d.testApproach.techniques.map((t, i) => (
-                <tr key={i}><td>{t.name}</td><td>{t.rationale ?? '—'}</td><td className="muted">{t.citation ?? ''}</td></tr>
-              ))}</tbody>
-            </table>
+            <Table head={<><Th>Technique</Th><Th>Rationale</Th><Th>Cite</Th></>}>
+              {d.testApproach.techniques.map((t, i) => (
+                <Row key={i}><Td className="font-medium text-ink-900">{t.name}</Td><Td className="text-ink-700">{t.rationale ?? '—'}</Td><Td className="text-[12px] text-muted">{t.citation ?? ''}</Td></Row>
+              ))}
+            </Table>
           ) : null}
-          {d.testApproach.entryCriteria?.length ? <p className="muted">Entry: {d.testApproach.entryCriteria.join('; ')}</p> : null}
+          {d.testApproach.entryCriteria?.length ? <p className="mt-3 text-[13px] text-muted">Entry: {d.testApproach.entryCriteria.join('; ')}</p> : null}
         </Section>
       )}
 
       <Section title={`Requirements Traceability Matrix (${coverage.length})`}>
-        <table>
-          <thead><tr><th>Requirement</th><th>Required case</th><th>Dimension</th><th>Status</th><th>Matched test</th></tr></thead>
-          <tbody>
-            {coverage.map((c, i) => (
-              <tr key={i}>
-                <td>{c.requirementKey ?? '—'}</td><td>{c.requiredCaseRef}</td><td>{c.dimension}</td>
-                <td><Badge text={c.matchStatus} color={MATCH_COLOR[c.matchStatus] || '#6B7280'} /></td>
-                <td>{c.matchedTestKey ?? '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Table head={<><Th>Requirement</Th><Th>Required case</Th><Th>Dimension</Th><Th>Status</Th><Th>Matched test</Th></>}>
+          {coverage.map((c, i) => (
+            <Row key={i}>
+              <Td className="text-ink-900">{c.requirementKey ?? '—'}</Td><Td className="text-ink-700">{c.requiredCaseRef}</Td><Td className="text-muted">{c.dimension}</Td>
+              <Td><Badge className={matchTone(c.matchStatus)}>{c.matchStatus}</Badge></Td>
+              <Td className="font-mono text-[12px] text-muted">{c.matchedTestKey ?? '—'}</Td>
+            </Row>
+          ))}
+        </Table>
       </Section>
 
       {d.exitCriteria?.length ? (
         <Section title="Exit criteria (S.M.A.R.T.)">
-          <table>
-            <thead><tr><th>Criterion</th><th>Metric</th><th>SMART</th><th>Cite</th></tr></thead>
-            <tbody>{d.exitCriteria.map((e, i) => (
-              <tr key={i}><td>{e.criterion}</td><td>{e.metric ?? '—'}</td><td>{e.smart ? '✓' : '—'}</td><td className="muted">{e.citation ?? ''}</td></tr>
-            ))}</tbody>
-          </table>
+          <Table head={<><Th>Criterion</Th><Th>Metric</Th><Th>SMART</Th><Th>Cite</Th></>}>
+            {d.exitCriteria.map((e, i) => (
+              <Row key={i}><Td className="text-ink-900">{e.criterion}</Td><Td className="text-muted">{e.metric ?? '—'}</Td><Td>{e.smart ? '✓' : '—'}</Td><Td className="text-[12px] text-muted">{e.citation ?? ''}</Td></Row>
+            ))}
+          </Table>
         </Section>
       ) : null}
 
       {d.estimation && (
         <Section title="Estimation">
-          <p>{d.estimation.technique ?? '—'} · {d.estimation.effortDays != null ? `${d.estimation.effortDays} person-days` : '—'} <span className="muted">{d.estimation.basis ?? ''} {d.estimation.citation ?? ''}</span></p>
+          <p className="text-sm text-ink-900">{d.estimation.technique ?? '—'} · {d.estimation.effortDays != null ? `${d.estimation.effortDays} person-days` : '—'} <span className="text-muted">{d.estimation.basis ?? ''} {d.estimation.citation ?? ''}</span></p>
         </Section>
       )}
 
       {d.selfReview && (
         <Section title="Self-review">
           {d.selfReview.rubricChecks?.length ? (
-            <ul>{d.selfReview.rubricChecks.map((c, i) => (
-              <li key={i}>{c.pass ? '✓' : '✗'} {c.check}{c.note ? <span className="muted"> — {c.note}</span> : null}</li>
+            <ul className="space-y-1 text-sm">{d.selfReview.rubricChecks.map((c, i) => (
+              <li key={i} className="text-ink-700"><span className={c.pass ? 'text-success' : 'text-danger'}>{c.pass ? '✓' : '✗'}</span> {c.check}{c.note ? <span className="text-muted"> — {c.note}</span> : null}</li>
             ))}</ul>
           ) : null}
           {d.selfReview.blindSpots?.length ? (
-            <><strong>Blind spots</strong><ul>{d.selfReview.blindSpots.map((b, i) => <li key={i} style={{ color: '#C2410C' }}>{b}</li>)}</ul></>
+            <><p className="mb-1 mt-3 font-semibold text-ink-900">Blind spots</p><ul className="list-disc space-y-0.5 pl-5 text-sm text-warning">{d.selfReview.blindSpots.map((b, i) => <li key={i}>{b}</li>)}</ul></>
           ) : null}
         </Section>
       )}
     </div>
-  )
+  );
 }

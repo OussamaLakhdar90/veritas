@@ -114,6 +114,29 @@ export function KpiTile({ label, value, sub, tone = 'ink' }:
   );
 }
 
+/* ── Table primitives ───────────────────────────────────────────────────── */
+export function Table({ head, children }: { head: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border text-left text-[12px] uppercase tracking-wide text-muted">{head}</tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
+export function Th({ className, children }: { className?: string; children?: React.ReactNode }) {
+  return <th className={cn('px-5 py-3 font-medium', className)}>{children}</th>;
+}
+export function Td({ className, children, ...rest }: React.TdHTMLAttributes<HTMLTableCellElement>) {
+  return <td className={cn('px-5 py-3', className)} {...rest}>{children}</td>;
+}
+export function Row({ className, children, ...rest }: React.HTMLAttributes<HTMLTableRowElement>) {
+  return <tr className={cn('border-b border-border/60 align-top last:border-0 hover:bg-ink-50/60', className)} {...rest}>{children}</tr>;
+}
+
 /* ── Page header ────────────────────────────────────────────────────────── */
 export function PageHeader({ title, subtitle, actions }:
   { title: string; subtitle?: string; actions?: React.ReactNode }) {

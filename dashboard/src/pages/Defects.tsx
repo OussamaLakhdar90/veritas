@@ -1,60 +1,62 @@
-import { useEffect, useState } from 'react'
-import { api, DefectLink } from '../api'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Bug, RefreshCw, ExternalLink } from 'lucide-react';
+import { api } from '../api';
+import { Badge, Button, Card, CardBody, EmptyState, PageHeader, Spinner, Table, Td, Th, Row } from '../components/ui';
+import { useToast } from '../components/Toast';
+import { TONE } from '../theme/tokens';
 
-function statusClass(category?: string): string {
-  if (category === 'done') return 'sev-info'
-  if (category === 'indeterminate') return 'sev-major'
-  return 'sev-minor'
+function statusTone(category?: string): string {
+  const c = (category || '').toLowerCase();
+  if (c === 'done') return TONE.ok;
+  if (c === 'indeterminate') return TONE.warn;
+  if (c === 'new' || c === 'to do' || c === 'todo') return TONE.info;
+  return TONE.muted;
 }
 
 export function Defects() {
-  const [rows, setRows] = useState<DefectLink[] | null>(null)
-  const [err, setErr] = useState('')
-  const [busy, setBusy] = useState(false)
+  const toast = useToast();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ['defects'], queryFn: api.defects });
+  const sync = useMutation({
+    mutationFn: api.syncDefects,
+    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ['defects'] }); toast.push('success', `Synced — ${r.updated} updated.`); },
+    onError: (e: Error) => toast.push('error', `Sync failed: ${e.message}`),
+  });
 
-  function load() {
-    api.defects().then(setRows).catch((e) => setErr(String(e)))
-  }
-  useEffect(load, [])
-
-  async function sync() {
-    setBusy(true)
-    try {
-      await api.syncDefects()
-      load()
-    } catch (e) {
-      setErr(String(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  if (err) return <p className="muted">No defects yet ({err}).</p>
-  if (!rows) return <p className="muted">Loading…</p>
-
+  const rows = q.data ?? [];
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h1>Defects</h1>
-        <button onClick={sync} disabled={busy}>{busy ? 'Syncing…' : 'Refresh statuses'}</button>
-      </div>
-      {rows.length === 0 ? (
-        <p className="muted">No Jira defects have been created from findings yet.</p>
+      <PageHeader title="Defects" subtitle="Jira defects raised from contract findings, with live status."
+        actions={<Button variant="secondary" loading={sync.isPending} onClick={() => sync.mutate()}>
+          <RefreshCw className="h-4 w-4" /> Refresh statuses</Button>} />
+
+      {q.isLoading ? (
+        <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> Loading…</CardBody></Card>
+      ) : q.isError ? (
+        <Card><CardBody className="text-sm text-danger">Could not load defects: {(q.error as Error).message}</CardBody></Card>
+      ) : rows.length === 0 ? (
+        <EmptyState icon={Bug} title="No defects yet"
+          body="Defects you raise from findings will appear here, and Veritas will keep their Jira status in sync." />
       ) : (
-        <table>
-          <thead><tr><th>Jira</th><th>Status</th><th>Created by</th><th>Last synced</th></tr></thead>
-          <tbody>
-            {rows.map((d) => (
-              <tr key={d.id}>
-                <td>{d.jiraUrl ? <a href={d.jiraUrl} target="_blank" rel="noreferrer">{d.jiraKey}</a> : (d.jiraKey ?? '—')}</td>
-                <td><span className={statusClass(d.jiraStatusCategory)}>{d.jiraStatus ?? (d.createdInJira ? 'Open' : 'Not created')}</span></td>
-                <td>{d.createdBy ?? '—'}</td>
-                <td className="muted">{d.lastSyncedAt ? new Date(d.lastSyncedAt).toLocaleString() : '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Card>
+          <CardBody className="p-0">
+            <Table head={<><Th>Jira</Th><Th>Status</Th><Th>Created by</Th><Th>Last synced</Th></>}>
+              {rows.map((d) => (
+                <Row key={d.id}>
+                  <Td className="font-medium text-ink-900">
+                    {d.jiraUrl
+                      ? <a href={d.jiraUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-gold hover:underline">{d.jiraKey} <ExternalLink className="h-3.5 w-3.5" /></a>
+                      : (d.jiraKey ?? '—')}
+                  </Td>
+                  <Td><Badge className={statusTone(d.jiraStatusCategory)}>{d.jiraStatus ?? (d.createdInJira ? 'Open' : 'Not created')}</Badge></Td>
+                  <Td className="text-muted">{d.createdBy ?? '—'}</Td>
+                  <Td className="text-muted">{d.lastSyncedAt ? new Date(d.lastSyncedAt).toLocaleString() : '—'}</Td>
+                </Row>
+              ))}
+            </Table>
+          </CardBody>
+        </Card>
       )}
     </div>
-  )
+  );
 }
