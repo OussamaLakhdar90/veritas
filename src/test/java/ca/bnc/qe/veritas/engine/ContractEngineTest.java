@@ -52,6 +52,10 @@ class ContractEngineTest {
                 && f.getEndpoint() != null && f.getEndpoint().contains("version"));
         // path-variable mismatch must NOT also be double-reported as PARAM_MISSING/EXTRA
         assertThat(types).doesNotContain(FindingType.PARAM_MISSING, FindingType.PARAM_EXTRA);
+        // getPolicy returns PolicyResponse and the spec response is $ref PolicyResponse — they MATCH. This must not
+        // be a false RESPONSE_SCHEMA_MISMATCH (regression guard for the setResolveFully $ref-inlining bug).
+        assertThat(findings).noneMatch(f -> f.getType() == FindingType.RESPONSE_SCHEMA_MISMATCH
+                && f.getEndpoint() != null && f.getEndpoint().contains("/api/v1/policies/{id}"));
     }
 
     @Test

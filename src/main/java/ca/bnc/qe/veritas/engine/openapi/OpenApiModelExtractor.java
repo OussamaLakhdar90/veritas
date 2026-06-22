@@ -38,7 +38,10 @@ public class OpenApiModelExtractor {
     public SpecParse extract(String specId, String content) {
         ParseOptions options = new ParseOptions();
         options.setResolve(true);
-        options.setResolveFully(true);
+        // Deliberately NOT setResolveFully(true): full resolution INLINES every $ref, so a response/property that
+        // references a named DTO loses its name (get$ref()==null) and reads as a bare "object" — which made the
+        // DiffEngine emit a false RESPONSE_SCHEMA_MISMATCH on essentially every typed-DTO endpoint. With plain
+        // resolve, components/schemas are still populated and $ref nodes keep their names so we can match by DTO name.
         // OpenAPIParser (not OpenAPIV3Parser) multiplexes parser extensions, incl. the Swagger 2.0 → 3.x converter.
         SwaggerParseResult result = new OpenAPIParser().readContents(content, null, options);
         List<String> messages = result.getMessages() == null ? new ArrayList<>() : new ArrayList<>(result.getMessages());
