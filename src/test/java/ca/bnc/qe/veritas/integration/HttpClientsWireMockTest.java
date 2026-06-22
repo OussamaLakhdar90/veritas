@@ -145,6 +145,38 @@ class HttpClientsWireMockTest {
     }
 
     @Test
+    void bitbucketServerDiscoverReposParsesValues() {
+        wm.stubFor(get(urlPathEqualTo("/rest/api/1.0/projects/APP7571/repos")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"isLastPage\":true,\"values\":[{\"slug\":\"ciam-policies\",\"name\":\"ciam-policies\","
+                        + "\"links\":{\"clone\":[{\"name\":\"http\",\"href\":\"https://bitbucket.bnc/scm/app/ciam.git\"}]},"
+                        + "\"project\":{\"key\":\"APP7571\"}}]}")));
+
+        var repos = new ca.bnc.qe.veritas.vcs.BitbucketServerClient(props(), secrets, mapper, retries)
+                .discoverRepos("APP7571");
+
+        assertThat(repos).hasSize(1);
+        assertThat(repos.get(0).slug()).isEqualTo("ciam-policies");
+        assertThat(repos.get(0).cloneUrl()).contains("ciam.git");
+    }
+
+    @Test
+    void xrayCreateTestReturnsCreatedKey() {
+        wm.stubFor(post(urlPathEqualTo("/api/v2/authenticate"))
+                .willReturn(aResponse().withBody("\"tok-123\"")));
+        wm.stubFor(post(urlPathEqualTo("/api/v2/graphql")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"data\":{\"createTest\":{\"test\":{\"jira\":{\"key\":\"CIAM-NEW\"}}}}}")));
+
+        String key = new XrayCloudClient(props(), secrets, mapper, retries).createTest(
+                new ca.bnc.qe.veritas.integration.xray.XrayTestSpec("CIAM", "Validate create policy", "Manual",
+                        java.util.List.of(new ca.bnc.qe.veritas.integration.xray.XrayStep("POST /policies", "{}", "201"))));
+
+        assertThat(key).isEqualTo("CIAM-NEW");
+        wm.verify(1, com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor(urlPathEqualTo("/api/v2/graphql")));
+    }
+
+    @Test
     void specResolverFetchesLiveApiDocs() {
         wm.stubFor(get(urlPathEqualTo("/v3/api-docs")).willReturn(aResponse()
                 .withHeader("Content-Type", "application/json")

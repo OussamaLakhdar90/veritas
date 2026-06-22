@@ -4,6 +4,14 @@ package ca.bnc.qe.veritas.integration.confluence;
 public interface ConfluenceClient {
     ConfluencePage getPage(String pageId);
 
+    /**
+     * List the pages of a space (id + title, no body) so a user can pick pages without knowing their ids —
+     * the space-level discovery the CLI's explicit {@code --confluence <pageIds>} couldn't offer.
+     */
+    default java.util.List<ConfluencePage> getPagesBySpace(String spaceKey) {
+        throw new UnsupportedOperationException("getPagesBySpace not supported by this Confluence client");
+    }
+
     /** Cheap authenticated identity probe (current user) for Test Connection; returns the name or throws. */
     default String whoAmI() {
         throw new UnsupportedOperationException("whoAmI not supported by this Confluence client");

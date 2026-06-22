@@ -1,7 +1,6 @@
 package ca.bnc.qe.veritas.vcs;
 
 import java.net.URI;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -21,16 +20,16 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 /**
- * Bitbucket Cloud git host: app-id (project key) → repo discovery, branch listing, shallow clone.
- * REST {@code /2.0}; Basic (app password) or Bearer (OAuth) auth via the per-user {@link SecretProvider}.
- * URI/auth building is package-visible for unit tests; the HTTP/clone calls are validated against git.bnc.
- *
- * <p>Default git host; {@link BitbucketServerClient} takes over when {@code …bitbucket.edition=SERVER_DC}.
+ * Bitbucket <b>Server/Data Center</b> git host (REST {@code /rest/api/1.0}). Active when
+ * {@code veritas.connections.bitbucket.edition=SERVER_DC}; the {@link BitbucketCloudClient} is the default.
+ * The app-id is the Server/DC <b>project key</b>; the configured {@code workspace} holds the project key used
+ * for branch/PR paths. Bearer PAT (default) or Basic auth via the per-user {@link SecretProvider}.
+ * Page traversal uses Server/DC's {@code isLastPage}/{@code nextPageStart} envelope.
  */
 @Component
-@ConditionalOnProperty(name = "veritas.connections.bitbucket.edition", havingValue = "CLOUD", matchIfMissing = true)
+@ConditionalOnProperty(name = "veritas.connections.bitbucket.edition", havingValue = "SERVER_DC")
 @Slf4j
-public class BitbucketCloudClient implements GitHost {
+public class BitbucketServerClient implements GitHost {
 
     private final ConnectionsProperties connections;
     private final SecretProvider secrets;
@@ -38,7 +37,7 @@ public class BitbucketCloudClient implements GitHost {
     private final RestClient http = RestClient.builder().requestFactory(HttpFactory.bounded()).build();
     private final Retries retries;
 
-    public BitbucketCloudClient(ConnectionsProperties connections, SecretProvider secrets, ObjectMapper mapper, Retries retries) {
+    public BitbucketServerClient(ConnectionsProperties connections, SecretProvider secrets, ObjectMapper mapper, Retries retries) {
         this.connections = connections;
         this.secrets = secrets;
         this.mapper = mapper;
@@ -48,22 +47,22 @@ public class BitbucketCloudClient implements GitHost {
     @Override
     public List<RepoInfo> discoverRepos(String appId) {
         List<RepoInfo> repos = new ArrayList<>();
-        String uri = buildDiscoveryUri(appId);
         try {
-            while (uri != null) {
-                final String pageUri = uri;
+            int start = 0;
+            boolean last = false;
+            while (!last) {
+                final String pageUri = buildDiscoveryUri(appId, start);
                 String body = retries.call(() -> http.get().uri(URI.create(pageUri))
-                        .header("Authorization", authHeader())
-                        .retrieve().body(String.class));
+                        .header("Authorization", authHeader()).retrieve().body(String.class));
                 JsonNode root = mapper.readTree(body == null ? "{}" : body);
                 for (JsonNode v : root.path("values")) {
-                    repos.add(toRepo(v));
+                    repos.add(toRepo(v, appId));
                 }
-                JsonNode next = root.path("next");
-                uri = next.isMissingNode() || next.isNull() ? null : next.asText(null);
+                last = root.path("isLastPage").asBoolean(true);
+                start = root.path("nextPageStart").asInt(start);
             }
         } catch (Exception e) {
-            throw new IllegalStateException("Bitbucket discovery failed for app-id '" + appId + "': " + e.getMessage(), e);
+            throw new IllegalStateException("Bitbucket Server discovery failed for project '" + appId + "': " + e.getMessage(), e);
         }
         return repos;
     }
@@ -71,22 +70,23 @@ public class BitbucketCloudClient implements GitHost {
     @Override
     public List<String> listBranches(String repoSlug) {
         List<String> branches = new ArrayList<>();
-        String uri = base() + "/2.0/repositories/" + workspace() + "/" + repoSlug + "/refs/branches?pagelen=100";
         try {
-            while (uri != null) {
-                final String pageUri = uri;
+            int start = 0;
+            boolean last = false;
+            while (!last) {
+                final String pageUri = base() + "/rest/api/1.0/projects/" + project() + "/repos/" + repoSlug
+                        + "/branches?limit=100&start=" + start;
                 String body = retries.call(() -> http.get().uri(URI.create(pageUri))
-                        .header("Authorization", authHeader())
-                        .retrieve().body(String.class));
+                        .header("Authorization", authHeader()).retrieve().body(String.class));
                 JsonNode root = mapper.readTree(body == null ? "{}" : body);
                 for (JsonNode v : root.path("values")) {
-                    branches.add(v.path("name").asText());
+                    branches.add(v.path("displayId").asText(v.path("id").asText("")));
                 }
-                JsonNode next = root.path("next");
-                uri = next.isMissingNode() || next.isNull() ? null : next.asText(null);
+                last = root.path("isLastPage").asBoolean(true);
+                start = root.path("nextPageStart").asInt(start);
             }
         } catch (Exception e) {
-            throw new IllegalStateException("Bitbucket branch listing failed for '" + repoSlug + "': " + e.getMessage(), e);
+            throw new IllegalStateException("Bitbucket Server branch listing failed for '" + repoSlug + "': " + e.getMessage(), e);
         }
         return branches;
     }
@@ -114,26 +114,48 @@ public class BitbucketCloudClient implements GitHost {
     @Override
     public String openPullRequest(String repoSlug, String sourceBranch, String targetBranch,
                                   String title, String description) {
-        String uri = buildPullRequestUri(repoSlug);
         try {
             String payload = buildPullRequestPayload(sourceBranch, targetBranch, title, description);
-            String body = retries.call(() -> http.post().uri(URI.create(uri))
+            String body = retries.call(() -> http.post().uri(URI.create(buildPullRequestUri(repoSlug)))
                     .header("Authorization", authHeader())
                     .header("Content-Type", "application/json")
                     .body(payload)
                     .retrieve().body(String.class));
             JsonNode root = mapper.readTree(body == null ? "{}" : body);
-            String html = root.path("links").path("html").path("href").asText("");
-            return html.isBlank() ? root.path("id").asText("") : html;
+            JsonNode self = root.path("links").path("self");
+            if (self.isArray() && !self.isEmpty()) {
+                return self.get(0).path("href").asText(root.path("id").asText(""));
+            }
+            return root.path("id").asText("");
         } catch (Exception e) {
-            throw new IllegalStateException("Bitbucket PR creation failed for '" + repoSlug + "': " + e.getMessage(), e);
+            throw new IllegalStateException("Bitbucket Server PR creation failed for '" + repoSlug + "': " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public String whoAmI() {
+        try {
+            // Any authenticated Server/DC request echoes the user in the X-AUSERNAME response header.
+            var entity = retries.call(() -> http.get().uri(URI.create(base() + "/rest/api/1.0/repos?limit=1"))
+                    .header("Authorization", authHeader()).retrieve().toEntity(String.class));
+            String user = entity.getHeaders().getFirst("X-AUSERNAME");
+            if (user == null || user.isBlank()) {
+                throw new IllegalStateException("no X-AUSERNAME header (not authenticated)");
+            }
+            return user;
+        } catch (Exception e) {
+            throw new IllegalStateException("Bitbucket Server identity probe failed: " + e.getMessage(), e);
         }
     }
 
     // ---- testable building blocks ----
 
+    String buildDiscoveryUri(String appId, int start) {
+        return base() + "/rest/api/1.0/projects/" + appId + "/repos?limit=100&start=" + start;
+    }
+
     String buildPullRequestUri(String repoSlug) {
-        return base() + "/2.0/repositories/" + workspace() + "/" + repoSlug + "/pullrequests";
+        return base() + "/rest/api/1.0/projects/" + project() + "/repos/" + repoSlug + "/pull-requests";
     }
 
     String buildPullRequestPayload(String sourceBranch, String targetBranch, String title, String description)
@@ -143,45 +165,26 @@ public class BitbucketCloudClient implements GitHost {
         if (description != null && !description.isBlank()) {
             root.put("description", description);
         }
-        root.set("source",
-                mapper.createObjectNode().set("branch", mapper.createObjectNode().put("name", sourceBranch)));
+        root.set("fromRef", mapper.createObjectNode().put("id", "refs/heads/" + sourceBranch));
         if (targetBranch != null && !targetBranch.isBlank()) {
-            root.set("destination",
-                    mapper.createObjectNode().set("branch", mapper.createObjectNode().put("name", targetBranch)));
+            root.set("toRef", mapper.createObjectNode().put("id", "refs/heads/" + targetBranch));
         }
         return mapper.writeValueAsString(root);
     }
 
-    String buildDiscoveryUri(String appId) {
-        String q = URLEncoder.encode("project.key=\"" + appId + "\"", StandardCharsets.UTF_8);
-        return base() + "/2.0/repositories/" + workspace() + "?q=" + q + "&pagelen=100";
-    }
-
-    @Override
-    public String whoAmI() {
-        try {
-            String resp = retries.call(() -> http.get().uri(URI.create(base() + "/2.0/user"))
-                    .header("Authorization", authHeader()).retrieve().body(String.class));
-            JsonNode n = mapper.readTree(resp == null ? "{}" : resp);
-            return n.path("username").asText(n.path("display_name").asText("authenticated"));
-        } catch (Exception e) {
-            throw new IllegalStateException("Bitbucket /2.0/user failed: " + e.getMessage(), e);
-        }
-    }
-
     String authHeader() {
         String type = connections.getBitbucket().getAuthType();
-        if (type != null && type.equalsIgnoreCase("OAUTH")) {
-            return "Bearer " + secret("GIT_TOKEN");
+        if (type != null && type.equalsIgnoreCase("BASIC")) {
+            String basic = secret("GIT_USERNAME") + ":" + secret("GIT_TOKEN");
+            return "Basic " + Base64.getEncoder().encodeToString(basic.getBytes(StandardCharsets.UTF_8));
         }
-        String basic = secret("GIT_USERNAME") + ":" + secret("GIT_TOKEN");
-        return "Basic " + Base64.getEncoder().encodeToString(basic.getBytes(StandardCharsets.UTF_8));
+        return "Bearer " + secret("GIT_TOKEN");   // Server/DC PAT (default)
     }
 
-    private RepoInfo toRepo(JsonNode v) {
+    private RepoInfo toRepo(JsonNode v, String projectKey) {
         String cloneUrl = "";
         for (JsonNode c : v.path("links").path("clone")) {
-            if ("https".equalsIgnoreCase(c.path("name").asText())) {
+            if ("http".equalsIgnoreCase(c.path("name").asText()) || "https".equalsIgnoreCase(c.path("name").asText())) {
                 cloneUrl = c.path("href").asText("");
             }
         }
@@ -189,10 +192,10 @@ public class BitbucketCloudClient implements GitHost {
                 v.path("slug").asText(v.path("name").asText("")),
                 v.path("name").asText(""),
                 v.path("description").asText(""),
-                v.path("mainbranch").path("name").asText(""),
+                v.path("defaultBranch").asText(""),
                 cloneUrl,
-                v.path("project").path("key").asText(""),
-                v.path("updated_on").asText(""));
+                v.path("project").path("key").asText(projectKey),
+                v.path("updatedDate").asText(""));
     }
 
     private String base() {
@@ -203,8 +206,8 @@ public class BitbucketCloudClient implements GitHost {
         return b.endsWith("/") ? b.substring(0, b.length() - 1) : b;
     }
 
-    private String workspace() {
-        return connections.getBitbucket().getWorkspace();
+    private String project() {
+        return connections.getBitbucket().getWorkspace();   // on Server/DC the "workspace" config holds the project key
     }
 
     private String secret(String key) {

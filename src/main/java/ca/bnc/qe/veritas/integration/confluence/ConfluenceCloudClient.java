@@ -1,8 +1,11 @@
 package ca.bnc.qe.veritas.integration.confluence;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 import ca.bnc.qe.veritas.config.ConnectionsProperties;
 import ca.bnc.qe.veritas.integration.HttpFactory;
 import ca.bnc.qe.veritas.integration.Retries;
@@ -44,6 +47,30 @@ public class ConfluenceCloudClient implements ConfluenceClient {
         } catch (Exception e) {
             throw new IllegalStateException("Confluence getPage failed for " + pageId + ": " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    public List<ConfluencePage> getPagesBySpace(String spaceKey) {
+        List<ConfluencePage> pages = new ArrayList<>();
+        String uri = base() + "/wiki/rest/api/content?spaceKey="
+                + URLEncoder.encode(spaceKey, StandardCharsets.UTF_8) + "&type=page&limit=100";
+        try {
+            while (uri != null) {
+                final String pageUri = uri;
+                String resp = retries.call(() -> http.get().uri(URI.create(pageUri))
+                        .header("Authorization", authHeader())
+                        .retrieve().body(String.class));
+                JsonNode root = mapper.readTree(resp == null ? "{}" : resp);
+                for (JsonNode v : root.path("results")) {
+                    pages.add(new ConfluencePage(v.path("id").asText(""), v.path("title").asText(""), ""));
+                }
+                String next = root.path("_links").path("next").asText(null);   // Cloud: relative next-page link
+                uri = (next == null || next.isBlank()) ? null : base() + next;
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Confluence getPagesBySpace failed for '" + spaceKey + "': " + e.getMessage(), e);
+        }
+        return pages;
     }
 
     @Override
