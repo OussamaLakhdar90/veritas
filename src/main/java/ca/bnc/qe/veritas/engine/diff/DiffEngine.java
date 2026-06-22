@@ -38,6 +38,18 @@ public class DiffEngine {
         Map<String, Endpoint> codeByPath = indexByPath(code);
         Map<String, Endpoint> specByPath = indexByPath(spec);
 
+        // L1 — a real spec must carry info.title + info.version (only checked for actual parsed specs).
+        if (spec.openApiVersion() != null) {
+            if (isBlank(spec.title())) {
+                findings.add(finding(FindingType.MISSING_INFO_FIELD, null, spec.source(),
+                        "Spec is missing info.title", null, Confidence.MEDIUM));
+            }
+            if (isBlank(spec.version())) {
+                findings.add(finding(FindingType.MISSING_INFO_FIELD, null, spec.source(),
+                        "Spec is missing info.version", null, Confidence.MEDIUM));
+            }
+        }
+
         for (Endpoint ce : code.endpoints()) {
             String key = key(ce);
             Endpoint se = specByKey.get(key);
@@ -73,7 +85,26 @@ public class DiffEngine {
                 compareSchema(findings, spec.source(), e.getKey(), e.getValue(), specSchema);
             }
         }
-        return findings;
+        return dedup(findings);
+    }
+
+    /** Stable key so a parameter is matched only against the spec parameter in the SAME location. */
+    private static String paramKey(ParamModel p) {
+        String loc = p.location() == null ? "?" : p.location().name();
+        return loc + ":" + (p.name() == null ? "" : p.name());
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
+    }
+
+    /** Drop exact-duplicate findings (same findingId) while preserving order — so one locus isn't double-counted. */
+    private List<Finding> dedup(List<Finding> in) {
+        Map<String, Finding> byId = new LinkedHashMap<>();
+        for (Finding f : in) {
+            byId.putIfAbsent(f.getFindingId(), f);
+        }
+        return new ArrayList<>(byId.values());
     }
 
     /** Spec A vs spec B (e.g. repo YAML vs Confluence YAML) → SPEC_DRIFT on endpoint-set differences. */
@@ -121,16 +152,16 @@ public class DiffEngine {
             findings.add(finding(FindingType.PATH_VAR_NAME_MISMATCH, label(ce), spec.source(),
                     "Path variable names differ — code " + codeVars + " vs spec " + specVars, ce, Confidence.HIGH));
         }
-        // params
+        // params — keyed by location+name so a code query 'id' never matches a spec path 'id' (different params)
         Map<String, ParamModel> specParams = new LinkedHashMap<>();
-        se.params().forEach(p -> specParams.put(p.name(), p));
+        se.params().forEach(p -> specParams.put(paramKey(p), p));
         Map<String, ParamModel> codeParams = new LinkedHashMap<>();
-        ce.params().forEach(p -> codeParams.put(p.name(), p));
+        ce.params().forEach(p -> codeParams.put(paramKey(p), p));
         for (ParamModel cp : ce.params()) {
             if (cp.location() == ParamLocation.PATH) {
                 continue; // path vars covered by PATH_VAR_NAME_MISMATCH + the path itself
             }
-            ParamModel sp = specParams.get(cp.name());
+            ParamModel sp = specParams.get(paramKey(cp));
             if (sp == null) {
                 findings.add(finding(FindingType.PARAM_MISSING, label(ce), spec.source(),
                         "Parameter '" + cp.name() + "' (" + cp.location() + ") is in code but missing from the spec",
@@ -141,6 +172,11 @@ public class DiffEngine {
                 findings.add(finding(FindingType.PARAM_TYPE_MISMATCH, label(ce), spec.source(),
                         "Parameter '" + cp.name() + "' type — code " + cp.type() + " vs spec " + sp.type(),
                         ce, Confidence.MEDIUM));
+            } else if (cp.type() != null && sp.type() == null) {
+                // The spec declares the parameter but omits its type — under-specification, not a clean match.
+                findings.add(finding(FindingType.PARAM_TYPE_MISMATCH, label(ce), spec.source(),
+                        "Parameter '" + cp.name() + "' type — code declares " + cp.type()
+                                + " but the spec omits a type (under-specified)", ce, Confidence.LOW));
             }
             if (cp.required() != sp.required()) {
                 findings.add(finding(FindingType.PARAM_REQUIRED_MISMATCH, label(ce), spec.source(),
@@ -164,9 +200,10 @@ public class DiffEngine {
             if (sp.location() == ParamLocation.PATH) {
                 continue;
             }
-            if (!codeParams.containsKey(sp.name())) {
+            if (!codeParams.containsKey(paramKey(sp))) {
                 findings.add(finding(FindingType.PARAM_EXTRA, label(ce), spec.source(),
-                        "Parameter '" + sp.name() + "' is in the spec but not in code", ce, Confidence.MEDIUM));
+                        "Parameter '" + sp.name() + "' (" + sp.location() + ") is in the spec but not in code",
+                        ce, Confidence.MEDIUM));
             }
         }
         // request body presence

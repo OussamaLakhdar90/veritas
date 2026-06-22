@@ -24,6 +24,15 @@ public class CorrectedSpecBuilder {
     private final YAMLMapper yaml = new YAMLMapper();
 
     public String build(ApiModel code, String title) {
+        return build(code, title, null);
+    }
+
+    /**
+     * Build the corrected spec from code, then overlay any {@code x-*} vendor extensions from the original spec
+     * (root, info, path-item and operation level) so integration metadata (e.g. {@code x-amazon-apigateway-*},
+     * {@code x-google-backend}) survives the round-trip. Code still wins on behaviour; extensions are additive.
+     */
+    public String build(ApiModel code, String title, String originalSpecYaml) {
         Map<String, Object> root = new LinkedHashMap<>();
         root.put("openapi", "3.0.3");
         Map<String, Object> info = new LinkedHashMap<>();
@@ -46,10 +55,52 @@ public class CorrectedSpecBuilder {
             root.put("components", Map.of("schemas", schemas));
         }
 
+        if (originalSpecYaml != null && !originalSpecYaml.isBlank()) {
+            overlayExtensions(root, originalSpecYaml);
+        }
+
         try {
             return yaml.writeValueAsString(root);
         } catch (Exception ex) {
             throw new IllegalStateException("Corrected YAML serialization failed: " + ex.getMessage(), ex);
+        }
+    }
+
+    /** Copy {@code x-*} extensions from the original spec into the corrected document (additive, code wins). */
+    @SuppressWarnings("unchecked")
+    private void overlayExtensions(Map<String, Object> root, String originalSpecYaml) {
+        Map<String, Object> orig;
+        try {
+            orig = yaml.readValue(originalSpecYaml, Map.class);
+        } catch (Exception e) {
+            return;   // unparseable original → nothing to preserve, non-fatal
+        }
+        copyExt(orig, root);
+        if (orig.get("info") instanceof Map<?, ?> oi && root.get("info") instanceof Map) {
+            copyExt((Map<String, Object>) oi, (Map<String, Object>) root.get("info"));
+        }
+        if (orig.get("paths") instanceof Map<?, ?> oPaths && root.get("paths") instanceof Map) {
+            Map<String, Object> rPaths = (Map<String, Object>) root.get("paths");
+            for (Map.Entry<?, ?> pe : oPaths.entrySet()) {
+                if (!(pe.getValue() instanceof Map<?, ?> oItem) || !(rPaths.get(pe.getKey()) instanceof Map)) {
+                    continue;
+                }
+                Map<String, Object> rItem = (Map<String, Object>) rPaths.get(pe.getKey());
+                copyExt((Map<String, Object>) oItem, rItem);
+                for (Map.Entry<?, ?> me : oItem.entrySet()) {
+                    if (me.getValue() instanceof Map<?, ?> oOp && rItem.get(me.getKey()) instanceof Map) {
+                        copyExt((Map<String, Object>) oOp, (Map<String, Object>) rItem.get(me.getKey()));
+                    }
+                }
+            }
+        }
+    }
+
+    private void copyExt(Map<String, Object> from, Map<String, Object> to) {
+        for (Map.Entry<String, Object> e : from.entrySet()) {
+            if (e.getKey() != null && e.getKey().startsWith("x-") && !to.containsKey(e.getKey())) {
+                to.put(e.getKey(), e.getValue());
+            }
         }
     }
 

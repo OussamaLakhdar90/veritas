@@ -44,6 +44,7 @@ import com.github.javaparser.ast.expr.ArrayInitializerExpr;
 import com.github.javaparser.ast.expr.BinaryExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.FieldAccessExpr;
+import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
@@ -327,11 +328,23 @@ public class JavaSpringExtractor {
         if (ret.typeName() != null) {
             referenced.add(ret.typeName());
         }
-        int status = responseStatus(m);
+        SourceRef retSrc = SourceRef.code(file, line(m), line(m), m.getDeclarationAsString(false, false, false));
         List<ResponseModel> responses = new ArrayList<>();
-        responses.add(new ResponseModel(status, ret.noBody() ? null : ret.schemaRef(), null,
-                ret.responseEntity() ? "RESPONSE_ENTITY" : "RETURN",
-                SourceRef.code(file, line(m), line(m), m.getDeclarationAsString(false, false, false))));
+        // When the method builds a ResponseEntity (and has no explicit @ResponseStatus), read the real status
+        // code(s) from the builder calls in the body — otherwise a 201/202/204 endpoint looked like 200.
+        List<Integer> entityStatuses = ret.responseEntity() && getAnnotation(m, "ResponseStatus").isEmpty()
+                ? responseEntityStatuses(m) : List.of();
+        if (!entityStatuses.isEmpty()) {
+            Integer success = entityStatuses.stream().filter(s -> s >= 200 && s < 300).min(Integer::compareTo).orElse(null);
+            for (Integer s : entityStatuses) {
+                boolean withBody = success != null && s.equals(success) && !ret.noBody();
+                responses.add(new ResponseModel(s, withBody ? ret.schemaRef() : null, null, "RESPONSE_ENTITY", retSrc));
+            }
+        } else {
+            int status = responseStatus(m);
+            responses.add(new ResponseModel(status, ret.noBody() ? null : ret.schemaRef(), null,
+                    ret.responseEntity() ? "RESPONSE_ENTITY" : "RETURN", retSrc));
+        }
 
         List<String> security = new ArrayList<>(classSecurity);
         security.addAll(securityOf(m, types));   // method-level security adds to (overrides conceptually) the class default
@@ -774,6 +787,59 @@ public class JavaSpringExtractor {
         return 200;
     }
 
+    /** Status codes inferred from {@code ResponseEntity.<factory>(...)} builder calls in the method body. */
+    private List<Integer> responseEntityStatuses(MethodDeclaration m) {
+        java.util.LinkedHashSet<Integer> out = new java.util.LinkedHashSet<>();
+        for (MethodCallExpr call : m.findAll(MethodCallExpr.class)) {
+            String scope = call.getScope().map(Object::toString).orElse("");
+            if (!scope.equals("ResponseEntity") && !scope.endsWith(".ResponseEntity")) {
+                continue;   // only static factory calls ON ResponseEntity, e.g. ResponseEntity.created(...)
+            }
+            Integer s = switch (call.getNameAsString()) {
+                case "ok" -> 200;
+                case "created" -> 201;
+                case "accepted" -> 202;
+                case "noContent" -> 204;
+                case "badRequest" -> 400;
+                case "notFound" -> 404;
+                case "unprocessableEntity" -> 422;
+                case "internalServerError" -> 500;
+                case "status" -> statusFromArg(call);
+                default -> null;
+            };
+            if (s != null) {
+                out.add(s);
+            }
+        }
+        return new ArrayList<>(out);
+    }
+
+    /** Resolve the status from a {@code ResponseEntity.status(...)} argument (int literal or {@code HttpStatus.X}). */
+    private Integer statusFromArg(MethodCallExpr call) {
+        if (call.getArguments().isEmpty()) {
+            return null;
+        }
+        String arg = call.getArgument(0).toString().trim();
+        try {
+            return Integer.parseInt(arg);
+        } catch (NumberFormatException ignore) {
+            // not a literal — fall through to HttpStatus name mapping
+        }
+        String u = arg.toUpperCase(Locale.ROOT);
+        if (u.contains("NO_CONTENT")) return 204;
+        if (u.contains("CREATED")) return 201;
+        if (u.contains("ACCEPTED")) return 202;
+        if (u.contains("BAD_REQUEST")) return 400;
+        if (u.contains("UNAUTHORIZED")) return 401;
+        if (u.contains("FORBIDDEN")) return 403;
+        if (u.contains("NOT_FOUND")) return 404;
+        if (u.contains("CONFLICT")) return 409;
+        if (u.contains("UNPROCESSABLE")) return 422;
+        if (u.contains("INTERNAL_SERVER_ERROR")) return 500;
+        if (u.endsWith("OK")) return 200;
+        return null;
+    }
+
     // ---- mapping detection ----
 
     private HttpMethod verbFrom(String requestMethod) {
@@ -807,7 +873,8 @@ public class JavaSpringExtractor {
             Type inner = cit.getTypeArguments().get().get(0);
             boolean re = outer.equals("ResponseEntity") || outer.equals("HttpEntity");
             // Transparent wrappers — unwrap to the inner body type (envelope/async/reactive-single).
-            if (re || TRANSPARENT_WRAPPERS.contains(outer)) {
+            // ENVELOPE_WRAPPERS only unwrap when parameterized (e.g. ApiResponse<User>); a bare type is left as-is.
+            if (re || TRANSPARENT_WRAPPERS.contains(outer) || ENVELOPE_WRAPPERS.contains(outer)) {
                 BodyType b = unwrap(inner);
                 return new BodyType(b.typeName(), b.array(), b.noBody(), re || b.responseEntity());
             }
@@ -837,6 +904,10 @@ public class JavaSpringExtractor {
     /** Wrappers whose single type argument IS the response body (Spring envelopes, reactive-single, async). */
     private static final Set<String> TRANSPARENT_WRAPPERS = Set.of(
             "Mono", "Optional", "CompletableFuture", "CompletionStage", "Future", "Callable", "DeferredResult");
+    /** Common API "envelope" wrappers: the real payload is the single type argument (only unwrapped when generic). */
+    private static final Set<String> ENVELOPE_WRAPPERS = Set.of(
+            "ApiResponse", "ApiResult", "Result", "Response", "RestResponse", "DataResponse", "ResponseWrapper",
+            "ResponseDTO", "ResponseDto", "Envelope", "BaseResponse", "GenericResponse", "ServiceResponse", "Wrapper");
     /** Wrappers that mean "a collection of the inner type" (incl. Spring Data paged wrappers). */
     private static final Set<String> ARRAY_WRAPPERS = Set.of(
             "List", "Set", "Collection", "Flux", "Page", "Slice", "PagedModel", "CollectionModel");

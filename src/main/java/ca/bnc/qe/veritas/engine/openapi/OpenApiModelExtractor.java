@@ -193,6 +193,11 @@ public class OpenApiModelExtractor {
                 if (sc.getItems() != null && sc.getItems().get$ref() != null) {
                     return refName(sc.getItems().get$ref()) + "[]";
                 }
+                // "array" with unresolvable items is a container, not a named schema — return null (unknown)
+                // rather than the literal keyword "array", which would confuse name-based diff comparisons.
+                if ("array".equals(sc.getType())) {
+                    return null;
+                }
                 return sc.getType();
             }
         }

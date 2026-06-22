@@ -163,7 +163,8 @@ public class ContractValidationService {
 
             // Corrected YAML: prefer the LLM-reconciled spec IF it round-trips; else the deterministic
             // code-wins spec; never write a spec that fails to re-parse.
-            String corrected = chooseCorrectedYaml(llmCorrected, code, req.serviceName());
+            String primarySpecYaml = req.specs().isEmpty() ? null : req.specs().get(0).content();
+            String corrected = chooseCorrectedYaml(llmCorrected, code, req.serviceName(), primarySpecYaml);
             if (corrected != null) {
                 correctedYamlPath = writeOut("openapi.corrected-" + scan.getId() + ".yaml", corrected);
             }
@@ -326,11 +327,11 @@ public class ContractValidationService {
     }
 
     /** Prefer the LLM-reconciled corrected YAML when it re-parses; otherwise the deterministic code-wins spec. */
-    private String chooseCorrectedYaml(String llmCorrected, ApiModel code, String title) {
+    private String chooseCorrectedYaml(String llmCorrected, ApiModel code, String title, String originalSpecYaml) {
         if (llmCorrected != null && roundTrips(llmCorrected)) {
             return llmCorrected;
         }
-        String deterministic = correctedSpecBuilder.build(code, title);
+        String deterministic = correctedSpecBuilder.build(code, title, originalSpecYaml);
         return roundTrips(deterministic) ? deterministic : null;
     }
 
