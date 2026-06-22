@@ -24,6 +24,7 @@ public class CorpHttp {
 
     private final Retries retries;
     private final RestClient http;
+    private final RestClient longHttp;   // longer read timeout for LLM calls (generation can exceed the REST timeout)
 
     @Value("${veritas.http.powershell-fallback:false}")
     private boolean powershellFallback;
@@ -34,31 +35,42 @@ public class CorpHttp {
     @org.springframework.beans.factory.annotation.Autowired
     public CorpHttp(Retries retries,
                     @Value("${veritas.http.connect-timeout-ms:10000}") int connectTimeoutMs,
-                    @Value("${veritas.http.read-timeout-ms:60000}") int readTimeoutMs) {
+                    @Value("${veritas.http.read-timeout-ms:60000}") int readTimeoutMs,
+                    @Value("${veritas.llm.http-read-timeout-ms:180000}") int llmReadTimeoutMs) {
         this.retries = retries;
+        this.http = client(connectTimeoutMs, readTimeoutMs);
+        this.longHttp = client(connectTimeoutMs, llmReadTimeoutMs);
+    }
+
+    private static RestClient client(int connectTimeoutMs, int readTimeoutMs) {
         var factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(connectTimeoutMs);   // bounded so a hung host fails fast (PowerShell fallback can engage)
         factory.setReadTimeout(readTimeoutMs);
-        this.http = RestClient.builder().requestFactory(factory).build();
+        return RestClient.builder().requestFactory(factory).build();
     }
 
     /** Convenience for tests: default bounded timeouts. */
     public CorpHttp(Retries retries) {
-        this(retries, 10000, 60000);
+        this(retries, 10000, 60000, 180000);
     }
 
     public String get(String url, Map<String, String> headers) {
-        return exec("GET", url, headers, null, null);
+        return exec(http, "GET", url, headers, null, null);
     }
 
     public String post(String url, Map<String, String> headers, String body, String contentType) {
-        return exec("POST", url, headers, body, contentType);
+        return exec(http, "POST", url, headers, body, contentType);
     }
 
-    private String exec(String method, String url, Map<String, String> headers, String body, String contentType) {
+    /** POST with the longer read timeout — for LLM/Copilot calls whose generation can take minutes. */
+    public String postLong(String url, Map<String, String> headers, String body, String contentType) {
+        return exec(longHttp, "POST", url, headers, body, contentType);
+    }
+
+    private String exec(RestClient client, String method, String url, Map<String, String> headers, String body, String contentType) {
         try {
             return retries.call(() -> {
-                RestClient.RequestBodySpec spec = http.method(HttpMethod.valueOf(method)).uri(URI.create(url));
+                RestClient.RequestBodySpec spec = client.method(HttpMethod.valueOf(method)).uri(URI.create(url));
                 if (headers != null) {
                     spec = spec.headers(h -> headers.forEach((k, v) -> {
                         if (v != null) {

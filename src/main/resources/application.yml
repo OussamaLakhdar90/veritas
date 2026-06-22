@@ -31,6 +31,7 @@ veritas:
     output-headroom-tokens: 8000  # tokens reserved for the model's reply inside the context window
     batch-input-tokens: 24000     # per-batch budget for large list inputs (release issues, reconcile findings); 0 = never batch
     cache-max-entries: 500        # bounded LRU for the prompt cache (server mode); 0 = unbounded
+    http-read-timeout-ms: 180000  # read timeout for the Copilot HTTP call — LLM generation can exceed the REST timeout
   report:
     bilingual: true     # render EN/FR; translation is the ONLY LLM call in report generation and uses the cheapest tier
   http:                  # BNC-facing HTTP transport (Jira v2 + Copilot)

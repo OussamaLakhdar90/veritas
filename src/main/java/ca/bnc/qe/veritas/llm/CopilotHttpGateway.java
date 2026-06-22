@@ -54,7 +54,7 @@ public class CopilotHttpGateway implements LlmGateway {
                     "messages", List.of(Map.of("role", "user", "content", prompt == null ? "" : prompt)),
                     "temperature", 0,
                     "stream", false));
-            String resp = corp.post(props.getCopilotBase() + "/chat/completions", Map.of(
+            String resp = corp.postLong(props.getCopilotBase() + "/chat/completions", Map.of(
                     "Authorization", "Bearer " + token,
                     "Accept", "application/json",
                     "X-GitHub-Api-Version", props.getApiVersion(),
