@@ -538,13 +538,28 @@ public class DiffEngine {
         };
     }
 
+    /**
+     * Severity by CONSUMER IMPACT, calibrated against API-governance linting (Spectral/Redocly error/warn/info),
+     * OpenAPI breaking-change classification (oasdiff / openapi-diff), and OWASP API Security + ISTQB risk:
+     * <ul>
+     *   <li>BLOCKER  — the spec is invalid/unresolvable, so no generated client can rely on it;</li>
+     *   <li>CRITICAL — a definite endpoint-level consumer break, or a security-contract gap (OWASP API1/2/5);</li>
+     *   <li>MAJOR    — request/response-shape functional risk (params, status, schema fields/types, constraints);</li>
+     *   <li>MINOR    — dead-spec / additive / positional-naming drift that misleads but doesn't break a running client
+     *       (a path-variable NAME is positional in the URL, so {@code {app}} vs {@code {appId}} is non-breaking);</li>
+     *   <li>INFO     — documentation/advisory only; INFO carries no score penalty.</li>
+     * </ul>
+     */
     private Severity severityOf(FindingType t) {
         return switch (t) {
-            case OPENAPI_PARSE_ERROR, MISSING_ENDPOINT, VERB_MISMATCH -> Severity.CRITICAL;
-            case EXTRA_ENDPOINT, PATH_VAR_NAME_MISMATCH, PARAM_MISSING, PARAM_TYPE_MISMATCH,
-                 PARAM_REQUIRED_MISMATCH, REQUEST_BODY_PRESENCE_MISMATCH, STATUS_CODE_MISSING,
-                 RESPONSE_SCHEMA_MISMATCH, SCHEMA_FIELD_MISSING, SCHEMA_FIELD_TYPE_MISMATCH,
-                 CONSTRAINT_GAP, SECURITY_MISMATCH, UNRESOLVED_REF, SPEC_DRIFT -> Severity.MAJOR;
+            case OPENAPI_PARSE_ERROR, UNRESOLVED_REF -> Severity.BLOCKER;
+            case MISSING_ENDPOINT, VERB_MISMATCH, SECURITY_MISMATCH -> Severity.CRITICAL;
+            case PARAM_MISSING, PARAM_TYPE_MISMATCH, PARAM_REQUIRED_MISMATCH, REQUEST_BODY_PRESENCE_MISMATCH,
+                 STATUS_CODE_MISSING, RESPONSE_SCHEMA_MISMATCH, SCHEMA_FIELD_MISSING, SCHEMA_FIELD_TYPE_MISMATCH,
+                 CONSTRAINT_GAP -> Severity.MAJOR;
+            case MISSING_INFO_FIELD, DESIGN_QUALITY, TEST_BASIS_GAP -> Severity.INFO;
+            // EXTRA_ENDPOINT, PATH_VAR_NAME_MISMATCH, SPEC_DRIFT, PARAM_EXTRA, STATUS_CODE_EXTRA,
+            // SCHEMA_FIELD_EXTRA, CONSUMES_PRODUCES_MISMATCH — dead-spec / additive / naming drift, non-breaking
             default -> Severity.MINOR;
         };
     }

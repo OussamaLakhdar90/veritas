@@ -18,6 +18,7 @@ import ca.bnc.qe.veritas.engine.model.SourceRef;
 import ca.bnc.qe.veritas.finding.Confidence;
 import ca.bnc.qe.veritas.finding.Finding;
 import ca.bnc.qe.veritas.finding.FindingType;
+import ca.bnc.qe.veritas.finding.Severity;
 import org.junit.jupiter.api.Test;
 
 /** Deep L4 diff: response-schema mismatch, extra spec status code, and constraint VALUE mismatch. */
@@ -266,6 +267,27 @@ class DiffEngineDeepTest {
 
         assertThat(diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType))
                 .contains(FindingType.CONSTRAINT_GAP);
+    }
+
+    @Test
+    void severityReflectsConsumerImpact() {
+        // SECURITY_MISMATCH is CRITICAL (security-contract gap, OWASP API1/2/5)
+        Endpoint secured = new Endpoint(HttpMethod.GET, "/s", "getS", List.of(), null,
+                List.of(new ResponseModel(200, null, null, "RETURN", src)), null, null, List.of("hasRole('ADMIN')"), src);
+        Endpoint open = new Endpoint(HttpMethod.GET, "/s", "getS", List.of(), null,
+                List.of(new ResponseModel(200, null, null, "SPEC", src)), null, null, List.of(), src);
+        assertThat(diff.diffCodeVsSpec(
+                new ApiModel("code", null, null, null, List.of(secured), Map.of()),
+                new ApiModel("repo-spec", null, null, null, List.of(open), Map.of())))
+                .anyMatch(f -> f.getType() == FindingType.SECURITY_MISMATCH && f.getSeverity() == Severity.CRITICAL);
+
+        // EXTRA_ENDPOINT (dead spec) is MINOR — documentation drift, doesn't break a running client
+        Endpoint ghost = new Endpoint(HttpMethod.GET, "/ghost", "g", List.of(), null,
+                List.of(new ResponseModel(200, null, null, "SPEC", src)), null, null, List.of(), src);
+        assertThat(diff.diffCodeVsSpec(
+                new ApiModel("code", null, null, null, List.of(), Map.of()),
+                new ApiModel("repo-spec", null, null, null, List.of(ghost), Map.of())))
+                .anyMatch(f -> f.getType() == FindingType.EXTRA_ENDPOINT && f.getSeverity() == Severity.MINOR);
     }
 
     @Test
