@@ -57,7 +57,8 @@ public class OpenApiModelExtractor {
                 String path = pathEntry.getKey();
                 Map<PathItem.HttpMethod, Operation> ops = pathEntry.getValue().readOperationsMap();
                 for (Map.Entry<PathItem.HttpMethod, Operation> opEntry : ops.entrySet()) {
-                    endpoints.add(toEndpoint(specId, path, opEntry.getKey(), opEntry.getValue(), openApi.getSecurity()));
+                    endpoints.add(toEndpoint(specId, path, opEntry.getKey(), opEntry.getValue(),
+                            openApi.getSecurity(), openApi.getComponents()));
                 }
             }
         }
@@ -162,12 +163,13 @@ public class OpenApiModelExtractor {
     }
 
     private Endpoint toEndpoint(String specId, String path, PathItem.HttpMethod m, Operation op,
-                               List<io.swagger.v3.oas.models.security.SecurityRequirement> globalSecurity) {
+                               List<io.swagger.v3.oas.models.security.SecurityRequirement> globalSecurity,
+                               io.swagger.v3.oas.models.Components components) {
         HttpMethod method = HttpMethod.valueOf(m.name());
         List<ParamModel> params = new ArrayList<>();
         if (op.getParameters() != null) {
             for (Parameter p : op.getParameters()) {
-                params.add(toParam(specId, path, p));
+                params.add(toParam(specId, path, p, components));
             }
         }
         RequestBodyModel body = toRequestBody(specId, path, op.getRequestBody());
@@ -205,7 +207,19 @@ public class OpenApiModelExtractor {
                 SourceRef.spec(specId, "/paths" + path + "/" + method.name().toLowerCase(), null));
     }
 
-    private ParamModel toParam(String specId, String path, Parameter p) {
+    private ParamModel toParam(String specId, String path, Parameter p, io.swagger.v3.oas.models.Components components) {
+        // setResolve(true) dereferences SCHEMA $refs in bodies/responses, but leaves a PARAMETER $ref — and a
+        // parameter whose SCHEMA is itself a $ref to a reusable type/enum — UNRESOLVED. Dereference both by name
+        // against components so the param's name, schema and (crucially) its enum are visible; otherwise an
+        // enum-value drift on a $ref-typed param (the spec advertising a value the code rejects, and the code
+        // accepting values the spec never documents) is silently missed. Stays name-preserving — no
+        // setResolveFully, which would inline named DTOs and break schema-name matching elsewhere.
+        if (p.get$ref() != null && components != null && components.getParameters() != null) {
+            Parameter resolvedParam = components.getParameters().get(refName(p.get$ref()));
+            if (resolvedParam != null) {
+                p = resolvedParam;
+            }
+        }
         ParamLocation loc = switch (p.getIn() == null ? "query" : p.getIn()) {
             case "path" -> ParamLocation.PATH;
             case "header" -> ParamLocation.HEADER;
@@ -213,6 +227,12 @@ public class OpenApiModelExtractor {
             default -> ParamLocation.QUERY;
         };
         Schema schema = p.getSchema();
+        if (schema != null && schema.get$ref() != null && components != null && components.getSchemas() != null) {
+            Schema resolvedSchema = components.getSchemas().get(refName(schema.get$ref()));
+            if (resolvedSchema != null) {
+                schema = resolvedSchema;
+            }
+        }
         boolean required = Boolean.TRUE.equals(p.getRequired()) || loc == ParamLocation.PATH;
         ConstraintSet cs = constraints(schema);
         // The allowed value set is often only in the DESCRIPTION prose ("Must be one of [A, B, C]"), not a
