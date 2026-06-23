@@ -82,6 +82,23 @@ class ContractReportRendererTest {
     }
 
     @Test
+    void interactiveHtmlHasSeverityDonutFloatingToggleAndReviewControls() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        Finding manual = Finding.builder()
+                .findingId("m1").type(FindingType.TEST_BASIS_GAP).layer(Layer.L6).severity(Severity.MAJOR)
+                .confidence(Confidence.MEDIUM).origin("LLM").service("ciam-policies").specSource("code-vs-spec")
+                .summary("Spec is a weak test basis").build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(richFinding(), manual));
+
+        assertThat(html).contains("conic-gradient(");                 // exec-summary severity donut (not the flat bar)
+        assertThat(html).contains("class=\"lang-toggle\"");           // floating language toggle
+        assertThat(html).contains("reviewItem(this,'accept')").contains("reviewItem(this,'reject')");  // accept/reject
+        assertThat(html).contains("Manual-review items by severity"); // §6 donut panel
+        assertThat(html).doesNotContain("rating-good").doesNotContain(">Good<");   // misleading band label removed
+    }
+
+    @Test
     void pdfRendersWithDetailRowsAsValidXhtml() {
         Scan scan = new Scan();
         scan.setServiceName("ciam-policies");
