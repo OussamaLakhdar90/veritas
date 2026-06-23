@@ -222,8 +222,29 @@ public class DiffEngine {
                         "Code returns " + codeStatus + " but the spec doesn't document it", ce, Confidence.MEDIUM));
             }
         }
-        // spec documents a 2xx success code the code never returns (conservative: success codes only,
-        // since code error responses aren't extracted until @ControllerAdvice support)
+        // error status codes the code can produce (an error it returns directly, or a mapped @ExceptionHandler
+        // advice) that the spec doesn't declare. Confidence tracks reachability: a status the endpoint returns or a
+        // specific-exception handler is MEDIUM; a global catch-all handler (e.g. 500 for any RuntimeException) is LOW
+        // so it never reads as a hard per-endpoint defect on every operation.
+        for (ResponseModel cr : ce.responses()) {
+            if (cr.statusCode() < 400) {
+                continue;
+            }
+            if (se.responses().stream().anyMatch(r -> r.statusCode() == cr.statusCode())) {
+                continue;
+            }
+            // Advice-sourced statuses are GLOBAL by construction — a @ControllerAdvice handler is attached to every
+            // endpoint regardless of whether that endpoint can actually throw the exception. We can't prove per-endpoint
+            // reachability statically, so any advice-sourced status stays LOW (surfaced as manual review, never counted)
+            // — otherwise one advice for a broadly-thrown exception would flood every endpoint and tank the score.
+            // Only a status the endpoint RETURNS directly (ResponseEntity.badRequest() etc.) is MEDIUM.
+            boolean fromAdvice = cr.origin() != null && cr.origin().startsWith("EXCEPTION_HANDLER");
+            Confidence conf = fromAdvice ? Confidence.LOW : Confidence.MEDIUM;
+            findings.add(finding(FindingType.STATUS_CODE_MISSING, label(ce), spec.source(),
+                    "Code can return " + cr.statusCode() + " but the spec doesn't document it", ce, conf));
+        }
+        // spec documents a 2xx success code the code never returns (success codes only — a spec error code the code
+        // doesn't appear to produce is often a deliberately documented contingency, so flagging it would be noise)
         for (ResponseModel sr : se.responses()) {
             if (sr.statusCode() >= 200 && sr.statusCode() < 300
                     && ce.responses().stream().noneMatch(r -> r.statusCode() == sr.statusCode())) {
@@ -252,14 +273,119 @@ public class DiffEngine {
         mediaTypeMismatch(findings, ce, spec, "produces", ce.produces(), se.produces());
         mediaTypeMismatch(findings, ce, spec, "consumes", ce.consumes(), se.consumes());
 
-        // success-response body schema differs between code and spec
+        // success-response body schema differs between code and spec. Compare the RESOLVED STRUCTURE, not the
+        // type/schema NAME: a code DTO "PasswordPolicyWrapper" and a spec schema "policies" that serialize to the
+        // same property shape are NOT a contract break — the schema name never appears on the wire. Only emit when
+        // the structures genuinely diverge; suppress when they match or when either side can't be resolved.
         String codeRef = successSchemaRef(ce);
         String specRef = successSchemaRef(se);
-        if (codeRef != null && specRef != null && !normRef(codeRef).equals(normRef(specRef))) {
+        if (codeRef != null && specRef != null && !normRef(codeRef).equals(normRef(specRef))
+                && structuralVerdict(code, spec, codeRef, specRef) == SchemaVerdict.DIFFER) {
             findings.add(finding(FindingType.RESPONSE_SCHEMA_MISMATCH, label(ce), spec.source(),
                     "Success response schema — code returns '" + codeRef + "' but the spec declares '" + specRef + "'",
                     ce, Confidence.MEDIUM));
         }
+    }
+
+    private enum SchemaVerdict { MATCH, DIFFER, UNRESOLVED }
+
+    /** Bound on nested-schema recursion when comparing structure (cycles are also guarded by a visited set). */
+    private static final int MAX_SCHEMA_DEPTH = 8;
+
+    /**
+     * Decide whether two differently-named success-response schemas are a genuine contract break by comparing their
+     * RESOLVED property structure rather than their names. Returns {@code DIFFER} only when the structures truly
+     * diverge; {@code UNRESOLVED} when either side can't be looked up or carries no structure to compare (a
+     * name-compare there is exactly the false positive we are removing — such external/opaque DTOs are already
+     * recorded as extractor blind spots).
+     */
+    private SchemaVerdict structuralVerdict(ApiModel code, ApiModel spec, String codeRef, String specRef) {
+        if (arrayRef(codeRef) != arrayRef(specRef)) {
+            return SchemaVerdict.DIFFER;   // array vs single object is a real shape difference
+        }
+        SchemaModel cs = code.schemas().get(baseName(codeRef));
+        SchemaModel ss = spec.schemas().get(baseName(specRef));
+        if (cs == null || ss == null || structureless(cs) || structureless(ss)) {
+            return SchemaVerdict.UNRESOLVED;
+        }
+        return propsEqual(code, spec, cs, ss, MAX_SCHEMA_DEPTH, new java.util.HashSet<>())
+                ? SchemaVerdict.MATCH : SchemaVerdict.DIFFER;
+    }
+
+    private static boolean arrayRef(String ref) {
+        return ref != null && ref.endsWith("[]");
+    }
+
+    private static String baseName(String ref) {
+        return ref == null ? null : ref.replace("[]", "");
+    }
+
+    /** A schema we cannot structurally compare: no extracted fields and no enum values. */
+    private static boolean structureless(SchemaModel s) {
+        boolean noFields = s.fields() == null || s.fields().isEmpty();
+        boolean noEnum = s.enumValues() == null || s.enumValues().isEmpty();
+        return noFields && noEnum;
+    }
+
+    /** Structural equality: enum value sets, or same field-name set with compatible field types, recursing into nested
+     * $ref'd schemas up to {@link #MAX_SCHEMA_DEPTH} (a visited-pair set guards cyclic DTO graphs). */
+    private boolean propsEqual(ApiModel code, ApiModel spec, SchemaModel cs, SchemaModel ss, int depth,
+                               java.util.Set<String> visited) {
+        String key = cs.name() + "|" + ss.name();
+        if (!visited.add(key)) {
+            return true;   // this pair is already being compared higher up the stack — break the cycle
+        }
+        // Scope the guard to genuine stack ANCESTORS: removing on exit means a pair truncated by depth on one path
+        // can still be fully compared when reached via a shorter path, so a deep diff isn't wrongly memoized as MATCH.
+        try {
+            boolean cEnum = cs.enumValues() != null && !cs.enumValues().isEmpty();
+            boolean sEnum = ss.enumValues() != null && !ss.enumValues().isEmpty();
+            if (cEnum || sEnum) {
+                return cEnum && sEnum && normSet(cs.enumValues()).equals(normSet(ss.enumValues()));
+            }
+            Map<String, FieldModel> cf = fieldsByName(cs);
+            Map<String, FieldModel> sf = fieldsByName(ss);
+            if (!cf.keySet().equals(sf.keySet())) {
+                return false;
+            }
+            for (Map.Entry<String, FieldModel> e : cf.entrySet()) {
+                FieldModel c = e.getValue();
+                FieldModel s = sf.get(e.getKey());
+                if (!typeCompatible(c, s)) {
+                    return false;
+                }
+                if (depth > 0 && c.refSchema() != null && s.refSchema() != null) {
+                    if (arrayRef(c.refSchema()) != arrayRef(s.refSchema())) {
+                        return false;
+                    }
+                    SchemaModel nc = code.schemas().get(baseName(c.refSchema()));
+                    SchemaModel ns = spec.schemas().get(baseName(s.refSchema()));
+                    // recurse only when both nested schemas resolve; an unresolved nested side never invents a diff
+                    if (nc != null && ns != null && !propsEqual(code, spec, nc, ns, depth - 1, visited)) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        } finally {
+            visited.remove(key);
+        }
+    }
+
+    private static Map<String, FieldModel> fieldsByName(SchemaModel s) {
+        Map<String, FieldModel> m = new LinkedHashMap<>();
+        if (s.fields() != null) {
+            s.fields().forEach(f -> m.put(f.jsonName(), f));
+        }
+        return m;
+    }
+
+    /** Field types are compatible when equal, or when either side is null/object (same wildcard rule as compareSchema). */
+    private static boolean typeCompatible(FieldModel a, FieldModel b) {
+        if (a.type() == null || b.type() == null || "object".equals(a.type()) || "object".equals(b.type())) {
+            return true;
+        }
+        return a.type().equals(b.type());
     }
 
     private String successSchemaRef(Endpoint e) {
@@ -419,13 +545,28 @@ public class DiffEngine {
         };
     }
 
+    /**
+     * Severity by CONSUMER IMPACT, calibrated against API-governance linting (Spectral/Redocly error/warn/info),
+     * OpenAPI breaking-change classification (oasdiff / openapi-diff), and OWASP API Security + ISTQB risk:
+     * <ul>
+     *   <li>BLOCKER  — the spec is invalid/unresolvable, so no generated client can rely on it;</li>
+     *   <li>CRITICAL — a definite endpoint-level consumer break, or a security-contract gap (OWASP API1/2/5);</li>
+     *   <li>MAJOR    — request/response-shape functional risk (params, status, schema fields/types, constraints);</li>
+     *   <li>MINOR    — dead-spec / additive / positional-naming drift that misleads but doesn't break a running client
+     *       (a path-variable NAME is positional in the URL, so {@code {app}} vs {@code {appId}} is non-breaking);</li>
+     *   <li>INFO     — documentation/advisory only; INFO carries no score penalty.</li>
+     * </ul>
+     */
     private Severity severityOf(FindingType t) {
         return switch (t) {
-            case OPENAPI_PARSE_ERROR, MISSING_ENDPOINT, VERB_MISMATCH -> Severity.CRITICAL;
-            case EXTRA_ENDPOINT, PATH_VAR_NAME_MISMATCH, PARAM_MISSING, PARAM_TYPE_MISMATCH,
-                 PARAM_REQUIRED_MISMATCH, REQUEST_BODY_PRESENCE_MISMATCH, STATUS_CODE_MISSING,
-                 RESPONSE_SCHEMA_MISMATCH, SCHEMA_FIELD_MISSING, SCHEMA_FIELD_TYPE_MISMATCH,
-                 CONSTRAINT_GAP, SECURITY_MISMATCH, UNRESOLVED_REF, SPEC_DRIFT -> Severity.MAJOR;
+            case OPENAPI_PARSE_ERROR, UNRESOLVED_REF -> Severity.BLOCKER;
+            case MISSING_ENDPOINT, VERB_MISMATCH, SECURITY_MISMATCH -> Severity.CRITICAL;
+            case PARAM_MISSING, PARAM_TYPE_MISMATCH, PARAM_REQUIRED_MISMATCH, REQUEST_BODY_PRESENCE_MISMATCH,
+                 STATUS_CODE_MISSING, RESPONSE_SCHEMA_MISMATCH, SCHEMA_FIELD_MISSING, SCHEMA_FIELD_TYPE_MISMATCH,
+                 CONSTRAINT_GAP -> Severity.MAJOR;
+            case MISSING_INFO_FIELD, DESIGN_QUALITY, TEST_BASIS_GAP -> Severity.INFO;
+            // EXTRA_ENDPOINT, PATH_VAR_NAME_MISMATCH, SPEC_DRIFT, PARAM_EXTRA, STATUS_CODE_EXTRA,
+            // SCHEMA_FIELD_EXTRA, CONSUMES_PRODUCES_MISMATCH — dead-spec / additive / naming drift, non-breaking
             default -> Severity.MINOR;
         };
     }

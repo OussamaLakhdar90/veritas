@@ -1,16 +1,28 @@
 import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bug, FileText, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Bug, FileText, CheckCircle2, AlertTriangle, Check, X } from 'lucide-react';
 import { api, Finding } from '../api';
 import { Badge, Button, Card, CardBody, EmptyState, ErrorState, Field, Input, PageHeader, Spinner, Table, Td, Th, Row, SortableTh, useSort } from '../components/ui';
 import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toast';
-import { severityBadge } from '../theme/tokens';
+import { severityBadge, TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
 
 const SEV_ORDER = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO'];
 const sevRank = (s?: string) => { const i = SEV_ORDER.indexOf((s || 'INFO').toUpperCase()); return i < 0 ? SEV_ORDER.length : i; };
+
+// Recorded disposition → pill styling + human label (the system of record for accept/reject).
+const DISP_TONE: Record<string, string> = {
+  ACCEPTED: TONE.ok, FIXED: TONE.ok,
+  REJECTED: TONE.danger, WONT_FIX: TONE.danger, FALSE_POSITIVE: TONE.danger,
+  TRIAGED: TONE.info, JIRA_CREATED: TONE.info,
+};
+const DISP_LABEL: Record<string, string> = {
+  ACCEPTED: 'Accepted', REJECTED: 'Rejected', WONT_FIX: "Won't fix",
+  FALSE_POSITIVE: 'False positive', TRIAGED: 'Triaged', JIRA_CREATED: 'Defect raised', FIXED: 'Fixed',
+};
+const dispositioned = (s?: string) => !!s && s !== 'OPEN';
 
 // Stable accessor map for client-side sorting (severity sorts by blocker→info, not alphabetically).
 const SORT_ACCESSORS: Record<string, (f: Finding) => string | number> = {
@@ -52,6 +64,24 @@ export function Findings() {
     if (selectableShown.every((f) => s.has(f.id))) return new Set();
     return new Set(selectableShown.map((f) => f.id));
   });
+
+  // Disposition (accept/reject) — persisted + audited server-side; the report re-renders from this.
+  const toast = useToast();
+  const qc = useQueryClient();
+  // Track in-flight finding+status keys so each row's spinner is correct under concurrent clicks (a single shared
+  // mutation.variables only reflects the most recent call).
+  const [inFlight, setInFlight] = useState<Set<string>>(new Set());
+  const disposition = useMutation({
+    mutationFn: ({ f, status }: { f: Finding; status: string }) => api.patchFinding(f.id, status),
+    onMutate: (v) => setInFlight((s) => new Set(s).add(`${v.f.id}:${v.status}`)),
+    onSettled: (_d, _e, v) => setInFlight((s) => { const n = new Set(s); n.delete(`${v.f.id}:${v.status}`); return n; }),
+    onSuccess: (_r, v) => {
+      qc.invalidateQueries({ queryKey: ['findings', scanId] });
+      toast.push('success', `Marked ${DISP_LABEL[v.status] ?? v.status}.`);
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+  const busy = (f: Finding, status: string) => inFlight.has(`${f.id}:${status}`);
 
   return (
     <div>
@@ -102,7 +132,7 @@ export function Findings() {
                 <SortableTh label="Endpoint" sortKey="endpoint" sort={sort} />
                 <Th>Summary</Th>
                 <Th>Evidence</Th>
-                <SortableTh label="" sortKey="status" sort={sort} className="text-right" />
+                <SortableTh label="Disposition" sortKey="status" sort={sort} className="text-right" />
               </>}>
                 {shown.map((f) => (
                   <Row key={f.id}>
@@ -123,9 +153,28 @@ export function Findings() {
                       {f.codeFile ? `${f.codeFile.split(/[\\/]/).pop()}${f.codeStartLine ? ':' + f.codeStartLine : ''}` : '—'}
                     </Td>
                     <Td className="text-right whitespace-nowrap">
-                      {f.status === 'JIRA_CREATED'
-                        ? <span className="inline-flex items-center gap-1 text-[13px] text-success"><CheckCircle2 className="h-4 w-4" /> Defect raised</span>
-                        : <Button size="sm" variant="secondary" onClick={() => setDefectFor(f)}><Bug className="h-4 w-4" /> Raise defect</Button>}
+                      <div className="inline-flex items-center justify-end gap-1.5">
+                        {dispositioned(f.status) && f.status !== 'JIRA_CREATED' && (
+                          <span title={f.reviewedBy ? `by ${f.reviewedBy}` : undefined}>
+                            <Badge className={DISP_TONE[f.status!] ?? TONE.muted}>{DISP_LABEL[f.status!] ?? f.status}</Badge>
+                          </span>
+                        )}
+                        {f.status === 'JIRA_CREATED' ? (
+                          <span className="inline-flex items-center gap-1 text-[13px] text-success"><CheckCircle2 className="h-4 w-4" /> Defect raised</span>
+                        ) : (
+                          <>
+                            <Button size="sm" variant="ghost" title="Accept — valid finding"
+                              loading={busy(f, 'ACCEPTED')} onClick={() => disposition.mutate({ f, status: 'ACCEPTED' })}>
+                              <Check className="h-4 w-4 text-success" />
+                            </Button>
+                            <Button size="sm" variant="ghost" title="Reject — won't act"
+                              loading={busy(f, 'REJECTED')} onClick={() => disposition.mutate({ f, status: 'REJECTED' })}>
+                              <X className="h-4 w-4 text-danger" />
+                            </Button>
+                            <Button size="sm" variant="secondary" onClick={() => setDefectFor(f)}><Bug className="h-4 w-4" /> Raise defect</Button>
+                          </>
+                        )}
+                      </div>
                     </Td>
                   </Row>
                 ))}

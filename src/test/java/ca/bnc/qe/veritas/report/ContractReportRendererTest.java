@@ -60,6 +60,67 @@ class ContractReportRendererTest {
     }
 
     @Test
+    void coverageNotClaimedFullWhenAManualReviewItemDisclaimsAMissingSource() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");   // no blind spots → would otherwise read "Full coverage"
+        Finding disclaimer = Finding.builder()
+                .findingId("d1").type(FindingType.TEST_BASIS_GAP).layer(Layer.L6).severity(Severity.MAJOR)
+                .confidence(Confidence.MEDIUM).origin("LLM").service("ciam-policies").specSource("code-vs-spec")
+                .summary("Security test cases not derivable — security source not supplied").build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(disclaimer));
+        assertThat(html).contains("Analysis coverage");
+        assertThat(html).doesNotContain("Full coverage");
+        assertThat(html).contains("Partial coverage");
+    }
+
+    @Test
+    void coverageClaimedFullWhenNoBlindSpotsAndNoDisclaimers() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");   // no blind spots, clean deterministic finding → "Full coverage"
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(richFinding()));
+        assertThat(html).contains("Full coverage");
+    }
+
+    @Test
+    void interactiveHtmlHasSeverityDonutFloatingToggleAndReviewControls() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        Finding manual = Finding.builder()
+                .findingId("m1").type(FindingType.TEST_BASIS_GAP).layer(Layer.L6).severity(Severity.MAJOR)
+                .confidence(Confidence.MEDIUM).origin("LLM").service("ciam-policies").specSource("code-vs-spec")
+                .summary("Spec is a weak test basis").build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(richFinding(), manual));
+
+        assertThat(html).contains("conic-gradient(");                 // exec-summary severity donut (not the flat bar)
+        assertThat(html).contains("class=\"lang-toggle\"");           // floating language toggle
+        assertThat(html).contains("reviewItem(this,'accept')").contains("reviewItem(this,'reject')");  // accept/reject
+        assertThat(html).contains("Manual-review items by severity"); // §6 donut panel
+        assertThat(html).doesNotContain("rating-good").doesNotContain(">Good<");   // misleading band label removed
+    }
+
+    @Test
+    void recordedDispositionRendersAsAnAuditedBadge() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        Finding rejected = richFinding().toBuilder()
+                .status("REJECTED").reviewedBy("alice")
+                .reviewedAt(java.time.Instant.parse("2026-06-23T14:09:00Z")).build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(rejected));
+        assertThat(html).contains("disp-badge").contains("Rejected").contains("alice").contains("2026-06-23");
+    }
+
+    @Test
+    void nullSeverityFindingDoesNotEmitAnInvalidEmptyConicGradient() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        Finding noSev = Finding.builder().findingId("n").type(FindingType.MISSING_ENDPOINT).layer(Layer.L2)
+                .severity(null).confidence(Confidence.MEDIUM).origin("DETERMINISTIC").specSource("code-vs-spec")
+                .endpoint("GET /x").summary("endpoint missing from spec").build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(noSev));
+        assertThat(html).doesNotContain("conic-gradient()");   // would be invalid CSS / blank donut
+    }
+
+    @Test
     void pdfRendersWithDetailRowsAsValidXhtml() {
         Scan scan = new Scan();
         scan.setServiceName("ciam-policies");

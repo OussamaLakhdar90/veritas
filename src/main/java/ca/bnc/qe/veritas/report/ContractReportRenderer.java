@@ -100,25 +100,32 @@ public class ContractReportRenderer {
                 .append("<title>API Contract Validation Report — ").append(esc(nz(scan.getServiceName())))
                 .append("</title><style>").append(css()).append("</style></head><body class=\"lang-en\">");
 
+        // Floating language toggle — fixed to the viewport so it's always one click away while scrolling.
+        if (interactive) {
+            sb.append("<div class=\"lang-toggle\" title=\"Language / Langue\">")
+                    .append("<button type=\"button\" data-lang=\"en\" class=\"active\" onclick=\"setLang('en')\">EN</button>")
+                    .append("<button type=\"button\" data-lang=\"fr\" onclick=\"setLang('fr')\">FR</button></div>");
+        }
+
         // ---- cover block ----
         sb.append("<div class=\"cover\"><div class=\"cover-in\">");
-        if (interactive) {
-            sb.append("<div class=\"lang-toggle\">")
-                    .append("<button data-lang=\"en\" class=\"active\" onclick=\"setLang('en')\">EN</button>")
-                    .append("<button data-lang=\"fr\" onclick=\"setLang('fr')\">FR</button></div>");
-        }
         sb.append("<div class=\"brand\"><span class=\"mark\"></span> Veritas</div>");
         sb.append("<h1 class=\"doc-title\">").append(bi("API Contract Validation Report",
                 "Rapport de validation du contrat d'API")).append("</h1>");
         sb.append("<div class=\"doc-sub\">").append(esc(nz(scan.getServiceName()))).append("</div>");
         sb.append("<div class=\"rating rating-").append(band[0]).append("\">").append(bi(band[1], band[2])).append("</div>");
-        sb.append("<table class=\"cover-meta\">")
-                .append(metaRow(bi("Service", "Service"), esc(nz(scan.getServiceName()))))
-                .append(metaRow(bi("Specification source", "Source de la spécification"), esc(nz(scan.getSpecSources()))))
-                .append(metaRow(bi("Generated", "Généré le"), scan.getStartedAt() != null ? esc(scan.getStartedAt().toString()) : "—"))
-                .append(metaRow(bi("Prepared by", "Préparé par"), "Veritas — automated contract validation"))
-                .append(metaRow(bi("Report ID", "Identifiant du rapport"), esc(nz(scan.getId()))))
-                .append("</table>");
+        sb.append("<table class=\"meta-grid\"><tbody>")
+                .append("<tr>")
+                .append(metaCell(bi("Service", "Service"), esc(nz(scan.getServiceName()))))
+                .append(metaCell(bi("Specification source", "Source de la spécification"), esc(nz(scan.getSpecSources()))))
+                .append("</tr><tr>")
+                .append(metaCell(bi("Generated", "Généré le"), fmtDate(scan.getStartedAt())))
+                .append(metaCell(bi("Prepared by", "Préparé par"), "Veritas · automated contract validation"))
+                .append("</tr><tr>")
+                .append("<td class=\"meta-cell\" colspan=\"2\"><div class=\"meta-label\">")
+                .append(bi("Report ID", "Identifiant du rapport")).append("</div><div class=\"meta-value mono\">")
+                .append(esc(nz(scan.getId()))).append("</div></td>")
+                .append("</tr></tbody></table>");
         sb.append("</div></div>");
 
         sb.append("<div class=\"content\">");
@@ -193,7 +200,10 @@ public class ContractReportRenderer {
 
         sb.append("<div class=\"dist-panel\"><div class=\"panel-h\">")
                 .append(bi("Findings by severity", "Constats par sévérité")).append("</div>")
-                .append(distributionBar(missing, wrong, dead)).append("</div>");
+                // Donut in the interactive HTML; the PDF engine has no SVG/conic-gradient support, so it keeps the bar.
+                .append(interactive ? severityDonut(counted, "findings", "constats")
+                        : distributionBar(missing, wrong, dead))
+                .append("</div>");
         sb.append("</section>");
 
         // ---- 2. Risk & business impact ----
@@ -259,12 +269,19 @@ public class ContractReportRenderer {
                     .append(bi("6. Items needing manual review", "6. Éléments à vérifier manuellement")).append("</h2>")
                     .append("<p class=\"ns-intro\">").append(bi(
                             "Raised by the assistant, not deterministically proven — <strong>not counted</strong> in the "
-                                    + "score or severity totals. Please confirm manually.",
+                                    + "score or severity totals. Accept or reject each below.",
                             "Soulevés par l'assistant, non prouvés de façon déterministe — <strong>non comptés</strong> "
-                                    + "dans le score ni les totaux. À confirmer manuellement."))
+                                    + "dans le score ni les totaux. Acceptez ou rejetez chacun ci-dessous."))
                     .append("</p>");
+            if (interactive) {
+                sb.append("<div class=\"dist-panel\"><div class=\"panel-h\">")
+                        .append(bi("Manual-review items by severity", "Éléments à vérifier par sévérité")).append("</div>")
+                        .append(severityDonut(attention, "to review", "à vérifier")).append("</div>");
+                sb.append("<p class=\"review-status\"><span id=\"rev-count\">0</span> ").append(bi("of", "sur"))
+                        .append(" ").append(attention.size()).append(" ").append(bi("reviewed", "vérifiés")).append("</p>");
+            }
             for (Finding f : attention) {
-                sb.append(findingCard(f, fr));
+                sb.append(findingCard(f, fr, interactive));
             }
             sb.append("</section>");
         }
@@ -278,6 +295,12 @@ public class ContractReportRenderer {
                             "Limites — ces zones n'ont pas pu être pleinement analysées; l'absence de constat n'est donc "
                                     + "pas une garantie :"))
                     .append("</p><p>").append(biDyn(scan.getBlindSpots(), fr)).append("</p>");
+        } else if (CoverageReconciler.anyMissingSourceDisclaimer(attention)) {
+            // A manual-review item still flags an unsupplied source — §7 must not claim full coverage and contradict it.
+            sb.append("<p class=\"cov-warn\">").append(bi(
+                    "Partial coverage — a manual-review item above notes a source that was not fully analysed.",
+                    "Couverture partielle — un élément à vérifier ci-dessus signale une source non pleinement analysée."))
+                    .append("</p>");
         } else {
             sb.append("<p class=\"cov-ok\">").append(bi(
                     "Full coverage — all sources parsed and referenced types resolved.",
@@ -302,9 +325,15 @@ public class ContractReportRenderer {
         sb.append("</div>");   // content
 
         if (interactive) {
-            sb.append("<script>function setLang(l){document.body.className='lang-'+l;")
+            sb.append("<script>function setLang(l){document.body.classList.remove('lang-en','lang-fr');")
+                    .append("document.body.classList.add('lang-'+l);")
                     .append("document.querySelectorAll('.lang-toggle button').forEach(function(b){")
-                    .append("b.classList.toggle('active', b.getAttribute('data-lang')===l);});}</script>");
+                    .append("b.classList.toggle('active', b.getAttribute('data-lang')===l);});}")
+                    .append("function reviewItem(btn,action){var card=btn.closest('.finding-card');")
+                    .append("card.classList.remove('accepted','rejected');card.classList.add(action==='accept'?'accepted':'rejected');")
+                    .append("var done=document.querySelectorAll('.needs-attention .finding-card.accepted,")
+                    .append(".needs-attention .finding-card.rejected').length;")
+                    .append("var c=document.getElementById('rev-count');if(c)c.textContent=done;}</script>");
         }
         sb.append("</body></html>");
         return sb.toString();
@@ -319,12 +348,12 @@ public class ContractReportRenderer {
         StringBuilder sb = new StringBuilder("<h3 class=\"subhead\">").append(title)
                 .append(" <span class=\"count\">").append(items.size()).append("</span></h3>");
         for (Finding f : items) {
-            sb.append(findingCard(f, fr));
+            sb.append(findingCard(f, fr, false));
         }
         return sb.toString();
     }
 
-    private String findingCard(Finding f, Map<String, String> fr) {
+    private String findingCard(Finding f, Map<String, String> fr, boolean reviewable) {
         String color = SEVERITY_COLOR.getOrDefault(f.getSeverity() != null ? f.getSeverity().name() : "", "#6B7280");
         StringBuilder sb = new StringBuilder("<div class=\"finding-card\">");
         sb.append("<div class=\"finding-header\">")
@@ -335,6 +364,21 @@ public class ContractReportRenderer {
                 .append(f.getLayer() != null ? " · " + f.getLayer().name() : "")
                 .append(f.getConfidence() != null ? " · " + f.getConfidence().name() : "").append("</span>")
                 .append("</div>");
+        // Recorded disposition (from the dashboard's system of record) — shown as an audited badge.
+        String disp = f.getStatus();
+        if (disp != null && !disp.isBlank() && !"OPEN".equalsIgnoreCase(disp)) {
+            sb.append("<div class=\"disp-line\">").append(bi("Disposition", "Décision")).append(": ")
+                    .append("<span class=\"disp-badge disp-").append(dispClass(disp)).append("\">")
+                    .append(dispLabel(disp)).append("</span>");
+            if (!isBlank(f.getReviewedBy())) {
+                sb.append(" <span class=\"disp-by\">").append(bi("by", "par")).append(" ").append(esc(f.getReviewedBy()));
+                if (f.getReviewedAt() != null) {
+                    sb.append(" · ").append(esc(fmtDate(f.getReviewedAt())));
+                }
+                sb.append("</span>");
+            }
+            sb.append("</div>");
+        }
         if (!isBlank(f.getExplanation())) {
             sb.append("<div class=\"business-impact\">").append(biDyn(f.getExplanation(), fr)).append("</div>");
         }
@@ -362,12 +406,65 @@ public class ContractReportRenderer {
             sb.append("<div class=\"citation\">").append(bi("Reference", "Référence")).append(": ")
                     .append(esc(citation)).append("</div>");
         }
+        if (reviewable) {
+            // Give the reader the hand to accept or reject an AI-raised item (client-side; not scored either way).
+            sb.append("<div class=\"review-actions\">")
+                    .append("<button type=\"button\" class=\"btn-accept\" onclick=\"reviewItem(this,'accept')\">")
+                    .append(bi("Accept", "Accepter")).append("</button>")
+                    .append("<button type=\"button\" class=\"btn-reject\" onclick=\"reviewItem(this,'reject')\">")
+                    .append(bi("Reject", "Rejeter")).append("</button>")
+                    .append("<span class=\"review-state\">")
+                    .append("<span class=\"rs rs-accepted\">").append(bi("Accepted", "Accepté")).append("</span>")
+                    .append("<span class=\"rs rs-rejected\">").append(bi("Rejected — won't fix", "Rejeté — ne pas corriger"))
+                    .append("</span></span></div>");
+        }
         return sb.append("</div>").toString();
     }
 
     private String panel(String cls, String label, String sub, String body) {
         return "<div class=\"evidence-panel " + cls + "\"><div class=\"ep-h\">" + label
                 + (isBlank(sub) ? "" : " <span class=\"ep-sub\">" + esc(sub) + "</span>") + "</div>" + body + "</div>";
+    }
+
+    /** Conic-gradient donut + legend (interactive HTML only — the PDF engine can't render conic-gradient/SVG). */
+    private String severityDonut(List<Finding> items, String centerEn, String centerFr) {
+        // Count only items with a real severity so the donut total reconciles with the gradient stops below — a
+        // null/unknown severity (e.g. a corrupt persisted row on a live re-render) can't yield an empty conic-gradient().
+        int total = (int) items.stream().filter(f -> f.getSeverity() != null).count();
+        if (total == 0) {
+            return "<div class=\"cov-ok\">" + bi("No counted findings — contract is clean.",
+                    "Aucun constat compté — le contrat est conforme.") + "</div>";
+        }
+        String[] order = {"BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO"};
+        StringBuilder gradient = new StringBuilder();
+        StringBuilder legend = new StringBuilder("<div class=\"pie-legend\">");
+        double cum = 0;
+        for (String sev : order) {
+            long n = items.stream().filter(f -> f.getSeverity() != null && f.getSeverity().name().equals(sev)).count();
+            if (n == 0) {
+                continue;
+            }
+            double pct = 100.0 * n / total;
+            double start = cum;
+            cum += pct;
+            if (gradient.length() > 0) {
+                gradient.append(",");
+            }
+            gradient.append(SEVERITY_COLOR.get(sev)).append(" ").append(pctStr(start)).append("% ").append(pctStr(cum)).append("%");
+            legend.append("<span class=\"li\"><span class=\"dot\" style=\"background:").append(SEVERITY_COLOR.get(sev))
+                    .append("\"></span><span class=\"lab\">").append(cap(sev)).append("</span>")
+                    .append("<span class=\"n\">").append(n).append("</span>")
+                    .append("<span class=\"pct\">").append(Math.round(pct)).append("%</span></span>");
+        }
+        legend.append("</div>");
+        return "<div class=\"pie-wrap\"><div class=\"pie\" style=\"background:conic-gradient(" + gradient + ")\">"
+                + "<div class=\"pie-hole\"><div class=\"pie-total\">" + total + "</div>"
+                + "<div class=\"pie-total-l\">" + bi(centerEn, centerFr) + "</div></div></div>" + legend + "</div>";
+    }
+
+    private String pctStr(double d) {
+        long r = Math.round(d);
+        return Math.abs(d - r) < 0.05 ? String.valueOf(r) : String.format(java.util.Locale.ROOT, "%.2f", d);
     }
 
     private String distributionBar(List<Finding> missing, List<Finding> wrong, List<Finding> dead) {
@@ -398,16 +495,17 @@ public class ContractReportRenderer {
 
     // ---- deterministic narrative helpers (no LLM) -----------------------------------------------------------
 
-    /** {cssClass, EN label, FR label}. */
+    /** {cssClass, EN label, FR label}. Aligned with the PASS_THRESHOLD gate so a sub-target score never reads as
+     * unambiguously positive (a 75–89 scan FAILS the ≥90 gate, so it is "Below target", not "Good"). */
     private String[] scoreBand(int s) {
-        if (s >= 90) {
-            return new String[] {"clean", "Excellent", "Excellent"};
+        if (s >= FidelityScore.PASS_THRESHOLD) {
+            return new String[] {"clean", "Excellent — meets target", "Excellent — atteint la cible"};
         }
         if (s >= 75) {
-            return new String[] {"good", "Good", "Bon"};
+            return new String[] {"minor", "Below target", "Sous la cible"};
         }
         if (s >= 50) {
-            return new String[] {"minor", "Needs work", "À améliorer"};
+            return new String[] {"warn", "Needs work", "À améliorer"};
         }
         return new String[] {"action", "At risk", "À risque"};
     }
@@ -455,8 +553,36 @@ public class ContractReportRenderer {
 
     // ---- small helpers --------------------------------------------------------------------------------------
 
-    private String metaRow(String label, String value) {
-        return "<tr><th>" + label + "</th><td>" + value + "</td></tr>";
+    private String metaCell(String label, String value) {
+        return "<td class=\"meta-cell\"><div class=\"meta-label\">" + label + "</div>"
+                + "<div class=\"meta-value\">" + value + "</div></td>";
+    }
+
+    private String dispClass(String status) {
+        return switch (status.toUpperCase(java.util.Locale.ROOT)) {
+            case "ACCEPTED", "FIXED" -> "ok";
+            case "REJECTED", "WONT_FIX", "FALSE_POSITIVE" -> "danger";
+            case "TRIAGED", "JIRA_CREATED" -> "info";
+            default -> "muted";
+        };
+    }
+
+    private String dispLabel(String status) {
+        return switch (status.toUpperCase(java.util.Locale.ROOT)) {
+            case "ACCEPTED" -> bi("Accepted", "Accepté");
+            case "REJECTED" -> bi("Rejected", "Rejeté");
+            case "WONT_FIX" -> bi("Won't fix", "Ne sera pas corrigé");
+            case "FALSE_POSITIVE" -> bi("False positive", "Faux positif");
+            case "TRIAGED" -> bi("Triaged", "Trié");
+            case "JIRA_CREATED" -> bi("Defect raised", "Anomalie créée");
+            case "FIXED" -> bi("Fixed", "Corrigé");
+            default -> esc(status);
+        };
+    }
+
+    private String fmtDate(java.time.Instant t) {
+        return t == null ? "—" : java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'")
+                .withZone(java.time.ZoneOffset.UTC).format(t);
     }
 
     private String kpi(String value, String label, String tone) {
@@ -522,16 +648,19 @@ public class ContractReportRenderer {
                 + ".mark{width:22px;height:22px;border-radius:6px;background:#e94560;display:inline-block}"
                 + ".doc-title{font-size:1.9rem;font-weight:600;margin:.8rem 0 .2rem}"
                 + ".doc-sub{font-size:1.05rem;opacity:.85;margin-bottom:1rem}"
-                + ".lang-toggle{position:absolute;top:0;right:2rem;display:flex;gap:6px}"
-                + ".lang-toggle button{background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.4);"
-                + "padding:.3rem .8rem;border-radius:6px;cursor:pointer;font-size:.85rem;font-weight:600}"
-                + ".lang-toggle button.active{background:rgba(255,255,255,.4)}"
+                + ".lang-toggle{position:fixed;top:14px;right:14px;z-index:50;display:flex;gap:3px;background:#1a1a2e;"
+                + "padding:4px;border-radius:999px;box-shadow:0 6px 18px rgba(0,0,0,.22)}"
+                + ".lang-toggle button{background:transparent;color:#cdd3e0;border:0;padding:.32rem .8rem;border-radius:999px;"
+                + "cursor:pointer;font-size:.8rem;font-weight:700;letter-spacing:.04em}"
+                + ".lang-toggle button.active{background:#e94560;color:#fff}"
                 + ".rating{display:inline-block;font-weight:700;font-size:.8rem;padding:.35rem .9rem;border-radius:999px;"
                 + "text-transform:uppercase;letter-spacing:.5px;color:#fff}"
-                + ".rating-clean{background:#1E8E5A}.rating-good{background:#2f8fbf}.rating-minor{background:#b5852a}.rating-action{background:#C2122D}"
-                + ".cover-meta{margin-top:1.2rem;border-collapse:collapse;font-size:.85rem}"
-                + ".cover-meta th{text-align:left;color:rgba(255,255,255,.7);font-weight:400;padding:3px 18px 3px 0;vertical-align:top}"
-                + ".cover-meta td{padding:3px 0;color:#fff}"
+                + ".rating-clean{background:#1E8E5A}.rating-minor{background:#b5852a}.rating-warn{background:#C2410C}.rating-action{background:#C2122D}"
+                + ".meta-grid{width:100%;margin-top:1.4rem;border-top:1px solid rgba(255,255,255,.18);border-collapse:collapse}"
+                + ".meta-cell{padding:.78rem 1.4rem .35rem 0;vertical-align:top;width:50%}"
+                + ".meta-label{font-size:.6rem;text-transform:uppercase;letter-spacing:.14em;color:rgba(255,255,255,.55);margin-bottom:3px}"
+                + ".meta-value{font-size:.92rem;color:#fff;font-weight:500;word-break:break-word}"
+                + ".meta-value.mono{font-family:JetBrains Mono,ui-monospace,monospace;font-size:.78rem;opacity:.85}"
                 + ".content{max-width:900px;margin:0 auto;padding:1.5rem 2rem 3rem}"
                 + ".toc{margin:0 0 1rem;padding:1rem 1.2rem;background:#F7F9FC;border:1px solid #E3E6EB;border-radius:10px}"
                 + ".toc-h{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#6B7280;margin-bottom:.4rem}"
@@ -545,7 +674,7 @@ public class ContractReportRenderer {
                 + ".kpi{flex:1;min-width:150px;background:#fff;border:1px solid #e3e6eb;border-top:3px solid #888;border-radius:10px;padding:.9rem 1.1rem}"
                 + ".kpi-v{font-size:1.8rem;font-weight:700}.kpi-v .unit{font-size:.9rem;font-weight:400;color:#888}"
                 + ".kpi-l{font-size:.72rem;text-transform:uppercase;color:#475069;letter-spacing:.5px}"
-                + ".kpi-clean{border-top-color:#1E8E5A}.kpi-good{border-top-color:#2f8fbf}.kpi-action{border-top-color:#C2122D}"
+                + ".kpi-clean{border-top-color:#1E8E5A}.kpi-warn{border-top-color:#C2410C}.kpi-action{border-top-color:#C2122D}"
                 + ".kpi-minor{border-top-color:#b5852a}.kpi-neutral{border-top-color:#3A4658}"
                 + ".dist-panel{background:#fff;border:1px solid #e3e6eb;border-radius:10px;padding:1rem 1.25rem}"
                 + ".panel-h{font-size:.75rem;text-transform:uppercase;letter-spacing:.5px;color:#475069;margin-bottom:.6rem}"
@@ -553,6 +682,16 @@ public class ContractReportRenderer {
                 + ".dist-bar span{display:block;height:100%}"
                 + ".dist-legend{display:flex;gap:14px;flex-wrap:wrap;margin-top:.6rem;font-size:.8rem;color:#475069}"
                 + ".dist-legend .dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px}"
+                + ".pie-wrap{display:flex;align-items:center;gap:1.6rem;flex-wrap:wrap}"
+                + ".pie{width:148px;height:148px;border-radius:50%;position:relative;flex:0 0 auto;box-shadow:0 2px 10px rgba(0,0,0,.06)}"
+                + ".pie-hole{position:absolute;inset:24%;background:#fff;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center}"
+                + ".pie-total{font-size:1.7rem;font-weight:700;color:#1a1a2e;line-height:1}"
+                + ".pie-total-l{font-size:.56rem;text-transform:uppercase;letter-spacing:.08em;color:#888;margin-top:2px}"
+                + ".pie-legend{display:flex;flex-direction:column;gap:.45rem;font-size:.85rem;min-width:210px;flex:1}"
+                + ".pie-legend .li{display:flex;align-items:center;gap:.55rem}"
+                + ".pie-legend .dot{width:11px;height:11px;border-radius:3px;flex:0 0 auto}"
+                + ".pie-legend .lab{color:#475069}.pie-legend .n{font-weight:700;margin-left:auto;color:#1a1a2e}"
+                + ".pie-legend .pct{color:#9aa1ae;min-width:42px;text-align:right}"
                 + "table.impact{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e3e6eb;border-radius:10px;overflow:hidden}"
                 + "table.impact th,table.impact td{text-align:left;padding:9px 12px;font-size:.88rem;border-top:1px solid #eef1f5;vertical-align:top}"
                 + "table.impact thead th{background:#f1f3f6;color:#475069;font-size:.72rem;text-transform:uppercase;border-top:0}"
@@ -577,8 +716,23 @@ public class ContractReportRenderer {
                 + ".evidence-panel pre{margin:0;white-space:pre-wrap;word-break:break-word}"
                 + "code{font-family:JetBrains Mono,ui-monospace,monospace;font-size:.8rem}"
                 + ".citation{color:#8a6a1e;font-size:.82rem;font-style:italic;margin-top:.5rem}"
+                + ".disp-line{font-size:.82rem;color:#475069;margin-top:.5rem}"
+                + ".disp-badge{font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:2px 9px;border-radius:999px}"
+                + ".disp-ok{background:#e6f4ea;color:#1E8E5A}.disp-danger{background:#fdecef;color:#C2122D}"
+                + ".disp-info{background:#e8f0fe;color:#1b5fb5}.disp-muted{background:#eef1f5;color:#475069}"
+                + ".disp-by{color:#9aa1ae;margin-left:.3rem}"
                 + ".count{background:#1a1a2e;color:#fff;font-size:.72rem;border-radius:999px;padding:1px 9px;margin-left:6px}"
                 + ".needs-attention .ns-intro{font-size:.88rem;color:#475069}"
+                + ".review-status{font-size:.85rem;color:#475069;margin:.5rem 0 .2rem}.review-status #rev-count{font-weight:700;color:#1a1a2e}"
+                + ".review-actions{display:flex;align-items:center;gap:.5rem;margin-top:.7rem;border-top:1px dashed #e3e6eb;padding-top:.6rem}"
+                + ".review-actions button{border:1px solid #d6dae1;background:#fff;border-radius:7px;padding:.32rem .85rem;font-size:.78rem;font-weight:600;cursor:pointer}"
+                + ".btn-accept:hover{background:#e6f4ea;border-color:#1E8E5A;color:#1E8E5A}.btn-reject:hover{background:#fdecef;border-color:#C2122D;color:#C2122D}"
+                + ".finding-card.accepted{border-color:#bfe3cd;background:#f6fbf8}.finding-card.rejected{opacity:.55}"
+                + ".finding-card.rejected .finding-title{text-decoration:line-through}"
+                + ".finding-card.accepted .btn-accept{background:#1E8E5A;color:#fff;border-color:#1E8E5A}"
+                + ".finding-card.rejected .btn-reject{background:#C2122D;color:#fff;border-color:#C2122D}"
+                + ".review-state{margin-left:auto;font-size:.78rem;font-weight:700}.rs{display:none}"
+                + ".finding-card.accepted .rs-accepted{display:inline;color:#1E8E5A}.finding-card.rejected .rs-rejected{display:inline;color:#C2122D}"
                 + ".cov-warn{color:#C2410C;font-size:.9rem}.cov-ok{color:#1E8E5A;font-size:.9rem;font-weight:500}"
                 + ".foot{color:#9aa1ae;font-size:.78rem;margin-top:2rem;border-top:1px solid #e3e6eb;padding-top:.8rem}";
     }

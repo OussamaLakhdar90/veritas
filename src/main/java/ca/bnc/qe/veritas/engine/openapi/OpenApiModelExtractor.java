@@ -74,6 +74,93 @@ public class OpenApiModelExtractor {
         return new SpecParse(model, messages, true);
     }
 
+    /**
+     * Presence facts from a FULLY-resolved parse (setResolveFully), used ONLY to fact-check the LLM's "absence"
+     * judgements — examples and schema properties/constraints behind a {@code $ref} are inlined here and so count as
+     * present. Kept separate from {@link #extract} (whose name-preserving parse the DiffEngine depends on).
+     */
+    public SpecPresence presenceOf(String content) {
+        ParseOptions options = new ParseOptions();
+        options.setResolveFully(true);
+        SwaggerParseResult result = new OpenAPIParser().readContents(content, null, options);
+        OpenAPI openApi = result == null ? null : result.getOpenAPI();
+        if (openApi == null) {
+            return SpecPresence.empty();
+        }
+        boolean examples = false;
+        boolean errors = false;
+        if (openApi.getPaths() != null) {
+            for (PathItem item : openApi.getPaths().values()) {
+                for (Operation op : item.readOperationsMap().values()) {
+                    if (op.getResponses() == null) {
+                        continue;
+                    }
+                    for (Map.Entry<String, ApiResponse> r : op.getResponses().entrySet()) {
+                        Integer status = parseStatus(r.getKey());
+                        if (status != null && status >= 400) {
+                            errors = true;
+                        }
+                        if (responseHasExamples(r.getValue())) {
+                            examples = true;
+                        }
+                    }
+                }
+            }
+        }
+        boolean props = false;
+        boolean constraints = false;
+        if (openApi.getComponents() != null && openApi.getComponents().getSchemas() != null) {
+            for (Schema<?> s : openApi.getComponents().getSchemas().values()) {
+                if (schemaHasProperties(s)) {
+                    props = true;
+                }
+                if (schemaHasConstraints(s)) {
+                    constraints = true;
+                }
+            }
+        }
+        return new SpecPresence(examples, props, constraints, errors);
+    }
+
+    private boolean responseHasExamples(ApiResponse resp) {
+        if (resp == null || resp.getContent() == null) {
+            return false;
+        }
+        for (MediaType mt : resp.getContent().values()) {
+            if (mt.getExample() != null || (mt.getExamples() != null && !mt.getExamples().isEmpty())) {
+                return true;
+            }
+            if (mt.getSchema() != null && mt.getSchema().getExample() != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @SuppressWarnings("rawtypes")
+    private boolean schemaHasProperties(Schema s) {
+        return s != null && s.getProperties() != null && !s.getProperties().isEmpty();
+    }
+
+    @SuppressWarnings("rawtypes")
+    private boolean schemaHasConstraints(Schema s) {
+        if (s == null) {
+            return false;
+        }
+        if (s.getMinLength() != null || s.getMaxLength() != null || s.getMinimum() != null || s.getMaximum() != null
+                || s.getPattern() != null || s.getFormat() != null || (s.getEnum() != null && !s.getEnum().isEmpty())) {
+            return true;
+        }
+        if (s.getProperties() != null) {
+            for (Object v : s.getProperties().values()) {
+                if (schemaHasConstraints((Schema) v)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private Endpoint toEndpoint(String specId, String path, PathItem.HttpMethod m, Operation op,
                                List<io.swagger.v3.oas.models.security.SecurityRequirement> globalSecurity) {
         HttpMethod method = HttpMethod.valueOf(m.name());
@@ -97,7 +184,11 @@ public class OpenApiModelExtractor {
                     continue;
                 }
                 var content = r.getValue() == null ? null : r.getValue().getContent();
-                producesSet.addAll(orEmpty(mediaTypes(content)));
+                // `produces` reflects the SUCCESS content type (what @*Mapping(produces=...) governs on the code side);
+                // error responses (e.g. application/problem+json on a 500) must not inflate it into a false mismatch.
+                if (status >= 200 && status < 300) {
+                    producesSet.addAll(orEmpty(mediaTypes(content)));
+                }
                 responses.add(new ResponseModel(status, contentSchemaRef(content), mediaTypes(content), "SPEC",
                         SourceRef.spec(specId, "/paths" + path + "/" + method.name().toLowerCase() + "/responses/" + status, null)));
             }

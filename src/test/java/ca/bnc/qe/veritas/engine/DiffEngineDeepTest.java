@@ -15,8 +15,10 @@ import ca.bnc.qe.veritas.engine.model.HttpMethod;
 import ca.bnc.qe.veritas.engine.model.ResponseModel;
 import ca.bnc.qe.veritas.engine.model.SchemaModel;
 import ca.bnc.qe.veritas.engine.model.SourceRef;
+import ca.bnc.qe.veritas.finding.Confidence;
 import ca.bnc.qe.veritas.finding.Finding;
 import ca.bnc.qe.veritas.finding.FindingType;
+import ca.bnc.qe.veritas.finding.Severity;
 import org.junit.jupiter.api.Test;
 
 /** Deep L4 diff: response-schema mismatch, extra spec status code, and constraint VALUE mismatch. */
@@ -35,6 +37,12 @@ class DiffEngineDeepTest {
                 List.of(new FieldModel("name", "string", null, false, c, null, null)), null, src);
     }
 
+    private SchemaModel schema(String name, String fieldName, String fieldType) {
+        ConstraintSet none = new ConstraintSet(null, null, null, null, null, null, null, null, null);
+        return new SchemaModel(name, "object",
+                List.of(new FieldModel(fieldName, fieldType, null, false, none, null, null)), null, src);
+    }
+
     @Test
     void detectsResponseSchemaAndStatusAndConstraintValueDiffs() {
         ApiModel code = new ApiModel("code", null, null, null,
@@ -44,17 +52,148 @@ class DiffEngineDeepTest {
                 List.of(ep("Bar", List.of(
                         new ResponseModel(200, "Bar", null, "SPEC", src),
                         new ResponseModel(202, null, null, "SPEC", src)))),
-                Map.of("Foo", foo(20)));
+                // Bar has a genuinely different field set than Foo (id vs name) → structural DIFFER
+                Map.of("Foo", foo(20), "Bar", schema("Bar", "id", "integer")));
 
         List<Finding> findings = diff.diffCodeVsSpec(code, spec);
         Set<FindingType> types = findings.stream().map(Finding::getType).collect(toSet());
 
         assertThat(types).contains(
-                FindingType.RESPONSE_SCHEMA_MISMATCH,   // code returns Foo, spec declares Bar
+                FindingType.RESPONSE_SCHEMA_MISMATCH,   // code returns Foo{name}, spec declares Bar{id}
                 FindingType.STATUS_CODE_EXTRA,          // spec documents 202, code never returns it
                 FindingType.CONSTRAINT_GAP);            // maxLength 10 (code) vs 20 (spec)
         assertThat(findings).anyMatch(f -> f.getType() == FindingType.CONSTRAINT_GAP
                 && f.getSummary().contains("maxLength"));
+    }
+
+    @Test
+    void identicalStructureUnderDifferentNamesIsNotAResponseSchemaMismatch() {
+        // code DTO "Wrapper{password}" and spec schema "policies{password}" serialize to the same wire shape —
+        // the differing schema NAME is not a contract break (regression guard for the false positive).
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(ep("Wrapper", List.of(new ResponseModel(200, "Wrapper", null, "RETURN", src)))),
+                Map.of("Wrapper", schema("Wrapper", "password", "string")));
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(ep("policies", List.of(new ResponseModel(200, "policies", null, "SPEC", src)))),
+                Map.of("policies", schema("policies", "password", "string")));
+
+        assertThat(diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType))
+                .doesNotContain(FindingType.RESPONSE_SCHEMA_MISMATCH);
+    }
+
+    @Test
+    void genuinelyDifferentStructureIsStillFlaggedAcrossNames() {
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(ep("Wrapper", List.of(new ResponseModel(200, "Wrapper", null, "RETURN", src)))),
+                Map.of("Wrapper", schema("Wrapper", "password", "string")));
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(ep("policies", List.of(new ResponseModel(200, "policies", null, "SPEC", src)))),
+                Map.of("policies", schema("policies", "token", "string")));   // different field name
+
+        assertThat(diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType))
+                .contains(FindingType.RESPONSE_SCHEMA_MISMATCH);
+    }
+
+    @Test
+    void unresolvableSpecSchemaSuppressesResponseSchemaMismatch() {
+        // spec response references a schema that isn't in components → can't structurally compare → suppress
+        // (a bare name-compare here is the bug; the gap is surfaced as an extractor blind spot elsewhere).
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(ep("Wrapper", List.of(new ResponseModel(200, "Wrapper", null, "RETURN", src)))),
+                Map.of("Wrapper", schema("Wrapper", "password", "string")));
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(ep("policies", List.of(new ResponseModel(200, "policies", null, "SPEC", src)))),
+                Map.of());   // no schemas declared
+
+        assertThat(diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType))
+                .doesNotContain(FindingType.RESPONSE_SCHEMA_MISMATCH);
+    }
+
+    private Endpoint epWithResponses(List<ResponseModel> responses) {
+        return new Endpoint(HttpMethod.GET, "/x", "getX", List.of(), null, responses, null, null, List.of(), src);
+    }
+
+    @Test
+    void adviceSourcedErrorStatusOmittedBySpecIsLowConfidence() {
+        // a @ControllerAdvice handler (even for a specific exception) is GLOBAL — attached to every endpoint, not
+        // provably reachable here → LOW (surfaced, not score-counted) so it can't flood the score.
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(epWithResponses(List.of(
+                        new ResponseModel(200, null, null, "RETURN", src),
+                        new ResponseModel(406, null, null, "EXCEPTION_HANDLER", src)))), Map.of());
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(epWithResponses(List.of(new ResponseModel(200, null, null, "SPEC", src)))), Map.of());
+
+        assertThat(diff.diffCodeVsSpec(code, spec)).anyMatch(f -> f.getType() == FindingType.STATUS_CODE_MISSING
+                && f.getSummary().contains("406") && f.getConfidence() == Confidence.LOW);
+    }
+
+    @Test
+    void endpointReturnedErrorStatusOmittedBySpecIsMediumConfidence() {
+        // the endpoint returns the error directly (ResponseEntity.badRequest()) → reachable here → MEDIUM
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(epWithResponses(List.of(
+                        new ResponseModel(200, null, null, "RETURN", src),
+                        new ResponseModel(400, null, null, "RESPONSE_ENTITY", src)))), Map.of());
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(epWithResponses(List.of(new ResponseModel(200, null, null, "SPEC", src)))), Map.of());
+
+        assertThat(diff.diffCodeVsSpec(code, spec)).anyMatch(f -> f.getType() == FindingType.STATUS_CODE_MISSING
+                && f.getSummary().contains("400") && f.getConfidence() == Confidence.MEDIUM);
+    }
+
+    private SchemaModel objRef(String name, String field, String refSchema) {
+        ConstraintSet none = new ConstraintSet(null, null, null, null, null, null, null, null, null);
+        return new SchemaModel(name, "object",
+                List.of(new FieldModel(field, "object", null, false, none, refSchema, null)), null, src);
+    }
+
+    @Test
+    void responseSchemaDivergenceTwoLevelsDeepIsFlagged() {
+        // differently-named DTOs that diverge only at depth 2 (Leaf.v string vs LeafS.v integer) must still be caught
+        Map<String, SchemaModel> codeSchemas = Map.of(
+                "Root", objRef("Root", "child", "Child"),
+                "Child", objRef("Child", "leaf", "Leaf"),
+                "Leaf", schema("Leaf", "v", "string"));
+        Map<String, SchemaModel> specSchemas = Map.of(
+                "RootS", objRef("RootS", "child", "ChildS"),
+                "ChildS", objRef("ChildS", "leaf", "LeafS"),
+                "LeafS", schema("LeafS", "v", "integer"));
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(ep("Root", List.of(new ResponseModel(200, "Root", null, "RETURN", src)))), codeSchemas);
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(ep("RootS", List.of(new ResponseModel(200, "RootS", null, "SPEC", src)))), specSchemas);
+
+        assertThat(diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType))
+                .contains(FindingType.RESPONSE_SCHEMA_MISMATCH);
+    }
+
+    @Test
+    void globalCatchAllErrorStatusIsFlaggedAtLowConfidence() {
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(epWithResponses(List.of(
+                        new ResponseModel(200, null, null, "RETURN", src),
+                        new ResponseModel(500, null, null, "EXCEPTION_HANDLER_GLOBAL", src)))), Map.of());
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(epWithResponses(List.of(new ResponseModel(200, null, null, "SPEC", src)))), Map.of());
+
+        assertThat(diff.diffCodeVsSpec(code, spec)).anyMatch(f -> f.getType() == FindingType.STATUS_CODE_MISSING
+                && f.getSummary().contains("500") && f.getConfidence() == ca.bnc.qe.veritas.finding.Confidence.LOW);
+    }
+
+    @Test
+    void errorStatusDeclaredBySpecIsNotFlagged() {
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(epWithResponses(List.of(
+                        new ResponseModel(200, null, null, "RETURN", src),
+                        new ResponseModel(404, null, null, "EXCEPTION_HANDLER", src)))), Map.of());
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(epWithResponses(List.of(
+                        new ResponseModel(200, null, null, "SPEC", src),
+                        new ResponseModel(404, null, null, "SPEC", src)))), Map.of());
+
+        assertThat(diff.diffCodeVsSpec(code, spec))
+                .noneMatch(f -> f.getType() == FindingType.STATUS_CODE_MISSING && f.getSummary().contains("404"));
     }
 
     private ApiModel withEnumField(String specId, String origin, List<String> enumValues) {
@@ -128,6 +267,27 @@ class DiffEngineDeepTest {
 
         assertThat(diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType))
                 .contains(FindingType.CONSTRAINT_GAP);
+    }
+
+    @Test
+    void severityReflectsConsumerImpact() {
+        // SECURITY_MISMATCH is CRITICAL (security-contract gap, OWASP API1/2/5)
+        Endpoint secured = new Endpoint(HttpMethod.GET, "/s", "getS", List.of(), null,
+                List.of(new ResponseModel(200, null, null, "RETURN", src)), null, null, List.of("hasRole('ADMIN')"), src);
+        Endpoint open = new Endpoint(HttpMethod.GET, "/s", "getS", List.of(), null,
+                List.of(new ResponseModel(200, null, null, "SPEC", src)), null, null, List.of(), src);
+        assertThat(diff.diffCodeVsSpec(
+                new ApiModel("code", null, null, null, List.of(secured), Map.of()),
+                new ApiModel("repo-spec", null, null, null, List.of(open), Map.of())))
+                .anyMatch(f -> f.getType() == FindingType.SECURITY_MISMATCH && f.getSeverity() == Severity.CRITICAL);
+
+        // EXTRA_ENDPOINT (dead spec) is MINOR — documentation drift, doesn't break a running client
+        Endpoint ghost = new Endpoint(HttpMethod.GET, "/ghost", "g", List.of(), null,
+                List.of(new ResponseModel(200, null, null, "SPEC", src)), null, null, List.of(), src);
+        assertThat(diff.diffCodeVsSpec(
+                new ApiModel("code", null, null, null, List.of(), Map.of()),
+                new ApiModel("repo-spec", null, null, null, List.of(ghost), Map.of())))
+                .anyMatch(f -> f.getType() == FindingType.EXTRA_ENDPOINT && f.getSeverity() == Severity.MINOR);
     }
 
     @Test

@@ -27,5 +27,7 @@ public class Finding {
     String proposedFix;          // nullable until enriched
     String citation;             // ISTQB/CTFL reference (nullable)
     @Builder.Default
-    String status = "OPEN";
+    String status = "OPEN";       // disposition: OPEN | ACCEPTED | REJECTED | TRIAGED | WONT_FIX | …
+    String reviewedBy;           // who set the disposition (nullable; populated on a live re-render from persistence)
+    java.time.Instant reviewedAt; // when the disposition was set (nullable)
 }

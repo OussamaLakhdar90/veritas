@@ -23,6 +23,7 @@ import ca.bnc.qe.veritas.engine.model.SourceRef;
 import ca.bnc.qe.veritas.engine.openapi.CorrectedSpecBuilder;
 import ca.bnc.qe.veritas.engine.openapi.OpenApiModelExtractor;
 import ca.bnc.qe.veritas.engine.openapi.SpecParse;
+import ca.bnc.qe.veritas.engine.openapi.SpecPresence;
 import ca.bnc.qe.veritas.finding.Confidence;
 import ca.bnc.qe.veritas.finding.Finding;
 import ca.bnc.qe.veritas.finding.FindingType;
@@ -174,7 +175,13 @@ public class ContractValidationService {
                 long t0 = System.currentTimeMillis();
                 log.info("Scan {} [{}] asking Copilot to reconcile {} finding(s) — this is the long step, please wait…",
                         scan.getId(), scan.getServiceName(), findings.size());
-                ReconcileResult rr = reconcile(code, specModels, findings, req.owner(), scan.getId());
+                // Deterministic presence facts (from a fully-resolved parse) fact-check the LLM's L5/L6 absence
+                // judgements so it can't claim "no examples/properties/error responses" the spec actually has.
+                SpecPresence presence = SpecPresence.empty();
+                for (SpecInput s : req.specs()) {
+                    presence = presence.merge(openApiModelExtractor.presenceOf(s.content()));
+                }
+                ReconcileResult rr = reconcile(code, specModels, findings, req.owner(), scan.getId(), presence);
                 log.info("Scan {} [{}] AI reconcile finished in {}s",
                         scan.getId(), scan.getServiceName(), (System.currentTimeMillis() - t0) / 1000);
                 enrich.putAll(rr.enrich());
@@ -204,6 +211,29 @@ public class ContractValidationService {
             if (corrected != null) {
                 correctedYamlPath = writeOut("openapi.corrected-" + scan.getId() + ".yaml", corrected);
             }
+
+            // Coverage honesty: when extraction was complete, strip false "source not supplied" disclaimers so the
+            // report's manual-review items can't contradict its §7 coverage verdict.
+            findings = ca.bnc.qe.veritas.report.CoverageReconciler.stripFalseSourceDisclaimers(findings, code);
+            // Collapse duplicate findings about the same endpoint+issue (deterministic + LLM) before scoring/render.
+            findings = dedupCrossList(findings);
+
+            // Graft the LLM per-finding enrichment (explanation / proposed fix) onto the in-memory findings so the
+            // as-scanned disk report matches the live re-render (which reads the same enrichment from the persisted row).
+            findings = findings.stream().map(f -> {
+                JsonNode e = enrich.get(f.getFindingId());
+                if (e == null) {
+                    return f;
+                }
+                var b = f.toBuilder();
+                if (f.getExplanation() == null && e.hasNonNull("explanation")) {
+                    b.explanation(e.get("explanation").asText());
+                }
+                if (f.getProposedFix() == null && e.hasNonNull("proposedFix")) {
+                    b.proposedFix(e.get("proposedFix").asText());
+                }
+                return b.build();
+            }).toList();
 
             // Populate the "current YAML" fragment per finding (deterministic) so the report can show it.
             findings = enrichWithSpecFragments(findings, req.specs());
@@ -248,6 +278,15 @@ public class ContractValidationService {
                     fr = translationService.toFrench(toTranslate, req.owner());
                 }
             }
+            // Persist the translation map so a later LIVE re-render (ReportController) stays bilingual instead of
+            // falling back to English for the finding bodies.
+            if (!fr.isEmpty()) {
+                try {
+                    scan.setTranslationsJson(objectMapper.writeValueAsString(fr));
+                } catch (Exception ex) {
+                    log.debug("Scan {} could not persist translations: {}", scan.getId(), ex.getMessage());
+                }
+            }
 
             String html = reportRenderer.renderHtml(scan, findings, fr);
             String reportPath = writeOut("contract-report-" + scan.getId() + ".html", html);
@@ -284,7 +323,7 @@ public class ContractValidationService {
                                    List<Finding> llmFindings, Double confidence, String blindSpots) {}
 
     private ReconcileResult reconcile(ApiModel code, List<ApiModel> specs, List<Finding> findings,
-                                      String owner, String scanId) throws Exception {
+                                      String owner, String scanId, SpecPresence presence) throws Exception {
         List<Map<String, String>> brief = new ArrayList<>();
         for (Finding f : findings) {
             brief.add(Map.of("findingId", f.getFindingId(), "type", f.getType().name(), "summary", nz(f.getSummary())));
@@ -292,11 +331,22 @@ public class ContractValidationService {
         String codeEps = code.endpoints().stream().map(Endpoint::signature).toList().toString();
         List<String> specEps = new ArrayList<>();
         specs.forEach(s -> s.endpoints().forEach(e -> specEps.add(e.signature())));
+        // What the extractor actually parsed/resolved — so the LLM never claims a source it has is "not supplied".
+        String manifest = objectMapper.writeValueAsString(Map.of(
+                "parsedEndpoints", code.endpoints().size(),
+                "resolvedTypes", new ArrayList<>(code.schemas().keySet()),
+                "knownGaps", code.blindSpots() == null ? List.of() : code.blindSpots()));
 
         String outputContract = "Code is the source of truth for behaviour. For each finding add a short "
                 + "explanation and a proposed fix; then produce a reconciled corrected OpenAPI YAML (code wins on "
                 + "behaviour). ALSO add L5 (design-quality) and L6 (test-basis adequacy) judgements in "
                 + "designFindings — e.g. a spec with no examples/constraints/error responses is a weak test basis. "
+                + "SPEC_PRESENCE_FACTS reports what the FULLY-RESOLVED spec actually contains (examples, schema "
+                + "properties, constraints and error responses are resolved through $ref); NEVER assert any of these "
+                + "is absent when the facts say it is present. "
+                + "PARSED_SOURCE_MANIFEST lists the endpoints/types Veritas parsed and resolved; the only genuine gaps "
+                + "are in its knownGaps. NEVER state a source/handler/DTO/security input was 'not supplied' unless it "
+                + "appears in knownGaps. "
                 + "Do NOT add citations — Veritas attaches the governing standard (OpenAPI / HTTP / JSON Schema) "
                 + "deterministically. Reply with exactly one fenced ```json block as the LAST thing, matching: "
                 + "{\"correctedYaml\": string, \"findings\": [{\"findingId\": string, \"explanation\": string, "
@@ -330,7 +380,9 @@ public class ContractValidationService {
             String batchJson = objectMapper.writeValueAsString(batch);
             String inputs = promptComposer.data("DETERMINISTIC_FINDINGS", batchJson)
                     + promptComposer.data("CODE_ENDPOINTS", codeEps)
-                    + promptComposer.data("SPEC_ENDPOINTS", specEps.toString());
+                    + promptComposer.data("SPEC_ENDPOINTS", specEps.toString())
+                    + promptComposer.data("SPEC_PRESENCE_FACTS", objectMapper.writeValueAsString(presence))
+                    + promptComposer.data("PARSED_SOURCE_MANIFEST", manifest);
             String prompt = promptComposer.compose("[CONTRACT-RECONCILE]", "validate-service-contract.prompt.md",
                     Set.of("1", "6", "12"), inputs, outputContract, modelSelector.promptTokenCap(model));
             String raw = llm.complete(prompt, model);
@@ -351,6 +403,14 @@ public class ContractValidationService {
                 }
             }
             for (Finding df : parseDesignFindings(node)) {
+                // Suppress an AI absence claim the resolved spec contradicts (e.g. "no examples" when $ref examples
+                // exist). Only for SPEC-WIDE claims: a finding scoped to a specific endpoint can't be refuted by
+                // spec-global "any..." presence facts — that endpoint may genuinely lack the thing.
+                boolean specWide = df.getEndpoint() == null || df.getEndpoint().isBlank();
+                if (specWide && presence.contradictsAbsenceClaim(df.getSummary())) {
+                    log.info("Scan {} suppressing contradicted spec-wide design finding: {}", scanId, df.getSummary());
+                    continue;
+                }
                 if (designIds.add(df.getFindingId())) {
                     design.add(df);
                 }
@@ -503,5 +563,57 @@ public class ContractValidationService {
 
     private String nz(String s) {
         return s == null ? "" : s;
+    }
+
+    /**
+     * Collapse findings that describe the same endpoint+issue (keyed on type + endpoint + normalized summary),
+     * order-preserving. When a deterministic and an LLM finding collide, keep the deterministic one (it carries the
+     * code evidence and is scored) but graft the LLM's explanation/proposed fix onto it.
+     */
+    private List<Finding> dedupCrossList(List<Finding> in) {
+        Map<String, Finding> byKey = new LinkedHashMap<>();
+        for (Finding f : in) {
+            String key = dedupKey(f);
+            Finding existing = byKey.get(key);
+            if (existing == null) {
+                byKey.put(key, f);
+            } else if (!isDeterministic(existing) && isDeterministic(f)) {
+                byKey.put(key, mergeEnrichment(f, existing));
+            }
+            // otherwise keep the first (order-preserving); a later duplicate is dropped
+        }
+        return new ArrayList<>(byKey.values());
+    }
+
+    /**
+     * Dedup key. Includes specSource so the SAME discrepancy against two different specs (a supported multi-spec
+     * scan) stays two findings — collapsing them would silently imply one spec is clean. Does NOT lowercase: HTTP
+     * param/header names are case-sensitive, so case-only-distinct findings are genuinely different.
+     */
+    static String dedupKey(Finding f) {
+        String endpoint = f.getEndpoint() == null ? "" : f.getEndpoint();
+        String specSource = f.getSpecSource() == null ? "" : f.getSpecSource();
+        return f.getType() + "|" + endpoint + "|" + specSource + "|" + normSummary(f.getSummary());
+    }
+
+    private boolean isDeterministic(Finding f) {
+        return "DETERMINISTIC".equalsIgnoreCase(nz(f.getOrigin()));
+    }
+
+    /** Normalize whitespace + trailing punctuation only — never case (param/header names are case-sensitive). */
+    static String normSummary(String s) {
+        return s == null ? "" : s.replaceAll("\\s+", " ").replaceAll("[.;:,]+$", "").trim();
+    }
+
+    /** Graft an LLM finding's enrichment onto the deterministic survivor without overwriting its own fields. */
+    private Finding mergeEnrichment(Finding deterministic, Finding llm) {
+        var b = deterministic.toBuilder();
+        if (deterministic.getExplanation() == null && llm.getExplanation() != null) {
+            b.explanation(llm.getExplanation());
+        }
+        if (deterministic.getProposedFix() == null && llm.getProposedFix() != null) {
+            b.proposedFix(llm.getProposedFix());
+        }
+        return b.build();
     }
 }
