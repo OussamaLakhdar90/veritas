@@ -214,11 +214,42 @@ public class OpenApiModelExtractor {
         };
         Schema schema = p.getSchema();
         boolean required = Boolean.TRUE.equals(p.getRequired()) || loc == ParamLocation.PATH;
+        ConstraintSet cs = constraints(schema);
+        // The allowed value set is often only in the DESCRIPTION prose ("Must be one of [A, B, C]"), not a
+        // machine-readable enum. Parse it (best-effort) so an enum drift — the code accepting/rejecting values the
+        // spec advertises — becomes a contract-testable CONSTRAINT_GAP rather than an invisible string-vs-string match.
+        if (cs.enumValues() == null || cs.enumValues().isEmpty()) {
+            List<String> prose = enumFromDescription(p.getDescription());
+            if (prose != null) {
+                cs = cs.withEnumValues(prose);
+            }
+        }
         return new ParamModel(p.getName(), loc,
                 schema != null ? schema.getType() : null,
                 schema != null ? schema.getFormat() : null,
-                required, constraints(schema),
+                required, cs,
                 SourceRef.spec(specId, "/paths" + path + "/parameters/" + p.getName(), null));
+    }
+
+    /** Bracketed list of >=2 UPPER_SNAKE tokens in a description, e.g. "Must be one of [INDIVIDUAL, NBC2, NBC4]". */
+    private static final java.util.regex.Pattern PROSE_ENUM = java.util.regex.Pattern.compile(
+            "\\[\\s*([A-Z][A-Z0-9_]*(?:\\s*,\\s*[A-Z][A-Z0-9_]*)+)\\s*\\]");
+
+    private List<String> enumFromDescription(String description) {
+        if (description == null || description.isBlank()) {
+            return null;
+        }
+        var m = PROSE_ENUM.matcher(description);
+        if (!m.find()) {
+            return null;
+        }
+        List<String> out = new ArrayList<>();
+        for (String tok : m.group(1).split("\\s*,\\s*")) {
+            if (!tok.isBlank()) {
+                out.add(tok.trim());
+            }
+        }
+        return out.size() >= 2 ? out : null;
     }
 
     private RequestBodyModel toRequestBody(String specId, String path, RequestBody body) {

@@ -143,6 +143,32 @@ class GoldenDiscrepancyCatalogTest {
                         paramSpec("/accounts/lookup", "context", "query", false, "string", null),
                         FindingType.CONSTRAINT_GAP),
 
+                // Miss 2b: the spec's allowed set lives ONLY in description prose ("Must be one of [...]"); the code enum
+                // is missing a spec-advertised value (NBC4) and accepts values the spec omits -> value-level CONSTRAINT_GAP.
+                emitPrecise("miss2b_enum_value_drift_from_prose",
+                        js(
+                                "import org.springframework.web.bind.annotation.*;\n@RestController\n@RequestMapping(\"/accounts\")\n"
+                                        + "public class CtxController {\n  @GetMapping(\"/lookup\")\n"
+                                        + "  public String l(@RequestHeader(value=\"context\", required=false) Context context){return null;}\n}\n",
+                                enumType("Context", "INDIVIDUAL", "ENNBIN", "ENTERPRISE", "NBC2", "NOT_PROVIDED", "SYSTEM", "NBINF")),
+                        """
+                        openapi: 3.0.1
+                        info: {title: t, version: '1'}
+                        paths:
+                          /accounts/lookup:
+                            get:
+                              parameters:
+                                - name: context
+                                  in: header
+                                  required: false
+                                  description: "Must be one of [INDIVIDUAL, SYSTEM, NBC2, NBC4] (case insensitive)."
+                                  schema: {type: string}
+                              responses: {'200': {description: ok, content: {application/json: {schema: {type: string}}}}}
+                        """,
+                        f -> f.stream().anyMatch(x -> x.getType() == FindingType.CONSTRAINT_GAP
+                                && x.getSummary() != null && x.getSummary().contains("NBC4") && x.getSummary().contains("spec=")),
+                        FindingType.CONSTRAINT_GAP),
+
                 // Miss 3: error-response media-type drift — advice emits application/problem+json, spec says application/json.
                 emit("miss3_error_media_type_drift",
                         js(
