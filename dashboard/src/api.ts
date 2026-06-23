@@ -84,6 +84,9 @@ export interface Finding {
   codeFile?: string
   codeStartLine?: number
   status?: string
+  reviewedBy?: string
+  reviewedAt?: string
+  reviewNote?: string
 }
 
 export interface Repo {
@@ -262,9 +265,9 @@ export const api = {
     fetch(`${BASE}/test-cases/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<TestCase>),
   pushTestCase: (id: string, projectKey: string) => post<TestCase>(`/test-cases/${id}/push`, { projectKey }),
 
-  // Findings triage
-  patchFinding: (id: string, status: string) =>
-    fetch(`${BASE}/findings/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) }).then((r) => r.json() as Promise<Finding>),
+  // Findings disposition (accept/reject/triage) — captures who/when/why server-side
+  patchFinding: (id: string, status: string, note?: string) =>
+    fetch(`${BASE}/findings/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, note }) }).then((r) => r.json() as Promise<Finding>),
 
   // Strategies / Reviews
   strategies: (service: string) => get<TestStrategy[]>(`/services/${encodeURIComponent(service)}/strategies`),
