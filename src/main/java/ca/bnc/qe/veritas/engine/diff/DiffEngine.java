@@ -222,8 +222,23 @@ public class DiffEngine {
                         "Code returns " + codeStatus + " but the spec doesn't document it", ce, Confidence.MEDIUM));
             }
         }
-        // spec documents a 2xx success code the code never returns (conservative: success codes only,
-        // since code error responses aren't extracted until @ControllerAdvice support)
+        // error status codes the code can produce (an error it returns directly, or a mapped @ExceptionHandler
+        // advice) that the spec doesn't declare. Confidence tracks reachability: a status the endpoint returns or a
+        // specific-exception handler is MEDIUM; a global catch-all handler (e.g. 500 for any RuntimeException) is LOW
+        // so it never reads as a hard per-endpoint defect on every operation.
+        for (ResponseModel cr : ce.responses()) {
+            if (cr.statusCode() < 400) {
+                continue;
+            }
+            if (se.responses().stream().anyMatch(r -> r.statusCode() == cr.statusCode())) {
+                continue;
+            }
+            Confidence conf = "EXCEPTION_HANDLER_GLOBAL".equals(cr.origin()) ? Confidence.LOW : Confidence.MEDIUM;
+            findings.add(finding(FindingType.STATUS_CODE_MISSING, label(ce), spec.source(),
+                    "Code can return " + cr.statusCode() + " but the spec doesn't document it", ce, conf));
+        }
+        // spec documents a 2xx success code the code never returns (success codes only — a spec error code the code
+        // doesn't appear to produce is often a deliberately documented contingency, so flagging it would be noise)
         for (ResponseModel sr : se.responses()) {
             if (sr.statusCode() >= 200 && sr.statusCode() < 300
                     && ce.responses().stream().noneMatch(r -> r.statusCode() == sr.statusCode())) {

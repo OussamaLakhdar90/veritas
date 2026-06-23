@@ -26,8 +26,13 @@ class JavaSpringExtractorDepthTest {
         assertThat(resp).isNotNull();
         assertThat(resp.fields()).extracting("jsonName").contains("name", "id");   // "id" is inherited from BaseResource
 
-        // A2: @RestControllerAdvice error response (404 → ErrorBody) attached to the endpoint
-        assertThat(get.responses()).anyMatch(r -> r.statusCode() == 404);
+        // A2: @RestControllerAdvice error responses attached to the endpoint, with the status resolved from each
+        // handler's mechanism (@ResponseStatus, ResponseEntity.status, framework exception, ProblemDetail) — never
+        // a blind default-500.
+        assertThat(get.responses()).anyMatch(r -> r.statusCode() == 404);   // @ResponseStatus(NOT_FOUND)
+        assertThat(get.responses()).anyMatch(r -> r.statusCode() == 500);   // ResponseEntity.status(INTERNAL_SERVER_ERROR)
+        assertThat(get.responses()).anyMatch(r -> r.statusCode() == 406);   // NotAcceptableStatusException → framework map
+        assertThat(get.responses()).anyMatch(r -> r.statusCode() == 422);   // ProblemDetail.forStatusAndDetail(UNPROCESSABLE)
         assertThat(code.schemas()).containsKey("ErrorBody");
     }
 }

@@ -107,6 +107,53 @@ class DiffEngineDeepTest {
                 .doesNotContain(FindingType.RESPONSE_SCHEMA_MISMATCH);
     }
 
+    private Endpoint epWithResponses(List<ResponseModel> responses) {
+        return new Endpoint(HttpMethod.GET, "/x", "getX", List.of(), null, responses, null, null, List.of(), src);
+    }
+
+    @Test
+    void errorStatusCodeProducedByCodeButOmittedBySpecIsFlagged() {
+        // code maps a specific exception to 406 (advice) and the spec only documents 200 → STATUS_CODE_MISSING (MEDIUM)
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(epWithResponses(List.of(
+                        new ResponseModel(200, null, null, "RETURN", src),
+                        new ResponseModel(406, null, null, "EXCEPTION_HANDLER", src)))), Map.of());
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(epWithResponses(List.of(new ResponseModel(200, null, null, "SPEC", src)))), Map.of());
+
+        List<Finding> findings = diff.diffCodeVsSpec(code, spec);
+        assertThat(findings).anyMatch(f -> f.getType() == FindingType.STATUS_CODE_MISSING
+                && f.getSummary().contains("406") && f.getConfidence() == ca.bnc.qe.veritas.finding.Confidence.MEDIUM);
+    }
+
+    @Test
+    void globalCatchAllErrorStatusIsFlaggedAtLowConfidence() {
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(epWithResponses(List.of(
+                        new ResponseModel(200, null, null, "RETURN", src),
+                        new ResponseModel(500, null, null, "EXCEPTION_HANDLER_GLOBAL", src)))), Map.of());
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(epWithResponses(List.of(new ResponseModel(200, null, null, "SPEC", src)))), Map.of());
+
+        assertThat(diff.diffCodeVsSpec(code, spec)).anyMatch(f -> f.getType() == FindingType.STATUS_CODE_MISSING
+                && f.getSummary().contains("500") && f.getConfidence() == ca.bnc.qe.veritas.finding.Confidence.LOW);
+    }
+
+    @Test
+    void errorStatusDeclaredBySpecIsNotFlagged() {
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(epWithResponses(List.of(
+                        new ResponseModel(200, null, null, "RETURN", src),
+                        new ResponseModel(404, null, null, "EXCEPTION_HANDLER", src)))), Map.of());
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(epWithResponses(List.of(
+                        new ResponseModel(200, null, null, "SPEC", src),
+                        new ResponseModel(404, null, null, "SPEC", src)))), Map.of());
+
+        assertThat(diff.diffCodeVsSpec(code, spec))
+                .noneMatch(f -> f.getType() == FindingType.STATUS_CODE_MISSING && f.getSummary().contains("404"));
+    }
+
     private ApiModel withEnumField(String specId, String origin, List<String> enumValues) {
         ConstraintSet c = new ConstraintSet(null, null, null, null, null, null, null, enumValues, null);
         SchemaModel s = new SchemaModel("Foo", "object",

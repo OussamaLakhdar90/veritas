@@ -42,10 +42,12 @@ import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.ArrayInitializerExpr;
 import com.github.javaparser.ast.expr.BinaryExpr;
+import com.github.javaparser.ast.expr.ClassExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
 import com.github.javaparser.ast.expr.NameExpr;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
@@ -146,7 +148,7 @@ public class JavaSpringExtractor {
         }
 
         // @ControllerAdvice / @RestControllerAdvice error responses are global — attach them to every endpoint.
-        List<ResponseModel> adviceResponses = extractAdvice(units, referenced);
+        List<ResponseModel> adviceResponses = extractAdvice(units, referenced, types, blindSpots);
         if (!adviceResponses.isEmpty()) {
             endpoints.replaceAll(e -> {
                 List<ResponseModel> merged = new ArrayList<>(e.responses());
@@ -727,7 +729,8 @@ public class JavaSpringExtractor {
     }
 
     /** Error responses from @ControllerAdvice/@RestControllerAdvice @ExceptionHandler methods (one per status). */
-    private List<ResponseModel> extractAdvice(List<CompilationUnit> units, List<String> referenced) {
+    private List<ResponseModel> extractAdvice(List<CompilationUnit> units, List<String> referenced,
+                                              Map<String, TypeDeclaration<?>> types, List<String> blindSpots) {
         List<ResponseModel> out = new ArrayList<>();
         for (CompilationUnit cu : units) {
             String file = cu.getStorage().map(s -> s.getPath().toString()).orElse("?");
@@ -739,16 +742,26 @@ public class JavaSpringExtractor {
                     if (!has(m, "ExceptionHandler")) {
                         continue;
                     }
-                    int status = errorStatus(m);
+                    List<Integer> statuses = errorStatuses(m, types);
+                    if (statuses.isEmpty()) {
+                        // Don't fabricate a 500: record an honest gap instead of guessing the produced status.
+                        blindSpots.add("@ExceptionHandler '" + m.getNameAsString() + "' in " + td.getNameAsString()
+                                + "' produces an HTTP status that could not be resolved statically; its error response "
+                                + "is not compared to the spec.");
+                        continue;
+                    }
                     BodyType bt = unwrap(m.getType());
                     if (bt.typeName() != null) {
                         referenced.add(bt.typeName());
                     }
-                    int s = status;
-                    if (out.stream().noneMatch(r -> r.statusCode() == s)) {
-                        out.add(new ResponseModel(status, bt.noBody() ? null : bt.schemaRef(), null,
-                                "EXCEPTION_HANDLER",
-                                SourceRef.code(file, line(m), line(m), m.getDeclarationAsString(false, false, false))));
+                    // A catch-all handler (Exception/RuntimeException/Throwable) maps to a status every endpoint could
+                    // in theory produce — mark it GLOBAL so the diff treats it as LOW-confidence, not a hard defect.
+                    String origin = catchAllHandler(m) ? "EXCEPTION_HANDLER_GLOBAL" : "EXCEPTION_HANDLER";
+                    for (int status : statuses) {
+                        if (out.stream().noneMatch(r -> r.statusCode() == status)) {
+                            out.add(new ResponseModel(status, bt.noBody() ? null : bt.schemaRef(), null, origin,
+                                    SourceRef.code(file, line(m), line(m), m.getDeclarationAsString(false, false, false))));
+                        }
                     }
                 }
             }
@@ -756,21 +769,149 @@ public class JavaSpringExtractor {
         return out;
     }
 
-    private int errorStatus(MethodDeclaration m) {
-        String code = getAnnotation(m, "ResponseStatus").map(a -> firstString(a, "value", "code")).orElse(null);
-        if (code == null) {
-            return 500;   // no @ResponseStatus on the handler → default to 500
+    /**
+     * Resolve the HTTP status(es) an @ExceptionHandler produces, in priority order: an explicit @ResponseStatus on
+     * the handler; a status set in the body via {@code ResponseEntity.status(...)}, a ResponseEntity factory,
+     * {@code new ResponseEntity<>(HttpStatus.X)}, or {@code ProblemDetail.forStatus(AndDetail)(HttpStatus.X)}; the
+     * handled exception's own @ResponseStatus; a small map of well-known framework exceptions. Returns an EMPTY list
+     * (never a phantom 500) when nothing resolves, so the caller records an honest blind spot instead of guessing.
+     */
+    private List<Integer> errorStatuses(MethodDeclaration m, Map<String, TypeDeclaration<?>> types) {
+        Integer ann = responseStatusAnnotation(m);
+        if (ann != null) {
+            return List.of(ann);
         }
-        if (code.contains("BAD_REQUEST")) return 400;
-        if (code.contains("UNAUTHORIZED")) return 401;
-        if (code.contains("FORBIDDEN")) return 403;
-        if (code.contains("NOT_FOUND")) return 404;
-        if (code.contains("CONFLICT")) return 409;
-        if (code.contains("UNPROCESSABLE")) return 422;
-        if (code.contains("INTERNAL_SERVER_ERROR")) return 500;
-        if (code.contains("BAD_GATEWAY")) return 502;
-        if (code.contains("SERVICE_UNAVAILABLE")) return 503;
-        return 500;
+        java.util.LinkedHashSet<Integer> body = new java.util.LinkedHashSet<>();
+        for (Integer s : responseEntityStatuses(m)) {     // ResponseEntity.status(...) / factories
+            if (s != null && s >= 400) {
+                body.add(s);
+            }
+        }
+        body.addAll(problemDetailStatuses(m));
+        body.addAll(newResponseEntityStatuses(m));
+        if (!body.isEmpty()) {
+            return new ArrayList<>(body);
+        }
+        Integer fromException = handledExceptionStatus(m, types);
+        return fromException != null ? List.of(fromException) : List.of();
+    }
+
+    /** Status from a @ResponseStatus annotation on a node (handler method or exception class), or null. */
+    private Integer responseStatusAnnotation(NodeWithAnnotations<?> n) {
+        String code = getAnnotation(n, "ResponseStatus").map(a -> firstString(a, "value", "code")).orElse(null);
+        return code == null ? null : statusFromText(code);
+    }
+
+    /** Statuses from {@code ProblemDetail.forStatus(...)} / {@code forStatusAndDetail(...)} calls in the body. */
+    private List<Integer> problemDetailStatuses(MethodDeclaration m) {
+        java.util.LinkedHashSet<Integer> out = new java.util.LinkedHashSet<>();
+        for (MethodCallExpr call : m.findAll(MethodCallExpr.class)) {
+            String scope = call.getScope().map(Object::toString).orElse("");
+            if (!scope.equals("ProblemDetail") && !scope.endsWith(".ProblemDetail")) {
+                continue;
+            }
+            if (call.getNameAsString().equals("forStatus") || call.getNameAsString().equals("forStatusAndDetail")) {
+                Integer s = statusFromArg(call);
+                if (s != null) {
+                    out.add(s);
+                }
+            }
+        }
+        return new ArrayList<>(out);
+    }
+
+    /** Error statuses from {@code new ResponseEntity<>(..., HttpStatus.X)} constructions in the body. */
+    private List<Integer> newResponseEntityStatuses(MethodDeclaration m) {
+        java.util.LinkedHashSet<Integer> out = new java.util.LinkedHashSet<>();
+        for (ObjectCreationExpr oce : m.findAll(ObjectCreationExpr.class)) {
+            if (!oce.getType().getNameAsString().equals("ResponseEntity")) {
+                continue;
+            }
+            for (Expression arg : oce.getArguments()) {
+                Integer s = statusFromText(arg.toString().trim());
+                if (s != null && s >= 400) {
+                    out.add(s);
+                }
+            }
+        }
+        return new ArrayList<>(out);
+    }
+
+    /** Status from the handled exception's own @ResponseStatus (if the class is in scope), else a framework map. */
+    private Integer handledExceptionStatus(MethodDeclaration m, Map<String, TypeDeclaration<?>> types) {
+        for (String ex : handledExceptionNames(m)) {
+            TypeDeclaration<?> decl = types.get(ex);
+            if (decl != null) {
+                Integer s = responseStatusAnnotation(decl);
+                if (s != null) {
+                    return s;
+                }
+            }
+            Integer fw = frameworkExceptionStatus(ex);
+            if (fw != null) {
+                return fw;
+            }
+        }
+        return null;
+    }
+
+    /** Simple names of the exception types a handler covers — from @ExceptionHandler(value), else its parameters. */
+    private List<String> handledExceptionNames(MethodDeclaration m) {
+        List<String> names = new ArrayList<>();
+        getAnnotation(m, "ExceptionHandler").ifPresent(a -> {
+            if (a instanceof SingleMemberAnnotationExpr sm) {
+                collectClassNames(sm.getMemberValue(), names);
+            } else if (a instanceof NormalAnnotationExpr na) {
+                na.getPairs().stream().filter(p -> p.getNameAsString().equals("value"))
+                        .forEach(p -> collectClassNames(p.getValue(), names));
+            }
+        });
+        if (names.isEmpty()) {
+            for (Parameter p : m.getParameters()) {
+                String tn = p.getType().asString();
+                String simple = tn.substring(tn.lastIndexOf('.') + 1);
+                if (simple.endsWith("Exception") || simple.endsWith("Error") || simple.equals("Throwable")) {
+                    names.add(simple);
+                }
+            }
+        }
+        return names;
+    }
+
+    private void collectClassNames(Expression e, List<String> out) {
+        if (e instanceof ArrayInitializerExpr arr) {
+            arr.getValues().forEach(v -> collectClassNames(v, out));
+        } else if (e instanceof ClassExpr ce) {
+            String tn = ce.getType().asString();
+            out.add(tn.substring(tn.lastIndexOf('.') + 1));
+        }
+    }
+
+    /** A small map of well-known Spring/JDK framework exceptions to the HTTP status Spring resolves them to. */
+    private Integer frameworkExceptionStatus(String ex) {
+        return switch (ex) {
+            case "NotAcceptableStatusException", "HttpMediaTypeNotAcceptableException" -> 406;
+            case "HttpMediaTypeNotSupportedException" -> 415;
+            case "HttpRequestMethodNotSupportedException" -> 405;
+            case "MethodArgumentNotValidException", "HttpMessageNotReadableException",
+                 "MissingServletRequestParameterException", "ConstraintViolationException",
+                 "BindException", "MethodArgumentTypeMismatchException" -> 400;
+            case "AccessDeniedException" -> 403;
+            case "AuthenticationException", "InsufficientAuthenticationException", "BadCredentialsException" -> 401;
+            case "NoHandlerFoundException", "NoResourceFoundException" -> 404;
+            case "MaxUploadSizeExceededException" -> 413;
+            default -> null;
+        };
+    }
+
+    /** True when the handler covers a catch-all type (Exception/RuntimeException/Throwable). */
+    private boolean catchAllHandler(MethodDeclaration m) {
+        for (String ex : handledExceptionNames(m)) {
+            if (ex.equals("Exception") || ex.equals("RuntimeException") || ex.equals("Throwable")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private int responseStatus(MethodDeclaration m) {
@@ -819,9 +960,16 @@ public class JavaSpringExtractor {
         if (call.getArguments().isEmpty()) {
             return null;
         }
-        String arg = call.getArgument(0).toString().trim();
+        return statusFromText(call.getArgument(0).toString().trim());
+    }
+
+    /** Map an int literal or an {@code HttpStatus.X} expression's text to a numeric status code, or null. */
+    private Integer statusFromText(String arg) {
+        if (arg == null) {
+            return null;
+        }
         try {
-            return Integer.parseInt(arg);
+            return Integer.parseInt(arg.trim());
         } catch (NumberFormatException ignore) {
             // not a literal — fall through to HttpStatus name mapping
         }
@@ -833,9 +981,12 @@ public class JavaSpringExtractor {
         if (u.contains("UNAUTHORIZED")) return 401;
         if (u.contains("FORBIDDEN")) return 403;
         if (u.contains("NOT_FOUND")) return 404;
+        if (u.contains("NOT_ACCEPTABLE")) return 406;
         if (u.contains("CONFLICT")) return 409;
         if (u.contains("UNPROCESSABLE")) return 422;
         if (u.contains("INTERNAL_SERVER_ERROR")) return 500;
+        if (u.contains("BAD_GATEWAY")) return 502;
+        if (u.contains("SERVICE_UNAVAILABLE")) return 503;
         if (u.endsWith("OK")) return 200;
         return null;
     }
