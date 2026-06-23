@@ -184,7 +184,11 @@ public class OpenApiModelExtractor {
                     continue;
                 }
                 var content = r.getValue() == null ? null : r.getValue().getContent();
-                producesSet.addAll(orEmpty(mediaTypes(content)));
+                // `produces` reflects the SUCCESS content type (what @*Mapping(produces=...) governs on the code side);
+                // error responses (e.g. application/problem+json on a 500) must not inflate it into a false mismatch.
+                if (status >= 200 && status < 300) {
+                    producesSet.addAll(orEmpty(mediaTypes(content)));
+                }
                 responses.add(new ResponseModel(status, contentSchemaRef(content), mediaTypes(content), "SPEC",
                         SourceRef.spec(specId, "/paths" + path + "/" + method.name().toLowerCase() + "/responses/" + status, null)));
             }

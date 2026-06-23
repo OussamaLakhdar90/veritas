@@ -545,7 +545,7 @@ public class ContractValidationService {
     private List<Finding> dedupCrossList(List<Finding> in) {
         Map<String, Finding> byKey = new LinkedHashMap<>();
         for (Finding f : in) {
-            String key = f.getType() + "|" + nz(f.getEndpoint()) + "|" + normSummary(f.getSummary());
+            String key = dedupKey(f);
             Finding existing = byKey.get(key);
             if (existing == null) {
                 byKey.put(key, f);
@@ -557,13 +557,24 @@ public class ContractValidationService {
         return new ArrayList<>(byKey.values());
     }
 
+    /**
+     * Dedup key. Includes specSource so the SAME discrepancy against two different specs (a supported multi-spec
+     * scan) stays two findings — collapsing them would silently imply one spec is clean. Does NOT lowercase: HTTP
+     * param/header names are case-sensitive, so case-only-distinct findings are genuinely different.
+     */
+    static String dedupKey(Finding f) {
+        String endpoint = f.getEndpoint() == null ? "" : f.getEndpoint();
+        String specSource = f.getSpecSource() == null ? "" : f.getSpecSource();
+        return f.getType() + "|" + endpoint + "|" + specSource + "|" + normSummary(f.getSummary());
+    }
+
     private boolean isDeterministic(Finding f) {
         return "DETERMINISTIC".equalsIgnoreCase(nz(f.getOrigin()));
     }
 
-    private String normSummary(String s) {
-        return s == null ? "" : s.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ")
-                .replaceAll("[.;:,]+$", "").trim();
+    /** Normalize whitespace + trailing punctuation only — never case (param/header names are case-sensitive). */
+    static String normSummary(String s) {
+        return s == null ? "" : s.replaceAll("\\s+", " ").replaceAll("[.;:,]+$", "").trim();
     }
 
     /** Graft an LLM finding's enrichment onto the deterministic survivor without overwriting its own fields. */

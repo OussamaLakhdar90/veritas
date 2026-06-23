@@ -233,7 +233,13 @@ public class DiffEngine {
             if (se.responses().stream().anyMatch(r -> r.statusCode() == cr.statusCode())) {
                 continue;
             }
-            Confidence conf = "EXCEPTION_HANDLER_GLOBAL".equals(cr.origin()) ? Confidence.LOW : Confidence.MEDIUM;
+            // Advice-sourced statuses are GLOBAL by construction — a @ControllerAdvice handler is attached to every
+            // endpoint regardless of whether that endpoint can actually throw the exception. We can't prove per-endpoint
+            // reachability statically, so any advice-sourced status stays LOW (surfaced as manual review, never counted)
+            // — otherwise one advice for a broadly-thrown exception would flood every endpoint and tank the score.
+            // Only a status the endpoint RETURNS directly (ResponseEntity.badRequest() etc.) is MEDIUM.
+            boolean fromAdvice = cr.origin() != null && cr.origin().startsWith("EXCEPTION_HANDLER");
+            Confidence conf = fromAdvice ? Confidence.LOW : Confidence.MEDIUM;
             findings.add(finding(FindingType.STATUS_CODE_MISSING, label(ce), spec.source(),
                     "Code can return " + cr.statusCode() + " but the spec doesn't document it", ce, conf));
         }
@@ -283,6 +289,9 @@ public class DiffEngine {
 
     private enum SchemaVerdict { MATCH, DIFFER, UNRESOLVED }
 
+    /** Bound on nested-schema recursion when comparing structure (cycles are also guarded by a visited set). */
+    private static final int MAX_SCHEMA_DEPTH = 8;
+
     /**
      * Decide whether two differently-named success-response schemas are a genuine contract break by comparing their
      * RESOLVED property structure rather than their names. Returns {@code DIFFER} only when the structures truly
@@ -299,7 +308,8 @@ public class DiffEngine {
         if (cs == null || ss == null || structureless(cs) || structureless(ss)) {
             return SchemaVerdict.UNRESOLVED;
         }
-        return propsEqual(code, spec, cs, ss, 1) ? SchemaVerdict.MATCH : SchemaVerdict.DIFFER;
+        return propsEqual(code, spec, cs, ss, MAX_SCHEMA_DEPTH, new java.util.HashSet<>())
+                ? SchemaVerdict.MATCH : SchemaVerdict.DIFFER;
     }
 
     private static boolean arrayRef(String ref) {
@@ -317,8 +327,13 @@ public class DiffEngine {
         return noFields && noEnum;
     }
 
-    /** Structural equality: enum value sets, or same field-name set with compatible field types, recursing one level. */
-    private boolean propsEqual(ApiModel code, ApiModel spec, SchemaModel cs, SchemaModel ss, int depth) {
+    /** Structural equality: enum value sets, or same field-name set with compatible field types, recursing into nested
+     * $ref'd schemas up to {@link #MAX_SCHEMA_DEPTH} (a visited-pair set guards cyclic DTO graphs). */
+    private boolean propsEqual(ApiModel code, ApiModel spec, SchemaModel cs, SchemaModel ss, int depth,
+                               java.util.Set<String> visited) {
+        if (!visited.add(cs.name() + "|" + ss.name())) {
+            return true;   // already comparing this pair up-stack — assume consistent, break the cycle
+        }
         boolean cEnum = cs.enumValues() != null && !cs.enumValues().isEmpty();
         boolean sEnum = ss.enumValues() != null && !ss.enumValues().isEmpty();
         if (cEnum || sEnum) {
@@ -342,7 +357,7 @@ public class DiffEngine {
                 SchemaModel nc = code.schemas().get(baseName(c.refSchema()));
                 SchemaModel ns = spec.schemas().get(baseName(s.refSchema()));
                 // recurse only when both nested schemas resolve; an unresolved nested side never invents a diff
-                if (nc != null && ns != null && !propsEqual(code, spec, nc, ns, depth - 1)) {
+                if (nc != null && ns != null && !propsEqual(code, spec, nc, ns, depth - 1, visited)) {
                     return false;
                 }
             }

@@ -35,4 +35,18 @@ class JavaSpringExtractorDepthTest {
         assertThat(get.responses()).anyMatch(r -> r.statusCode() == 422);   // ProblemDetail.forStatusAndDetail(UNPROCESSABLE)
         assertThat(code.schemas()).containsKey("ErrorBody");
     }
+
+    @Test
+    void exceptionHandlerWith2xxStatusDoesNotLeakSuccessResponseOntoEndpoints() throws Exception {
+        Path root = Path.of(getClass().getClassLoader().getResource("fixtures/secured").toURI());
+        ApiModel code = new JavaSpringExtractor().extract(root);
+
+        Endpoint del = code.endpoints().stream()
+                .filter(e -> e.signature().equals("DELETE /api/v1/secured/{id}"))
+                .findFirst().orElseThrow();
+        // the DELETE declares 204; the @ResponseStatus(OK) exception handler must NOT have leaked a 200 onto it
+        assertThat(del.responses()).noneMatch(r -> r.statusCode() == 200);
+        // the genuine error handlers (>=400) are still attached
+        assertThat(del.responses()).anyMatch(r -> r.statusCode() == 404);
+    }
 }

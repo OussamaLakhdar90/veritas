@@ -15,6 +15,7 @@ import ca.bnc.qe.veritas.engine.model.HttpMethod;
 import ca.bnc.qe.veritas.engine.model.ResponseModel;
 import ca.bnc.qe.veritas.engine.model.SchemaModel;
 import ca.bnc.qe.veritas.engine.model.SourceRef;
+import ca.bnc.qe.veritas.finding.Confidence;
 import ca.bnc.qe.veritas.finding.Finding;
 import ca.bnc.qe.veritas.finding.FindingType;
 import org.junit.jupiter.api.Test;
@@ -112,8 +113,9 @@ class DiffEngineDeepTest {
     }
 
     @Test
-    void errorStatusCodeProducedByCodeButOmittedBySpecIsFlagged() {
-        // code maps a specific exception to 406 (advice) and the spec only documents 200 → STATUS_CODE_MISSING (MEDIUM)
+    void adviceSourcedErrorStatusOmittedBySpecIsLowConfidence() {
+        // a @ControllerAdvice handler (even for a specific exception) is GLOBAL — attached to every endpoint, not
+        // provably reachable here → LOW (surfaced, not score-counted) so it can't flood the score.
         ApiModel code = new ApiModel("code", null, null, null,
                 List.of(epWithResponses(List.of(
                         new ResponseModel(200, null, null, "RETURN", src),
@@ -121,9 +123,48 @@ class DiffEngineDeepTest {
         ApiModel spec = new ApiModel("repo-spec", null, null, null,
                 List.of(epWithResponses(List.of(new ResponseModel(200, null, null, "SPEC", src)))), Map.of());
 
-        List<Finding> findings = diff.diffCodeVsSpec(code, spec);
-        assertThat(findings).anyMatch(f -> f.getType() == FindingType.STATUS_CODE_MISSING
-                && f.getSummary().contains("406") && f.getConfidence() == ca.bnc.qe.veritas.finding.Confidence.MEDIUM);
+        assertThat(diff.diffCodeVsSpec(code, spec)).anyMatch(f -> f.getType() == FindingType.STATUS_CODE_MISSING
+                && f.getSummary().contains("406") && f.getConfidence() == Confidence.LOW);
+    }
+
+    @Test
+    void endpointReturnedErrorStatusOmittedBySpecIsMediumConfidence() {
+        // the endpoint returns the error directly (ResponseEntity.badRequest()) → reachable here → MEDIUM
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(epWithResponses(List.of(
+                        new ResponseModel(200, null, null, "RETURN", src),
+                        new ResponseModel(400, null, null, "RESPONSE_ENTITY", src)))), Map.of());
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(epWithResponses(List.of(new ResponseModel(200, null, null, "SPEC", src)))), Map.of());
+
+        assertThat(diff.diffCodeVsSpec(code, spec)).anyMatch(f -> f.getType() == FindingType.STATUS_CODE_MISSING
+                && f.getSummary().contains("400") && f.getConfidence() == Confidence.MEDIUM);
+    }
+
+    private SchemaModel objRef(String name, String field, String refSchema) {
+        ConstraintSet none = new ConstraintSet(null, null, null, null, null, null, null, null, null);
+        return new SchemaModel(name, "object",
+                List.of(new FieldModel(field, "object", null, false, none, refSchema, null)), null, src);
+    }
+
+    @Test
+    void responseSchemaDivergenceTwoLevelsDeepIsFlagged() {
+        // differently-named DTOs that diverge only at depth 2 (Leaf.v string vs LeafS.v integer) must still be caught
+        Map<String, SchemaModel> codeSchemas = Map.of(
+                "Root", objRef("Root", "child", "Child"),
+                "Child", objRef("Child", "leaf", "Leaf"),
+                "Leaf", schema("Leaf", "v", "string"));
+        Map<String, SchemaModel> specSchemas = Map.of(
+                "RootS", objRef("RootS", "child", "ChildS"),
+                "ChildS", objRef("ChildS", "leaf", "LeafS"),
+                "LeafS", schema("LeafS", "v", "integer"));
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(ep("Root", List.of(new ResponseModel(200, "Root", null, "RETURN", src)))), codeSchemas);
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(ep("RootS", List.of(new ResponseModel(200, "RootS", null, "SPEC", src)))), specSchemas);
+
+        assertThat(diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType))
+                .contains(FindingType.RESPONSE_SCHEMA_MISMATCH);
     }
 
     @Test

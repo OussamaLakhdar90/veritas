@@ -758,6 +758,9 @@ public class JavaSpringExtractor {
                     // in theory produce — mark it GLOBAL so the diff treats it as LOW-confidence, not a hard defect.
                     String origin = catchAllHandler(m) ? "EXCEPTION_HANDLER_GLOBAL" : "EXCEPTION_HANDLER";
                     for (int status : statuses) {
+                        if (status < 400) {
+                            continue;   // an @ExceptionHandler's output is an error response — a 2xx must not leak onto endpoints as a success body
+                        }
                         if (out.stream().noneMatch(r -> r.statusCode() == status)) {
                             out.add(new ResponseModel(status, bt.noBody() ? null : bt.schemaRef(), null, origin,
                                     SourceRef.code(file, line(m), line(m), m.getDeclarationAsString(false, false, false))));

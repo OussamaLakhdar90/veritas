@@ -35,4 +35,12 @@ public class GlobalAdvice {
     public ProblemDetail handleBadArgument(IllegalArgumentException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, "bad argument");
     }
+
+    // pathological: a handler annotated with a 2xx status — an exception handler's output is an error response, so
+    // this 200 must NOT be attached to endpoints as a phantom success body.
+    @ExceptionHandler(IllegalStateException.class)
+    @ResponseStatus(HttpStatus.OK)
+    public ErrorBody handleOddly(IllegalStateException e) {
+        return null;
+    }
 }
