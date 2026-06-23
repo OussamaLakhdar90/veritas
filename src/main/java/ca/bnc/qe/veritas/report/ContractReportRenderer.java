@@ -364,6 +364,21 @@ public class ContractReportRenderer {
                 .append(f.getLayer() != null ? " · " + f.getLayer().name() : "")
                 .append(f.getConfidence() != null ? " · " + f.getConfidence().name() : "").append("</span>")
                 .append("</div>");
+        // Recorded disposition (from the dashboard's system of record) — shown as an audited badge.
+        String disp = f.getStatus();
+        if (disp != null && !disp.isBlank() && !"OPEN".equalsIgnoreCase(disp)) {
+            sb.append("<div class=\"disp-line\">").append(bi("Disposition", "Décision")).append(": ")
+                    .append("<span class=\"disp-badge disp-").append(dispClass(disp)).append("\">")
+                    .append(dispLabel(disp)).append("</span>");
+            if (!isBlank(f.getReviewedBy())) {
+                sb.append(" <span class=\"disp-by\">").append(bi("by", "par")).append(" ").append(esc(f.getReviewedBy()));
+                if (f.getReviewedAt() != null) {
+                    sb.append(" · ").append(esc(fmtDate(f.getReviewedAt())));
+                }
+                sb.append("</span>");
+            }
+            sb.append("</div>");
+        }
         if (!isBlank(f.getExplanation())) {
             sb.append("<div class=\"business-impact\">").append(biDyn(f.getExplanation(), fr)).append("</div>");
         }
@@ -541,6 +556,28 @@ public class ContractReportRenderer {
                 + "<div class=\"meta-value\">" + value + "</div></td>";
     }
 
+    private String dispClass(String status) {
+        return switch (status.toUpperCase(java.util.Locale.ROOT)) {
+            case "ACCEPTED", "FIXED" -> "ok";
+            case "REJECTED", "WONT_FIX", "FALSE_POSITIVE" -> "danger";
+            case "TRIAGED", "JIRA_CREATED" -> "info";
+            default -> "muted";
+        };
+    }
+
+    private String dispLabel(String status) {
+        return switch (status.toUpperCase(java.util.Locale.ROOT)) {
+            case "ACCEPTED" -> bi("Accepted", "Accepté");
+            case "REJECTED" -> bi("Rejected", "Rejeté");
+            case "WONT_FIX" -> bi("Won't fix", "Ne sera pas corrigé");
+            case "FALSE_POSITIVE" -> bi("False positive", "Faux positif");
+            case "TRIAGED" -> bi("Triaged", "Trié");
+            case "JIRA_CREATED" -> bi("Defect raised", "Anomalie créée");
+            case "FIXED" -> bi("Fixed", "Corrigé");
+            default -> esc(status);
+        };
+    }
+
     private String fmtDate(java.time.Instant t) {
         return t == null ? "—" : java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm 'UTC'")
                 .withZone(java.time.ZoneOffset.UTC).format(t);
@@ -677,6 +714,11 @@ public class ContractReportRenderer {
                 + ".evidence-panel pre{margin:0;white-space:pre-wrap;word-break:break-word}"
                 + "code{font-family:JetBrains Mono,ui-monospace,monospace;font-size:.8rem}"
                 + ".citation{color:#8a6a1e;font-size:.82rem;font-style:italic;margin-top:.5rem}"
+                + ".disp-line{font-size:.82rem;color:#475069;margin-top:.5rem}"
+                + ".disp-badge{font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:2px 9px;border-radius:999px}"
+                + ".disp-ok{background:#e6f4ea;color:#1E8E5A}.disp-danger{background:#fdecef;color:#C2122D}"
+                + ".disp-info{background:#e8f0fe;color:#1b5fb5}.disp-muted{background:#eef1f5;color:#475069}"
+                + ".disp-by{color:#9aa1ae;margin-left:.3rem}"
                 + ".count{background:#1a1a2e;color:#fff;font-size:.72rem;border-radius:999px;padding:1px 9px;margin-left:6px}"
                 + ".needs-attention .ns-intro{font-size:.88rem;color:#475069}"
                 + ".review-status{font-size:.85rem;color:#475069;margin:.5rem 0 .2rem}.review-status #rev-count{font-weight:700;color:#1a1a2e}"

@@ -99,6 +99,17 @@ class ContractReportRendererTest {
     }
 
     @Test
+    void recordedDispositionRendersAsAnAuditedBadge() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        Finding rejected = richFinding().toBuilder()
+                .status("REJECTED").reviewedBy("alice")
+                .reviewedAt(java.time.Instant.parse("2026-06-23T14:09:00Z")).build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(rejected));
+        assertThat(html).contains("disp-badge").contains("Rejected").contains("alice").contains("2026-06-23");
+    }
+
+    @Test
     void pdfRendersWithDetailRowsAsValidXhtml() {
         Scan scan = new Scan();
         scan.setServiceName("ciam-policies");
