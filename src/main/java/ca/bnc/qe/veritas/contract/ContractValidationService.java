@@ -386,9 +386,9 @@ public class ContractValidationService {
             String prompt = promptComposer.compose("[CONTRACT-RECONCILE]", "validate-service-contract.prompt.md",
                     Set.of("1", "6", "12"), inputs, outputContract, modelSelector.promptTokenCap(model));
             String raw = llm.complete(prompt, model);
+            CostResult c = costRecorder.record("validate-contract", "reconcile", model, prompt, raw, owner, scanId);   // bill before parse
             JsonNode node = objectMapper.readTree(jsonExtractor.extract(raw));
             schemaValidator.validate(node, "contract-reconcile.schema.json");
-            CostResult c = costRecorder.record("validate-contract", "reconcile", model, prompt, raw, owner, scanId);
             premium += c.premiumRequests();
             costUsd += c.estCostUsd();
             tokIn += c.estTokensIn();
