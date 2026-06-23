@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { Search, ShieldCheck, GitBranch, FileCode, Star, Clock,
-  Code2, GitCompare, Sparkles, FileText, Check, AlertTriangle, Loader2 } from 'lucide-react';
+  Sparkles, Check, AlertTriangle, Loader2 } from 'lucide-react';
 import { api, Repo } from '../api';
 import { Button, Card, CardBody, EmptyState, Field, Input, PageHeader, Select, Spinner } from '../components/ui';
 import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toast';
 import { useCopilotAuth } from '../lib/copilotAuth';
+import { useBackgroundScans } from '../lib/backgroundScans';
+import { SCAN_STEPS, STAGE_ORDER, stagePct, formatElapsed, useElapsed, useStageElapsed } from '../lib/scanStages';
 import { cn } from '../components/cn';
 
 const RECENTS_KEY = 'veritas-recent-appids';
@@ -169,30 +171,18 @@ export function RepoPicker() {
   );
 }
 
-/* ── The live progress steps, in order. RECONCILING is shown but may be skipped
-      (no findings, or AI disabled) — the order-based status handles that gracefully. ── */
-const SCAN_STEPS: { key: string; label: string; detail: string; icon: typeof GitBranch }[] = [
-  { key: 'CLONING', label: 'Cloning the repository', detail: 'Fetching the branch from Bitbucket', icon: GitBranch },
-  { key: 'RESOLVING_SPEC', label: 'Locating the OpenAPI spec', detail: 'Reading the contract you selected', icon: FileCode },
-  { key: 'EXTRACTING', label: 'Reading the API from the code', detail: 'Static analysis of the controllers (no app run)', icon: Code2 },
-  { key: 'DIFFING', label: 'Comparing code against the spec', detail: 'Endpoints, params, schemas, status codes', icon: GitCompare },
-  { key: 'RECONCILING', label: 'AI review & corrected spec', detail: 'Copilot explains findings and drafts a fix', icon: Sparkles },
-  { key: 'REPORTING', label: 'Building the report', detail: 'Scoring fidelity and rendering the results', icon: FileText },
-];
-const STAGE_ORDER: Record<string, number> = {
-  QUEUED: 0, CLONING: 1, RESOLVING_SPEC: 2, EXTRACTING: 3, DIFFING: 4, RECONCILING: 5, REPORTING: 6, DONE: 7, FAILED: 7,
-};
-
 /* ── Guided "Validate" form → live progress stepper (no window.prompt, full visibility) ── */
 function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; onClose: () => void }) {
   const toast = useToast();
   const navigate = useNavigate();
+  const { track } = useBackgroundScans();
   const { needsCopilot, connected, signIn } = useCopilotAuth();
   const [branch, setBranch] = useState(repo.defaultBranch || '');
   const [specKind, setSpecKind] = useState<'REPO_PATH' | 'LIVE_DOCS' | 'CONFLUENCE'>('REPO_PATH');
   const [specRef, setSpecRef] = useState('openapi.yaml');
   const [starting, setStarting] = useState(false);
   const [scanId, setScanId] = useState<string | null>(null);
+  const [startedAtMs, setStartedAtMs] = useState<number | null>(null);
   const [navigated, setNavigated] = useState(false);
 
   const SPEC = {
@@ -249,6 +239,7 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
         ? { ...common, specPaths: [specRef.trim()] }
         : { ...common, specSources: [{ kind: specKind, ref: specRef.trim() }] });
       setScanId(res.scanId);
+      setStartedAtMs(Date.now());
     } catch (e) {
       toast.push('error', `Could not start the scan: ${(e as Error).message}`);
     } finally {
@@ -256,7 +247,13 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
     }
   };
 
-  const retry = () => { setScanId(null); setNavigated(false); };
+  const retry = () => { setScanId(null); setStartedAtMs(null); setNavigated(false); };
+
+  // Hand the running scan to the floating dock so it stays visible, then close the modal.
+  const runInBackground = () => {
+    if (scanId) track({ id: scanId, service: repo.slug });
+    onClose();
+  };
 
   const title = scanId ? `Validating ${repo.slug}` : `Validate ${repo.slug}`;
 
@@ -272,7 +269,7 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
       <Button onClick={retry}><ShieldCheck className="h-4 w-4" /> Try again</Button>
     </>
   ) : (
-    <Button variant="secondary" onClick={onClose}>Run in background</Button>
+    <Button variant="secondary" onClick={runInBackground}>Run in background</Button>
   );
 
   return (
@@ -328,25 +325,58 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
           </div>
         </>
       ) : (
-        <ScanProgress stage={stage} failed={failed} errorMessage={scan?.errorMessage} onRetry={retry} />
+        <ScanProgress stage={stage} failed={failed} errorMessage={scan?.errorMessage} onRetry={retry}
+          startMs={(scan?.startedAt && Date.parse(scan.startedAt)) || startedAtMs} />
       )}
     </Modal>
   );
 }
 
-/* ── Friendly step-by-step tracker the user can follow while a scan runs ── */
-function ScanProgress({ stage, failed, errorMessage, onRetry }:
-  { stage: string; failed: boolean; errorMessage?: string; onRetry: () => void }) {
+/* ── Friendly step-by-step tracker the user can follow while a scan runs ──
+      Premium header (live timer + progress bar + "step N of M"), a per-step timer on the
+      active row, and a reassurance on the slow AI step so a long scan never reads as stuck. ── */
+function ScanProgress({ stage, failed, errorMessage, onRetry, startMs }:
+  { stage: string; failed: boolean; errorMessage?: string; onRetry: () => void; startMs: number | null }) {
+  const total = SCAN_STEPS.length;
   const current = STAGE_ORDER[stage] ?? 0;
   // Which step the failure happened on (the last step we'd entered), for a clear "failed at …" line.
-  const failedStepIdx = failed ? Math.max(0, Math.min(SCAN_STEPS.length - 1, current - 1)) : -1;
+  const failedStepIdx = failed ? Math.max(0, Math.min(total - 1, current - 1)) : -1;
+  const stepNo = Math.min(total, Math.max(0, current));
+  const pct = failed ? Math.max(8, stagePct(stage)) : stagePct(stage);
+  const activeLabel = SCAN_STEPS.find((s) => s.key === stage)?.label;
+  const elapsed = useElapsed(startMs, !failed);          // whole-scan timer
+  const stageElapsed = useStageElapsed(stage, !failed);  // current step's own timer
 
   return (
     <div>
-      <p className="mb-4 text-[13px] text-muted">
+      {/* Live header: where we are, overall progress, and a ticking clock. */}
+      <div className={cn('mb-4 rounded-xl p-4 ring-1',
+        failed ? 'bg-danger/5 ring-danger/20' : 'bg-gradient-to-br from-brand-50 to-surface ring-brand-600/15')}>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className={cn('text-[11px] font-semibold uppercase tracking-wide',
+              failed ? 'text-danger' : 'text-brand-600')}>
+              {failed ? 'Stopped' : stepNo === 0 ? 'Starting…' : `Step ${stepNo} of ${total}`}
+            </p>
+            <p className="mt-0.5 truncate text-[14px] font-semibold text-ink-900">
+              {failed ? 'Validation failed' : activeLabel ?? 'Queued…'}
+            </p>
+          </div>
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-surface/80 px-2.5 py-1 text-[12px] font-medium tabular-nums text-ink-700 ring-1 ring-border">
+            <Clock className="h-3.5 w-3.5 text-muted" /> {formatElapsed(elapsed)}
+          </span>
+        </div>
+        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/60">
+          <div className={cn('h-full rounded-full transition-all duration-700',
+            failed ? 'bg-danger' : 'bg-gradient-to-r from-brand to-brand-700')}
+            style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+
+      <p className="mb-3 text-[13px] text-muted">
         {failed
           ? 'The scan stopped before it finished. Nothing was written to the repo.'
-          : 'Veritas is working through the contract check. You can keep this open or run it in the background.'}
+          : 'Veritas runs entirely from static analysis — your app is never started. Keep watching, or run it in the background.'}
       </p>
       <ol className="space-y-1">
         {SCAN_STEPS.map((step, i) => {
@@ -360,7 +390,8 @@ function ScanProgress({ stage, failed, errorMessage, onRetry }:
               : 'pending';
           const Icon = step.icon;
           return (
-            <li key={step.key} className="flex items-start gap-3 rounded-lg px-2 py-2">
+            <li key={step.key} className={cn('flex items-start gap-3 rounded-lg px-2 py-2',
+              status === 'active' && 'bg-brand-50/50')}>
               <span className={cn('mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ring-1',
                 status === 'done' && 'bg-success/10 text-success ring-success/30',
                 status === 'active' && 'bg-brand-50 text-brand-600 ring-brand-600/30',
@@ -371,13 +402,23 @@ function ScanProgress({ stage, failed, errorMessage, onRetry }:
                   : status === 'error' ? <AlertTriangle className="h-4 w-4" />
                   : <Icon className="h-4 w-4" />}
               </span>
-              <div className="min-w-0">
-                <p className={cn('text-[13px] font-medium',
-                  status === 'pending' ? 'text-muted' : 'text-ink-900')}>
-                  {step.label}
-                  {status === 'active' && <span className="ml-2 text-[12px] font-normal text-brand-600">working…</span>}
-                </p>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <p className={cn('truncate text-[13px] font-medium',
+                    status === 'pending' ? 'text-muted' : 'text-ink-900')}>
+                    {step.label}
+                  </p>
+                  {status === 'active' && (
+                    <span className="shrink-0 text-[11px] font-medium tabular-nums text-brand-600">{formatElapsed(stageElapsed)}</span>
+                  )}
+                  {status === 'done' && <span className="shrink-0 text-[11px] font-medium text-success">done</span>}
+                </div>
                 <p className="text-[12px] text-muted">{isFailedHere && errorMessage ? errorMessage : step.detail}</p>
+                {status === 'active' && step.long && (
+                  <p className="mt-1.5 inline-flex items-center gap-1.5 rounded-md bg-brand-50 px-2 py-1 text-[11px] text-brand-600 ring-1 ring-brand-600/15">
+                    <Sparkles className="h-3 w-3 shrink-0" /> Longest step — the AI is generating. This can take a minute or two.
+                  </p>
+                )}
               </div>
             </li>
           );
