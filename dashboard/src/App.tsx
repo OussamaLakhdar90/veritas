@@ -19,6 +19,7 @@ import { Gates } from './pages/Gates';
 import { Settings as SettingsPage } from './pages/Settings';
 import { useDarkMode } from './lib/theme';
 import { CopilotAuthProvider } from './lib/copilotAuth';
+import { BackgroundScansProvider } from './lib/backgroundScans';
 import { cn } from './components/cn';
 
 const NAV = [
@@ -40,6 +41,7 @@ export function App() {
   const [dark, toggleDark] = useDarkMode();
   return (
     <HashRouter>
+      <BackgroundScansProvider>
       <div className="flex min-h-screen">
         {/* Sidebar */}
         <aside className="flex w-60 shrink-0 flex-col bg-sidebar text-white/80">
@@ -99,6 +101,7 @@ export function App() {
         </CopilotAuthProvider>
         </div>
       </div>
+      </BackgroundScansProvider>
     </HashRouter>
   );
 }
