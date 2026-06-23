@@ -164,10 +164,25 @@ public class JavaSpringExtractor {
 
         Map<String, SchemaModel> schemas = new LinkedHashMap<>();
         Set<String> unresolved = new java.util.LinkedHashSet<>();
-        for (String name : referenced) {
-            String simple = name.replace("[]", "");
+        // Worklist over referenced DTOs AND, transitively, the DTO types of their fields — so a nested DTO
+        // (e.g. PasswordPolicy.complexity : PasswordComplexity) gets its own schema built and can be field-diffed,
+        // not just left as a dangling refSchema pointer the comparison can't resolve.
+        java.util.Deque<String> queue = new java.util.ArrayDeque<>();
+        referenced.forEach(n -> queue.add(n.replace("[]", "")));
+        Set<String> processed = new HashSet<>();
+        while (!queue.isEmpty()) {
+            String simple = queue.poll();
+            if (!processed.add(simple)) {
+                continue;
+            }
             if (types.containsKey(simple) && !schemas.containsKey(simple)) {
-                schemas.put(simple, buildSchema(types.get(simple), types));
+                SchemaModel built = buildSchema(types.get(simple), types);
+                schemas.put(simple, built);
+                for (FieldModel fld : built.fields()) {
+                    if (fld.refSchema() != null) {
+                        queue.add(fld.refSchema().replace("[]", ""));   // transitively resolve nested DTOs
+                    }
+                }
             } else if (!types.containsKey(simple) && isResolvableSchemaName(simple)) {
                 // Referenced DTO not in the scanned sources — try the symbol solver before flagging it.
                 unresolved.add(simple);
@@ -305,16 +320,16 @@ public class JavaSpringExtractor {
         RequestBodyModel body = null;
         for (Parameter p : m.getParameters()) {
             if (hasMeta(p, "PathVariable", types)) {
-                params.add(param(file, p, ParamLocation.PATH, true));
+                params.add(param(file, p, ParamLocation.PATH, true, types));
             } else if (hasMeta(p, "RequestParam", types)) {
                 boolean required = getAnnotation(p, "RequestParam")
                         .map(a -> !"false".equals(firstString(a, "required")) && firstString(a, "defaultValue") == null)
                         .orElse(true);
-                params.add(param(file, p, ParamLocation.QUERY, required));
+                params.add(param(file, p, ParamLocation.QUERY, required, types));
             } else if (hasMeta(p, "RequestHeader", types)) {
-                params.add(param(file, p, ParamLocation.HEADER, bindingRequired(p, "RequestHeader")));
+                params.add(param(file, p, ParamLocation.HEADER, bindingRequired(p, "RequestHeader"), types));
             } else if (hasMeta(p, "CookieValue", types)) {
-                params.add(param(file, p, ParamLocation.COOKIE, bindingRequired(p, "CookieValue")));
+                params.add(param(file, p, ParamLocation.COOKIE, bindingRequired(p, "CookieValue"), types));
             } else if (hasMeta(p, "RequestBody", types)) {
                 BodyType bt = unwrap(p.getType());
                 if (bt.typeName() != null) {
@@ -589,7 +604,8 @@ public class JavaSpringExtractor {
                 .orElse(true);
     }
 
-    private ParamModel param(String file, Parameter p, ParamLocation loc, boolean required) {
+    private ParamModel param(String file, Parameter p, ParamLocation loc, boolean required,
+                             Map<String, TypeDeclaration<?>> types) {
         String annName = getAnnotation(p, switch (loc) {
             case PATH -> "PathVariable";
             case QUERY -> "RequestParam";
@@ -597,8 +613,18 @@ public class JavaSpringExtractor {
             case COOKIE -> "CookieValue";
         }).map(a -> firstString(a, "value", "name")).orElse(null);
         String name = annName != null ? annName : p.getNameAsString();
-        String[] tf = openApiType(simpleTypeName(p.getType()));
-        return new ParamModel(name, loc, tf[0], tf[1], required, constraintsOf(p),
+        String simple = simpleTypeName(p.getType());
+        String[] tf = openApiType(simple);
+        String type = tf[0];
+        ConstraintSet cs = constraintsOf(p);
+        // A param typed as a Java enum constrains the allowed values. Surface them as the param's enum constraint
+        // (the spec often models this as a bare string with the allowed set only in the description prose), so an
+        // enum drift becomes a contract-testable CONSTRAINT_GAP instead of an invisible string-vs-string match.
+        if (types.get(simple) instanceof EnumDeclaration ed) {
+            type = "string";
+            cs = cs.withEnumValues(enumValuesOf(ed));
+        }
+        return new ParamModel(name, loc, type, tf[1], required, cs,
                 SourceRef.code(file, line(p), line(p), p.toString()));
     }
 
@@ -757,12 +783,14 @@ public class JavaSpringExtractor {
                     // A catch-all handler (Exception/RuntimeException/Throwable) maps to a status every endpoint could
                     // in theory produce — mark it GLOBAL so the diff treats it as LOW-confidence, not a hard defect.
                     String origin = catchAllHandler(m) ? "EXCEPTION_HANDLER_GLOBAL" : "EXCEPTION_HANDLER";
+                    List<String> mt = adviceMediaTypes(m);
+                    List<String> adviceMt = mt.isEmpty() ? null : mt;
                     for (int status : statuses) {
                         if (status < 400) {
                             continue;   // an @ExceptionHandler's output is an error response — a 2xx must not leak onto endpoints as a success body
                         }
                         if (out.stream().noneMatch(r -> r.statusCode() == status)) {
-                            out.add(new ResponseModel(status, bt.noBody() ? null : bt.schemaRef(), null, origin,
+                            out.add(new ResponseModel(status, bt.noBody() ? null : bt.schemaRef(), adviceMt, origin,
                                     SourceRef.code(file, line(m), line(m), m.getDeclarationAsString(false, false, false))));
                         }
                     }
@@ -770,6 +798,50 @@ public class JavaSpringExtractor {
             }
         }
         return out;
+    }
+
+    private static final Map<String, String> MEDIA_TYPE_CONSTANTS = Map.ofEntries(
+            Map.entry("APPLICATION_JSON", "application/json"),
+            Map.entry("APPLICATION_PROBLEM_JSON", "application/problem+json"),
+            Map.entry("APPLICATION_PROBLEM_XML", "application/problem+xml"),
+            Map.entry("APPLICATION_XML", "application/xml"),
+            Map.entry("TEXT_PLAIN", "text/plain"),
+            Map.entry("TEXT_HTML", "text/html"),
+            Map.entry("APPLICATION_PDF", "application/pdf"),
+            Map.entry("APPLICATION_OCTET_STREAM", "application/octet-stream"));
+
+    /** Media types an @ExceptionHandler sets on its response via {@code .contentType(MediaType.X)} / a string literal. */
+    private List<String> adviceMediaTypes(MethodDeclaration m) {
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        for (MethodCallExpr call : m.findAll(MethodCallExpr.class)) {
+            if (!call.getNameAsString().equals("contentType") || call.getArguments().isEmpty()) {
+                continue;
+            }
+            String mt = mediaTypeFromExpr(call.getArgument(0));
+            if (mt != null) {
+                out.add(mt);
+            }
+        }
+        return new ArrayList<>(out);
+    }
+
+    private String mediaTypeFromExpr(Expression e) {
+        if (e.isStringLiteralExpr()) {
+            return e.asStringLiteralExpr().getValue();
+        }
+        if (e.isMethodCallExpr()) {
+            MethodCallExpr mc = e.asMethodCallExpr();
+            if ((mc.getNameAsString().equals("parseMediaType") || mc.getNameAsString().equals("valueOf"))
+                    && !mc.getArguments().isEmpty() && mc.getArgument(0).isStringLiteralExpr()) {
+                return mc.getArgument(0).asStringLiteralExpr().getValue();
+            }
+        }
+        String t = e.toString().trim();
+        String suffix = t.contains(".") ? t.substring(t.lastIndexOf('.') + 1) : t;
+        if (suffix.endsWith("_VALUE")) {
+            suffix = suffix.substring(0, suffix.length() - "_VALUE".length());
+        }
+        return MEDIA_TYPE_CONSTANTS.get(suffix);
     }
 
     /**
