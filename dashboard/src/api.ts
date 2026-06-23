@@ -265,9 +265,10 @@ export const api = {
     fetch(`${BASE}/test-cases/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<TestCase>),
   pushTestCase: (id: string, projectKey: string) => post<TestCase>(`/test-cases/${id}/push`, { projectKey }),
 
-  // Findings disposition (accept/reject/triage) — captures who/when/why server-side
+  // Findings disposition (accept/reject/triage) — server records who/when (+ optional why note).
+  // Routes through send() so a 4xx/5xx surfaces a real error (and the Copilot auth gate) instead of a false success.
   patchFinding: (id: string, status: string, note?: string) =>
-    fetch(`${BASE}/findings/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, note }) }).then((r) => r.json() as Promise<Finding>),
+    send<Finding>('PATCH', `/findings/${id}`, { status, note }),
 
   // Strategies / Reviews
   strategies: (service: string) => get<TestStrategy[]>(`/services/${encodeURIComponent(service)}/strategies`),

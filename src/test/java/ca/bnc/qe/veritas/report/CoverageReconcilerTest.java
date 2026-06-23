@@ -31,8 +31,21 @@ class CoverageReconcilerTest {
 
     @Test
     void detectsMissingSourcePhrasings() {
+        // true disclaimers — a Veritas SOURCE was not supplied
         assertThat(CoverageReconciler.looksLikeMissingSource("exception-handler source not supplied")).isTrue();
+        assertThat(CoverageReconciler.looksLikeMissingSource("DTO source not supplied")).isTrue();
         assertThat(CoverageReconciler.looksLikeMissingSource("security source not supplied")).isTrue();
+        assertThat(CoverageReconciler.looksLikeMissingSource("The handler source file was not supplied in the scan.")).isTrue();
+    }
+
+    @Test
+    void doesNotOverMatchUnrelatedTextContainingSourceClassFile() {
+        // these are NOT coverage disclaimers and must be left untouched (regression for the substring over-match)
+        assertThat(CoverageReconciler.looksLikeMissingSource("The resource is not available to anonymous consumers.")).isFalse();
+        assertThat(CoverageReconciler.looksLikeMissingSource("This open-source library was not provided by the vendor.")).isFalse();
+        assertThat(CoverageReconciler.looksLikeMissingSource("Outsource validation is not available downstream.")).isFalse();
+        assertThat(CoverageReconciler.looksLikeMissingSource("The class hierarchy is not available for inspection here.")).isFalse();
+        assertThat(CoverageReconciler.looksLikeMissingSource("No security scheme is defined for this operation.")).isFalse();
         assertThat(CoverageReconciler.looksLikeMissingSource("Inconsistent resource naming across endpoints")).isFalse();
     }
 

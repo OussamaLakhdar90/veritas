@@ -110,6 +110,17 @@ class ContractReportRendererTest {
     }
 
     @Test
+    void nullSeverityFindingDoesNotEmitAnInvalidEmptyConicGradient() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        Finding noSev = Finding.builder().findingId("n").type(FindingType.MISSING_ENDPOINT).layer(Layer.L2)
+                .severity(null).confidence(Confidence.MEDIUM).origin("DETERMINISTIC").specSource("code-vs-spec")
+                .endpoint("GET /x").summary("endpoint missing from spec").build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(noSev));
+        assertThat(html).doesNotContain("conic-gradient()");   // would be invalid CSS / blank donut
+    }
+
+    @Test
     void pdfRendersWithDetailRowsAsValidXhtml() {
         Scan scan = new Scan();
         scan.setServiceName("ciam-policies");

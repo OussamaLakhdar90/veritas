@@ -428,7 +428,9 @@ public class ContractReportRenderer {
 
     /** Conic-gradient donut + legend (interactive HTML only — the PDF engine can't render conic-gradient/SVG). */
     private String severityDonut(List<Finding> items, String centerEn, String centerFr) {
-        int total = items.size();
+        // Count only items with a real severity so the donut total reconciles with the gradient stops below — a
+        // null/unknown severity (e.g. a corrupt persisted row on a live re-render) can't yield an empty conic-gradient().
+        int total = (int) items.stream().filter(f -> f.getSeverity() != null).count();
         if (total == 0) {
             return "<div class=\"cov-ok\">" + bi("No counted findings — contract is clean.",
                     "Aucun constat compté — le contrat est conforme.") + "</div>";

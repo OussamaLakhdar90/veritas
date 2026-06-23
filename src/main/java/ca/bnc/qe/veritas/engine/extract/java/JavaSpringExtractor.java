@@ -815,7 +815,7 @@ public class JavaSpringExtractor {
             }
             if (call.getNameAsString().equals("forStatus") || call.getNameAsString().equals("forStatusAndDetail")) {
                 Integer s = statusFromArg(call);
-                if (s != null) {
+                if (s != null && s >= 400) {   // an exception handler's output is an error response; ignore a 2xx ProblemDetail
                     out.add(s);
                 }
             }
@@ -827,14 +827,14 @@ public class JavaSpringExtractor {
     private List<Integer> newResponseEntityStatuses(MethodDeclaration m) {
         java.util.LinkedHashSet<Integer> out = new java.util.LinkedHashSet<>();
         for (ObjectCreationExpr oce : m.findAll(ObjectCreationExpr.class)) {
-            if (!oce.getType().getNameAsString().equals("ResponseEntity")) {
+            if (!oce.getType().getNameAsString().equals("ResponseEntity") || oce.getArguments().isEmpty()) {
                 continue;
             }
-            for (Expression arg : oce.getArguments()) {
-                Integer s = statusFromText(arg.toString().trim());
-                if (s != null && s >= 400) {
-                    out.add(s);
-                }
+            // The status is the LAST constructor arg (the HttpStatus/HttpStatusCode slot). Scanning all args would
+            // misread a body/header expression whose text merely contains a status keyword (e.g. NOT_FOUND_MESSAGE).
+            Integer s = statusFromText(oce.getArgument(oce.getArguments().size() - 1).toString().trim());
+            if (s != null && s >= 400) {
+                out.add(s);
             }
         }
         return new ArrayList<>(out);

@@ -55,4 +55,9 @@ public class Scan extends AuditableEntity {
 
     @Column(length = 2000)
     private String errorMessage;
+
+    /** EN→FR translation map (JSON) captured at scan time, so a live re-render stays bilingual. */
+    @jakarta.persistence.Lob
+    @Column(columnDefinition = "TEXT")
+    private String translationsJson;
 }

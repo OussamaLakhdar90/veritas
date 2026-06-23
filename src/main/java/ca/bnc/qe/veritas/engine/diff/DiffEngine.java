@@ -331,38 +331,45 @@ public class DiffEngine {
      * $ref'd schemas up to {@link #MAX_SCHEMA_DEPTH} (a visited-pair set guards cyclic DTO graphs). */
     private boolean propsEqual(ApiModel code, ApiModel spec, SchemaModel cs, SchemaModel ss, int depth,
                                java.util.Set<String> visited) {
-        if (!visited.add(cs.name() + "|" + ss.name())) {
-            return true;   // already comparing this pair up-stack — assume consistent, break the cycle
+        String key = cs.name() + "|" + ss.name();
+        if (!visited.add(key)) {
+            return true;   // this pair is already being compared higher up the stack — break the cycle
         }
-        boolean cEnum = cs.enumValues() != null && !cs.enumValues().isEmpty();
-        boolean sEnum = ss.enumValues() != null && !ss.enumValues().isEmpty();
-        if (cEnum || sEnum) {
-            return cEnum && sEnum && normSet(cs.enumValues()).equals(normSet(ss.enumValues()));
-        }
-        Map<String, FieldModel> cf = fieldsByName(cs);
-        Map<String, FieldModel> sf = fieldsByName(ss);
-        if (!cf.keySet().equals(sf.keySet())) {
-            return false;
-        }
-        for (Map.Entry<String, FieldModel> e : cf.entrySet()) {
-            FieldModel c = e.getValue();
-            FieldModel s = sf.get(e.getKey());
-            if (!typeCompatible(c, s)) {
+        // Scope the guard to genuine stack ANCESTORS: removing on exit means a pair truncated by depth on one path
+        // can still be fully compared when reached via a shorter path, so a deep diff isn't wrongly memoized as MATCH.
+        try {
+            boolean cEnum = cs.enumValues() != null && !cs.enumValues().isEmpty();
+            boolean sEnum = ss.enumValues() != null && !ss.enumValues().isEmpty();
+            if (cEnum || sEnum) {
+                return cEnum && sEnum && normSet(cs.enumValues()).equals(normSet(ss.enumValues()));
+            }
+            Map<String, FieldModel> cf = fieldsByName(cs);
+            Map<String, FieldModel> sf = fieldsByName(ss);
+            if (!cf.keySet().equals(sf.keySet())) {
                 return false;
             }
-            if (depth > 0 && c.refSchema() != null && s.refSchema() != null) {
-                if (arrayRef(c.refSchema()) != arrayRef(s.refSchema())) {
+            for (Map.Entry<String, FieldModel> e : cf.entrySet()) {
+                FieldModel c = e.getValue();
+                FieldModel s = sf.get(e.getKey());
+                if (!typeCompatible(c, s)) {
                     return false;
                 }
-                SchemaModel nc = code.schemas().get(baseName(c.refSchema()));
-                SchemaModel ns = spec.schemas().get(baseName(s.refSchema()));
-                // recurse only when both nested schemas resolve; an unresolved nested side never invents a diff
-                if (nc != null && ns != null && !propsEqual(code, spec, nc, ns, depth - 1, visited)) {
-                    return false;
+                if (depth > 0 && c.refSchema() != null && s.refSchema() != null) {
+                    if (arrayRef(c.refSchema()) != arrayRef(s.refSchema())) {
+                        return false;
+                    }
+                    SchemaModel nc = code.schemas().get(baseName(c.refSchema()));
+                    SchemaModel ns = spec.schemas().get(baseName(s.refSchema()));
+                    // recurse only when both nested schemas resolve; an unresolved nested side never invents a diff
+                    if (nc != null && ns != null && !propsEqual(code, spec, nc, ns, depth - 1, visited)) {
+                        return false;
+                    }
                 }
             }
+            return true;
+        } finally {
+            visited.remove(key);
         }
-        return true;
     }
 
     private static Map<String, FieldModel> fieldsByName(SchemaModel s) {

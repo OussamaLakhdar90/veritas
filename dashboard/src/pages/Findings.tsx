@@ -68,16 +68,20 @@ export function Findings() {
   // Disposition (accept/reject) — persisted + audited server-side; the report re-renders from this.
   const toast = useToast();
   const qc = useQueryClient();
+  // Track in-flight finding+status keys so each row's spinner is correct under concurrent clicks (a single shared
+  // mutation.variables only reflects the most recent call).
+  const [inFlight, setInFlight] = useState<Set<string>>(new Set());
   const disposition = useMutation({
     mutationFn: ({ f, status }: { f: Finding; status: string }) => api.patchFinding(f.id, status),
+    onMutate: (v) => setInFlight((s) => new Set(s).add(`${v.f.id}:${v.status}`)),
+    onSettled: (_d, _e, v) => setInFlight((s) => { const n = new Set(s); n.delete(`${v.f.id}:${v.status}`); return n; }),
     onSuccess: (_r, v) => {
       qc.invalidateQueries({ queryKey: ['findings', scanId] });
       toast.push('success', `Marked ${DISP_LABEL[v.status] ?? v.status}.`);
     },
     onError: (e: Error) => toast.push('error', e.message),
   });
-  const busy = (f: Finding, status: string) =>
-    disposition.isPending && disposition.variables?.f.id === f.id && disposition.variables?.status === status;
+  const busy = (f: Finding, status: string) => inFlight.has(`${f.id}:${status}`);
 
   return (
     <div>

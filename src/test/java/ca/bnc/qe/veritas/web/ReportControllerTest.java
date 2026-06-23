@@ -37,8 +37,8 @@ class ReportControllerTest {
         r.setType("MISSING_ENDPOINT");
         r.setSeverity("CRITICAL");
         r.setStatus("REJECTED");
-        when(findingRepository.findByScanId("abc")).thenReturn(List.of(r));
-        when(renderer.renderHtml(any(), any())).thenReturn("<html>LIVE</html>");
+        when(findingRepository.findByScanIdOrderBySeverityAsc("abc")).thenReturn(List.of(r));
+        when(renderer.renderHtml(any(), any(), any())).thenReturn("<html>LIVE</html>");
 
         mvc.perform(get("/api/v1/scans/abc/report"))
                 .andExpect(status().isOk())

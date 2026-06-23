@@ -218,6 +218,23 @@ public class ContractValidationService {
             // Collapse duplicate findings about the same endpoint+issue (deterministic + LLM) before scoring/render.
             findings = dedupCrossList(findings);
 
+            // Graft the LLM per-finding enrichment (explanation / proposed fix) onto the in-memory findings so the
+            // as-scanned disk report matches the live re-render (which reads the same enrichment from the persisted row).
+            findings = findings.stream().map(f -> {
+                JsonNode e = enrich.get(f.getFindingId());
+                if (e == null) {
+                    return f;
+                }
+                var b = f.toBuilder();
+                if (f.getExplanation() == null && e.hasNonNull("explanation")) {
+                    b.explanation(e.get("explanation").asText());
+                }
+                if (f.getProposedFix() == null && e.hasNonNull("proposedFix")) {
+                    b.proposedFix(e.get("proposedFix").asText());
+                }
+                return b.build();
+            }).toList();
+
             // Populate the "current YAML" fragment per finding (deterministic) so the report can show it.
             findings = enrichWithSpecFragments(findings, req.specs());
 
@@ -259,6 +276,15 @@ public class ContractValidationService {
                 }
                 if (!toTranslate.isEmpty()) {
                     fr = translationService.toFrench(toTranslate, req.owner());
+                }
+            }
+            // Persist the translation map so a later LIVE re-render (ReportController) stays bilingual instead of
+            // falling back to English for the finding bodies.
+            if (!fr.isEmpty()) {
+                try {
+                    scan.setTranslationsJson(objectMapper.writeValueAsString(fr));
+                } catch (Exception ex) {
+                    log.debug("Scan {} could not persist translations: {}", scan.getId(), ex.getMessage());
                 }
             }
 
@@ -378,9 +404,11 @@ public class ContractValidationService {
             }
             for (Finding df : parseDesignFindings(node)) {
                 // Suppress an AI absence claim the resolved spec contradicts (e.g. "no examples" when $ref examples
-                // exist) — a deterministic guard so a false L6 finding can't reach the report.
-                if (presence.contradictsAbsenceClaim(df.getSummary())) {
-                    log.info("Scan {} suppressing contradicted design finding: {}", scanId, df.getSummary());
+                // exist). Only for SPEC-WIDE claims: a finding scoped to a specific endpoint can't be refuted by
+                // spec-global "any..." presence facts — that endpoint may genuinely lack the thing.
+                boolean specWide = df.getEndpoint() == null || df.getEndpoint().isBlank();
+                if (specWide && presence.contradictsAbsenceClaim(df.getSummary())) {
+                    log.info("Scan {} suppressing contradicted spec-wide design finding: {}", scanId, df.getSummary());
                     continue;
                 }
                 if (designIds.add(df.getFindingId())) {

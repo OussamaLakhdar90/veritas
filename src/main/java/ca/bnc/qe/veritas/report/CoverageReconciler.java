@@ -18,11 +18,15 @@ public final class CoverageReconciler {
     private CoverageReconciler() {
     }
 
-    /** A clause claiming a source/handler/DTO/security input was not supplied/provided/available. */
+    /**
+     * A clause claiming a Veritas SOURCE input was not supplied/provided/available. Requires a standalone "source(s)"
+     * word (the lookbehind excludes "resource", "open-source", "outsource", …) within a short window of a
+     * not-supplied verb — so unrelated text like "the resource is not available" or "no security scheme defined" is
+     * NOT mistaken for a coverage disclaimer.
+     */
     private static final Pattern MISSING_SOURCE = Pattern.compile(
-            "(?i)(source|file|class|dto|handler|advice|controller|security\\s+config\\w*)[^.;]{0,60}"
-                    + "(not\\s+(supplied|provided|available)|not in the scanned sources|unavailable|"
-                    + "was not (supplied|provided))");
+            "(?i)(?<![\\w-])sources?\\b[^.;]{0,40}\\bnot\\s+(supplied|provided|available)\\b"
+                    + "|(?i)\\bnot\\s+(supplied|provided|available)\\b[^.;]{0,40}(?<![\\w-])sources?\\b");
 
     public static boolean looksLikeMissingSource(String text) {
         return text != null && MISSING_SOURCE.matcher(text).find();
