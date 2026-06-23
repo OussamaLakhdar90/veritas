@@ -326,7 +326,8 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
         </>
       ) : (
         <ScanProgress stage={stage} failed={failed} errorMessage={scan?.errorMessage} onRetry={retry}
-          startMs={(scan?.startedAt && Date.parse(scan.startedAt)) || startedAtMs} />
+          startMs={(scan?.startedAt && Date.parse(scan.startedAt)) || startedAtMs}
+          stageDetail={scan?.stageDetail} model={scan?.model} />
       )}
     </Modal>
   );
@@ -335,8 +336,9 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
 /* ── Friendly step-by-step tracker the user can follow while a scan runs ──
       Premium header (live timer + progress bar + "step N of M"), a per-step timer on the
       active row, and a reassurance on the slow AI step so a long scan never reads as stuck. ── */
-function ScanProgress({ stage, failed, errorMessage, onRetry, startMs }:
-  { stage: string; failed: boolean; errorMessage?: string; onRetry: () => void; startMs: number | null }) {
+function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDetail, model }:
+  { stage: string; failed: boolean; errorMessage?: string; onRetry: () => void; startMs: number | null;
+    stageDetail?: string; model?: string }) {
   const total = SCAN_STEPS.length;
   const current = STAGE_ORDER[stage] ?? 0;
   // Which step the failure happened on (the last step we'd entered), for a clear "failed at …" line.
@@ -346,6 +348,12 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs }:
   const activeLabel = SCAN_STEPS.find((s) => s.key === stage)?.label;
   const elapsed = useElapsed(startMs, !failed);          // whole-scan timer
   const stageElapsed = useStageElapsed(stage, !failed);  // current step's own timer
+  // Time-aware reassurance for the slow AI step — escalates instead of insisting "a minute or two" at 8 minutes.
+  const aiHint = stageElapsed < 90_000
+    ? 'The AI is reviewing the findings and generating a corrected spec — usually a minute or two.'
+    : stageElapsed < 240_000
+      ? 'Still generating the corrected spec — larger contracts take a few minutes.'
+      : `This is a large contract — the AI is still working (${formatElapsed(stageElapsed)}). You can keep waiting or run it in the background.`;
 
   return (
     <div>
@@ -413,11 +421,20 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs }:
                   )}
                   {status === 'done' && <span className="shrink-0 text-[11px] font-medium text-success">done</span>}
                 </div>
-                <p className="text-[12px] text-muted">{isFailedHere && errorMessage ? errorMessage : step.detail}</p>
+                <p className="text-[12px] text-muted">
+                  {isFailedHere && errorMessage ? errorMessage
+                    : status === 'active' && stageDetail ? stageDetail
+                    : step.detail}
+                </p>
                 {status === 'active' && step.long && (
-                  <p className="mt-1.5 inline-flex items-center gap-1.5 rounded-md bg-brand-50 px-2 py-1 text-[11px] text-brand-600 ring-1 ring-brand-600/15">
-                    <Sparkles className="h-3 w-3 shrink-0" /> Longest step — the AI is generating. This can take a minute or two.
-                  </p>
+                  <div className="mt-1.5 space-y-1">
+                    <p className="inline-flex items-center gap-1.5 rounded-md bg-brand-50 px-2 py-1 text-[11px] text-brand-600 ring-1 ring-brand-600/15">
+                      <Sparkles className="h-3 w-3 shrink-0" /> {aiHint}
+                    </p>
+                    {model && (
+                      <p className="text-[11px] text-muted">Model: <span className="font-medium text-ink-700">{model}</span> · Copilot</p>
+                    )}
+                  </div>
                 )}
               </div>
             </li>
