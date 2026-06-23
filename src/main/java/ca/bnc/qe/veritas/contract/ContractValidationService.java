@@ -212,6 +212,12 @@ public class ContractValidationService {
                 correctedYamlPath = writeOut("openapi.corrected-" + scan.getId() + ".yaml", corrected);
             }
 
+            // Coverage honesty: when extraction was complete, strip false "source not supplied" disclaimers so the
+            // report's manual-review items can't contradict its §7 coverage verdict.
+            findings = ca.bnc.qe.veritas.report.CoverageReconciler.stripFalseSourceDisclaimers(findings, code);
+            // Collapse duplicate findings about the same endpoint+issue (deterministic + LLM) before scoring/render.
+            findings = dedupCrossList(findings);
+
             // Populate the "current YAML" fragment per finding (deterministic) so the report can show it.
             findings = enrichWithSpecFragments(findings, req.specs());
 
@@ -299,6 +305,11 @@ public class ContractValidationService {
         String codeEps = code.endpoints().stream().map(Endpoint::signature).toList().toString();
         List<String> specEps = new ArrayList<>();
         specs.forEach(s -> s.endpoints().forEach(e -> specEps.add(e.signature())));
+        // What the extractor actually parsed/resolved — so the LLM never claims a source it has is "not supplied".
+        String manifest = objectMapper.writeValueAsString(Map.of(
+                "parsedEndpoints", code.endpoints().size(),
+                "resolvedTypes", new ArrayList<>(code.schemas().keySet()),
+                "knownGaps", code.blindSpots() == null ? List.of() : code.blindSpots()));
 
         String outputContract = "Code is the source of truth for behaviour. For each finding add a short "
                 + "explanation and a proposed fix; then produce a reconciled corrected OpenAPI YAML (code wins on "
@@ -307,6 +318,9 @@ public class ContractValidationService {
                 + "SPEC_PRESENCE_FACTS reports what the FULLY-RESOLVED spec actually contains (examples, schema "
                 + "properties, constraints and error responses are resolved through $ref); NEVER assert any of these "
                 + "is absent when the facts say it is present. "
+                + "PARSED_SOURCE_MANIFEST lists the endpoints/types Veritas parsed and resolved; the only genuine gaps "
+                + "are in its knownGaps. NEVER state a source/handler/DTO/security input was 'not supplied' unless it "
+                + "appears in knownGaps. "
                 + "Do NOT add citations — Veritas attaches the governing standard (OpenAPI / HTTP / JSON Schema) "
                 + "deterministically. Reply with exactly one fenced ```json block as the LAST thing, matching: "
                 + "{\"correctedYaml\": string, \"findings\": [{\"findingId\": string, \"explanation\": string, "
@@ -341,7 +355,8 @@ public class ContractValidationService {
             String inputs = promptComposer.data("DETERMINISTIC_FINDINGS", batchJson)
                     + promptComposer.data("CODE_ENDPOINTS", codeEps)
                     + promptComposer.data("SPEC_ENDPOINTS", specEps.toString())
-                    + promptComposer.data("SPEC_PRESENCE_FACTS", objectMapper.writeValueAsString(presence));
+                    + promptComposer.data("SPEC_PRESENCE_FACTS", objectMapper.writeValueAsString(presence))
+                    + promptComposer.data("PARSED_SOURCE_MANIFEST", manifest);
             String prompt = promptComposer.compose("[CONTRACT-RECONCILE]", "validate-service-contract.prompt.md",
                     Set.of("1", "6", "12"), inputs, outputContract, modelSelector.promptTokenCap(model));
             String raw = llm.complete(prompt, model);
@@ -520,5 +535,46 @@ public class ContractValidationService {
 
     private String nz(String s) {
         return s == null ? "" : s;
+    }
+
+    /**
+     * Collapse findings that describe the same endpoint+issue (keyed on type + endpoint + normalized summary),
+     * order-preserving. When a deterministic and an LLM finding collide, keep the deterministic one (it carries the
+     * code evidence and is scored) but graft the LLM's explanation/proposed fix onto it.
+     */
+    private List<Finding> dedupCrossList(List<Finding> in) {
+        Map<String, Finding> byKey = new LinkedHashMap<>();
+        for (Finding f : in) {
+            String key = f.getType() + "|" + nz(f.getEndpoint()) + "|" + normSummary(f.getSummary());
+            Finding existing = byKey.get(key);
+            if (existing == null) {
+                byKey.put(key, f);
+            } else if (!isDeterministic(existing) && isDeterministic(f)) {
+                byKey.put(key, mergeEnrichment(f, existing));
+            }
+            // otherwise keep the first (order-preserving); a later duplicate is dropped
+        }
+        return new ArrayList<>(byKey.values());
+    }
+
+    private boolean isDeterministic(Finding f) {
+        return "DETERMINISTIC".equalsIgnoreCase(nz(f.getOrigin()));
+    }
+
+    private String normSummary(String s) {
+        return s == null ? "" : s.toLowerCase(java.util.Locale.ROOT).replaceAll("\\s+", " ")
+                .replaceAll("[.;:,]+$", "").trim();
+    }
+
+    /** Graft an LLM finding's enrichment onto the deterministic survivor without overwriting its own fields. */
+    private Finding mergeEnrichment(Finding deterministic, Finding llm) {
+        var b = deterministic.toBuilder();
+        if (deterministic.getExplanation() == null && llm.getExplanation() != null) {
+            b.explanation(llm.getExplanation());
+        }
+        if (deterministic.getProposedFix() == null && llm.getProposedFix() != null) {
+            b.proposedFix(llm.getProposedFix());
+        }
+        return b.build();
     }
 }

@@ -278,6 +278,12 @@ public class ContractReportRenderer {
                             "Limites — ces zones n'ont pas pu être pleinement analysées; l'absence de constat n'est donc "
                                     + "pas une garantie :"))
                     .append("</p><p>").append(biDyn(scan.getBlindSpots(), fr)).append("</p>");
+        } else if (CoverageReconciler.anyMissingSourceDisclaimer(attention)) {
+            // A manual-review item still flags an unsupplied source — §7 must not claim full coverage and contradict it.
+            sb.append("<p class=\"cov-warn\">").append(bi(
+                    "Partial coverage — a manual-review item above notes a source that was not fully analysed.",
+                    "Couverture partielle — un élément à vérifier ci-dessus signale une source non pleinement analysée."))
+                    .append("</p>");
         } else {
             sb.append("<p class=\"cov-ok\">").append(bi(
                     "Full coverage — all sources parsed and referenced types resolved.",

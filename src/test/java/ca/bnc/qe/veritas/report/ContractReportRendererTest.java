@@ -60,6 +60,28 @@ class ContractReportRendererTest {
     }
 
     @Test
+    void coverageNotClaimedFullWhenAManualReviewItemDisclaimsAMissingSource() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");   // no blind spots → would otherwise read "Full coverage"
+        Finding disclaimer = Finding.builder()
+                .findingId("d1").type(FindingType.TEST_BASIS_GAP).layer(Layer.L6).severity(Severity.MAJOR)
+                .confidence(Confidence.MEDIUM).origin("LLM").service("ciam-policies").specSource("code-vs-spec")
+                .summary("Security test cases not derivable — security source not supplied").build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(disclaimer));
+        assertThat(html).contains("Analysis coverage");
+        assertThat(html).doesNotContain("Full coverage");
+        assertThat(html).contains("Partial coverage");
+    }
+
+    @Test
+    void coverageClaimedFullWhenNoBlindSpotsAndNoDisclaimers() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");   // no blind spots, clean deterministic finding → "Full coverage"
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(richFinding()));
+        assertThat(html).contains("Full coverage");
+    }
+
+    @Test
     void pdfRendersWithDetailRowsAsValidXhtml() {
         Scan scan = new Scan();
         scan.setServiceName("ciam-policies");
