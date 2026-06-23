@@ -169,6 +169,45 @@ class GoldenDiscrepancyCatalogTest {
                                 && x.getSummary() != null && x.getSummary().contains("NBC4") && x.getSummary().contains("spec=")),
                         FindingType.CONSTRAINT_GAP),
 
+                // Miss 2c: a $ref-component "context" param whose SCHEMA is itself a $ref to a reusable enum schema
+                // (schema: {$ref: '#/components/schemas/ContextEnum'}) — the common BNC shape. setResolve(true)
+                // resolves the parameter $ref (name is fine → no false PARAM_MISSING/EXTRA) but does NOT dereference
+                // the param's schema $ref, so the spec enum [INDIVIDUAL, SYSTEM, NBC2, NBC4] was invisible and only a
+                // generic "code has an enum, spec has none" gap fired — the value-level drift (spec advertises NBC4 the
+                // code rejects; code accepts ENNBIN/ENTERPRISE/NOT_PROVIDED/NBINF) was missed. toParam now resolves the
+                // param's schema $ref against components/schemas, so the drift surfaces as a precise CONSTRAINT_GAP.
+                new Case("miss2c_enum_value_drift_from_component_ref",
+                        js(
+                                ctrl("CtxRefController", "/accounts",
+                                        "  @GetMapping(\"/lookup\")\n  public String l(@RequestParam(value=\"context\", required=false) Context context){return null;}\n"),
+                                enumType("Context", "INDIVIDUAL", "ENNBIN", "ENTERPRISE", "NBC2", "NOT_PROVIDED", "SYSTEM", "NBINF")),
+                        """
+                        openapi: 3.0.1
+                        info: {title: t, version: '1'}
+                        paths:
+                          /accounts/lookup:
+                            parameters:
+                              - $ref: '#/components/parameters/context'
+                            get:
+                              responses: {'200': {description: ok, content: {application/json: {schema: {type: string}}}}}
+                        components:
+                          parameters:
+                            context:
+                              name: context
+                              in: query
+                              required: false
+                              schema: {$ref: '#/components/schemas/ContextEnum'}
+                          schemas:
+                            ContextEnum:
+                              type: string
+                              enum: [INDIVIDUAL, SYSTEM, NBC2, NBC4]
+                        """,
+                        Set.of(FindingType.CONSTRAINT_GAP),
+                        Set.of(FindingType.PARAM_MISSING, FindingType.PARAM_EXTRA),
+                        f -> f.stream().anyMatch(x -> x.getType() == FindingType.CONSTRAINT_GAP
+                                && x.getSummary() != null && x.getSummary().contains("NBC4")
+                                && x.getSummary().contains("spec="))),
+
                 // Miss 3: error-response media-type drift — advice emits application/problem+json, spec says application/json.
                 emit("miss3_error_media_type_drift",
                         js(

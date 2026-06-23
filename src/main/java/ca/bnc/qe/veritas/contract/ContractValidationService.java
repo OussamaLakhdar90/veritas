@@ -400,9 +400,9 @@ public class ContractValidationService {
                     ? "Reviewing findings — batch " + batchNo + " of " + batches.size()
                     : "Generating the corrected spec — the AI is writing the fix…");
             String raw = llm.complete(prompt, model);
+            CostResult c = costRecorder.record("validate-contract", "reconcile", model, prompt, raw, owner, scanId);   // bill before parse
             JsonNode node = objectMapper.readTree(jsonExtractor.extract(raw));
             schemaValidator.validate(node, "contract-reconcile.schema.json");
-            CostResult c = costRecorder.record("validate-contract", "reconcile", model, prompt, raw, owner, scanId);
             premium += c.premiumRequests();
             costUsd += c.estCostUsd();
             tokIn += c.estTokensIn();
