@@ -184,26 +184,32 @@ public class ContractReportRenderer {
                     .append("</p>");
         }
 
-        // KPI scorecard
-        sb.append("<div class=\"kpis\">");
-        sb.append(kpi(score + "<span class=\"unit\">/100</span>", bi("Contract fidelity", "Fidélité du contrat"), band[0]));
-        sb.append(kpi(String.valueOf(blocking), bi("Release-blocking", "Bloquants"), blocking > 0 ? "action" : "clean"));
-        sb.append(kpi(String.valueOf(counted.size()), bi("Total findings", "Constats totaux"), "neutral"));
-        // Coverage = deterministic per-scan gaps (unparsed files / unresolved types). Fall back to the
-        // blind-spots text only for older scans that predate the coverageGaps count.
+        // KPI scorecard (built once, then laid out next to the severity breakdown for a single management snapshot).
+        // Coverage = deterministic per-scan gaps (unparsed files / unresolved types); fall back to the blind-spots
+        // text only for older scans that predate the coverageGaps count.
         int gaps = scan.getCoverageGaps() != null ? scan.getCoverageGaps()
                 : (isBlank(scan.getBlindSpots()) ? 0 : 1);
         String covValue = gaps == 0 ? bi("Full", "Complète")
                 : bi(gaps + (gaps == 1 ? " gap" : " gaps"), gaps + (gaps == 1 ? " lacune" : " lacunes"));
-        sb.append(kpi(covValue, bi("Analysis coverage", "Couverture"), gaps == 0 ? "clean" : "minor"));
-        sb.append("</div>");
-
-        sb.append("<div class=\"dist-panel\"><div class=\"panel-h\">")
-                .append(bi("Findings by severity", "Constats par sévérité")).append("</div>")
-                // Donut in the interactive HTML; the PDF engine has no SVG/conic-gradient support, so it keeps the bar.
-                .append(interactive ? severityDonut(counted, "findings", "constats")
-                        : distributionBar(missing, wrong, dead))
-                .append("</div>");
+        String kpis = kpi(score + "<span class=\"unit\">/100</span>", bi("Contract fidelity", "Fidélité du contrat"), band[0])
+                + kpi(String.valueOf(blocking), bi("Release-blocking", "Bloquants"), blocking > 0 ? "action" : "clean")
+                + kpi(String.valueOf(counted.size()), bi("Total findings", "Constats totaux"), "neutral")
+                + kpi(covValue, bi("Analysis coverage", "Couverture"), gaps == 0 ? "clean" : "minor");
+        String vizLabel = "<div class=\"panel-h\">" + bi("Findings by severity", "Constats par sévérité") + "</div>";
+        if (interactive) {
+            // One executive snapshot: the severity donut and the KPIs side by side, so management reads the score and
+            // the breakdown in a single block.
+            sb.append("<div class=\"exec-snapshot\">")
+                    .append("<div class=\"snapshot-viz\">").append(vizLabel)
+                    .append(severityDonut(counted, "findings", "constats")).append("</div>")
+                    .append("<div class=\"kpis snapshot-kpis\">").append(kpis).append("</div>")
+                    .append("</div>");
+        } else {
+            // PDF: keep the stacked layout (the engine has no SVG/conic-gradient/flex-grid support).
+            sb.append("<div class=\"kpis\">").append(kpis).append("</div>");
+            sb.append("<div class=\"dist-panel\">").append(vizLabel)
+                    .append(distributionBar(missing, wrong, dead)).append("</div>");
+        }
         sb.append("</section>");
 
         // ---- 2. Risk & business impact ----
@@ -277,8 +283,24 @@ public class ContractReportRenderer {
                 sb.append("<div class=\"dist-panel\"><div class=\"panel-h\">")
                         .append(bi("Manual-review items by severity", "Éléments à vérifier par sévérité")).append("</div>")
                         .append(severityDonut(attention, "to review", "à vérifier")).append("</div>");
-                sb.append("<p class=\"review-status\"><span id=\"rev-count\">0</span> ").append(bi("of", "sur"))
-                        .append(" ").append(attention.size()).append(" ").append(bi("reviewed", "vérifiés")).append("</p>");
+                int totalRev = attention.size();
+                long acc0 = attention.stream().filter(f -> isAccepted(f.getStatus())).count();
+                long rej0 = attention.stream().filter(f -> isRejected(f.getStatus())).count();
+                long pen0 = totalRev - acc0 - rej0;
+                sb.append("<div class=\"review-tracker\">")
+                        .append("<span class=\"rt-pill acc\"><b id=\"rt-acc\">").append(acc0).append("</b> ")
+                        .append(bi("accepted", "acceptés")).append("</span>")
+                        .append("<span class=\"rt-pill rej\"><b id=\"rt-rej\">").append(rej0).append("</b> ")
+                        .append(bi("rejected", "rejetés")).append("</span>")
+                        .append("<span class=\"rt-pill pen\"><b id=\"rt-pen\">").append(pen0).append("</b> ")
+                        .append(bi("pending", "en attente")).append("</span>")
+                        .append("<span class=\"rt-of\">(<span id=\"rev-count\">").append(acc0 + rej0).append("</span> ")
+                        .append(bi("of", "sur")).append(" ").append(totalRev).append(" ").append(bi("reviewed", "vérifiés"))
+                        .append(")</span></div>")
+                        .append("<div class=\"rt-bar\"><span id=\"rt-bar-acc\" style=\"width:")
+                        .append(pctStr(100.0 * acc0 / totalRev)).append("%\"></span>")
+                        .append("<span id=\"rt-bar-rej\" style=\"width:").append(pctStr(100.0 * rej0 / totalRev))
+                        .append("%\"></span></div>");
             }
             for (Finding f : attention) {
                 sb.append(findingCard(f, fr, interactive));
@@ -329,11 +351,17 @@ public class ContractReportRenderer {
                     .append("document.body.classList.add('lang-'+l);")
                     .append("document.querySelectorAll('.lang-toggle button').forEach(function(b){")
                     .append("b.classList.toggle('active', b.getAttribute('data-lang')===l);});}")
+                    .append("function reviewTracker(){var box=document.querySelector('.needs-attention');if(!box)return;")
+                    .append("var total=box.querySelectorAll('.finding-card').length;")
+                    .append("var acc=box.querySelectorAll('.finding-card.accepted').length;")
+                    .append("var rej=box.querySelectorAll('.finding-card.rejected').length;")
+                    .append("var s=function(id,v){var e=document.getElementById(id);if(e)e.textContent=v;};")
+                    .append("s('rt-acc',acc);s('rt-rej',rej);s('rt-pen',total-acc-rej);s('rev-count',acc+rej);")
+                    .append("var w=function(id,n){var e=document.getElementById(id);if(e)e.style.width=(total?100*n/total:0)+'%';};")
+                    .append("w('rt-bar-acc',acc);w('rt-bar-rej',rej);}")
                     .append("function reviewItem(btn,action){var card=btn.closest('.finding-card');")
                     .append("card.classList.remove('accepted','rejected');card.classList.add(action==='accept'?'accepted':'rejected');")
-                    .append("var done=document.querySelectorAll('.needs-attention .finding-card.accepted,")
-                    .append(".needs-attention .finding-card.rejected').length;")
-                    .append("var c=document.getElementById('rev-count');if(c)c.textContent=done;}</script>");
+                    .append("reviewTracker();}reviewTracker();</script>");
         }
         sb.append("</body></html>");
         return sb.toString();
@@ -355,7 +383,14 @@ public class ContractReportRenderer {
 
     private String findingCard(Finding f, Map<String, String> fr, boolean reviewable) {
         String color = SEVERITY_COLOR.getOrDefault(f.getSeverity() != null ? f.getSeverity().name() : "", "#6B7280");
-        StringBuilder sb = new StringBuilder("<div class=\"finding-card\">");
+        // Seed the card's accept/reject state from the persisted disposition so the live tracker is correct on load.
+        String stateClass = "";
+        if (reviewable && isAccepted(f.getStatus())) {
+            stateClass = " accepted";
+        } else if (reviewable && isRejected(f.getStatus())) {
+            stateClass = " rejected";
+        }
+        StringBuilder sb = new StringBuilder("<div class=\"finding-card" + stateClass + "\">");
         sb.append("<div class=\"finding-header\">")
                 .append("<span class=\"severity-badge\" style=\"background:").append(color).append("\">")
                 .append(esc(f.getSeverity() != null ? f.getSeverity().name() : "")).append("</span>")
@@ -558,6 +593,22 @@ public class ContractReportRenderer {
                 + "<div class=\"meta-value\">" + value + "</div></td>";
     }
 
+    private static boolean isAccepted(String status) {
+        if (status == null) {
+            return false;
+        }
+        String u = status.toUpperCase(java.util.Locale.ROOT);
+        return u.equals("ACCEPTED") || u.equals("FIXED");
+    }
+
+    private static boolean isRejected(String status) {
+        if (status == null) {
+            return false;
+        }
+        String u = status.toUpperCase(java.util.Locale.ROOT);
+        return u.equals("REJECTED") || u.equals("WONT_FIX") || u.equals("FALSE_POSITIVE");
+    }
+
     private String dispClass(String status) {
         return switch (status.toUpperCase(java.util.Locale.ROOT)) {
             case "ACCEPTED", "FIXED" -> "ok";
@@ -671,6 +722,10 @@ public class ContractReportRenderer {
                 + "h3.subhead{font-size:1rem;font-weight:600;margin:1.1rem 0 .4rem;color:#0f3460}"
                 + ".lead{font-size:1rem}"
                 + ".kpis{display:flex;gap:.9rem;flex-wrap:wrap;margin:1rem 0}"
+                + ".exec-snapshot{display:flex;gap:1.6rem;flex-wrap:wrap;align-items:center;background:#fff;border:1px solid #e3e6eb;border-radius:10px;padding:1.1rem 1.3rem;margin:1rem 0}"
+                + ".snapshot-viz{flex:1 1 300px;min-width:280px}"
+                + ".snapshot-kpis{flex:1 1 340px;display:grid;grid-template-columns:1fr 1fr;gap:.7rem;margin:0}"
+                + ".snapshot-kpis .kpi{min-width:0}"
                 + ".kpi{flex:1;min-width:150px;background:#fff;border:1px solid #e3e6eb;border-top:3px solid #888;border-radius:10px;padding:.9rem 1.1rem}"
                 + ".kpi-v{font-size:1.8rem;font-weight:700}.kpi-v .unit{font-size:.9rem;font-weight:400;color:#888}"
                 + ".kpi-l{font-size:.72rem;text-transform:uppercase;color:#475069;letter-spacing:.5px}"
@@ -724,6 +779,12 @@ public class ContractReportRenderer {
                 + ".count{background:#1a1a2e;color:#fff;font-size:.72rem;border-radius:999px;padding:1px 9px;margin-left:6px}"
                 + ".needs-attention .ns-intro{font-size:.88rem;color:#475069}"
                 + ".review-status{font-size:.85rem;color:#475069;margin:.5rem 0 .2rem}.review-status #rev-count{font-weight:700;color:#1a1a2e}"
+                + ".review-tracker{display:flex;gap:1.1rem;align-items:center;flex-wrap:wrap;margin:.7rem 0 .4rem;font-size:.85rem;color:#475069}"
+                + ".rt-pill{display:inline-flex;align-items:center;gap:.35rem}.rt-pill b{font-size:1.05rem;font-weight:700}"
+                + ".rt-pill.acc b{color:#1E8E5A}.rt-pill.rej b{color:#C2122D}.rt-pill.pen b{color:#475069}"
+                + ".rt-of{color:#9aa1ae;font-size:.8rem}"
+                + ".rt-bar{display:flex;height:8px;border-radius:999px;overflow:hidden;background:#eef1f5;margin-bottom:.7rem;max-width:520px}"
+                + ".rt-bar span{display:block;height:100%}.rt-bar #rt-bar-acc{background:#1E8E5A}.rt-bar #rt-bar-rej{background:#C2122D}"
                 + ".review-actions{display:flex;align-items:center;gap:.5rem;margin-top:.7rem;border-top:1px dashed #e3e6eb;padding-top:.6rem}"
                 + ".review-actions button{border:1px solid #d6dae1;background:#fff;border-radius:7px;padding:.32rem .85rem;font-size:.78rem;font-weight:600;cursor:pointer}"
                 + ".btn-accept:hover{background:#e6f4ea;border-color:#1E8E5A;color:#1E8E5A}.btn-reject:hover{background:#fdecef;border-color:#C2122D;color:#C2122D}"
