@@ -230,7 +230,19 @@ public class DiffEngine {
             if (cr.statusCode() < 400) {
                 continue;
             }
-            if (se.responses().stream().anyMatch(r -> r.statusCode() == cr.statusCode())) {
+            ResponseModel specErr = se.responses().stream()
+                    .filter(r -> r.statusCode() == cr.statusCode()).findFirst().orElse(null);
+            if (specErr != null) {
+                // The spec documents this error status — but does the media type agree? An advice that emits
+                // application/problem+json against a spec error declared as application/json is a real content drift.
+                if (cr.mediaTypes() != null && !cr.mediaTypes().isEmpty()
+                        && specErr.mediaTypes() != null && !specErr.mediaTypes().isEmpty()
+                        && !mediaSet(cr.mediaTypes()).equals(mediaSet(specErr.mediaTypes()))) {
+                    boolean advice = cr.origin() != null && cr.origin().startsWith("EXCEPTION_HANDLER");
+                    findings.add(finding(FindingType.CONSUMES_PRODUCES_MISMATCH, label(ce), spec.source(),
+                            "Error " + cr.statusCode() + " media type — code " + cr.mediaTypes() + " vs spec "
+                                    + specErr.mediaTypes(), ce, advice ? Confidence.LOW : Confidence.MEDIUM));
+                }
                 continue;
             }
             // Advice-sourced statuses are GLOBAL by construction — a @ControllerAdvice handler is attached to every
@@ -284,6 +296,53 @@ public class DiffEngine {
             findings.add(finding(FindingType.RESPONSE_SCHEMA_MISMATCH, label(ce), spec.source(),
                     "Success response schema — code returns '" + codeRef + "' but the spec declares '" + specRef + "'",
                     ce, Confidence.MEDIUM));
+        }
+        // Binding-driven field diff: when the response schemas bind to the same response but carry DIFFERENT component
+        // names (code DTO "PasswordComplexity" vs spec "policies-password-complexity"), the same-name schema loop never
+        // field-compares them. Walk the bound pair (pairing nested DTOs by the binding FIELD, not by name) so an
+        // undocumented response field surfaces as a precise SCHEMA_FIELD_MISSING, not just a coarse mismatch.
+        if (codeRef != null && specRef != null) {
+            fieldDiffByBinding(findings, code, spec, codeRef, specRef, label(ce) + " response",
+                    new java.util.HashSet<>(), MAX_SCHEMA_DEPTH);
+        }
+    }
+
+    private void fieldDiffByBinding(List<Finding> findings, ApiModel code, ApiModel spec, String codeRef, String specRef,
+                                    String locus, java.util.Set<String> visited, int depth) {
+        if (arrayRef(codeRef) != arrayRef(specRef)) {
+            return;   // array-vs-object is the structuralVerdict's call, not a field diff
+        }
+        SchemaModel cs = code.schemas().get(baseName(codeRef));
+        SchemaModel ss = spec.schemas().get(baseName(specRef));
+        if (cs == null || ss == null || structureless(cs) || structureless(ss)) {
+            return;   // unresolved / opaque — owned by structuralVerdict + extractor blind spots
+        }
+        String key = baseName(codeRef) + "|" + baseName(specRef);
+        if (!visited.add(key)) {
+            return;   // cycle guard
+        }
+        try {
+            // Same-name pairs are already field-diffed by the components-schema loop (dedup collapses any overlap),
+            // so only run the diff here for the differently-named bound pairs that loop never reaches.
+            if (!baseName(codeRef).equalsIgnoreCase(baseName(specRef))) {
+                compareSchema(findings, spec.source(), locus, cs, ss);
+            }
+            if (depth <= 0) {
+                return;
+            }
+            Map<String, FieldModel> cf = fieldsByName(cs);
+            Map<String, FieldModel> sf = fieldsByName(ss);
+            for (Map.Entry<String, FieldModel> e : cf.entrySet()) {
+                FieldModel c = e.getValue();
+                FieldModel s = sf.get(e.getKey());
+                if (s == null || c.refSchema() == null || s.refSchema() == null) {
+                    continue;   // pair nested DTOs only where the binding field exists on both sides
+                }
+                fieldDiffByBinding(findings, code, spec, c.refSchema(), s.refSchema(),
+                        locus + "." + e.getKey(), visited, depth - 1);
+            }
+        } finally {
+            visited.remove(key);
         }
     }
 
