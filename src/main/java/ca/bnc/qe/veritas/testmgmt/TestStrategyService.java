@@ -63,8 +63,16 @@ public class TestStrategyService {
                     "An object: levels[], types[], techniques[{name, rationale, riskId, citation}].", Set.of("1", "6")),
             new SectionSpec("exitCriteria", ModelTier.ECONOMY, "CTAL-TM — Exit Criteria",
                     "An array of S.M.A.R.T. exit criteria: criterion, metric, citation.", Set.of("1")),
-            new SectionSpec("selfReview", ModelTier.ECONOMY, "self-review",
+            // selfReview is the adversarial self-critique step: on the cost floor (ECONOMY) small models rubber-stamp
+            // the assembled strategy with inflated confidence + shallow blind spots, defeating its purpose. STANDARD
+            // (Sonnet 4.6) buys sharper self-criticism for a few cents — the one tier the model-fitness audit flagged.
+            new SectionSpec("selfReview", ModelTier.STANDARD, "self-review",
                     "An object: confidence 0-100 and blindSpots[] reviewing the assembled strategy.", Set.of("1")));
+
+    /** Visible for testing: the model tier a section runs at (guards the audited selfReview ≥ STANDARD calibration). */
+    static ModelTier sectionTier(String key) {
+        return SECTIONS.stream().filter(s -> s.key().equals(key)).findFirst().map(SectionSpec::tier).orElse(null);
+    }
 
     public TestStrategy generate(String serviceName, String basisText, String source, String owner) {
         preflight.testStrategy(serviceName, basisText);
