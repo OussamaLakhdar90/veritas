@@ -32,6 +32,15 @@ public class Scan extends AuditableEntity {
     @Column(length = 20)
     private String stage;
 
+    /** Live sub-step detail of the current stage, shown under the active step (e.g. "Generating the corrected
+     *  spec…", "Reviewing findings — batch 2 of 3"). Cleared on each stage transition. */
+    @Column(length = 300)
+    private String stageDetail;
+
+    /** The Copilot model resolved for this scan's AI (reconcile) step — surfaced live in the UI. */
+    @Column(length = 100)
+    private String model;
+
     private int totalFindings;
     private String owner;
     private Instant startedAt;

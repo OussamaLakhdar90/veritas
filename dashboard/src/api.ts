@@ -64,6 +64,10 @@ export interface Scan {
   status: string
   /** Live progress step while RUNNING: QUEUED | CLONING | RESOLVING_SPEC | EXTRACTING | DIFFING | RECONCILING | REPORTING | DONE | FAILED. */
   stage?: string
+  /** Live sub-step detail of the current stage (e.g. "Generating the corrected spec…"). */
+  stageDetail?: string
+  /** Copilot model resolved for the AI (reconcile) step. */
+  model?: string
   totalFindings: number
   totalEstCostUsd: number
   startedAt: string
