@@ -252,14 +252,103 @@ public class DiffEngine {
         mediaTypeMismatch(findings, ce, spec, "produces", ce.produces(), se.produces());
         mediaTypeMismatch(findings, ce, spec, "consumes", ce.consumes(), se.consumes());
 
-        // success-response body schema differs between code and spec
+        // success-response body schema differs between code and spec. Compare the RESOLVED STRUCTURE, not the
+        // type/schema NAME: a code DTO "PasswordPolicyWrapper" and a spec schema "policies" that serialize to the
+        // same property shape are NOT a contract break — the schema name never appears on the wire. Only emit when
+        // the structures genuinely diverge; suppress when they match or when either side can't be resolved.
         String codeRef = successSchemaRef(ce);
         String specRef = successSchemaRef(se);
-        if (codeRef != null && specRef != null && !normRef(codeRef).equals(normRef(specRef))) {
+        if (codeRef != null && specRef != null && !normRef(codeRef).equals(normRef(specRef))
+                && structuralVerdict(code, spec, codeRef, specRef) == SchemaVerdict.DIFFER) {
             findings.add(finding(FindingType.RESPONSE_SCHEMA_MISMATCH, label(ce), spec.source(),
                     "Success response schema — code returns '" + codeRef + "' but the spec declares '" + specRef + "'",
                     ce, Confidence.MEDIUM));
         }
+    }
+
+    private enum SchemaVerdict { MATCH, DIFFER, UNRESOLVED }
+
+    /**
+     * Decide whether two differently-named success-response schemas are a genuine contract break by comparing their
+     * RESOLVED property structure rather than their names. Returns {@code DIFFER} only when the structures truly
+     * diverge; {@code UNRESOLVED} when either side can't be looked up or carries no structure to compare (a
+     * name-compare there is exactly the false positive we are removing — such external/opaque DTOs are already
+     * recorded as extractor blind spots).
+     */
+    private SchemaVerdict structuralVerdict(ApiModel code, ApiModel spec, String codeRef, String specRef) {
+        if (arrayRef(codeRef) != arrayRef(specRef)) {
+            return SchemaVerdict.DIFFER;   // array vs single object is a real shape difference
+        }
+        SchemaModel cs = code.schemas().get(baseName(codeRef));
+        SchemaModel ss = spec.schemas().get(baseName(specRef));
+        if (cs == null || ss == null || structureless(cs) || structureless(ss)) {
+            return SchemaVerdict.UNRESOLVED;
+        }
+        return propsEqual(code, spec, cs, ss, 1) ? SchemaVerdict.MATCH : SchemaVerdict.DIFFER;
+    }
+
+    private static boolean arrayRef(String ref) {
+        return ref != null && ref.endsWith("[]");
+    }
+
+    private static String baseName(String ref) {
+        return ref == null ? null : ref.replace("[]", "");
+    }
+
+    /** A schema we cannot structurally compare: no extracted fields and no enum values. */
+    private static boolean structureless(SchemaModel s) {
+        boolean noFields = s.fields() == null || s.fields().isEmpty();
+        boolean noEnum = s.enumValues() == null || s.enumValues().isEmpty();
+        return noFields && noEnum;
+    }
+
+    /** Structural equality: enum value sets, or same field-name set with compatible field types, recursing one level. */
+    private boolean propsEqual(ApiModel code, ApiModel spec, SchemaModel cs, SchemaModel ss, int depth) {
+        boolean cEnum = cs.enumValues() != null && !cs.enumValues().isEmpty();
+        boolean sEnum = ss.enumValues() != null && !ss.enumValues().isEmpty();
+        if (cEnum || sEnum) {
+            return cEnum && sEnum && normSet(cs.enumValues()).equals(normSet(ss.enumValues()));
+        }
+        Map<String, FieldModel> cf = fieldsByName(cs);
+        Map<String, FieldModel> sf = fieldsByName(ss);
+        if (!cf.keySet().equals(sf.keySet())) {
+            return false;
+        }
+        for (Map.Entry<String, FieldModel> e : cf.entrySet()) {
+            FieldModel c = e.getValue();
+            FieldModel s = sf.get(e.getKey());
+            if (!typeCompatible(c, s)) {
+                return false;
+            }
+            if (depth > 0 && c.refSchema() != null && s.refSchema() != null) {
+                if (arrayRef(c.refSchema()) != arrayRef(s.refSchema())) {
+                    return false;
+                }
+                SchemaModel nc = code.schemas().get(baseName(c.refSchema()));
+                SchemaModel ns = spec.schemas().get(baseName(s.refSchema()));
+                // recurse only when both nested schemas resolve; an unresolved nested side never invents a diff
+                if (nc != null && ns != null && !propsEqual(code, spec, nc, ns, depth - 1)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private static Map<String, FieldModel> fieldsByName(SchemaModel s) {
+        Map<String, FieldModel> m = new LinkedHashMap<>();
+        if (s.fields() != null) {
+            s.fields().forEach(f -> m.put(f.jsonName(), f));
+        }
+        return m;
+    }
+
+    /** Field types are compatible when equal, or when either side is null/object (same wildcard rule as compareSchema). */
+    private static boolean typeCompatible(FieldModel a, FieldModel b) {
+        if (a.type() == null || b.type() == null || "object".equals(a.type()) || "object".equals(b.type())) {
+            return true;
+        }
+        return a.type().equals(b.type());
     }
 
     private String successSchemaRef(Endpoint e) {

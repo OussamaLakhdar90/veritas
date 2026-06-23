@@ -35,6 +35,12 @@ class DiffEngineDeepTest {
                 List.of(new FieldModel("name", "string", null, false, c, null, null)), null, src);
     }
 
+    private SchemaModel schema(String name, String fieldName, String fieldType) {
+        ConstraintSet none = new ConstraintSet(null, null, null, null, null, null, null, null, null);
+        return new SchemaModel(name, "object",
+                List.of(new FieldModel(fieldName, fieldType, null, false, none, null, null)), null, src);
+    }
+
     @Test
     void detectsResponseSchemaAndStatusAndConstraintValueDiffs() {
         ApiModel code = new ApiModel("code", null, null, null,
@@ -44,17 +50,61 @@ class DiffEngineDeepTest {
                 List.of(ep("Bar", List.of(
                         new ResponseModel(200, "Bar", null, "SPEC", src),
                         new ResponseModel(202, null, null, "SPEC", src)))),
-                Map.of("Foo", foo(20)));
+                // Bar has a genuinely different field set than Foo (id vs name) → structural DIFFER
+                Map.of("Foo", foo(20), "Bar", schema("Bar", "id", "integer")));
 
         List<Finding> findings = diff.diffCodeVsSpec(code, spec);
         Set<FindingType> types = findings.stream().map(Finding::getType).collect(toSet());
 
         assertThat(types).contains(
-                FindingType.RESPONSE_SCHEMA_MISMATCH,   // code returns Foo, spec declares Bar
+                FindingType.RESPONSE_SCHEMA_MISMATCH,   // code returns Foo{name}, spec declares Bar{id}
                 FindingType.STATUS_CODE_EXTRA,          // spec documents 202, code never returns it
                 FindingType.CONSTRAINT_GAP);            // maxLength 10 (code) vs 20 (spec)
         assertThat(findings).anyMatch(f -> f.getType() == FindingType.CONSTRAINT_GAP
                 && f.getSummary().contains("maxLength"));
+    }
+
+    @Test
+    void identicalStructureUnderDifferentNamesIsNotAResponseSchemaMismatch() {
+        // code DTO "Wrapper{password}" and spec schema "policies{password}" serialize to the same wire shape —
+        // the differing schema NAME is not a contract break (regression guard for the false positive).
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(ep("Wrapper", List.of(new ResponseModel(200, "Wrapper", null, "RETURN", src)))),
+                Map.of("Wrapper", schema("Wrapper", "password", "string")));
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(ep("policies", List.of(new ResponseModel(200, "policies", null, "SPEC", src)))),
+                Map.of("policies", schema("policies", "password", "string")));
+
+        assertThat(diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType))
+                .doesNotContain(FindingType.RESPONSE_SCHEMA_MISMATCH);
+    }
+
+    @Test
+    void genuinelyDifferentStructureIsStillFlaggedAcrossNames() {
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(ep("Wrapper", List.of(new ResponseModel(200, "Wrapper", null, "RETURN", src)))),
+                Map.of("Wrapper", schema("Wrapper", "password", "string")));
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(ep("policies", List.of(new ResponseModel(200, "policies", null, "SPEC", src)))),
+                Map.of("policies", schema("policies", "token", "string")));   // different field name
+
+        assertThat(diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType))
+                .contains(FindingType.RESPONSE_SCHEMA_MISMATCH);
+    }
+
+    @Test
+    void unresolvableSpecSchemaSuppressesResponseSchemaMismatch() {
+        // spec response references a schema that isn't in components → can't structurally compare → suppress
+        // (a bare name-compare here is the bug; the gap is surfaced as an extractor blind spot elsewhere).
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(ep("Wrapper", List.of(new ResponseModel(200, "Wrapper", null, "RETURN", src)))),
+                Map.of("Wrapper", schema("Wrapper", "password", "string")));
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(ep("policies", List.of(new ResponseModel(200, "policies", null, "SPEC", src)))),
+                Map.of());   // no schemas declared
+
+        assertThat(diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType))
+                .doesNotContain(FindingType.RESPONSE_SCHEMA_MISMATCH);
     }
 
     private ApiModel withEnumField(String specId, String origin, List<String> enumValues) {
