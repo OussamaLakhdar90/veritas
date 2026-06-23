@@ -96,6 +96,9 @@ class ContractReportRendererTest {
         assertThat(html).contains("reviewItem(this,'accept')").contains("reviewItem(this,'reject')");  // accept/reject
         assertThat(html).contains("Manual-review items by severity"); // §6 donut panel
         assertThat(html).doesNotContain("rating-good").doesNotContain(">Good<");   // misleading band label removed
+        assertThat(html).contains("exec-snapshot");                   // pie integrated with the KPIs in the summary
+        assertThat(html).contains("review-tracker")                   // dynamic accepted/rejected/pending tracker
+                .contains("id=\"rt-acc\"").contains("id=\"rt-rej\"").contains("id=\"rt-pen\"");
     }
 
     @Test
