@@ -96,14 +96,14 @@ function BgScanCard({ scan, onDismiss }: { scan: BgScan; onDismiss: () => void }
     <div className="pointer-events-auto overflow-hidden rounded-xl bg-surface shadow-pop ring-1 ring-border">
       <div className="h-1 w-full bg-ink-50">
         <div className={cn('h-full transition-all duration-700',
-          failed ? 'bg-danger' : done ? 'bg-success' : 'bg-gradient-to-r from-brand to-brand-700')}
+          failed ? 'bg-danger' : done ? 'bg-success' : 'bg-gold')}
           style={{ width: `${pct}%` }} />
       </div>
       <div className="flex items-start gap-3 p-3">
         <span className={cn('grid h-8 w-8 shrink-0 place-items-center rounded-lg ring-1',
           failed ? 'bg-danger/10 text-danger ring-danger/30'
             : done ? 'bg-success/10 text-success ring-success/30'
-            : 'bg-brand-50 text-brand-600 ring-brand-600/30')}>
+            : 'bg-gold/10 text-gold ring-gold/30')}>
           {failed ? <AlertTriangle className="h-4 w-4" />
             : done ? <Check className="h-4 w-4" />
             : <Loader2 className="h-4 w-4 animate-spin" />}

@@ -359,11 +359,11 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
     <div>
       {/* Live header: where we are, overall progress, and a ticking clock. */}
       <div className={cn('mb-4 rounded-xl p-4 ring-1',
-        failed ? 'bg-danger/5 ring-danger/20' : 'bg-gradient-to-br from-brand-50 to-surface ring-brand-600/15')}>
+        failed ? 'bg-danger/5 ring-danger/20' : 'bg-gold/5 ring-gold/20')}>
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className={cn('text-[11px] font-semibold uppercase tracking-wide',
-              failed ? 'text-danger' : 'text-brand-600')}>
+              failed ? 'text-danger' : 'text-gold')}>
               {failed ? 'Stopped' : stepNo === 0 ? 'Starting…' : `Step ${stepNo} of ${total}`}
             </p>
             <p className="mt-0.5 truncate text-[14px] font-semibold text-ink-900">
@@ -376,7 +376,7 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
         </div>
         <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/60">
           <div className={cn('h-full rounded-full transition-all duration-700',
-            failed ? 'bg-danger' : 'bg-gradient-to-r from-brand to-brand-700')}
+            failed ? 'bg-danger' : 'bg-gold')}
             style={{ width: `${pct}%` }} />
         </div>
       </div>
@@ -399,10 +399,10 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
           const Icon = step.icon;
           return (
             <li key={step.key} className={cn('flex items-start gap-3 rounded-lg px-2 py-2',
-              status === 'active' && 'bg-brand-50/50')}>
+              status === 'active' && 'bg-gold/5')}>
               <span className={cn('mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ring-1',
                 status === 'done' && 'bg-success/10 text-success ring-success/30',
-                status === 'active' && 'bg-brand-50 text-brand-600 ring-brand-600/30',
+                status === 'active' && 'bg-gold/10 text-gold ring-gold/30',
                 status === 'error' && 'bg-danger/10 text-danger ring-danger/30',
                 status === 'pending' && 'bg-ink-50 text-muted/60 ring-border')}>
                 {status === 'done' ? <Check className="h-4 w-4" />
@@ -417,7 +417,7 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
                     {step.label}
                   </p>
                   {status === 'active' && (
-                    <span className="shrink-0 text-[11px] font-medium tabular-nums text-brand-600">{formatElapsed(stageElapsed)}</span>
+                    <span className="shrink-0 text-[11px] font-medium tabular-nums text-gold">{formatElapsed(stageElapsed)}</span>
                   )}
                   {status === 'done' && <span className="shrink-0 text-[11px] font-medium text-success">done</span>}
                 </div>
@@ -428,7 +428,7 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
                 </p>
                 {status === 'active' && step.long && (
                   <div className="mt-1.5 space-y-1">
-                    <p className="inline-flex items-center gap-1.5 rounded-md bg-brand-50 px-2 py-1 text-[11px] text-brand-600 ring-1 ring-brand-600/15">
+                    <p className="inline-flex items-center gap-1.5 rounded-md bg-gold/10 px-2 py-1 text-[11px] text-gold ring-1 ring-gold/20">
                       <Sparkles className="h-3 w-3 shrink-0" /> {aiHint}
                     </p>
                     {model && (
