@@ -3,7 +3,7 @@ package ca.bnc.qe.veritas.skill;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
-import ca.bnc.qe.veritas.cost.CostEstimator;
+import ca.bnc.qe.veritas.cost.CostRecorder;
 import ca.bnc.qe.veritas.cost.CostResult;
 import ca.bnc.qe.veritas.cost.ModelSelector;
 import ca.bnc.qe.veritas.llm.JsonBlockExtractor;
@@ -42,7 +42,7 @@ public class SkillRunner {
     private final ResponseSchemaValidator schemaValidator;
     private final GateService gateService;
     private final ModelSelector modelSelector;
-    private final CostEstimator costEstimator;
+    private final CostRecorder costRecorder;
     private final SkillRunRepository runRepository;
     private final RunStepRepository stepRepository;
     private final ObjectMapper objectMapper;
@@ -56,7 +56,7 @@ public class SkillRunner {
                        ResponseSchemaValidator schemaValidator,
                        GateService gateService,
                        ModelSelector modelSelector,
-                       CostEstimator costEstimator,
+                       CostRecorder costRecorder,
                        SkillRunRepository runRepository,
                        RunStepRepository stepRepository,
                        ObjectMapper objectMapper) {
@@ -68,7 +68,7 @@ public class SkillRunner {
         this.schemaValidator = schemaValidator;
         this.gateService = gateService;
         this.modelSelector = modelSelector;
-        this.costEstimator = costEstimator;
+        this.costRecorder = costRecorder;
         this.runRepository = runRepository;
         this.stepRepository = stepRepository;
         this.objectMapper = objectMapper;
@@ -100,7 +100,7 @@ public class SkillRunner {
                 switch (step.kind()) {
                     case DETERMINISTIC -> out = runDeterministic(step, ctx);
                     case LLM -> {
-                        LlmExec exec = runLlm(step, ctx);
+                        LlmExec exec = runLlm(skillName, step, ctx);
                         out = exec.node();
                         cost = exec.cost();
                     }
@@ -136,16 +136,18 @@ public class SkillRunner {
         return handler.handle(ctx, step);
     }
 
-    private LlmExec runLlm(Step step, StepContext ctx) throws Exception {
+    private LlmExec runLlm(String skillName, Step step, StepContext ctx) throws Exception {
         String prompt = promptAssembler.assemble(step, ctx);
         String model = modelSelector.resolve(step);
         String raw = llm.complete(prompt, model);
+        // Bill to the cost ledger right after the call — before parsing — so a token-spending reply that fails
+        // to parse/validate is still recorded, and the cache-hit flag is consumed against this exact call.
+        CostResult cost = costRecorder.record(skillName, step.id(), model, prompt, raw, null, ctx.runId());
         String json = jsonExtractor.extract(raw);
         JsonNode node = objectMapper.readTree(json);
         if (step.expectsJson() != null) {
             schemaValidator.validate(node, step.expectsJson());
         }
-        CostResult cost = costEstimator.estimate(model, prompt, raw);
         return new LlmExec(node, cost);
     }
 
