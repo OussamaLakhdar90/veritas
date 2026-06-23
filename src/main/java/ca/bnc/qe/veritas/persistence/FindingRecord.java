@@ -1,5 +1,6 @@
 package ca.bnc.qe.veritas.persistence;
 
+import java.time.Instant;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Index;
@@ -51,5 +52,11 @@ public class FindingRecord extends AuditableEntity {
     private String proposedFix;
 
     private String citation;
-    private String status;          // OPEN | TRIAGED | JIRA_CREATED | FIXED | WONT_FIX | FALSE_POSITIVE
+    private String status;          // OPEN | TRIAGED | ACCEPTED | REJECTED | JIRA_CREATED | FIXED | WONT_FIX | FALSE_POSITIVE
+
+    // Disposition audit trail: who set the current status, when, and why (carried forward across re-scans).
+    private String reviewedBy;
+    private Instant reviewedAt;
+    @Column(length = 1000)
+    private String reviewNote;
 }

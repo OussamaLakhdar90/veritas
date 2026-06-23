@@ -78,7 +78,7 @@ public class ScanPersistence {
         return records;
     }
 
-    /** Carry a prior finding's triage status forward to the same fingerprint on a re-scan. */
+    /** Carry a prior finding's disposition (status + who/when/why audit) forward to the same fingerprint on a re-scan. */
     private void carryForwardStatus(FindingRecord r, String scanId) {
         if (r.getFingerprint() == null) {
             return;
@@ -87,6 +87,11 @@ public class ScanPersistence {
                 .filter(prior -> !scanId.equals(prior.getScanId()))
                 .filter(prior -> prior.getStatus() != null && !"OPEN".equals(prior.getStatus()))
                 .findFirst()
-                .ifPresent(prior -> r.setStatus(prior.getStatus()));
+                .ifPresent(prior -> {
+                    r.setStatus(prior.getStatus());
+                    r.setReviewedBy(prior.getReviewedBy());
+                    r.setReviewedAt(prior.getReviewedAt());
+                    r.setReviewNote(prior.getReviewNote());
+                });
     }
 }

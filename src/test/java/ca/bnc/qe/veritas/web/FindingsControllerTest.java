@@ -14,6 +14,7 @@ import ca.bnc.qe.veritas.persistence.FindingRecordRepository;
 import ca.bnc.qe.veritas.persistence.RunStatus;
 import ca.bnc.qe.veritas.persistence.Scan;
 import ca.bnc.qe.veritas.persistence.ScanRepository;
+import ca.bnc.qe.veritas.settings.CurrentUser;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -27,6 +28,7 @@ class FindingsControllerTest {
     @Autowired private MockMvc mvc;
     @MockBean private ScanRepository scanRepository;
     @MockBean private FindingRecordRepository findingRepository;
+    @MockBean private CurrentUser currentUser;
 
     @Test
     void patchUpdatesStatus() throws Exception {
@@ -38,6 +40,23 @@ class FindingsControllerTest {
         mvc.perform(patch("/api/v1/findings/f1").contentType("application/json").content("{\"status\":\"WONT_FIX\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("WONT_FIX"));
+    }
+
+    @Test
+    void patchRecordsDispositionAuditTrail() throws Exception {
+        when(currentUser.principalId()).thenReturn("alice");
+        FindingRecord f = new FindingRecord();
+        f.setStatus("OPEN");
+        when(findingRepository.findById("f1")).thenReturn(Optional.of(f));
+        when(findingRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        mvc.perform(patch("/api/v1/findings/f1").contentType("application/json")
+                        .content("{\"status\":\"REJECTED\",\"note\":\"false positive — security is in the filter chain\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("REJECTED"))
+                .andExpect(jsonPath("$.reviewedBy").value("alice"))
+                .andExpect(jsonPath("$.reviewedAt").exists())
+                .andExpect(jsonPath("$.reviewNote").value("false positive — security is in the filter chain"));
     }
 
     @Test

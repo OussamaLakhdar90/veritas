@@ -6,6 +6,7 @@ import ca.bnc.qe.veritas.persistence.FindingRecord;
 import ca.bnc.qe.veritas.persistence.FindingRecordRepository;
 import ca.bnc.qe.veritas.persistence.Scan;
 import ca.bnc.qe.veritas.persistence.ScanRepository;
+import ca.bnc.qe.veritas.settings.CurrentUser;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,10 +24,13 @@ public class FindingsController {
 
     private final ScanRepository scanRepository;
     private final FindingRecordRepository findingRepository;
+    private final CurrentUser currentUser;
 
-    public FindingsController(ScanRepository scanRepository, FindingRecordRepository findingRepository) {
+    public FindingsController(ScanRepository scanRepository, FindingRecordRepository findingRepository,
+                             CurrentUser currentUser) {
         this.scanRepository = scanRepository;
         this.findingRepository = findingRepository;
+        this.currentUser = currentUser;
     }
 
     /** Scans, newest first. Optionally scope to one service ({@code ?service=ciam-policies}). */
@@ -65,9 +69,13 @@ public class FindingsController {
     }
 
     private static final Set<String> ALLOWED_STATUS =
-            Set.of("OPEN", "TRIAGED", "JIRA_CREATED", "FIXED", "WONT_FIX", "FALSE_POSITIVE");
+            Set.of("OPEN", "TRIAGED", "ACCEPTED", "REJECTED", "JIRA_CREATED", "FIXED", "WONT_FIX", "FALSE_POSITIVE");
 
-    /** Triage a finding: update its status (e.g. WONT_FIX / FALSE_POSITIVE / TRIAGED). */
+    /**
+     * Disposition a finding: set its status (ACCEPTED / REJECTED / TRIAGED / WONT_FIX / FALSE_POSITIVE …). This is the
+     * system of record — it captures WHO dispositioned it, WHEN, and an optional WHY for an audit trail, and the
+     * disposition is carried forward to the same finding on the next scan.
+     */
     @PatchMapping("/findings/{id}")
     public ResponseEntity<FindingRecord> patch(@PathVariable String id, @RequestBody FindingPatch patch) {
         FindingRecord f = findingRepository.findById(id).orElse(null);
@@ -81,9 +89,14 @@ public class FindingsController {
                         + "'. Allowed: " + ALLOWED_STATUS);
             }
             f.setStatus(s);
+            f.setReviewedBy(currentUser.principalId());
+            f.setReviewedAt(java.time.Instant.now());
+            if (patch.note() != null) {
+                f.setReviewNote(patch.note());
+            }
         }
         return ResponseEntity.ok(findingRepository.save(f));
     }
 
-    public record FindingPatch(String status) {}
+    public record FindingPatch(String status, String note) {}
 }
