@@ -23,6 +23,7 @@ import ca.bnc.qe.veritas.engine.model.SourceRef;
 import ca.bnc.qe.veritas.engine.openapi.CorrectedSpecBuilder;
 import ca.bnc.qe.veritas.engine.openapi.OpenApiModelExtractor;
 import ca.bnc.qe.veritas.engine.openapi.SpecParse;
+import ca.bnc.qe.veritas.engine.openapi.SpecPresence;
 import ca.bnc.qe.veritas.finding.Confidence;
 import ca.bnc.qe.veritas.finding.Finding;
 import ca.bnc.qe.veritas.finding.FindingType;
@@ -174,7 +175,13 @@ public class ContractValidationService {
                 long t0 = System.currentTimeMillis();
                 log.info("Scan {} [{}] asking Copilot to reconcile {} finding(s) — this is the long step, please wait…",
                         scan.getId(), scan.getServiceName(), findings.size());
-                ReconcileResult rr = reconcile(code, specModels, findings, req.owner(), scan.getId());
+                // Deterministic presence facts (from a fully-resolved parse) fact-check the LLM's L5/L6 absence
+                // judgements so it can't claim "no examples/properties/error responses" the spec actually has.
+                SpecPresence presence = SpecPresence.empty();
+                for (SpecInput s : req.specs()) {
+                    presence = presence.merge(openApiModelExtractor.presenceOf(s.content()));
+                }
+                ReconcileResult rr = reconcile(code, specModels, findings, req.owner(), scan.getId(), presence);
                 log.info("Scan {} [{}] AI reconcile finished in {}s",
                         scan.getId(), scan.getServiceName(), (System.currentTimeMillis() - t0) / 1000);
                 enrich.putAll(rr.enrich());
@@ -284,7 +291,7 @@ public class ContractValidationService {
                                    List<Finding> llmFindings, Double confidence, String blindSpots) {}
 
     private ReconcileResult reconcile(ApiModel code, List<ApiModel> specs, List<Finding> findings,
-                                      String owner, String scanId) throws Exception {
+                                      String owner, String scanId, SpecPresence presence) throws Exception {
         List<Map<String, String>> brief = new ArrayList<>();
         for (Finding f : findings) {
             brief.add(Map.of("findingId", f.getFindingId(), "type", f.getType().name(), "summary", nz(f.getSummary())));
@@ -297,6 +304,9 @@ public class ContractValidationService {
                 + "explanation and a proposed fix; then produce a reconciled corrected OpenAPI YAML (code wins on "
                 + "behaviour). ALSO add L5 (design-quality) and L6 (test-basis adequacy) judgements in "
                 + "designFindings — e.g. a spec with no examples/constraints/error responses is a weak test basis. "
+                + "SPEC_PRESENCE_FACTS reports what the FULLY-RESOLVED spec actually contains (examples, schema "
+                + "properties, constraints and error responses are resolved through $ref); NEVER assert any of these "
+                + "is absent when the facts say it is present. "
                 + "Do NOT add citations — Veritas attaches the governing standard (OpenAPI / HTTP / JSON Schema) "
                 + "deterministically. Reply with exactly one fenced ```json block as the LAST thing, matching: "
                 + "{\"correctedYaml\": string, \"findings\": [{\"findingId\": string, \"explanation\": string, "
@@ -330,7 +340,8 @@ public class ContractValidationService {
             String batchJson = objectMapper.writeValueAsString(batch);
             String inputs = promptComposer.data("DETERMINISTIC_FINDINGS", batchJson)
                     + promptComposer.data("CODE_ENDPOINTS", codeEps)
-                    + promptComposer.data("SPEC_ENDPOINTS", specEps.toString());
+                    + promptComposer.data("SPEC_ENDPOINTS", specEps.toString())
+                    + promptComposer.data("SPEC_PRESENCE_FACTS", objectMapper.writeValueAsString(presence));
             String prompt = promptComposer.compose("[CONTRACT-RECONCILE]", "validate-service-contract.prompt.md",
                     Set.of("1", "6", "12"), inputs, outputContract, modelSelector.promptTokenCap(model));
             String raw = llm.complete(prompt, model);
@@ -351,6 +362,12 @@ public class ContractValidationService {
                 }
             }
             for (Finding df : parseDesignFindings(node)) {
+                // Suppress an AI absence claim the resolved spec contradicts (e.g. "no examples" when $ref examples
+                // exist) — a deterministic guard so a false L6 finding can't reach the report.
+                if (presence.contradictsAbsenceClaim(df.getSummary())) {
+                    log.info("Scan {} suppressing contradicted design finding: {}", scanId, df.getSummary());
+                    continue;
+                }
                 if (designIds.add(df.getFindingId())) {
                     design.add(df);
                 }

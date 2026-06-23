@@ -1,0 +1,41 @@
+openapi: 3.0.1
+info:
+  title: Policies API
+  version: 1.0.0
+paths:
+  /policies/{id}:
+    get:
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            maxLength: 36
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PolicyResponse'
+              examples:
+                default:
+                  $ref: '#/components/examples/PolicyExample'
+        '404':
+          description: not found
+components:
+  schemas:
+    PolicyResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          maxLength: 36
+        name:
+          type: string
+  examples:
+    PolicyExample:
+      value:
+        id: "abc-123"
+        name: "default-policy"
