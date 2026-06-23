@@ -250,8 +250,11 @@ public class DiffEngine {
             // reachability statically, so any advice-sourced status stays LOW (surfaced as manual review, never counted)
             // — otherwise one advice for a broadly-thrown exception would flood every endpoint and tank the score.
             // Only a status the endpoint RETURNS directly (ResponseEntity.badRequest() etc.) is MEDIUM.
-            boolean fromAdvice = cr.origin() != null && cr.origin().startsWith("EXCEPTION_HANDLER");
-            Confidence conf = fromAdvice ? Confidence.LOW : Confidence.MEDIUM;
+            // A status proven reachable via a one-hop service call, or returned by the endpoint directly, is MEDIUM
+            // (scored). A blanket @ControllerAdvice status whose reachability we can't prove stays LOW (manual review).
+            boolean reachable = "EXCEPTION_HANDLER_REACHABLE".equals(cr.origin());
+            boolean blanketAdvice = !reachable && cr.origin() != null && cr.origin().startsWith("EXCEPTION_HANDLER");
+            Confidence conf = blanketAdvice ? Confidence.LOW : Confidence.MEDIUM;
             findings.add(finding(FindingType.STATUS_CODE_MISSING, label(ce), spec.source(),
                     "Code can return " + cr.statusCode() + " but the spec doesn't document it", ce, conf));
         }

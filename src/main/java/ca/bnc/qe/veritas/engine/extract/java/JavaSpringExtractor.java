@@ -52,6 +52,7 @@ import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithAnnotations;
+import com.github.javaparser.ast.stmt.ThrowStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.Type;
 import com.github.javaparser.ast.type.WildcardType;
@@ -93,6 +94,11 @@ public class JavaSpringExtractor {
 
         Map<String, String> constants = collectStringConstants(units);   // for resolving constant path refs
 
+        // One-hop inter-procedural reachability: which error statuses a (non-controller) service method can throw, so a
+        // status thrown DEEP in a service the controller calls is scored, not dismissed as a blanket @ControllerAdvice.
+        Map<String, Integer> adviceExStatus = adviceExceptionStatuses(units, types);
+        Map<String, Set<Integer>> serviceStatuses = serviceMethodStatuses(units, types, adviceExStatus);
+
         List<Endpoint> endpoints = new ArrayList<>();
         List<String> referenced = new ArrayList<>();
         for (CompilationUnit cu : units) {
@@ -108,7 +114,7 @@ public class JavaSpringExtractor {
                             MethodDeclaration method = (MethodDeclaration) mo;
                             seenSignatures.add(signatureKey(method));
                             endpoints.addAll(toEndpoints(file, bases, method, types, referenced,
-                                    classSecurity, blindSpots, constants));
+                                    classSecurity, blindSpots, constants, serviceStatuses));
                         }
                         // Mappings inherited from an abstract/base class the controller EXTENDS are real routes at
                         // runtime — emit them (subclass overrides win). Use the subclass's class-level bases + security.
@@ -116,7 +122,7 @@ public class JavaSpringExtractor {
                             for (MethodDeclaration inherited :
                                     inheritedMappedMethods(coid, types, seenSignatures, new java.util.HashSet<>())) {
                                 endpoints.addAll(toEndpoints(file, bases, inherited, types, referenced,
-                                        classSecurity, blindSpots, constants));
+                                        classSecurity, blindSpots, constants, serviceStatuses));
                             }
                             // A base we can't see can't be analysed — record an honest blind spot, never drop silently.
                             for (ClassOrInterfaceType ext : coid.getExtendedTypes()) {
@@ -306,7 +312,7 @@ public class JavaSpringExtractor {
     private List<Endpoint> toEndpoints(String file, List<String> bases, MethodDeclaration m,
                                        Map<String, TypeDeclaration<?>> types, List<String> referenced,
                                        List<String> classSecurity, List<String> blindSpots,
-                                       Map<String, String> constants) {
+                                       Map<String, String> constants, Map<String, Set<Integer>> serviceStatuses) {
         MethodMapping mm = methodMappingOf(m, types);
         if (mm == null) {
             return List.of();
@@ -361,6 +367,28 @@ public class JavaSpringExtractor {
             int status = responseStatus(m);
             responses.add(new ResponseModel(status, ret.noBody() ? null : ret.schemaRef(), null,
                     ret.responseEntity() ? "RESPONSE_ENTITY" : "RETURN", retSrc));
+        }
+
+        // One-hop reachability: an error status a CALLED service method throws is reachable from THIS endpoint —
+        // stronger than a blanket advice status. Attach it as EXCEPTION_HANDLER_REACHABLE (scored MEDIUM by the diff)
+        // and BEFORE the blanket advice merge, so its noneMatch guard keeps this stronger origin.
+        Map<String, String> fieldTypes = controllerFieldTypes(m);
+        java.util.LinkedHashSet<Integer> reachable = new java.util.LinkedHashSet<>();
+        for (MethodCallExpr call : m.findAll(MethodCallExpr.class)) {
+            String scope = call.getScope().map(Object::toString).orElse("");
+            String svcType = fieldTypes.get(scope);
+            if (svcType == null) {
+                continue;
+            }
+            Set<Integer> st = serviceStatuses.get(svcType + "#" + call.getNameAsString());
+            if (st != null) {
+                reachable.addAll(st);
+            }
+        }
+        for (int s : reachable) {
+            if (responses.stream().noneMatch(r -> r.statusCode() == s)) {
+                responses.add(new ResponseModel(s, null, null, "EXCEPTION_HANDLER_REACHABLE", retSrc));
+            }
         }
 
         List<String> security = new ArrayList<>(classSecurity);
@@ -987,6 +1015,101 @@ public class JavaSpringExtractor {
             }
         }
         return false;
+    }
+
+    /** Map each exception a @ControllerAdvice handler covers to the HTTP status that handler produces. */
+    private Map<String, Integer> adviceExceptionStatuses(List<CompilationUnit> units, Map<String, TypeDeclaration<?>> types) {
+        Map<String, Integer> out = new HashMap<>();
+        for (CompilationUnit cu : units) {
+            for (TypeDeclaration<?> td : cu.findAll(TypeDeclaration.class)) {
+                if (!has(td, "ControllerAdvice") && !has(td, "RestControllerAdvice")) {
+                    continue;
+                }
+                for (MethodDeclaration m : td.getMethods()) {
+                    if (!has(m, "ExceptionHandler")) {
+                        continue;
+                    }
+                    List<Integer> st = errorStatuses(m, types);
+                    if (st.isEmpty()) {
+                        continue;
+                    }
+                    handledExceptionNames(m).forEach(ex -> out.putIfAbsent(ex, st.get(0)));
+                }
+            }
+        }
+        return out;
+    }
+
+    /** Index every NON-controller (service) method to the error statuses it can throw — keyed "TypeName#method". */
+    private Map<String, Set<Integer>> serviceMethodStatuses(List<CompilationUnit> units,
+                                                            Map<String, TypeDeclaration<?>> types,
+                                                            Map<String, Integer> adviceExStatus) {
+        Map<String, Set<Integer>> out = new HashMap<>();
+        for (CompilationUnit cu : units) {
+            for (TypeDeclaration<?> td : cu.findAll(TypeDeclaration.class)) {
+                if (isController(td, types)) {
+                    continue;   // a controller's own throws are handled by its endpoint, not a service hop
+                }
+                for (MethodDeclaration m : td.getMethods()) {
+                    Set<Integer> statuses = new java.util.LinkedHashSet<>();
+                    for (String ex : thrownExceptionNames(m)) {
+                        Integer s = exceptionStatusOf(ex, adviceExStatus, types);
+                        if (s != null && s >= 400) {
+                            statuses.add(s);
+                        }
+                    }
+                    if (!statuses.isEmpty()) {
+                        out.put(td.getNameAsString() + "#" + m.getNameAsString(), statuses);
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    /** Exception simple-names a method raises: {@code throw new X(...)} plus declared {@code throws X}. */
+    private List<String> thrownExceptionNames(MethodDeclaration m) {
+        List<String> out = new ArrayList<>();
+        for (ThrowStmt t : m.findAll(ThrowStmt.class)) {
+            if (t.getExpression().isObjectCreationExpr()) {
+                out.add(t.getExpression().asObjectCreationExpr().getType().getNameAsString());
+            }
+        }
+        m.getThrownExceptions().forEach(ex -> {
+            String s = ex.toString();
+            out.add(s.substring(s.lastIndexOf('.') + 1));
+        });
+        return out;
+    }
+
+    /** Resolve an exception's HTTP status: from advice mapping, the exception's own @ResponseStatus, or framework map. */
+    private Integer exceptionStatusOf(String ex, Map<String, Integer> adviceExStatus, Map<String, TypeDeclaration<?>> types) {
+        Integer s = adviceExStatus.get(ex);
+        if (s != null) {
+            return s;
+        }
+        TypeDeclaration<?> decl = types.get(ex);
+        if (decl != null) {
+            Integer rs = responseStatusAnnotation(decl);
+            if (rs != null) {
+                return rs;
+            }
+        }
+        return frameworkExceptionStatus(ex);
+    }
+
+    /** Map a controller's field/param names to their (service) type simple-names, to resolve a {@code field.call()} hop. */
+    private Map<String, String> controllerFieldTypes(MethodDeclaration m) {
+        Map<String, String> out = new HashMap<>();
+        m.findAncestor(ClassOrInterfaceDeclaration.class).ifPresent(td -> {
+            for (FieldDeclaration fd : td.getFields()) {
+                fd.getVariables().forEach(v -> out.put(v.getNameAsString(), simpleTypeName(v.getType())));
+            }
+        });
+        for (Parameter p : m.getParameters()) {
+            out.put(p.getNameAsString(), simpleTypeName(p.getType()));
+        }
+        return out;
     }
 
     private int responseStatus(MethodDeclaration m) {
