@@ -140,8 +140,15 @@ public class ContractValidationService {
     /** Updates the live progress stage on the scan — drives the dashboard stepper AND logs the advance. */
     private void stage(Scan scan, String stage) {
         scan.setStage(stage);
+        scan.setStageDetail(null);   // sub-step detail is per-stage; clear it on every transition so it never goes stale
         scanRepository.save(scan);
         log.info("Scan {} [{}] → {} — {}", scan.getId(), scan.getServiceName(), stage, ScanStages.describe(stage));
+    }
+
+    /** Update the live sub-step detail of the current stage (persisted, so the polling UI shows it in real time). */
+    private void detail(Scan scan, String stageDetail) {
+        scan.setStageDetail(stageDetail);
+        scanRepository.save(scan);
     }
 
     /** Run extract → diff → reconcile → report into a pre-created scan row, updating its stage as it goes. */
@@ -181,7 +188,7 @@ public class ContractValidationService {
                 for (SpecInput s : req.specs()) {
                     presence = presence.merge(openApiModelExtractor.presenceOf(s.content()));
                 }
-                ReconcileResult rr = reconcile(code, specModels, findings, req.owner(), scan.getId(), presence);
+                ReconcileResult rr = reconcile(code, specModels, findings, req.owner(), scan, presence);
                 log.info("Scan {} [{}] AI reconcile finished in {}s",
                         scan.getId(), scan.getServiceName(), (System.currentTimeMillis() - t0) / 1000);
                 enrich.putAll(rr.enrich());
@@ -323,7 +330,8 @@ public class ContractValidationService {
                                    List<Finding> llmFindings, Double confidence, String blindSpots) {}
 
     private ReconcileResult reconcile(ApiModel code, List<ApiModel> specs, List<Finding> findings,
-                                      String owner, String scanId, SpecPresence presence) throws Exception {
+                                      String owner, Scan scan, SpecPresence presence) throws Exception {
+        String scanId = scan.getId();
         List<Map<String, String>> brief = new ArrayList<>();
         for (Finding f : findings) {
             brief.add(Map.of("findingId", f.getFindingId(), "type", f.getType().name(), "summary", nz(f.getSummary())));
@@ -358,6 +366,9 @@ public class ContractValidationService {
         // findings come from the first batch (it carries the full endpoint context). Small scans → one call.
         List<List<Map<String, String>>> batches = partitionByTokens(brief, batchInputTokens);
         String model = modelSelector.resolveTier(ModelTier.STANDARD);
+        scan.setModel(model);   // surfaced live so the user sees which Copilot model is doing the AI step
+        detail(scan, "Reviewing " + findings.size() + " finding" + (findings.size() == 1 ? "" : "s")
+                + " and drafting a corrected spec…");
 
         Map<String, JsonNode> enrich = new HashMap<>();
         List<Finding> design = new ArrayList<>();
@@ -385,10 +396,13 @@ public class ContractValidationService {
                     + promptComposer.data("PARSED_SOURCE_MANIFEST", manifest);
             String prompt = promptComposer.compose("[CONTRACT-RECONCILE]", "validate-service-contract.prompt.md",
                     Set.of("1", "6", "12"), inputs, outputContract, modelSelector.promptTokenCap(model));
+            detail(scan, batches.size() > 1
+                    ? "Reviewing findings — batch " + batchNo + " of " + batches.size()
+                    : "Generating the corrected spec — the AI is writing the fix…");
             String raw = llm.complete(prompt, model);
+            CostResult c = costRecorder.record("validate-contract", "reconcile", model, prompt, raw, owner, scanId);   // bill before parse
             JsonNode node = objectMapper.readTree(jsonExtractor.extract(raw));
             schemaValidator.validate(node, "contract-reconcile.schema.json");
-            CostResult c = costRecorder.record("validate-contract", "reconcile", model, prompt, raw, owner, scanId);
             premium += c.premiumRequests();
             costUsd += c.estCostUsd();
             tokIn += c.estTokensIn();

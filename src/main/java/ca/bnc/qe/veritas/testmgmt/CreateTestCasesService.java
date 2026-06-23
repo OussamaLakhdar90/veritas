@@ -71,9 +71,9 @@ public class CreateTestCasesService {
                     promptComposer.data("TEST_BASIS", basisText), outputContract);
             String model = modelSelector.resolveTier(ModelTier.STANDARD);
             String raw = llm.complete(prompt, model);
+            CostResult cost = costRecorder.record("create-test-cases", "generate", model, prompt, raw, owner);   // bill before parse
             JsonNode node = objectMapper.readTree(jsonExtractor.extract(raw));
             schemaValidator.validate(node, "test-cases.schema.json");
-            CostResult cost = costRecorder.record("create-test-cases", "generate", model, prompt, raw, owner);
 
             JsonNode cases = node.path("cases");
             double perCase = cases.size() > 0 ? cost.estCostUsd() / cases.size() : cost.estCostUsd();

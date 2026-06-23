@@ -134,9 +134,9 @@ public class CodegenService {
                 Set.of("1", "15"), inputs, contract);   // terminology + secrets-handling knowledge
         String model = modelSelector.resolveTier(ModelTier.STANDARD);   // data fixtures don't need the DEEP tier
         String raw = llm.complete(prompt, model);
+        costRecorder.record("implement-tests", "generate-data", model, prompt, raw, owner);   // bill before parse
         JsonNode node = objectMapper.readTree(jsonExtractor.extract(raw));
         schemaValidator.validate(node, "implement-tests.schema.json");   // same {files,todos} shape
-        costRecorder.record("implement-tests", "generate-data", model, prompt, raw, owner);
         return node;
     }
 
@@ -217,9 +217,9 @@ public class CodegenService {
                     Set.of("1", "12"), inputs, outputContract);   // terminology, API heuristics
             String model = modelSelector.resolveTier(ModelTier.DEEP);
             String raw = llm.complete(prompt, model);
+            CostResult cost = costRecorder.record("implement-tests", "generate", model, prompt, raw, owner);   // bill before parse
             JsonNode node = objectMapper.readTree(jsonExtractor.extract(raw));
             schemaValidator.validate(node, "implement-tests.schema.json");
-            CostResult cost = costRecorder.record("implement-tests", "generate", model, prompt, raw, owner);
 
             Files.createDirectories(outputDir);
             List<String> written = new ArrayList<>();

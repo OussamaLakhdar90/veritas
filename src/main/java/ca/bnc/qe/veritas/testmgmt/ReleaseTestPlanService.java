@@ -167,11 +167,11 @@ public class ReleaseTestPlanService {
                         Set.of("1", "5", "6", "8", "9", "10"),   // terms, ISO 25010, techniques, planning, risk, monitoring
                         inputs, outputContract, modelSelector.promptTokenCap(model));
                 String raw = llm.complete(prompt, model);
+                estCostUsd += costRecorder.record("release-test-plan", "synthesize-plan", model, prompt, raw, owner)
+                        .estCostUsd();   // bill before parse, so a chunk whose reply fails to parse is still billed
                 JsonNode part = objectMapper.readTree(jsonExtractor.extract(raw));
                 schemaValidator.validate(part, "test-plan.schema.json");
                 parts.add(part);
-                estCostUsd += costRecorder.record("release-test-plan", "synthesize-plan", model, prompt, raw, owner)
-                        .estCostUsd();
             }
             JsonNode node = parts.size() == 1 ? parts.get(0) : mergePlanNodes(parts, issueLines.size());
 

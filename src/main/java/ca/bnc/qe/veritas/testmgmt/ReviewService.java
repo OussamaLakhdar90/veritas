@@ -83,9 +83,9 @@ public class ReviewService {
                     inputs, outputContract);
             String model = modelSelector.resolveTier(ModelTier.STANDARD);
             String raw = llm.complete(prompt, model);
+            CostResult cost = costRecorder.record("review-test-cases", "review", model, prompt, raw, owner, test.key());   // bill before parse
             JsonNode node = objectMapper.readTree(jsonExtractor.extract(raw));
             schemaValidator.validate(node, "test-case-review.schema.json");
-            CostResult cost = costRecorder.record("review-test-cases", "review", model, prompt, raw, owner, test.key());
 
             ReviewResult result = new ReviewResult();
             result.setTargetType("XRAY_TEST");
