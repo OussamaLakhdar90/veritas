@@ -170,7 +170,50 @@ class GoldenDiscrepancyCatalogTest {
                               type: object
                               properties: {id: {type: string}}
                         """,
-                        FindingType.CONSUMES_PRODUCES_MISMATCH));
+                        FindingType.CONSUMES_PRODUCES_MISMATCH),
+
+                // Miss 4: a 404 thrown INTER-PROCEDURALLY (in a service the controller calls) is reachable on
+                // GET /policies (spec omits it) but NOT on GET /policies/{appId} (spec documents it) → scored MEDIUM
+                // on the base op only, no false positive on the {appId} op.
+                emitPrecise("miss4_reachable_404_one_hop",
+                        js(
+                                "import org.springframework.web.bind.annotation.*;\n@RestController\n@RequestMapping(\"/policies\")\n"
+                                        + "public class PolicyController {\n  private final PolicyRulesService service;\n"
+                                        + "  public PolicyController(PolicyRulesService s){this.service=s;}\n"
+                                        + "  @GetMapping\n  public String def(){return service.getAppKey(null);}\n"
+                                        + "  @GetMapping(\"/{appId}\")\n  public String byId(@PathVariable String appId){return service.getAppKey(appId);}\n}\n",
+                                "import org.springframework.stereotype.Service;\n@Service\npublic class PolicyRulesService {\n"
+                                        + "  public String getAppKey(String appId){ throw new PolicyNotFoundException(); }\n}\n",
+                                "public class PolicyNotFoundException extends RuntimeException {}\n",
+                                "import org.springframework.http.HttpStatus;\nimport org.springframework.web.bind.annotation.*;\n"
+                                        + "@RestControllerAdvice\npublic class Advice {\n  @ExceptionHandler(PolicyNotFoundException.class)\n"
+                                        + "  @ResponseStatus(HttpStatus.NOT_FOUND)\n  public String h(PolicyNotFoundException e){return null;}\n}\n"),
+                        """
+                        openapi: 3.0.1
+                        info: {title: t, version: '1'}
+                        paths:
+                          /policies:
+                            get:
+                              responses: {'200': {description: ok, content: {application/json: {schema: {type: string}}}}}
+                          /policies/{appId}:
+                            get:
+                              parameters: [{name: appId, in: path, required: true, schema: {type: string}}]
+                              responses:
+                                '200': {description: ok, content: {application/json: {schema: {type: string}}}}
+                                '404': {description: not found, content: {application/json: {schema: {type: object}}}}
+                        """,
+                        f -> {
+                            List<Finding> notFounds = f.stream()
+                                    .filter(x -> x.getType() == FindingType.STATUS_CODE_MISSING
+                                            && x.getSummary() != null && x.getSummary().contains("404")).toList();
+                            boolean baseScored = notFounds.stream().anyMatch(x -> x.getEndpoint() != null
+                                    && x.getEndpoint().contains("/policies") && !x.getEndpoint().contains("{")
+                                    && "MEDIUM".equals(x.getConfidence().name()));
+                            boolean noIdFinding = notFounds.stream()
+                                    .noneMatch(x -> x.getEndpoint() != null && x.getEndpoint().contains("{appId}"));
+                            return baseScored && noIdFinding;
+                        },
+                        FindingType.STATUS_CODE_MISSING));
     }
 
     // ───────────────────────── case model + factories ─────────────────────────
