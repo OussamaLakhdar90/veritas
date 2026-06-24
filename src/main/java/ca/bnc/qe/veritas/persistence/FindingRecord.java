@@ -40,6 +40,11 @@ public class FindingRecord extends AuditableEntity {
     private String codeFile;
     private Integer codeStartLine;
     private Integer codeEndLine;
+
+    /** Not persisted: a Bitbucket deep link to this finding's code evidence, computed per-request from the scan's
+     *  repo coordinates + the configured base URL. Null when not resolvable. Serialized to the dashboard. */
+    @jakarta.persistence.Transient
+    private String codeUrl;
     @Lob
     @Column(columnDefinition = "TEXT")
     private String codeSnippet;

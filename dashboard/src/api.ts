@@ -121,6 +121,8 @@ export interface Finding {
   explanation?: string
   codeFile?: string
   codeStartLine?: number
+  /** Bitbucket deep link to the code evidence (computed server-side; absent when not resolvable). */
+  codeUrl?: string
   status?: string
   reviewedBy?: string
   reviewedAt?: string
