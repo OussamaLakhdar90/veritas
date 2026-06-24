@@ -3,6 +3,7 @@ package ca.bnc.qe.veritas.report;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import ca.bnc.qe.veritas.config.ConnectionsProperties;
 import ca.bnc.qe.veritas.engine.model.SourceRef;
 import ca.bnc.qe.veritas.finding.Confidence;
 import ca.bnc.qe.veritas.finding.Finding;
@@ -10,6 +11,7 @@ import ca.bnc.qe.veritas.finding.FindingType;
 import ca.bnc.qe.veritas.finding.Layer;
 import ca.bnc.qe.veritas.finding.Severity;
 import ca.bnc.qe.veritas.persistence.Scan;
+import ca.bnc.qe.veritas.vcs.BitbucketLinkBuilder;
 import org.junit.jupiter.api.Test;
 
 class ContractReportRendererTest {
@@ -32,6 +34,39 @@ class ContractReportRendererTest {
                 .proposedFix("Add a 404 response to the get operation.")
                 .citation("RFC 9110 — HTTP status codes")
                 .build();
+    }
+
+    @Test
+    void codeEvidenceIsAClickableBitbucketLinkWhenRepoCoordsAndConnectionAreKnown() {
+        ConnectionsProperties cp = new ConnectionsProperties();
+        cp.getBitbucket().setEdition("SERVER_DC");
+        cp.getBitbucket().setBaseUrl("https://git.bnc.ca");
+        ContractReportRenderer renderer = new ContractReportRenderer(new BitbucketLinkBuilder(cp));
+
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        scan.setAppId("APP7571");
+        scan.setRepoSlug("ciam-policies");
+        scan.setGitRef("develop");
+        Finding f = richFinding().toBuilder()
+                .codeEvidence(SourceRef.code("src/main/java/ca/bnc/PolicyController.java", 45, 47,
+                        "return ResponseEntity.notFound().build();"))
+                .build();
+
+        String html = renderer.renderHtml(scan, List.of(f));
+        // The code-evidence label is now an <a> deep-linking to the file/line in Bitbucket Server.
+        assertThat(html)
+                .contains("<a")
+                .contains("/projects/APP7571/repos/ciam-policies/browse/src/main/java/ca/bnc/PolicyController.java")
+                .contains("at=refs%2Fheads%2Fdevelop#45")
+                .contains(">PolicyController.java:45</a>");
+    }
+
+    @Test
+    void codeEvidenceStaysPlainTextWhenNoLinkBuilder() {
+        // The no-arg constructor (tests / non-Spring use) has no link builder → evidence renders as plain text.
+        String html = new ContractReportRenderer().renderHtml(new Scan(), List.of(richFinding()));
+        assertThat(html).contains("Code evidence").contains("PolicyController.java:45").doesNotContain("/browse/");
     }
 
     @Test
