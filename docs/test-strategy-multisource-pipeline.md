@@ -126,7 +126,7 @@ A new `EvidenceExtractor` orchestrates the adapters under the §1.3 fetch contra
 
 Developer-pasted Jira/Confluence content can contain PII or secrets, and the synthesis path feeds full `EvidenceUnit.text` to the LLM. `PromptComposer` only injection-defangs and budget-trims; `LogMasker` only touches log output — **neither redacts evidence text**. For a regulated bank this is approval-blocking, so a deterministic `Redactor` runs **inside the three adapters, before text reaches an `EvidenceUnit`**:
 
-- patterns: PAN (Luhn-checked), email, government-id, bearer/JWT/API-key, IP/hostname;
+- patterns: PAN (Luhn-checked), Canadian SIN (Luhn-checked), email, IPv4, bearer/basic auth headers, JWTs, `key: value` secret assignments, and high-signal bare cloud/VCS tokens (AWS/GitHub/Google/OpenAI/Slack/PEM). Hostnames are deliberately not redacted — too high false-positive for prose (every documented service name would be scrubbed);
 - **never silent**: each hit increments a `redactionCount` and logs a blind spot;
 - the totals ("N redactions across M units") surface in the §6 preview for QE attestation before any spend.
 
