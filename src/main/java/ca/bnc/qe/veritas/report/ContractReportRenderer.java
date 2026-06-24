@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Map;
 import ca.bnc.qe.veritas.finding.Finding;
 import ca.bnc.qe.veritas.persistence.Scan;
+import ca.bnc.qe.veritas.vcs.BitbucketLinkBuilder;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -22,6 +24,19 @@ public class ContractReportRenderer {
 
     private static final Map<String, String> SEVERITY_COLOR = Map.of(
             "BLOCKER", "#6B21A8", "CRITICAL", "#C2122D", "MAJOR", "#C2410C", "MINOR", "#CA8A04", "INFO", "#3A4658");
+
+    /** Optional — when Spring-injected, code evidence becomes a clickable Bitbucket deep link. Null in the
+     *  no-arg constructor (used by tests), where evidence renders as plain text. */
+    private final BitbucketLinkBuilder linkBuilder;
+
+    public ContractReportRenderer() {
+        this(null);
+    }
+
+    @Autowired
+    public ContractReportRenderer(BitbucketLinkBuilder linkBuilder) {
+        this.linkBuilder = linkBuilder;
+    }
 
     public String renderHtml(Scan scan, List<Finding> findings) {
         return render(scan, findings, Map.of(), true);
@@ -258,9 +273,9 @@ public class ContractReportRenderer {
         // ---- 4. Detailed findings ----
         if (!counted.isEmpty()) {
             sb.append("<section id=\"sec-4\"><h2>").append(bi("4. Detailed findings", "4. Constats détaillés")).append("</h2>");
-            sb.append(subsection(bi("4.1 Missing from the specification", "4.1 Manquant dans la spécification"), missing, fr));
-            sb.append(subsection(bi("4.2 Contract mismatches", "4.2 Incohérences du contrat"), wrong, fr));
-            sb.append(subsection(bi("4.3 Dead spec (documented, not in code)", "4.3 Spéc. morte (documentée, absente du code)"), dead, fr));
+            sb.append(subsection(scan, bi("4.1 Missing from the specification", "4.1 Manquant dans la spécification"), missing, fr));
+            sb.append(subsection(scan, bi("4.2 Contract mismatches", "4.2 Incohérences du contrat"), wrong, fr));
+            sb.append(subsection(scan, bi("4.3 Dead spec (documented, not in code)", "4.3 Spéc. morte (documentée, absente du code)"), dead, fr));
             sb.append("</section>");
         }
 
@@ -308,7 +323,7 @@ public class ContractReportRenderer {
                         .append("%\"></span></div>");
             }
             for (Finding f : attention) {
-                sb.append(findingCard(f, fr, interactive));
+                sb.append(findingCard(scan, f, fr, interactive));
             }
             sb.append("</section>");
         }
@@ -374,19 +389,19 @@ public class ContractReportRenderer {
 
     // ---- sections / cards -----------------------------------------------------------------------------------
 
-    private String subsection(String title, List<Finding> items, Map<String, String> fr) {
+    private String subsection(Scan scan, String title, List<Finding> items, Map<String, String> fr) {
         if (items.isEmpty()) {
             return "";
         }
         StringBuilder sb = new StringBuilder("<h3 class=\"subhead\">").append(title)
                 .append(" <span class=\"count\">").append(items.size()).append("</span></h3>");
         for (Finding f : items) {
-            sb.append(findingCard(f, fr, false));
+            sb.append(findingCard(scan, f, fr, false));
         }
         return sb.toString();
     }
 
-    private String findingCard(Finding f, Map<String, String> fr, boolean reviewable) {
+    private String findingCard(Scan scan, Finding f, Map<String, String> fr, boolean reviewable) {
         String color = SEVERITY_COLOR.getOrDefault(f.getSeverity() != null ? f.getSeverity().name() : "", "#6B7280");
         // Seed the card's accept/reject state from the persisted disposition so the live tracker is correct on load.
         String stateClass = "";
@@ -429,7 +444,7 @@ public class ContractReportRenderer {
         if (!isBlank(snippet) || !isBlank(currentYaml) || !isBlank(proposedFix)) {
             sb.append("<div class=\"dual-view\">");
             if (!isBlank(snippet)) {
-                sb.append(panel("code", bi("Code evidence", "Preuve dans le code"), loc(f),
+                sb.append(panelRawSub("code", bi("Code evidence", "Preuve dans le code"), codeEvidenceLabel(scan, f),
                         "<pre><code>" + esc(snippet) + "</code></pre>"));
             }
             if (!isBlank(currentYaml)) {
@@ -464,6 +479,32 @@ public class ContractReportRenderer {
     private String panel(String cls, String label, String sub, String body) {
         return "<div class=\"evidence-panel " + cls + "\"><div class=\"ep-h\">" + label
                 + (isBlank(sub) ? "" : " <span class=\"ep-sub\">" + esc(sub) + "</span>") + "</div>" + body + "</div>";
+    }
+
+    /** Like {@link #panel} but {@code subHtml} is already-safe HTML (used for the clickable code-evidence link). */
+    private String panelRawSub(String cls, String label, String subHtml, String body) {
+        return "<div class=\"evidence-panel " + cls + "\"><div class=\"ep-h\">" + label
+                + (isBlank(subHtml) ? "" : " <span class=\"ep-sub\">" + subHtml + "</span>") + "</div>" + body + "</div>";
+    }
+
+    /**
+     * The code-evidence label as safe HTML: a clickable Bitbucket deep link to the file/line when the repo
+     * coordinates and a Bitbucket connection are known, otherwise the plain (escaped) "File.java:line" text.
+     */
+    private String codeEvidenceLabel(Scan scan, Finding f) {
+        String text = loc(f);
+        if (isBlank(text)) {
+            return "";
+        }
+        if (linkBuilder != null && scan != null && f.getCodeEvidence() != null) {
+            String url = linkBuilder.fileLink(scan.getAppId(), scan.getRepoSlug(), scan.getGitRef(),
+                    f.getCodeEvidence().location(), f.getCodeEvidence().startLine()).orElse(null);
+            if (url != null) {
+                return "<a class=\"code-link\" href=\"" + esc(url) + "\" target=\"_blank\" rel=\"noreferrer\""
+                        + " style=\"color:#1D4ED8\">" + esc(text) + "</a>";
+            }
+        }
+        return esc(text);
     }
 
     /** Conic-gradient donut + legend (interactive HTML only — the PDF engine can't render conic-gradient/SVG). */
