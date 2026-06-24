@@ -33,6 +33,12 @@ public class ScanReconciler {
 
     @EventListener(ApplicationReadyEvent.class)
     public void recoverInterruptedScans() {
+        // Rows created before the @Version column existed have NULL version; with a wrapper Long version a NULL
+        // makes Spring Data treat the row as new (save() → INSERT → PK clash). Backfill to 0 before we touch them.
+        int backfilled = scans.backfillNullVersions();
+        if (backfilled > 0) {
+            log.info("Backfilled @Version on {} pre-existing scan row(s)", backfilled);
+        }
         List<Scan> stuck = scans.findByStatus(RunStatus.RUNNING);
         for (Scan s : stuck) {
             fail(s, "Scan was interrupted by a process restart");
@@ -53,9 +59,18 @@ public class ScanReconciler {
     }
 
     private void fail(Scan s, String reason) {
+        s.setFailedStage(s.getStage());   // keep where it was when interrupted / timed out (consistent with the worker paths)
         s.setStatus(RunStatus.FAILED);
+        s.setStage(ScanStages.FAILED);
+        s.setStageDetail(null);
         s.setErrorMessage(reason);
         s.setFinishedAt(Instant.now());
-        scans.save(s);
+        try {
+            scans.save(s);
+        } catch (org.springframework.dao.OptimisticLockingFailureException e) {
+            // a live worker updated this scan between our read and write — it isn't actually stuck; skip it (it
+            // self-heals next tick). Per-call catch so the rest of the batch is still processed.
+            log.warn("Scan {} was updated concurrently — skipping timeout (it isn't stuck)", s.getId());
+        }
     }
 }

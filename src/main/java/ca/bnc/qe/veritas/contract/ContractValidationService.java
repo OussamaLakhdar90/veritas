@@ -145,24 +145,28 @@ public class ContractValidationService {
         log.info("Scan {} [{}] → {} — {}", scan.getId(), scan.getServiceName(), stage, ScanStages.describe(stage));
     }
 
-    /** Update the live sub-step detail of the current stage (persisted, so the polling UI shows it in real time). */
-    private void detail(Scan scan, String stageDetail) {
+    /** Update the live sub-step detail of the current stage (persisted, so the polling UI shows it in real time).
+     *  Returns false if the save was rejected because the scan was finalized externally — callers can stop early. */
+    private boolean detail(Scan scan, String stageDetail) {
         scan.setStageDetail(stageDetail);
-        persist(scan);
+        return persist(scan);
     }
 
     /**
      * Persist a live scan-progress update, keeping the in-memory @Version in step so the next save on the same
      * instance doesn't self-conflict. If the scan was finalized externally (e.g. the stale-timeout reconciler marked
-     * it FAILED), the optimistic-lock conflict is swallowed — we never resurrect it; the authoritative write wins.
+     * it FAILED), the optimistic-lock conflict is swallowed (we never resurrect it; the authoritative write wins) and
+     * {@code false} is returned so the caller can stop doing expensive work (e.g. more LLM calls) on a dead scan.
      */
-    private void persist(Scan scan) {
+    private boolean persist(Scan scan) {
         try {
             Scan saved = scanRepository.save(scan);
             scan.setVersion(saved.getVersion());
+            return true;
         } catch (org.springframework.dao.OptimisticLockingFailureException e) {
             log.warn("Scan {} was finalized externally (likely the stale-timeout reconciler) — skipping progress update",
                     scan.getId());
+            return false;
         }
     }
 
@@ -413,9 +417,12 @@ public class ContractValidationService {
                     + promptComposer.data("PARSED_SOURCE_MANIFEST", manifest);
             String prompt = promptComposer.compose("[CONTRACT-RECONCILE]", "validate-service-contract.prompt.md",
                     Set.of("1", "6", "12"), inputs, outputContract, modelSelector.promptTokenCap(model));
-            detail(scan, batches.size() > 1
+            if (!detail(scan, batches.size() > 1
                     ? "Reviewing findings — batch " + batchNo + " of " + batches.size()
-                    : "Generating the corrected spec — the AI is writing the fix…");
+                    : "Generating the corrected spec — the AI is writing the fix…")) {
+                log.warn("Scan {} finalized externally — stopping reconcile before further LLM calls", scanId);
+                break;   // the scan was failed under us (e.g. timed out); don't burn more Copilot spend on a dead scan
+            }
             String raw = llm.complete(prompt, model);
             CostResult c = costRecorder.record("validate-contract", "reconcile", model, prompt, raw, owner, scanId);   // bill before parse
             JsonNode node = objectMapper.readTree(jsonExtractor.extract(raw));
