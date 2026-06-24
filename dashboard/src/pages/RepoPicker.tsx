@@ -71,14 +71,14 @@ export function RepoPicker() {
 
   return (
     <div>
-      <PageHeader title="Validate a contract"
-        subtitle="Find a repository by its app-id, then check its OpenAPI spec against the code." />
+      <PageHeader title="Validate a service"
+        subtitle="Find a service by its app-id, then check whether its API spec matches the code." />
 
       <Card className="mb-6">
         <CardBody>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
             <div className="flex-1">
-              <Field label="App-id" hint="Bitbucket project key (Server/DC) or workspace (Cloud), e.g. APP7571.">
+              <Field label="App-id" hint="Your project key in Bitbucket (ask your admin if unsure), e.g. CIAM or APP7571. This is not the repository name.">
                 <Input placeholder="APP7571" value={appId} autoFocus
                   onChange={(e) => setAppId(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && appId && search()} />
@@ -277,13 +277,13 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
       {!scanId ? (
         <>
           <p className="mb-4 text-[13px] text-muted">
-            Veritas clones <span className="font-medium text-ink-900">{repo.slug}</span>, extracts the API from the code,
-            and compares it to the spec below. No changes are written to the repo.
+            Veritas reads the API endpoints and data types defined in <span className="font-medium text-ink-900">{repo.slug}</span>
+            {' '}and compares them to the spec below. Read-only — nothing in the repository is changed. This usually takes 2–5 minutes.
           </p>
           {needsCopilot && !connected && (
             <div className="mb-4 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-[12px] text-ink-700">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-              <span>Not connected to GitHub Copilot — the <strong>AI review &amp; corrected spec</strong> step will be skipped.
+              <span>Not connected to GitHub Copilot — the <strong>AI review &amp; suggested fixes</strong> step will be skipped.
                 You'll still get the full deterministic contract findings and fidelity score.
                 <button type="button" onClick={signIn} className="ml-1 font-medium text-brand-600 hover:underline">Connect now</button>
               </span>

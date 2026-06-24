@@ -43,8 +43,8 @@ class ContractReportRendererTest {
         String html = new ContractReportRenderer().renderHtml(scan, List.of(richFinding()));
         // Management report: executive summary KPIs + reframed coverage section.
         assertThat(html).contains("Executive summary").contains("Contract fidelity").contains("Recommended actions");
-        // AI self-confidence is demoted to a clearly-labelled footnote (not a top-line management KPI).
-        assertThat(html).contains("AI-assist confidence").contains("79%");
+        // AI self-confidence is demoted to a clearly-labelled, plain-language footnote (not a top-line management KPI).
+        assertThat(html).contains("Explanation confidence").contains("79%");
         assertThat(html).contains("Analysis coverage").contains("Runtime-only routes");
 
         assertThat(html).contains("Code evidence");
