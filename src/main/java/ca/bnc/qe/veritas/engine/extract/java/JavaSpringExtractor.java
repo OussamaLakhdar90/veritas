@@ -102,7 +102,7 @@ public class JavaSpringExtractor {
         List<Endpoint> endpoints = new ArrayList<>();
         List<String> referenced = new ArrayList<>();
         for (CompilationUnit cu : units) {
-            String file = cu.getStorage().map(s -> s.getPath().toString()).orElse("?");
+            String file = cu.getStorage().map(s -> relPath(sourceRoot, s.getPath())).orElse("?");
             cu.findAll(TypeDeclaration.class).stream()
                     .filter(td -> isController(td, types))
                     .forEach(ctrl -> {
@@ -154,7 +154,7 @@ public class JavaSpringExtractor {
         }
 
         // @ControllerAdvice / @RestControllerAdvice error responses are global — attach them to every endpoint.
-        List<ResponseModel> adviceResponses = extractAdvice(units, referenced, types, blindSpots);
+        List<ResponseModel> adviceResponses = extractAdvice(sourceRoot, units, referenced, types, blindSpots);
         if (!adviceResponses.isEmpty()) {
             endpoints.replaceAll(e -> {
                 List<ResponseModel> merged = new ArrayList<>(e.responses());
@@ -182,7 +182,7 @@ public class JavaSpringExtractor {
                 continue;
             }
             if (types.containsKey(simple) && !schemas.containsKey(simple)) {
-                SchemaModel built = buildSchema(types.get(simple), types);
+                SchemaModel built = buildSchema(sourceRoot, types.get(simple), types);
                 schemas.put(simple, built);
                 for (FieldModel fld : built.fields()) {
                     if (fld.refSchema() != null) {
@@ -309,6 +309,19 @@ public class JavaSpringExtractor {
      * Build every endpoint a method declares: class-path × method-path × HTTP verb (so multi-path / multi-method
      * mappings produce all of their endpoints, and constant path refs resolve to their literal value).
      */
+    /**
+     * Repo-relative, forward-slashed path for a parsed file, so a finding's code evidence is portable and
+     * deep-linkable (e.g. a Bitbucket browse URL) rather than an absolute temp-clone path. Falls back to the
+     * raw path if the file isn't under the scanned root.
+     */
+    private static String relPath(Path sourceRoot, Path file) {
+        try {
+            return sourceRoot.relativize(file).toString().replace('\\', '/');
+        } catch (RuntimeException notUnderRoot) {
+            return file.toString().replace('\\', '/');
+        }
+    }
+
     private List<Endpoint> toEndpoints(String file, List<String> bases, MethodDeclaration m,
                                        Map<String, TypeDeclaration<?>> types, List<String> referenced,
                                        List<String> classSecurity, List<String> blindSpots,
@@ -656,9 +669,9 @@ public class JavaSpringExtractor {
                 SourceRef.code(file, line(p), line(p), p.toString()));
     }
 
-    private SchemaModel buildSchema(TypeDeclaration<?> td, Map<String, TypeDeclaration<?>> types) {
+    private SchemaModel buildSchema(Path sourceRoot, TypeDeclaration<?> td, Map<String, TypeDeclaration<?>> types) {
         SourceRef src = SourceRef.code(td.findCompilationUnit().flatMap(CompilationUnit::getStorage)
-                .map(s -> s.getPath().toString()).orElse("?"), line(td), line(td), null);
+                .map(s -> relPath(sourceRoot, s.getPath())).orElse("?"), line(td), line(td), null);
         // An enum is a string schema with an enum list — not an empty {type:object} (else it spuriously diffs
         // against the spec, which models the same enum as type:string + enum).
         if (td instanceof EnumDeclaration ed) {
@@ -783,11 +796,11 @@ public class JavaSpringExtractor {
     }
 
     /** Error responses from @ControllerAdvice/@RestControllerAdvice @ExceptionHandler methods (one per status). */
-    private List<ResponseModel> extractAdvice(List<CompilationUnit> units, List<String> referenced,
+    private List<ResponseModel> extractAdvice(Path sourceRoot, List<CompilationUnit> units, List<String> referenced,
                                               Map<String, TypeDeclaration<?>> types, List<String> blindSpots) {
         List<ResponseModel> out = new ArrayList<>();
         for (CompilationUnit cu : units) {
-            String file = cu.getStorage().map(s -> s.getPath().toString()).orElse("?");
+            String file = cu.getStorage().map(s -> relPath(sourceRoot, s.getPath())).orElse("?");
             for (TypeDeclaration<?> td : cu.findAll(TypeDeclaration.class)) {
                 if (!has(td, "ControllerAdvice") && !has(td, "RestControllerAdvice")) {
                     continue;
