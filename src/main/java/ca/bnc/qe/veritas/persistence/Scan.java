@@ -6,6 +6,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -45,6 +46,17 @@ public class Scan extends AuditableEntity {
      *  where it actually failed instead of always blaming the last step. Null unless status == FAILED. */
     @Column(length = 20)
     private String failedStage;
+
+    /**
+     * Optimistic-lock version. The worker thread issues many progress saves while the stale-timeout
+     * {@code ScanReconciler} may concurrently mark a long-running scan FAILED. Without this, a stale worker save
+     * would silently overwrite the reconciler's FAILED (resurrecting a dead scan); with it, the conflicting save
+     * throws {@code OptimisticLockingFailureException} and is handled gracefully. Scoped to Scan only.
+     * Nullable {@code Long} (not primitive) so SQLite can ALTER-ADD the column to an existing table; Hibernate
+     * initialises it to 0 on insert.
+     */
+    @Version
+    private Long version;
 
     private int totalFindings;
     private String owner;

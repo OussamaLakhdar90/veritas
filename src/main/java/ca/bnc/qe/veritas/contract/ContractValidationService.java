@@ -141,14 +141,29 @@ public class ContractValidationService {
     private void stage(Scan scan, String stage) {
         scan.setStage(stage);
         scan.setStageDetail(null);   // sub-step detail is per-stage; clear it on every transition so it never goes stale
-        scanRepository.save(scan);
+        persist(scan);
         log.info("Scan {} [{}] → {} — {}", scan.getId(), scan.getServiceName(), stage, ScanStages.describe(stage));
     }
 
     /** Update the live sub-step detail of the current stage (persisted, so the polling UI shows it in real time). */
     private void detail(Scan scan, String stageDetail) {
         scan.setStageDetail(stageDetail);
-        scanRepository.save(scan);
+        persist(scan);
+    }
+
+    /**
+     * Persist a live scan-progress update, keeping the in-memory @Version in step so the next save on the same
+     * instance doesn't self-conflict. If the scan was finalized externally (e.g. the stale-timeout reconciler marked
+     * it FAILED), the optimistic-lock conflict is swallowed — we never resurrect it; the authoritative write wins.
+     */
+    private void persist(Scan scan) {
+        try {
+            Scan saved = scanRepository.save(scan);
+            scan.setVersion(saved.getVersion());
+        } catch (org.springframework.dao.OptimisticLockingFailureException e) {
+            log.warn("Scan {} was finalized externally (likely the stale-timeout reconciler) — skipping progress update",
+                    scan.getId());
+        }
     }
 
     /** Run extract → diff → reconcile → report into a pre-created scan row, updating its stage as it goes. */
@@ -322,7 +337,7 @@ public class ContractValidationService {
             scan.setStageDetail(null);   // a failed scan must not keep a stale "Generating…" sub-line
             scan.setErrorMessage(ex.getMessage());
             scan.setFinishedAt(Instant.now());
-            scanRepository.save(scan);
+            persist(scan);   // if the reconciler already finalized this scan, don't fight it
             return new ValidationResult(scan.getId(), "FAILED", findings.size(),
                     bySeverity(findings), null, null, null, scan.getTotalEstCostUsd());
         }
