@@ -288,6 +288,44 @@ class GoldenDiscrepancyCatalogTest {
                                 && x.getSummary() != null && x.getSummary().contains("NBC4")
                                 && x.getSummary().contains("spec="))),
 
+                // 2f: THE LIVE ciam-policies MISS. The controller binds `context` as a plain @RequestHeader String
+                // (the Context enum is applied downstream in the service via Context.fromValue, invisible to static
+                // controller analysis), while the spec documents an enum [INDIVIDUAL, SYSTEM, NBC2, NBC4] in the param
+                // description. So the SPEC declares allowed values the code's boundary doesn't enforce — the reverse of
+                // miss2 (code-enum vs spec-string). The engine must surface this, else the documented contract goes
+                // unverified at the edge. (Low confidence: the code may validate downstream where the extractor can't see.)
+                new Case("miss2f_spec_enum_vs_unconstrained_code_string_param",
+                        js(
+                                "import org.springframework.web.bind.annotation.*;\n@RestController\n@RequestMapping\n"
+                                        + "public class PolicyRulesController {\n  @GetMapping(\"/policies\")\n"
+                                        + "  public String get(@RequestHeader(name=\"context\", required=false) String context){return null;}\n}\n"),
+                        """
+                        openapi: 3.0.1
+                        info: {title: t, version: '1'}
+                        paths:
+                          /policies:
+                            get:
+                              parameters:
+                                - $ref: '#/components/parameters/context'
+                              responses: {'200': {description: ok, content: {application/json: {schema: {type: string}}}}}
+                        components:
+                          parameters:
+                            context:
+                              name: context
+                              in: header
+                              required: false
+                              description: |
+                                The name of the context to run the request (target Okta tenant).
+                                Must be one of [INDIVIDUAL, SYSTEM, NBC2, NBC4] (case insensitive).
+                              schema:
+                                type: string
+                        """,
+                        Set.of(FindingType.CONSTRAINT_GAP),
+                        Set.of(FindingType.PARAM_MISSING, FindingType.PARAM_EXTRA),
+                        f -> f.stream().anyMatch(x -> x.getType() == FindingType.CONSTRAINT_GAP
+                                && x.getSummary() != null && x.getSummary().contains("context")
+                                && x.getSummary().contains("NBC4"))),
+
                 // Miss 3: error-response media-type drift — advice emits application/problem+json, spec says application/json.
                 emit("miss3_error_media_type_drift",
                         js(
