@@ -6,6 +6,19 @@ import { Button, Card, CardBody, CardHeader, Field, Input, Select, PageHeader, S
 import { DeviceFlowModal } from '../components/CopilotSignIn';
 import { useToast } from '../components/Toast';
 
+// Plain-language labels for the raw config enums shown in the dropdowns (value stays the enum; only the display changes).
+const EDITION_LABEL: Record<string, string> = {
+  CLOUD: 'Cloud (hosted, e.g. bitbucket.org)',
+  SERVER_DC: 'Self-hosted (internal server)',
+};
+const AUTH_LABEL: Record<string, string> = {
+  APP_PASSWORD: 'App Password (account + generated token)',
+  BEARER: 'HTTP Token / PAT (personal access token)',
+  BASIC: 'Username + Password',
+  OAUTH: 'OAuth (sign in via your identity provider)',
+  CLIENT_CREDENTIALS: 'Client ID & Secret (service accounts)',
+};
+
 type ServiceKey = 'bitbucket' | 'jira' | 'xray' | 'confluence';
 interface TokenField { key: string; label: string; optional?: boolean; role?: 'username' | 'secret' }
 interface ServiceDef {
@@ -240,15 +253,15 @@ function ServiceCard({ def, initial, secrets, onSaved, onError }: {
       <CardBody className="space-y-4">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Base URL"><Input value={cfg.baseUrl ?? ''} placeholder="https://…" onChange={(e) => set('baseUrl', e.target.value)} /></Field>
-          <Field label="Edition">
+          <Field label="Edition" hint="Not sure? Ask your admin.">
             <Select value={edition} onChange={(e) => set('edition', e.target.value)}>
-              {def.editions.map((ed) => <option key={ed} value={ed}>{ed}</option>)}
+              {def.editions.map((ed) => <option key={ed} value={ed}>{EDITION_LABEL[ed] ?? ed}</option>)}
             </Select>
           </Field>
-          {showWorkspace && <Field label="Workspace"><Input value={cfg.workspace ?? ''} onChange={(e) => set('workspace', e.target.value)} /></Field>}
-          <Field label="Auth type">
+          {showWorkspace && <Field label="Workspace" hint="Your workspace name (in your URL: bitbucket.org/your-workspace)."><Input value={cfg.workspace ?? ''} onChange={(e) => set('workspace', e.target.value)} /></Field>}
+          <Field label="Sign-in method">
             <Select value={authType} onChange={(e) => set('authType', e.target.value)}>
-              {authTypes.map((a) => <option key={a} value={a}>{a}</option>)}
+              {authTypes.map((a) => <option key={a} value={a}>{AUTH_LABEL[a] ?? a}</option>)}
             </Select>
           </Field>
         </div>
@@ -265,8 +278,8 @@ function ServiceCard({ def, initial, secrets, onSaved, onError }: {
               return (
                 <Field key={t.key} label={label}
                   hint={isUsername
-                    ? (secrets[t.key] ? '● set — leave blank to keep' : 'your BNC username')
-                    : (secrets[t.key] ? '● configured — leave blank to keep' : (t.optional ? 'optional' : 'required'))}>
+                    ? (secrets[t.key] ? 'Already set — leave blank to keep it' : 'Your username')
+                    : (secrets[t.key] ? 'Already configured — leave blank to keep it' : (t.optional ? 'Optional' : 'Required'))}>
                   <Input type={isUsername ? 'text' : 'password'} autoComplete="off"
                     placeholder={secrets[t.key] ? (isUsername ? '(set)' : '••••••••') : ''}
                     value={tokens[t.key] ?? ''} onChange={(e) => setTokens((s) => ({ ...s, [t.key]: e.target.value }))} />

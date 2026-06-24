@@ -19,12 +19,12 @@ export type ScanStep = {
 };
 
 export const SCAN_STEPS: ScanStep[] = [
-  { key: 'CLONING', label: 'Cloning the repository', short: 'Cloning', detail: 'Fetching the branch from Bitbucket', icon: GitBranch, pct: 12 },
-  { key: 'RESOLVING_SPEC', label: 'Locating the OpenAPI spec', short: 'Locating spec', detail: 'Reading the contract you selected', icon: FileCode, pct: 26 },
-  { key: 'EXTRACTING', label: 'Reading the API from the code', short: 'Reading code', detail: 'Static analysis of the controllers (no app run)', icon: Code2, pct: 44 },
-  { key: 'DIFFING', label: 'Comparing code against the spec', short: 'Comparing', detail: 'Endpoints, params, schemas, status codes', icon: GitCompare, pct: 60 },
-  { key: 'RECONCILING', label: 'AI review & corrected spec', short: 'AI review', detail: 'Copilot explains findings and drafts a fix', icon: Sparkles, pct: 82, long: true },
-  { key: 'REPORTING', label: 'Building the report', short: 'Building report', detail: 'Scoring fidelity and rendering the results', icon: FileText, pct: 95 },
+  { key: 'CLONING', label: 'Getting the code', short: 'Getting code', detail: 'Fetching the branch from Bitbucket', icon: GitBranch, pct: 12 },
+  { key: 'RESOLVING_SPEC', label: 'Locating the API spec', short: 'Locating spec', detail: 'Reading the spec file you selected', icon: FileCode, pct: 26 },
+  { key: 'EXTRACTING', label: 'Reading the API from the code', short: 'Reading code', detail: 'Reading the endpoints and data types — read-only, your app is never run', icon: Code2, pct: 44 },
+  { key: 'DIFFING', label: 'Comparing code against the spec', short: 'Comparing', detail: 'Endpoints, parameters, data types, status codes', icon: GitCompare, pct: 60 },
+  { key: 'RECONCILING', label: 'AI review & suggested fixes', short: 'AI review', detail: 'AI explains each difference and suggests a correction', icon: Sparkles, pct: 82, long: true },
+  { key: 'REPORTING', label: 'Building the report', short: 'Building report', detail: 'Scoring accuracy and preparing the results', icon: FileText, pct: 95 },
 ];
 
 /** Stage → ordinal, used to mark each step done / active / pending. DONE & FAILED both sit past the last step. */

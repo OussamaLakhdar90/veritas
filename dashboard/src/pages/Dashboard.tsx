@@ -41,7 +41,7 @@ export function Dashboard() {
     <div>
       <PageHeader
         title="Overview"
-        subtitle="Contract quality, test coverage and spend across your services."
+        subtitle="API accuracy, test coverage and cost across your services."
         actions={
           <Link to="/repos">
             <Button><ShieldCheck className="h-4 w-4" /> Run validation</Button>
@@ -78,10 +78,10 @@ export function Dashboard() {
           Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28" />)
         ) : (
           <>
-            <KpiTile label="Services scanned" value={totals.services} tone="brand" sub={`${scans.length} scan${scans.length === 1 ? '' : 's'} total`} />
-            <KpiTile label="Findings" value={totals.findings} tone={totals.findings > 0 ? 'warning' : 'success'} sub="across all scans" />
+            <KpiTile label="Services validated" value={totals.services} tone="brand" sub={`${scans.length} validation${scans.length === 1 ? '' : 's'} total`} />
+            <KpiTile label="Findings" value={totals.findings} tone={totals.findings > 0 ? 'warning' : 'success'} sub="across all validations" />
             <KpiTile label="Open defects" value={totals.openDefects} tone={totals.openDefects > 0 ? 'danger' : 'success'} sub="not yet resolved in Jira" />
-            <KpiTile label="Est. LLM spend" value={`$${totals.spend.toFixed(2)}`} sub={costQ.data ? `${costQ.data.actions} actions` : 'this environment'} />
+            <KpiTile label="Est. analysis cost" value={`$${totals.spend.toFixed(2)}`} sub={costQ.data ? `${costQ.data.actions} AI calls` : 'this environment'} />
           </>
         )}
       </div>

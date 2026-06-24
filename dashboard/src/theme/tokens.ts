@@ -15,6 +15,27 @@ export function severityBadge(sev?: string): string {
   return SEVERITY_BADGE[(sev || 'INFO').toUpperCase()] ?? SEVERITY_BADGE.INFO;
 }
 
+/** Plain-language labels for the analysis "layer" codes — users should never see L1–L6. */
+export const LAYER_LABEL: Record<string, string> = {
+  L1: 'Specification structure',
+  L2: 'API completeness',
+  L3: 'Documentation scope',
+  L4: 'Signature accuracy',
+  L5: 'Design quality',
+  L6: 'Test coverage',
+};
+export function layerLabel(layer?: string): string {
+  return layer ? (LAYER_LABEL[layer.toUpperCase()] ?? layer) : '';
+}
+
+/** Plain-language labels for confidence levels (HIGH/MEDIUM/LOW). */
+export const CONFIDENCE_LABEL: Record<string, string> = {
+  HIGH: 'High confidence', MEDIUM: 'Medium confidence', LOW: 'Low confidence',
+};
+export function confidenceLabel(c?: string): string {
+  return c ? (CONFIDENCE_LABEL[c.toUpperCase()] ?? c) : '';
+}
+
 /** Generic status tone → pill classes (for gates, defect status, connection tests, build status…). */
 export const TONE: Record<string, string> = {
   ok: 'bg-success/10 text-success ring-1 ring-success/30',

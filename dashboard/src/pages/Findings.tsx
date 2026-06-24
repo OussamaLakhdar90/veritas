@@ -6,7 +6,7 @@ import { api, Finding } from '../api';
 import { Badge, Button, Card, CardBody, EmptyState, ErrorState, Field, Input, PageHeader, Spinner, Table, Td, Th, Row, SortableTh, useSort } from '../components/ui';
 import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toast';
-import { severityBadge, TONE } from '../theme/tokens';
+import { severityBadge, layerLabel, TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
 
 const SEV_ORDER = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO'];
@@ -86,10 +86,11 @@ export function Findings() {
   return (
     <div>
       <PageHeader title="Findings"
-        subtitle="Where the spec and the code disagree, with evidence and a proposed fix."
+        subtitle="Differences between the documented API and what the code actually does. Review each one, mark it Accepted or Rejected, then raise a Jira defect if it needs fixing."
         actions={scanId && (
-          <a href={api.reportUrl(scanId)} target="_blank" rel="noreferrer">
-            <Button variant="secondary"><FileText className="h-4 w-4" /> Executive report</Button>
+          <a href={api.reportUrl(scanId)} target="_blank" rel="noreferrer"
+            title="Open the management report — findings, the accuracy score and recommendations, for managers and developers.">
+            <Button variant="secondary"><FileText className="h-4 w-4" /> Management report</Button>
           </a>
         )} />
 
@@ -98,8 +99,8 @@ export function Findings() {
       ) : q.isError ? (
         <ErrorState message={(q.error as Error).message} />
       ) : findings.length === 0 ? (
-        <EmptyState icon={CheckCircle2} title="No findings"
-          body="This scan found no discrepancies between the spec and the code — the contract tells the truth." />
+        <EmptyState icon={CheckCircle2} title="No differences found"
+          body="The code matches the documented API exactly. Open the management report for the details, or validate again with a different spec." />
       ) : (
         <>
           {/* Severity filter chips */}
@@ -132,7 +133,7 @@ export function Findings() {
                 <SortableTh label="Endpoint" sortKey="endpoint" sort={sort} />
                 <Th>Summary</Th>
                 <Th>Evidence</Th>
-                <SortableTh label="Disposition" sortKey="status" sort={sort} className="text-right" />
+                <SortableTh label="Review status" sortKey="status" sort={sort} className="text-right" />
               </>}>
                 {shown.map((f) => (
                   <Row key={f.id}>
@@ -143,7 +144,7 @@ export function Findings() {
                       )}
                     </Td>
                     <Td><Badge className={severityBadge(f.severity)}>{f.severity}</Badge></Td>
-                    <Td className="text-muted">{f.layer}</Td>
+                    <Td className="text-muted" title={f.layer}>{layerLabel(f.layer)}</Td>
                     <Td className="font-mono text-[12.5px] text-ink-900">{f.endpoint}</Td>
                     <Td className="max-w-md">
                       <p className="text-ink-900">{f.summary}</p>
@@ -163,11 +164,11 @@ export function Findings() {
                           <span className="inline-flex items-center gap-1 text-[13px] text-success"><CheckCircle2 className="h-4 w-4" /> Defect raised</span>
                         ) : (
                           <>
-                            <Button size="sm" variant="ghost" title="Accept — valid finding"
+                            <Button size="sm" variant="ghost" title="Accept — this is a real difference that matches the code"
                               loading={busy(f, 'ACCEPTED')} onClick={() => disposition.mutate({ f, status: 'ACCEPTED' })}>
                               <Check className="h-4 w-4 text-success" />
                             </Button>
-                            <Button size="sm" variant="ghost" title="Reject — won't act"
+                            <Button size="sm" variant="ghost" title="Reject — not applicable to this service; it won't appear in reports"
                               loading={busy(f, 'REJECTED')} onClick={() => disposition.mutate({ f, status: 'REJECTED' })}>
                               <X className="h-4 w-4 text-danger" />
                             </Button>
