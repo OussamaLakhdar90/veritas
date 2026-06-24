@@ -194,6 +194,17 @@ public class DiffEngine {
                                 "Parameter '" + cp.name() + "' constraint mismatch — " + diff, ce, Confidence.MEDIUM));
                     }
                 }
+            } else if (hasEnum(sp.constraints())) {
+                // Mirror of the code-enum-vs-spec-string case above: the spec restricts this parameter to an
+                // allowed-value SET (enum) that the code's boundary binding does NOT enforce — e.g. it's bound as a
+                // plain String/header and validated downstream (a service/converter the static extractor can't see).
+                // Surface it so the documented allowed values are verified at the edge, but at LOW confidence because
+                // that downstream enforcement is legitimate and out of view. Scoped to enums to stay high-signal
+                // (not every format/length hint a controller binds loosely).
+                findings.add(finding(FindingType.CONSTRAINT_GAP, label(ce), spec.source(),
+                        "Parameter '" + cp.name() + "' — the spec restricts it to " + sp.constraints().enumValues()
+                                + " but the code binds it without that enum (allowed values not enforced at the API boundary)",
+                        ce, Confidence.LOW));
             }
         }
         for (ParamModel sp : se.params()) {
@@ -498,6 +509,11 @@ public class DiffEngine {
     }
 
     /** First constraint keyword whose value differs between two non-empty sets, or null if equivalent. */
+    /** True if the constraint set declares a non-empty enum (allowed-value set). */
+    private static boolean hasEnum(ConstraintSet cs) {
+        return cs != null && cs.enumValues() != null && !cs.enumValues().isEmpty();
+    }
+
     private String constraintMismatchDesc(ConstraintSet c, ConstraintSet s) {
         if (c == null || s == null) {
             return null;
