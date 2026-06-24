@@ -71,8 +71,19 @@ public class AsyncScanRunner {
     /** Updates the live progress stage — drives the dashboard stepper AND logs the advance to the console. */
     private void stage(Scan scan, String stage) {
         scan.setStage(stage);
-        scans.save(scan);
+        persist(scan);
         log.info("Scan {} [{}] → {} — {}", scan.getId(), scan.getServiceName(), stage, ScanStages.describe(stage));
+    }
+
+    /** Persist a scan update, syncing the optimistic-lock @Version and swallowing a conflict if the scan was
+     *  finalized externally (the stale-timeout reconciler) — we never resurrect a dead scan. */
+    private void persist(Scan scan) {
+        try {
+            Scan saved = scans.save(scan);
+            scan.setVersion(saved.getVersion());
+        } catch (org.springframework.dao.OptimisticLockingFailureException e) {
+            log.warn("Scan {} was finalized externally — skipping update", scan.getId());
+        }
     }
 
     private void run(Scan scan, String appId, String repoSlug, String branch, String repoPath,
@@ -87,7 +98,7 @@ public class AsyncScanRunner {
                 specs.add(specResolver.resolve(new SpecSource(r.kind(), r.ref()), repo));
             }
             scan.setSpecSources(String.join(",", specs.stream().map(SpecInput::id).toList()));
-            scans.save(scan);
+            persist(scan);
 
             ValidationRequest req = new ValidationRequest(scan.getServiceName(), appId, repoSlug, branch,
                     repo, specs, llmEnabled, owner);
@@ -103,7 +114,7 @@ public class AsyncScanRunner {
             scan.setStageDetail(null);
             scan.setErrorMessage(e.getMessage());
             scan.setFinishedAt(Instant.now());
-            scans.save(scan);
+            persist(scan);
         }
     }
 
