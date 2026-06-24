@@ -6,13 +6,23 @@ import { api, Scan } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, KpiTile, PageHeader, Skeleton } from '../components/ui';
 import { TONE } from '../theme/tokens';
 
-/** Map a scan/run status to a status-pill tone. */
+/** Map a validation status to a status-pill tone. */
 function statusTone(status?: string): string {
   const s = (status || '').toUpperCase();
   if (['COMPLETED', 'DONE', 'SUCCESS', 'PASSED'].includes(s)) return TONE.ok;
   if (['FAILED', 'ERROR'].includes(s)) return TONE.danger;
   if (['RUNNING', 'PENDING', 'IN_PROGRESS', 'QUEUED'].includes(s)) return TONE.info;
   return TONE.muted;
+}
+
+/** Plain-language status label — never show the raw enum. */
+function statusLabel(status?: string): string {
+  const s = (status || '').toUpperCase();
+  if (['COMPLETED', 'DONE', 'SUCCESS', 'PASSED'].includes(s)) return 'Completed';
+  if (['FAILED', 'ERROR'].includes(s)) return 'Failed';
+  if (['RUNNING', 'IN_PROGRESS'].includes(s)) return 'Running';
+  if (['PENDING', 'QUEUED'].includes(s)) return 'Queued';
+  return status ? status.charAt(0) + status.slice(1).toLowerCase() : '—';
 }
 
 export function Dashboard() {
@@ -44,7 +54,7 @@ export function Dashboard() {
         subtitle="API accuracy, test coverage and cost across your services."
         actions={
           <Link to="/repos">
-            <Button><ShieldCheck className="h-4 w-4" /> Run validation</Button>
+            <Button><ShieldCheck className="h-4 w-4" /> Validate a service</Button>
           </Link>
         }
       />
@@ -88,16 +98,16 @@ export function Dashboard() {
 
       {/* Recent activity */}
       <Card>
-        <CardHeader title="Recent scans" subtitle="Latest contract-validation runs."
-          action={<Link to="/repos" className="text-[13px] font-medium text-gold hover:underline">New scan</Link>} />
+        <CardHeader title="Recent validations" subtitle="Your latest validations."
+          action={<Link to="/repos" className="text-[13px] font-medium text-gold hover:underline">New validation</Link>} />
         <CardBody className="p-0">
           {scansQ.isLoading ? (
             <div className="space-y-2 p-5">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
           ) : recent.length === 0 ? (
             <div className="p-5">
-              <EmptyState icon={Activity} title="No scans yet"
-                body="Validate an API contract against its codebase to see findings and an executive report here."
-                action={<Link to="/repos"><Button><ShieldCheck className="h-4 w-4" /> Run your first validation</Button></Link>} />
+              <EmptyState icon={Activity} title="No validations yet"
+                body="Validate a service to see its findings and a management report here."
+                action={<Link to="/repos"><Button><ShieldCheck className="h-4 w-4" /> Validate your first service</Button></Link>} />
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -116,7 +126,7 @@ export function Dashboard() {
                   {recent.map((s) => (
                     <tr key={s.id} className="border-b border-border/60 last:border-0 hover:bg-ink-50/60">
                       <td className="px-5 py-3 font-medium text-ink-900">{s.serviceName}</td>
-                      <td className="px-5 py-3"><Badge className={statusTone(s.status)}>{s.status}</Badge></td>
+                      <td className="px-5 py-3"><Badge className={statusTone(s.status)}>{statusLabel(s.status)}</Badge></td>
                       <td className="px-5 py-3 text-right tabular-nums text-ink-900">{s.totalFindings}</td>
                       <td className="px-5 py-3 text-right tabular-nums text-muted">${(s.totalEstCostUsd ?? 0).toFixed(4)}</td>
                       <td className="px-5 py-3 text-muted">{s.startedAt}</td>
