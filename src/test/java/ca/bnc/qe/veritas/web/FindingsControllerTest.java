@@ -15,6 +15,7 @@ import ca.bnc.qe.veritas.persistence.RunStatus;
 import ca.bnc.qe.veritas.persistence.Scan;
 import ca.bnc.qe.veritas.persistence.ScanRepository;
 import ca.bnc.qe.veritas.settings.CurrentUser;
+import ca.bnc.qe.veritas.vcs.BitbucketLinkBuilder;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -29,6 +30,7 @@ class FindingsControllerTest {
     @MockBean private ScanRepository scanRepository;
     @MockBean private FindingRecordRepository findingRepository;
     @MockBean private CurrentUser currentUser;
+    @MockBean private BitbucketLinkBuilder linkBuilder;
 
     @Test
     void patchUpdatesStatus() throws Exception {
@@ -101,5 +103,25 @@ class FindingsControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].severity").value("CRITICAL"));
+    }
+
+    @Test
+    void findingsCarryABitbucketDeepLinkToTheirCodeEvidence() throws Exception {
+        Scan scan = new Scan();
+        scan.setAppId("APP7571");
+        scan.setRepoSlug("ciam-policies");
+        scan.setGitRef("develop");
+        FindingRecord f = new FindingRecord();
+        f.setSeverity("MAJOR");
+        f.setCodeFile("src/main/java/ca/bnc/PolicyController.java");
+        f.setCodeStartLine(45);
+        when(scanRepository.findById("s1")).thenReturn(Optional.of(scan));
+        when(findingRepository.findByScanId("s1")).thenReturn(List.of(f));
+        when(linkBuilder.fileLink(any(), any(), any(), any(), any()))
+                .thenReturn(Optional.of("https://git.bnc.ca/projects/APP7571/repos/ciam-policies/browse/src/main/java/ca/bnc/PolicyController.java?at=refs%2Fheads%2Fdevelop#45"));
+
+        mvc.perform(get("/api/v1/scans/s1/findings"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].codeUrl").value(org.hamcrest.Matchers.containsString("/browse/")));
     }
 }

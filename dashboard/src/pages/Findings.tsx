@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bug, FileText, CheckCircle2, AlertTriangle, Check, X } from 'lucide-react';
+import { Bug, FileText, CheckCircle2, AlertTriangle, Check, X, ExternalLink } from 'lucide-react';
 import { api, Finding } from '../api';
 import { Badge, Button, Card, CardBody, EmptyState, ErrorState, Field, Input, PageHeader, Spinner, Table, Td, Th, Row, SortableTh, useSort } from '../components/ui';
 import { Modal } from '../components/Modal';
@@ -169,7 +169,18 @@ export function Findings() {
                       {f.explanation && <p className="mt-1 text-[13px] text-muted">{f.explanation}</p>}
                     </Td>
                     <Td className="font-mono text-[12px] text-muted">
-                      {f.codeFile ? `${f.codeFile.split(/[\\/]/).pop()}${f.codeStartLine ? ':' + f.codeStartLine : ''}` : '—'}
+                      {f.codeFile ? (
+                        f.codeUrl ? (
+                          <a href={f.codeUrl} target="_blank" rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-brand hover:underline"
+                            title={`Open ${f.codeFile}${f.codeStartLine ? ':' + f.codeStartLine : ''} in Bitbucket`}>
+                            {`${f.codeFile.split(/[\\/]/).pop()}${f.codeStartLine ? ':' + f.codeStartLine : ''}`}
+                            <ExternalLink className="h-3 w-3 shrink-0" />
+                          </a>
+                        ) : (
+                          <span title={f.codeFile}>{`${f.codeFile.split(/[\\/]/).pop()}${f.codeStartLine ? ':' + f.codeStartLine : ''}`}</span>
+                        )
+                      ) : '—'}
                     </Td>
                     <Td className="text-right whitespace-nowrap">
                       <div className="inline-flex items-center justify-end gap-1.5">

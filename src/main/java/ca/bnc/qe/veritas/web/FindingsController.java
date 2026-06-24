@@ -7,6 +7,7 @@ import ca.bnc.qe.veritas.persistence.FindingRecordRepository;
 import ca.bnc.qe.veritas.persistence.Scan;
 import ca.bnc.qe.veritas.persistence.ScanRepository;
 import ca.bnc.qe.veritas.settings.CurrentUser;
+import ca.bnc.qe.veritas.vcs.BitbucketLinkBuilder;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,12 +26,14 @@ public class FindingsController {
     private final ScanRepository scanRepository;
     private final FindingRecordRepository findingRepository;
     private final CurrentUser currentUser;
+    private final BitbucketLinkBuilder linkBuilder;
 
     public FindingsController(ScanRepository scanRepository, FindingRecordRepository findingRepository,
-                             CurrentUser currentUser) {
+                             CurrentUser currentUser, BitbucketLinkBuilder linkBuilder) {
         this.scanRepository = scanRepository;
         this.findingRepository = findingRepository;
         this.currentUser = currentUser;
+        this.linkBuilder = linkBuilder;
     }
 
     /** Scans, newest first. Optionally scope to one service ({@code ?service=ciam-policies}). */
@@ -55,11 +58,21 @@ public class FindingsController {
                                         @RequestParam(required = false) String severity,
                                         @RequestParam(required = false) String layer,
                                         @RequestParam(required = false) String status) {
-        return findingRepository.findByScanId(id).stream()
+        List<FindingRecord> findings = findingRepository.findByScanId(id).stream()
                 .filter(f -> matches(severity, f.getSeverity()))
                 .filter(f -> matches(layer, f.getLayer()))
                 .filter(f -> matches(status, f.getStatus()))
                 .toList();
+        // Decorate each finding with a clickable Bitbucket deep link to its code evidence (best-effort, no network).
+        Scan scan = scanRepository.findById(id).orElse(null);
+        if (scan != null) {
+            for (FindingRecord f : findings) {
+                linkBuilder.fileLink(scan.getAppId(), scan.getRepoSlug(), scan.getGitRef(),
+                                f.getCodeFile(), f.getCodeStartLine())
+                        .ifPresent(f::setCodeUrl);
+            }
+        }
+        return findings;
     }
 
     /** Case-insensitive equality facet; a null/blank filter matches everything. */
