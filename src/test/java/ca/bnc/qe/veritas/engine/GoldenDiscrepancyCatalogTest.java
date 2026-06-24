@@ -208,6 +208,44 @@ class GoldenDiscrepancyCatalogTest {
                                 && x.getSummary() != null && x.getSummary().contains("NBC4")
                                 && x.getSummary().contains("spec="))),
 
+                // Miss 2d: the same drift but the param's schema reaches the enum through MORE THAN ONE $ref hop
+                // (schema:{$ref:ContextRef} → ContextRef:{$ref:ContextEnum} → ContextEnum:{enum:[…]}). A single-hop
+                // resolver stops at ContextRef (no enum) and misses it; toParam now follows the schema $ref chain
+                // transitively (cycle-guarded), so the value drift still surfaces as a precise CONSTRAINT_GAP.
+                new Case("miss2d_enum_value_drift_transitive_ref",
+                        js(
+                                ctrl("CtxRefController", "/accounts",
+                                        "  @GetMapping(\"/lookup\")\n  public String l(@RequestParam(value=\"context\", required=false) Context context){return null;}\n"),
+                                enumType("Context", "INDIVIDUAL", "ENNBIN", "ENTERPRISE", "NBC2", "NOT_PROVIDED", "SYSTEM", "NBINF")),
+                        """
+                        openapi: 3.0.1
+                        info: {title: t, version: '1'}
+                        paths:
+                          /accounts/lookup:
+                            parameters:
+                              - $ref: '#/components/parameters/context'
+                            get:
+                              responses: {'200': {description: ok, content: {application/json: {schema: {type: string}}}}}
+                        components:
+                          parameters:
+                            context:
+                              name: context
+                              in: query
+                              required: false
+                              schema: {$ref: '#/components/schemas/ContextRef'}
+                          schemas:
+                            ContextRef:
+                              $ref: '#/components/schemas/ContextEnum'
+                            ContextEnum:
+                              type: string
+                              enum: [INDIVIDUAL, SYSTEM, NBC2, NBC4]
+                        """,
+                        Set.of(FindingType.CONSTRAINT_GAP),
+                        Set.of(FindingType.PARAM_MISSING, FindingType.PARAM_EXTRA),
+                        f -> f.stream().anyMatch(x -> x.getType() == FindingType.CONSTRAINT_GAP
+                                && x.getSummary() != null && x.getSummary().contains("NBC4")
+                                && x.getSummary().contains("spec="))),
+
                 // Miss 3: error-response media-type drift — advice emits application/problem+json, spec says application/json.
                 emit("miss3_error_media_type_drift",
                         js(

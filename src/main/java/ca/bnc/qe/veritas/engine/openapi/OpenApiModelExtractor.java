@@ -214,11 +214,15 @@ public class OpenApiModelExtractor {
         // enum-value drift on a $ref-typed param (the spec advertising a value the code rejects, and the code
         // accepting values the spec never documents) is silently missed. Stays name-preserving — no
         // setResolveFully, which would inline named DTOs and break schema-name matching elsewhere.
-        if (p.get$ref() != null && components != null && components.getParameters() != null) {
+        // Follow the parameter $ref chain (a component param may itself $ref another), cycle-guarded.
+        java.util.Set<String> seenParamRefs = new java.util.HashSet<>();
+        while (p.get$ref() != null && components != null && components.getParameters() != null
+                && seenParamRefs.add(p.get$ref())) {
             Parameter resolvedParam = components.getParameters().get(refName(p.get$ref()));
-            if (resolvedParam != null) {
-                p = resolvedParam;
+            if (resolvedParam == null) {
+                break;
             }
+            p = resolvedParam;
         }
         ParamLocation loc = switch (p.getIn() == null ? "query" : p.getIn()) {
             case "path" -> ParamLocation.PATH;
@@ -227,11 +231,17 @@ public class OpenApiModelExtractor {
             default -> ParamLocation.QUERY;
         };
         Schema schema = p.getSchema();
-        if (schema != null && schema.get$ref() != null && components != null && components.getSchemas() != null) {
+        // Follow the schema $ref chain TRANSITIVELY (schema:{$ref:A}, A:{$ref:B}, B:{enum:[…]}) — a reusable enum is
+        // often reached through more than one hop — with a cycle guard. Otherwise the enum stays invisible and the
+        // value-level drift is missed.
+        java.util.Set<String> seenSchemaRefs = new java.util.HashSet<>();
+        while (schema != null && schema.get$ref() != null && components != null && components.getSchemas() != null
+                && seenSchemaRefs.add(schema.get$ref())) {
             Schema resolvedSchema = components.getSchemas().get(refName(schema.get$ref()));
-            if (resolvedSchema != null) {
-                schema = resolvedSchema;
+            if (resolvedSchema == null) {
+                break;
             }
+            schema = resolvedSchema;
         }
         boolean required = Boolean.TRUE.equals(p.getRequired()) || loc == ParamLocation.PATH;
         ConstraintSet cs = constraints(schema);
