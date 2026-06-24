@@ -6,11 +6,16 @@ import { api, Finding } from '../api';
 import { Badge, Button, Card, CardBody, EmptyState, ErrorState, Field, Input, PageHeader, Spinner, Table, Td, Th, Row, SortableTh, useSort } from '../components/ui';
 import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toast';
-import { severityBadge, layerLabel, TONE } from '../theme/tokens';
+import { severityBadge, layerLabel, confidenceLabel, TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
 
 const SEV_ORDER = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO'];
 const sevRank = (s?: string) => { const i = SEV_ORDER.indexOf((s || 'INFO').toUpperCase()); return i < 0 ? SEV_ORDER.length : i; };
+const CONF_ORDER = ['HIGH', 'MEDIUM', 'LOW'];
+const confRank = (c?: string) => { const i = CONF_ORDER.indexOf((c || '').toUpperCase()); return i < 0 ? CONF_ORDER.length : i; };
+const HIGH_SEV = ['BLOCKER', 'CRITICAL'];
+/** A high-severity finding the engine is only LOW-confident about — verify before acting. */
+const riskyConfidence = (f: Finding) => (f.confidence || '').toUpperCase() === 'LOW' && HIGH_SEV.includes((f.severity || '').toUpperCase());
 
 // Recorded disposition → pill styling + human label (the system of record for accept/reject).
 const DISP_TONE: Record<string, string> = {
@@ -27,6 +32,7 @@ const dispositioned = (s?: string) => !!s && s !== 'OPEN';
 // Stable accessor map for client-side sorting (severity sorts by blocker→info, not alphabetically).
 const SORT_ACCESSORS: Record<string, (f: Finding) => string | number> = {
   severity: (f) => sevRank(f.severity),
+  confidence: (f) => confRank(f.confidence),
   layer: (f) => f.layer ?? '',
   endpoint: (f) => f.endpoint ?? '',
   status: (f) => f.status ?? '',
@@ -39,6 +45,7 @@ export function Findings() {
   const q = useQuery({ queryKey: ['findings', scanId], queryFn: () => api.findings(scanId!), enabled: !!scanId });
   const [filter, setFilter] = useState<string>('ALL');
   const [defectFor, setDefectFor] = useState<Finding | null>(null);
+  const [rejectFor, setRejectFor] = useState<Finding | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkOpen, setBulkOpen] = useState(false);
 
@@ -129,6 +136,7 @@ export function Findings() {
                     checked={allSelected} onChange={toggleAll} />
                 </Th>
                 <SortableTh label="Severity" sortKey="severity" sort={sort} />
+                <SortableTh label="Confidence" sortKey="confidence" sort={sort} />
                 <SortableTh label="Layer" sortKey="layer" sort={sort} />
                 <SortableTh label="Endpoint" sortKey="endpoint" sort={sort} />
                 <Th>Summary</Th>
@@ -144,6 +152,16 @@ export function Findings() {
                       )}
                     </Td>
                     <Td><Badge className={severityBadge(f.severity)}>{f.severity}</Badge></Td>
+                    <Td>
+                      {f.confidence ? (
+                        <span className={cn('inline-flex items-center gap-1 text-[13px]',
+                          riskyConfidence(f) ? 'font-medium text-warning' : 'text-muted')}
+                          title={riskyConfidence(f) ? 'High severity but the engine is only low-confidence here — verify before acting.' : undefined}>
+                          {confidenceLabel(f.confidence)}
+                          {riskyConfidence(f) && <AlertTriangle className="h-3.5 w-3.5" />}
+                        </span>
+                      ) : <span className="text-muted">—</span>}
+                    </Td>
                     <Td className="text-muted" title={f.layer}>{layerLabel(f.layer)}</Td>
                     <Td className="font-mono text-[12.5px] text-ink-900">{f.endpoint}</Td>
                     <Td className="max-w-md">
@@ -169,7 +187,7 @@ export function Findings() {
                               <Check className="h-4 w-4 text-success" />
                             </Button>
                             <Button size="sm" variant="ghost" title="Reject — not applicable to this service; it won't appear in reports"
-                              loading={busy(f, 'REJECTED')} onClick={() => disposition.mutate({ f, status: 'REJECTED' })}>
+                              loading={busy(f, 'REJECTED')} onClick={() => setRejectFor(f)}>
                               <X className="h-4 w-4 text-danger" />
                             </Button>
                             <Button size="sm" variant="secondary" onClick={() => setDefectFor(f)}><Bug className="h-4 w-4" /> Raise defect</Button>
@@ -188,6 +206,24 @@ export function Findings() {
       {defectFor && <DefectModal findings={[defectFor]} scanId={scanId} onClose={() => setDefectFor(null)} />}
       {bulkOpen && <DefectModal findings={selectedFindings} scanId={scanId}
         onClose={(done) => { setBulkOpen(false); if (done) setSelected(new Set()); }} />}
+
+      {rejectFor && (
+        <Modal open title="Reject this finding?"
+          onClose={busy(rejectFor, 'REJECTED') ? () => {} : () => setRejectFor(null)}
+          footer={<>
+            <Button variant="secondary" onClick={() => setRejectFor(null)} disabled={busy(rejectFor, 'REJECTED')}>Cancel</Button>
+            <Button variant="danger" loading={busy(rejectFor, 'REJECTED')}
+              onClick={() => { disposition.mutate({ f: rejectFor, status: 'REJECTED' }); setRejectFor(null); }}>
+              <X className="h-4 w-4" /> Reject finding
+            </Button>
+          </>}>
+          <p className="text-[13px] text-ink-900">{rejectFor.summary}</p>
+          <p className="mt-3 text-[13px] text-muted">
+            Once rejected, this finding is excluded from the management report and won't be raised as a defect.
+            It's recorded under your name and can be changed later.
+          </p>
+        </Modal>
+      )}
     </div>
   );
 }

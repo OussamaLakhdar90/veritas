@@ -8,6 +8,25 @@ const BASE = '/api/v1'
 let copilotAuthHandler: (() => void) | null = null
 export function onCopilotAuthRequired(fn: (() => void) | null) { copilotAuthHandler = fn }
 
+/** Error carrying the raw server detail/code alongside the friendly message (for debugging / special handling). */
+export interface ApiError extends Error { raw?: string; code?: string; status?: number }
+
+/**
+ * Translate a technical/HTTP failure into one plain sentence a non-engineer can act on.
+ * The server's RFC-7807 `detail` is trusted for 4xx (those messages are written for humans) and
+ * always preserved on the thrown error as `.raw`; generic HTTP/network failures get a friendlier rewrite.
+ */
+function friendlyMessage(detail: string, code: string | undefined, status: number): string {
+  if (code === 'copilot-auth-required') return 'Sign in to Copilot to run AI analysis — open Settings to connect.'
+  if (status === 0) return "Can't reach the Veritas server. Check that it's running, then try again."
+  if (status === 401 || status === 403) return 'Access was denied. Check the connection credentials in Settings.'
+  if (status === 404) return "We couldn't find that — it may have been removed or renamed."
+  if (status === 408 || status === 504) return 'That request took too long and timed out. Try again in a moment.'
+  if (status >= 500) return 'The server hit a problem finishing that. Try again shortly — if it keeps happening, check the server logs.'
+  // 4xx with a server-provided, human-readable detail: trust it as-is.
+  return detail
+}
+
 /** Turn a non-OK response into a friendly Error, and fire the Copilot sign-in hook if that's the cause. */
 async function fail(res: Response): Promise<never> {
   let detail = `${res.status} ${res.statusText}`
@@ -17,17 +36,30 @@ async function fail(res: Response): Promise<never> {
     if (j) { detail = j.detail || j.message || detail; code = j.code }
   } catch { /* non-JSON body */ }
   if (code === 'copilot-auth-required' && copilotAuthHandler) copilotAuthHandler()
-  throw new Error(detail)
+  const err: ApiError = new Error(friendlyMessage(detail, code, res.status))
+  err.raw = detail; err.code = code; err.status = res.status
+  throw err
+}
+
+/** fetch wrapper that converts a network-level rejection (server down, offline, DNS) into a friendly ApiError. */
+async function doFetch(path: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(BASE + path, init)
+  } catch {
+    const err: ApiError = new Error(friendlyMessage('', undefined, 0))
+    err.status = 0
+    throw err
+  }
 }
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(BASE + path)
+  const res = await doFetch(path)
   if (!res.ok) return fail(res)
   return res.json() as Promise<T>
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(BASE + path, {
+  const res = await doFetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -38,7 +70,7 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 
 /** Method-flexible sender that tolerates 204 and surfaces an RFC-7807 `detail`/`message` on error (friendly toasts). */
 async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const res = await fetch(BASE + path, {
+  const res = await doFetch(path, {
     method,
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
