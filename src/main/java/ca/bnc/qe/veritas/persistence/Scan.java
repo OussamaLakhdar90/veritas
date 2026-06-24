@@ -41,6 +41,11 @@ public class Scan extends AuditableEntity {
     @Column(length = 100)
     private String model;
 
+    /** The stage the scan was in WHEN it failed (the live `stage` is overwritten with FAILED), so the UI can show
+     *  where it actually failed instead of always blaming the last step. Null unless status == FAILED. */
+    @Column(length = 20)
+    private String failedStage;
+
     private int totalFindings;
     private String owner;
     private Instant startedAt;

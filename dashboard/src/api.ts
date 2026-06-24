@@ -68,6 +68,8 @@ export interface Scan {
   stageDetail?: string
   /** Copilot model resolved for the AI (reconcile) step. */
   model?: string
+  /** The stage the scan was in when it failed (set only when status is FAILED). */
+  failedStage?: string
   totalFindings: number
   totalEstCostUsd: number
   startedAt: string
