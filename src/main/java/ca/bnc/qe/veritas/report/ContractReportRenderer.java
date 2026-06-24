@@ -130,6 +130,9 @@ public class ContractReportRenderer {
 
         sb.append("<div class=\"content\">");
 
+        // ---- Bottom line: the one-glance "is it safe to release?" verdict (deterministic from the gate) ----
+        sb.append(bottomLine(score, blocking, counted.size(), missing.size(), wrong.size(), dead.size()));
+
         // ---- Table of contents (anchors to each section present) ----
         boolean anyFix = findings.stream().anyMatch(f -> !isBlank(f.getProposedFix()));
         sb.append("<nav class=\"toc\"><div class=\"toc-h\">").append(bi("Contents", "Sommaire")).append("</div><ol>");
@@ -528,6 +531,56 @@ public class ContractReportRenderer {
                     .append("\"></span>").append(cap(sev)).append(" ").append(n).append("</span>");
         }
         return bar.append("</div>").append(legend).append("</div>").toString();
+    }
+
+    /** The plain "is it safe to release?" verdict box — first thing management sees, derived only from the gate. */
+    private String bottomLine(int score, long blocking, int total, int missing, int wrong, int dead) {
+        boolean pass = score >= FidelityScore.PASS_THRESHOLD;
+        String color, tint, statusEn, statusFr;
+        if (blocking > 0) {
+            color = "#C2122D"; tint = "#fdecef"; statusEn = "Do not release"; statusFr = "Ne pas livrer";
+        } else if (!pass) {
+            color = "#C2410C"; tint = "#fff4ec"; statusEn = "Hold for fixes"; statusFr = "À corriger avant livraison";
+        } else {
+            color = "#1E8E5A"; tint = "#e9f6ef"; statusEn = "Proceed"; statusFr = "Prêt à livrer";
+        }
+        String actionEn, actionFr;
+        if (total == 0) {
+            actionEn = "No action needed — the documentation matches the code.";
+            actionFr = "Aucune action requise — la documentation correspond au code.";
+        } else {
+            List<String> en = new ArrayList<>();
+            List<String> frb = new ArrayList<>();
+            if (blocking > 0) { en.add("fix " + blocking + " release-blocking item" + (blocking == 1 ? "" : "s") + " first"); frb.add("corriger d'abord " + blocking + " bloquant(s)"); }
+            if (missing > 0) { en.add("document " + missing); frb.add("documenter " + missing); }
+            if (wrong > 0) { en.add("correct " + wrong + " mismatch" + (wrong == 1 ? "" : "es")); frb.add("corriger " + wrong + " incohérence(s)"); }
+            if (dead > 0) { en.add("remove " + dead + " stale entr" + (dead == 1 ? "y" : "ies")); frb.add("retirer " + dead + " entrée(s) obsolète(s)"); }
+            actionEn = capFirst(String.join(", ", en)) + ".";
+            actionFr = capFirst(String.join(", ", frb)) + ".";
+        }
+        int hours = total == 0 ? 0 : Math.max(1, (int) Math.ceil(total * 0.5));
+        String timeEn = total == 0 ? "—" : total + " item" + (total == 1 ? "" : "s") + " · ~" + hours + " h (rough est.)";
+        String timeFr = total == 0 ? "—" : total + " élément(s) · ~" + hours + " h (approx.)";
+
+        StringBuilder b = new StringBuilder();
+        b.append("<div style=\"border-left:5px solid ").append(color).append(";background:").append(tint)
+                .append(";border-radius:0 8px 8px 0;padding:.9rem 1.2rem;margin:0 0 1.3rem\">");
+        b.append("<div style=\"font-size:.66rem;text-transform:uppercase;letter-spacing:.1em;color:#475069\">")
+                .append(bi("Bottom line", "En résumé")).append("</div>");
+        b.append("<div style=\"font-size:1.3rem;font-weight:700;color:").append(color).append(";margin:.1rem 0 .55rem\">")
+                .append(bi(statusEn, statusFr)).append("</div>");
+        b.append("<table style=\"font-size:.9rem;border-collapse:collapse\">");
+        b.append("<tr><td style=\"color:#475069;padding:.1rem 1rem .1rem 0;vertical-align:top;white-space:nowrap\">")
+                .append(bi("Action", "Action")).append("</td><td style=\"padding:.1rem 0\">").append(bi(actionEn, actionFr)).append("</td></tr>");
+        b.append("<tr><td style=\"color:#475069;padding:.1rem 1rem .1rem 0;vertical-align:top;white-space:nowrap\">")
+                .append(bi("Effort", "Effort")).append("</td><td style=\"padding:.1rem 0\">").append(bi(timeEn, timeFr)).append("</td></tr>");
+        b.append("</table></div>");
+        return b.toString();
+    }
+
+    /** Sentence-case: uppercase the first character only, leaving the rest untouched. */
+    private static String capFirst(String s) {
+        return s == null || s.isEmpty() ? s : Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
 
     /** Plain-language label for a finding's analysis layer — readers should never see the L1–L6 codes. */

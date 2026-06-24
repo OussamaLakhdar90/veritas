@@ -1,7 +1,7 @@
 import { HashRouter, Routes, Route, NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, ShieldCheck, Bug, ClipboardList, ListChecks, Code2, GitPullRequestArrow,
-  Coins, Settings, Moon, Sun, Target, ClipboardCheck, Rocket,
+  Coins, Settings, Moon, Sun, Target, ClipboardCheck, Rocket, BookOpen,
 } from 'lucide-react';
 import { Dashboard } from './pages/Dashboard';
 import { Onboarding } from './pages/Onboarding';
@@ -16,6 +16,7 @@ import { Codegen } from './pages/Codegen';
 import { Costs } from './pages/Costs';
 import { Defects } from './pages/Defects';
 import { Gates } from './pages/Gates';
+import { Glossary } from './pages/Glossary';
 import { Settings as SettingsPage } from './pages/Settings';
 import { useDarkMode } from './lib/theme';
 import { CopilotAuthProvider } from './lib/copilotAuth';
@@ -34,6 +35,7 @@ const NAV = [
   { to: '/generate-tests', label: 'Generate Tests', icon: Code2 },
   { to: '/gates', label: 'Gates', icon: GitPullRequestArrow },
   { to: '/costs', label: 'Cost', icon: Coins },
+  { to: '/glossary', label: 'Glossary', icon: BookOpen },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
@@ -95,6 +97,7 @@ export function App() {
               <Route path="/generate-tests" element={<Codegen />} />
               <Route path="/gates" element={<Gates />} />
               <Route path="/costs" element={<Costs />} />
+              <Route path="/glossary" element={<Glossary />} />
               <Route path="/settings" element={<SettingsPage />} />
             </Routes>
           </main>
