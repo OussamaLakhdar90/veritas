@@ -97,8 +97,10 @@ public class AsyncScanRunner {
             validation.runInto(scan, req);
         } catch (Exception e) {
             log.error("Scan {} [{}] → FAILED — {}", scan.getId(), scan.getServiceName(), e.getMessage(), e);
+            scan.setFailedStage(scan.getStage());   // CLONING / RESOLVING_SPEC failures land here — keep the real step
             scan.setStatus(RunStatus.FAILED);
             scan.setStage(ScanStages.FAILED);
+            scan.setStageDetail(null);
             scan.setErrorMessage(e.getMessage());
             scan.setFinishedAt(Instant.now());
             scans.save(scan);

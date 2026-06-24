@@ -316,8 +316,10 @@ public class ContractValidationService {
                     bySeverity(findings), reportPath, reportPdfPath, correctedYamlPath, scan.getTotalEstCostUsd());
         } catch (Exception ex) {
             log.error("Scan {} [{}] → FAILED — {}", scan.getId(), req.serviceName(), ex.getMessage(), ex);
+            scan.setFailedStage(scan.getStage());   // preserve WHERE it failed before stage is clobbered to FAILED
             scan.setStatus(RunStatus.FAILED);
             scan.setStage(ScanStages.FAILED);
+            scan.setStageDetail(null);   // a failed scan must not keep a stale "Generating…" sub-line
             scan.setErrorMessage(ex.getMessage());
             scan.setFinishedAt(Instant.now());
             scanRepository.save(scan);

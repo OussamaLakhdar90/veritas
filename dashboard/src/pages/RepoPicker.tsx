@@ -327,7 +327,7 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
       ) : (
         <ScanProgress stage={stage} failed={failed} errorMessage={scan?.errorMessage} onRetry={retry}
           startMs={(scan?.startedAt && Date.parse(scan.startedAt)) || startedAtMs}
-          stageDetail={scan?.stageDetail} model={scan?.model} />
+          stageDetail={scan?.stageDetail} model={scan?.model} failedStage={scan?.failedStage} />
       )}
     </Modal>
   );
@@ -336,15 +336,16 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
 /* ── Friendly step-by-step tracker the user can follow while a scan runs ──
       Premium header (live timer + progress bar + "step N of M"), a per-step timer on the
       active row, and a reassurance on the slow AI step so a long scan never reads as stuck. ── */
-function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDetail, model }:
+function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDetail, model, failedStage }:
   { stage: string; failed: boolean; errorMessage?: string; onRetry: () => void; startMs: number | null;
-    stageDetail?: string; model?: string }) {
+    stageDetail?: string; model?: string; failedStage?: string }) {
   const total = SCAN_STEPS.length;
   const current = STAGE_ORDER[stage] ?? 0;
-  // Which step the failure happened on (the last step we'd entered), for a clear "failed at …" line.
-  const failedStepIdx = failed ? Math.max(0, Math.min(total - 1, current - 1)) : -1;
+  // Which step actually failed comes from the backend's preserved `failedStage` (the live `stage` is overwritten
+  // with FAILED). Without it we mark no specific step — never fabricate a "failed at the AI step" or fake green ticks.
+  const failedStepIdx = failed && failedStage ? SCAN_STEPS.findIndex((s) => s.key === failedStage) : -1;
   const stepNo = Math.min(total, Math.max(0, current));
-  const pct = failed ? Math.max(8, stagePct(stage)) : stagePct(stage);
+  const pct = failed ? (failedStage ? stagePct(failedStage) : 8) : stagePct(stage);
   const activeLabel = SCAN_STEPS.find((s) => s.key === stage)?.label;
   const elapsed = useElapsed(startMs, !failed);          // whole-scan timer
   const stageElapsed = useStageElapsed(stage, !failed);  // current step's own timer
