@@ -56,6 +56,13 @@ public class FeatureIndexSnapshot extends AuditableEntity {
     private String generatedStrategyId;
 
     /**
+     * Set when an <b>async</b> generation fails (the claim is released at the same moment). The poll keys "failed" on
+     * this being non-null — NOT on the absence of a claim — so a poll landing between the claim and the worker's
+     * first write can't be misread as a failure. Cleared on a fresh claim and on a successful link.
+     */
+    private String generationError;
+
+    /**
      * Claim marker for generation: set (under the optimistic lock) the moment a generate is admitted, so a
      * concurrent second generate is rejected <b>before</b> the expensive, paid synthesis runs — not after. Cleared
      * if that synthesis fails, so a legitimate retry can re-claim. {@code null} = no generation in flight.

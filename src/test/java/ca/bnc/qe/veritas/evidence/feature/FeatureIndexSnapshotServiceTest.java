@@ -170,6 +170,27 @@ class FeatureIndexSnapshotServiceTest {
     }
 
     @Test
+    void failGenerationReleasesTheClaimAndRecordsTheTruncatedError() {
+        service.failGeneration("snap-1", "boom");
+        verify(repository).failGeneration("snap-1", "boom");   // column-scoped: releases the claim + stores the error
+
+        service.failGeneration("snap-1", null);
+        verify(repository).failGeneration("snap-1", "Generation failed.");   // null → a stable default message
+    }
+
+    @Test
+    void claimForGenerationClearsAnyPriorError() {
+        FeatureIndexSnapshot s = service.create("svc", sampleResult(), "alice");
+        s.setGenerationError("a previous run failed");
+        when(repository.findById(s.getId())).thenReturn(Optional.of(s));
+
+        FeatureIndexSnapshot claimed = service.claimForGeneration(s.getId());
+
+        assertThat(claimed.getGenerationStartedAt()).isNotNull();
+        assertThat(claimed.getGenerationError()).isNull();   // a fresh attempt starts clean
+    }
+
+    @Test
     void everyEditIsRecordedInTheReplayableLog() {
         FeatureIndexSnapshot s = service.create("svc", sampleResult(), "alice");
 

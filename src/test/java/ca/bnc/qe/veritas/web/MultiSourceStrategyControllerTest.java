@@ -26,6 +26,7 @@ import ca.bnc.qe.veritas.evidence.SourceKind;
 import ca.bnc.qe.veritas.evidence.SourceMix;
 import ca.bnc.qe.veritas.evidence.SourceSelection;
 import ca.bnc.qe.veritas.evidence.UnitType;
+import ca.bnc.qe.veritas.evidence.feature.AsyncStrategyGenerator;
 import ca.bnc.qe.veritas.evidence.feature.Feature;
 import ca.bnc.qe.veritas.evidence.feature.FeatureIndex;
 import ca.bnc.qe.veritas.evidence.feature.FeatureIndexBuilder;
@@ -62,6 +63,7 @@ class MultiSourceStrategyControllerTest {
     @MockBean private FeatureIndexBuilder featureIndexBuilder;
     @MockBean private MultiSourceStrategyService strategyService;
     @MockBean private FeatureIndexSnapshotService snapshotService;
+    @MockBean private AsyncStrategyGenerator asyncStrategyGenerator;
     @MockBean private CurrentUser currentUser;
 
     @BeforeEach
@@ -217,32 +219,25 @@ class MultiSourceStrategyControllerTest {
     }
 
     @Test
-    void generateFromSnapshotClaimsThenSynthesizesFromTheStoredIndexAndLinksBack() throws Exception {
+    void generateFromSnapshotClaimsThenReturns202AndKicksOffAsync() throws Exception {
         FeatureIndexSnapshot snap = stubSnapshot("snap-1", "ciam-policies", "alice");
         when(snapshotService.find("snap-1")).thenReturn(Optional.of(snap));
-        when(snapshotService.claimForGeneration("snap-1")).thenReturn(snap);   // atomic one-shot claim
-        FeatureIndexResult result = oneFeatureResult();
-        when(snapshotService.resultOf(snap)).thenReturn(result);
-        TestStrategy s = new TestStrategy();
-        s.setId("strat-1");
-        s.setServiceName("ciam-policies");
-        s.setSource("multi-source");
-        when(strategyService.generateFromIndex(eq("ciam-policies"), eq(result), eq("alice"))).thenReturn(s);
+        when(snapshotService.claimForGeneration("snap-1")).thenReturn(snap);   // atomic one-shot claim (the 409 gate)
 
         mvc.perform(post("/api/v1/multi-source-strategy/snapshots/snap-1/strategy"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.serviceName").value("ciam-policies"))
-                .andExpect(jsonPath("$.source").value("multi-source"));
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.snapshotId").value("snap-1"))
+                .andExpect(jsonPath("$.status").value("GENERATING"));
 
         verify(snapshotService).claimForGeneration("snap-1");
-        verify(strategyService).generateFromIndex("ciam-policies", result, "alice");
-        verify(snapshotService).linkGenerated("snap-1", "strat-1");   // id-scoped, not a detached-entity save
-        verify(snapshotService, never()).releaseClaim(any());   // success → no release
+        verify(asyncStrategyGenerator).submit(snap);   // synthesis handed to the worker, off the request thread
+        verify(strategyService, never()).generateFromIndex(any(), any(), any());   // not on the request thread
+        verify(snapshotService, never()).linkGenerated(any(), any());
         verify(featureIndexBuilder, never()).build(any(), any());   // no second pipeline run
     }
 
     @Test
-    void aRejectedClaimIs409AndDoesNotReGenerate() throws Exception {
+    void aRejectedClaimIs409AndDoesNotKickOffAsync() throws Exception {
         FeatureIndexSnapshot snap = stubSnapshot("snap-1", "ciam-policies", "alice");
         when(snapshotService.find("snap-1")).thenReturn(Optional.of(snap));
         when(snapshotService.claimForGeneration("snap-1"))
@@ -251,7 +246,20 @@ class MultiSourceStrategyControllerTest {
         mvc.perform(post("/api/v1/multi-source-strategy/snapshots/snap-1/strategy"))
                 .andExpect(status().isConflict());
 
-        verify(strategyService, never()).generateFromIndex(any(), any(), any());   // no duplicate paid synthesis
+        verify(asyncStrategyGenerator, never()).submit(any());   // no duplicate paid synthesis kicked off
+    }
+
+    @Test
+    void theSnapshotPollExposesTheGenerationStatusFields() throws Exception {
+        FeatureIndexSnapshot snap = stubSnapshot("snap-1", "ciam-policies", "alice");
+        snap.setGeneratedStrategyId("strat-1");   // synthesis finished → the poll target the wizard navigates on
+        when(snapshotService.find("snap-1")).thenReturn(Optional.of(snap));
+        when(snapshotService.resultOf(snap)).thenReturn(oneFeatureResult());
+        when(snapshotService.pinnedOf(snap)).thenReturn(Set.of());
+
+        mvc.perform(get("/api/v1/multi-source-strategy/snapshots/snap-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.generatedStrategyId").value("strat-1"));
     }
 
     @Test
