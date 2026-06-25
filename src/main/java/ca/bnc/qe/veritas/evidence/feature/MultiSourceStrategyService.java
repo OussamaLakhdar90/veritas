@@ -3,6 +3,8 @@ package ca.bnc.qe.veritas.evidence.feature;
 import ca.bnc.qe.veritas.evidence.SourceSelection;
 import ca.bnc.qe.veritas.persistence.TestStrategy;
 import ca.bnc.qe.veritas.persistence.TestStrategyRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -22,13 +24,18 @@ public class MultiSourceStrategyService {
 
     private final FeatureIndexBuilder featureIndexBuilder;
     private final MultiSourceStrategyAssembler assembler;
+    private final StrategyScorecardEngine scorecardEngine;
     private final TestStrategyRepository repository;
+    private final ObjectMapper objectMapper;
 
     public MultiSourceStrategyService(FeatureIndexBuilder featureIndexBuilder, MultiSourceStrategyAssembler assembler,
-                                      TestStrategyRepository repository) {
+                                      StrategyScorecardEngine scorecardEngine, TestStrategyRepository repository,
+                                      ObjectMapper objectMapper) {
         this.featureIndexBuilder = featureIndexBuilder;
         this.assembler = assembler;
+        this.scorecardEngine = scorecardEngine;
         this.repository = repository;
+        this.objectMapper = objectMapper;
     }
 
     /** Extract → build the feature index → synthesize → persist, in one shot (no editable preview snapshot). */
@@ -51,11 +58,14 @@ public class MultiSourceStrategyService {
         }
 
         AssembledStrategy assembled = assembler.assemble(serviceName, index, owner);
+        StrategyScorecard scorecard = scorecardEngine.score(assembled.deliverable(), index, assembled.droppedSections());
 
         TestStrategy strategy = new TestStrategy();   // id is assigned at construction (UUID)
         strategy.setServiceName(serviceName);
         strategy.setDeliverableJson(assembled.deliverable().toString());
         strategy.setContentMarkdown(markdown(serviceName, assembled));
+        strategy.setScorecardJson(writeScorecard(scorecard));
+        strategy.setConfidence((double) scorecard.confidence());
         strategy.setEstCostUsd(assembled.estCostUsd());
         strategy.setStatus("DRAFT");
         strategy.setSource("multi-source");
@@ -63,10 +73,20 @@ public class MultiSourceStrategyService {
         strategy.setVersion(1);
         strategy.setLineageId(strategy.getId());      // v1 seeds its own lineage
         TestStrategy saved = repository.save(strategy);
-        log.info("Persisted multi-source strategy {} for {}: {} feature(s), {} dropped, ${}",
+        log.info("Persisted multi-source strategy {} for {}: {} feature(s), {} dropped, scorecard {} ({}%), ${}",
                 saved.getId(), serviceName, assembled.featuresCovered(), assembled.droppedSections().size(),
-                String.format("%.4f", assembled.estCostUsd()));
+                scorecard.verdict(), scorecard.confidence(), String.format("%.4f", assembled.estCostUsd()));
         return saved;
+    }
+
+    /** Serialize the scorecard for persistence; a serialization failure is internal, never blocks the strategy. */
+    private String writeScorecard(StrategyScorecard scorecard) {
+        try {
+            return objectMapper.writeValueAsString(scorecard);
+        } catch (JsonProcessingException e) {
+            log.warn("Could not serialize strategy scorecard: {}", e.getMessage());
+            return null;
+        }
     }
 
     /** A short deterministic markdown projection (the deliverable JSON holds the full structured strategy). */

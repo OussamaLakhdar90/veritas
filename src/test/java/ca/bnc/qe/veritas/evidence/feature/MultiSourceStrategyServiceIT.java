@@ -46,5 +46,9 @@ class MultiSourceStrategyServiceIT {
         // In mock mode the evidence-first sections ground (the mock cites the allowed endpoint id), so the
         // deliverable carries the per-feature risk register — the whole pipeline produced real structured output.
         assertThat(strategy.getDeliverableJson()).contains("riskRegister").contains("UNDOCUMENTED");
+        // The deterministic scorecard is computed + persisted (verdict + confidence); the verdict rules themselves
+        // are covered by StrategyScorecardEngineTest.
+        assertThat(strategy.getScorecardJson()).contains("verdict").contains("checks");
+        assertThat(strategy.getConfidence()).isNotNull();
     }
 }

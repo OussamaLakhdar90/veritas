@@ -60,6 +60,7 @@ public class MultiSourceStrategyAssembler {
                 if (section.node().isPresent()) {
                     ObjectNode node = (ObjectNode) section.node().get();
                     node.put("feature", feature.displayName());          // canonical name over the LLM's
+                    node.put("featureId", feature.featureId());          // stable key (display names can collide)
                     node.put("featureStatus", feature.status().name());
                     arrays.computeIfAbsent(spec.key(), k -> objectMapper.createArrayNode()).add(node);
                 } else {
