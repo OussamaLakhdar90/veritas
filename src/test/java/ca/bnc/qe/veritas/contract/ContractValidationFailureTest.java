@@ -42,7 +42,8 @@ class ContractValidationFailureTest {
                 new com.fasterxml.jackson.databind.ObjectMapper(),
                 mock(ca.bnc.qe.veritas.preflight.Preflight.class),
                 mock(ScanPersistence.class),
-                mock(ca.bnc.qe.veritas.report.TranslationService.class));
+                mock(ca.bnc.qe.veritas.report.TranslationService.class),
+                new ca.bnc.qe.veritas.llm.LlmCallContext());
 
         Scan scan = new Scan();
         scan.setStage(ScanStages.QUEUED);
