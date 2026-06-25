@@ -2,6 +2,7 @@ package ca.bnc.qe.veritas.web;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import ca.bnc.qe.veritas.engine.extract.java.JavaSpringExtractor;
 import ca.bnc.qe.veritas.engine.model.ApiModel;
@@ -14,7 +15,6 @@ import ca.bnc.qe.veritas.evidence.feature.MultiSourceStrategyService;
 import ca.bnc.qe.veritas.persistence.FeatureIndexSnapshot;
 import ca.bnc.qe.veritas.persistence.TestStrategy;
 import ca.bnc.qe.veritas.settings.CurrentUser;
-import ca.bnc.qe.veritas.skill.ConflictException;
 import ca.bnc.qe.veritas.vcs.WorkspaceService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -87,7 +87,7 @@ public class MultiSourceStrategyController {
     /** Re-fetch a persisted preview snapshot (e.g. on wizard reload). */
     @GetMapping("/multi-source-strategy/snapshots/{id}")
     public ResponseEntity<StrategyPreview> snapshot(@PathVariable String id) {
-        return snapshotService.find(id)
+        return ownedSnapshot(id)
                 .map(s -> ResponseEntity.ok(toPreview(s)))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
@@ -95,7 +95,7 @@ public class MultiSourceStrategyController {
     /** Rename one feature's display label. */
     @PatchMapping("/multi-source-strategy/snapshots/{id}/rename")
     public ResponseEntity<StrategyPreview> rename(@PathVariable String id, @RequestBody RenameRequest req) {
-        return snapshotService.find(id)
+        return ownedSnapshot(id)
                 .map(s -> ResponseEntity.ok(toPreview(snapshotService.rename(s, req.featureId(), req.name()))))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
@@ -103,7 +103,7 @@ public class MultiSourceStrategyController {
     /** Merge two or more features into one. */
     @PatchMapping("/multi-source-strategy/snapshots/{id}/merge")
     public ResponseEntity<StrategyPreview> merge(@PathVariable String id, @RequestBody MergeRequest req) {
-        return snapshotService.find(id)
+        return ownedSnapshot(id)
                 .map(s -> ResponseEntity.ok(toPreview(snapshotService.merge(s, req.featureIds(), req.name()))))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
@@ -114,30 +114,46 @@ public class MultiSourceStrategyController {
         if (req.pinned() == null) {
             throw new IllegalArgumentException("'pinned' (true or false) is required.");
         }
-        return snapshotService.find(id)
+        return ownedSnapshot(id)
                 .map(s -> ResponseEntity.ok(toPreview(snapshotService.pin(s, req.featureId(), req.pinned()))))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     /**
      * Generate the strategy from a (possibly edited) snapshot — reuses the index, no second pipeline run. Generation
-     * is one-shot per snapshot: a second POST is a conflict (409) rather than a duplicate, paid synthesis run that
+     * is one-shot per snapshot: the claim is taken atomically (under the snapshot's optimistic lock) BEFORE the
+     * paid synthesis, so a concurrent or repeat POST is a conflict (409) rather than a duplicate, paid run that
      * would also re-point the audit link. Start a fresh preview to generate again.
      */
     @PostMapping("/multi-source-strategy/snapshots/{id}/strategy")
     public ResponseEntity<TestStrategy> generateFromSnapshot(@PathVariable String id) {
-        return snapshotService.find(id)
-                .map(s -> {
-                    if (s.getGeneratedStrategyId() != null) {
-                        throw new ConflictException("This preview already generated strategy "
-                                + s.getGeneratedStrategyId() + " — start a new preview to generate again.");
-                    }
-                    TestStrategy strategy = strategyService.generateFromIndex(
-                            s.getServiceName(), snapshotService.resultOf(s), s.getOwner());
-                    snapshotService.linkGenerated(s, strategy.getId());
-                    return ResponseEntity.status(HttpStatus.CREATED).body(strategy);
-                })
-                .orElseGet(() -> ResponseEntity.notFound().build());
+        if (ownedSnapshot(id).isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        FeatureIndexSnapshot snapshot = snapshotService.claimForGeneration(id);   // atomic one-shot claim → 409 if taken
+        try {
+            TestStrategy strategy = strategyService.generateFromIndex(
+                    snapshot.getServiceName(), snapshotService.resultOf(snapshot), snapshot.getOwner());
+            snapshotService.linkGenerated(id, strategy.getId());
+            return ResponseEntity.status(HttpStatus.CREATED).body(strategy);
+        } catch (RuntimeException e) {
+            try {
+                snapshotService.releaseClaim(id);   // synthesis failed → let a legitimate retry re-claim
+            } catch (RuntimeException releaseError) {
+                log.warn("Failed to release generation claim on snapshot {}: {}", id, releaseError.toString());
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Resolve a snapshot only if the current principal owns it — a non-owner (in the multi-user 'server' profile)
+     * gets 404, not the row, so snapshot ids can't be enumerated across users. Local-first is unaffected (every
+     * row's owner and the current principal are both {@code local}). A null owner (defensive) is treated as visible.
+     */
+    private Optional<FeatureIndexSnapshot> ownedSnapshot(String id) {
+        String principal = currentUser.principalId();
+        return snapshotService.find(id).filter(s -> s.getOwner() == null || s.getOwner().equals(principal));
     }
 
     @PostMapping("/services/{serviceName}/multi-source-strategy")

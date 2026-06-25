@@ -4,10 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import ca.bnc.qe.veritas.evidence.EvidenceId;
 import ca.bnc.qe.veritas.evidence.EvidenceUnit;
@@ -18,6 +21,7 @@ import ca.bnc.qe.veritas.evidence.SourceMix;
 import ca.bnc.qe.veritas.evidence.UnitType;
 import ca.bnc.qe.veritas.persistence.FeatureIndexSnapshot;
 import ca.bnc.qe.veritas.persistence.FeatureIndexSnapshotRepository;
+import ca.bnc.qe.veritas.skill.ConflictException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,7 +44,7 @@ class FeatureIndexSnapshotServiceTest {
         repository = mock(FeatureIndexSnapshotRepository.class);
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
         service = new FeatureIndexSnapshotService(repository, new GapDetector(),
-                new ObjectMapper().findAndRegisterModules());
+                new ObjectMapper().findAndRegisterModules(), 15);   // 15-minute generation lease
     }
 
     private FeatureIndexResult sampleResult() {
@@ -120,6 +124,49 @@ class FeatureIndexSnapshotServiceTest {
         // Both features have one unit → tie → the first listed wins ("Get policy").
         assertThat(after.index().features().values()).first()
                 .extracting(Feature::displayName).isEqualTo("Get policy");
+    }
+
+    @Test
+    void claimForGenerationMarksTheClaimAndRejectsASecondClaim() {
+        FeatureIndexSnapshot s = service.create("svc", sampleResult(), "alice");
+        when(repository.findById(s.getId())).thenReturn(Optional.of(s));
+
+        FeatureIndexSnapshot claimed = service.claimForGeneration(s.getId());
+        assertThat(claimed.getGenerationStartedAt()).isNotNull();
+
+        // A second claim (a concurrent/repeat generate) sees the in-flight marker → conflict, before any synthesis.
+        assertThatThrownBy(() -> service.claimForGeneration(s.getId())).isInstanceOf(ConflictException.class);
+    }
+
+    @Test
+    void claimForGenerationRejectsAnAlreadyGeneratedSnapshot() {
+        FeatureIndexSnapshot s = service.create("svc", sampleResult(), "alice");
+        s.setGeneratedStrategyId("strat-1");
+        when(repository.findById(s.getId())).thenReturn(Optional.of(s));
+
+        assertThatThrownBy(() -> service.claimForGeneration(s.getId())).isInstanceOf(ConflictException.class);
+    }
+
+    @Test
+    void anAbandonedClaimPastTheLeaseCanBeReClaimed() {
+        FeatureIndexSnapshot s = service.create("svc", sampleResult(), "alice");
+        s.setGenerationStartedAt(Instant.now().minus(java.time.Duration.ofMinutes(30)));   // past the 15-min lease
+        when(repository.findById(s.getId())).thenReturn(Optional.of(s));
+
+        FeatureIndexSnapshot reclaimed = service.claimForGeneration(s.getId());   // abandoned → re-claimable
+
+        assertThat(reclaimed.getGenerationStartedAt()).isAfter(Instant.now().minus(java.time.Duration.ofMinutes(1)));
+    }
+
+    @Test
+    void linkGeneratedAndReleaseClaimAreColumnScopedBulkUpdates() {
+        when(repository.linkGenerated("snap-1", "strat-1")).thenReturn(1);
+
+        service.linkGenerated("snap-1", "strat-1");
+        service.releaseClaim("snap-1");
+
+        verify(repository).linkGenerated("snap-1", "strat-1");   // not a save() of a (possibly stale) detached entity
+        verify(repository).releaseClaim("snap-1");
     }
 
     @Test

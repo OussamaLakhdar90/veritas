@@ -1,5 +1,6 @@
 package ca.bnc.qe.veritas.persistence;
 
+import java.time.Instant;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Lob;
@@ -40,6 +41,13 @@ public class FeatureIndexSnapshot extends AuditableEntity {
 
     /** Set once a strategy is generated from this snapshot (audit link back to the {@link TestStrategy}); null until then. */
     private String generatedStrategyId;
+
+    /**
+     * Claim marker for generation: set (under the optimistic lock) the moment a generate is admitted, so a
+     * concurrent second generate is rejected <b>before</b> the expensive, paid synthesis runs — not after. Cleared
+     * if that synthesis fails, so a legitimate retry can re-claim. {@code null} = no generation in flight.
+     */
+    private Instant generationStartedAt;
 
     /**
      * Optimistic-lock guard: every edit (rename/merge/pin) is a read-modify-write over the whole {@code resultJson}

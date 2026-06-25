@@ -39,7 +39,9 @@ import ca.bnc.qe.veritas.evidence.feature.MultiSourceStrategyService;
 import ca.bnc.qe.veritas.persistence.FeatureIndexSnapshot;
 import ca.bnc.qe.veritas.persistence.TestStrategy;
 import ca.bnc.qe.veritas.settings.CurrentUser;
+import ca.bnc.qe.veritas.skill.ConflictException;
 import ca.bnc.qe.veritas.vcs.WorkspaceService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -62,8 +64,12 @@ class MultiSourceStrategyControllerTest {
     @MockBean private FeatureIndexSnapshotService snapshotService;
     @MockBean private CurrentUser currentUser;
 
+    @BeforeEach
+    void stubPrincipal() {
+        when(currentUser.principalId()).thenReturn("alice");   // matches stubSnapshot owner → ownership passes
+    }
+
     private TestStrategy stubGenerated() {
-        when(currentUser.principalId()).thenReturn("alice");
         TestStrategy s = new TestStrategy();
         s.setServiceName("ciam-policies");
         s.setSource("multi-source");
@@ -211,9 +217,10 @@ class MultiSourceStrategyControllerTest {
     }
 
     @Test
-    void generateFromSnapshotSynthesizesFromTheStoredIndexAndLinksBack() throws Exception {
+    void generateFromSnapshotClaimsThenSynthesizesFromTheStoredIndexAndLinksBack() throws Exception {
         FeatureIndexSnapshot snap = stubSnapshot("snap-1", "ciam-policies", "alice");
         when(snapshotService.find("snap-1")).thenReturn(Optional.of(snap));
+        when(snapshotService.claimForGeneration("snap-1")).thenReturn(snap);   // atomic one-shot claim
         FeatureIndexResult result = oneFeatureResult();
         when(snapshotService.resultOf(snap)).thenReturn(result);
         TestStrategy s = new TestStrategy();
@@ -227,21 +234,34 @@ class MultiSourceStrategyControllerTest {
                 .andExpect(jsonPath("$.serviceName").value("ciam-policies"))
                 .andExpect(jsonPath("$.source").value("multi-source"));
 
+        verify(snapshotService).claimForGeneration("snap-1");
         verify(strategyService).generateFromIndex("ciam-policies", result, "alice");
-        verify(snapshotService).linkGenerated(snap, "strat-1");
+        verify(snapshotService).linkGenerated("snap-1", "strat-1");   // id-scoped, not a detached-entity save
+        verify(snapshotService, never()).releaseClaim(any());   // success → no release
         verify(featureIndexBuilder, never()).build(any(), any());   // no second pipeline run
     }
 
     @Test
-    void generatingTwiceFromASnapshotIs409AndDoesNotReGenerate() throws Exception {
+    void aRejectedClaimIs409AndDoesNotReGenerate() throws Exception {
         FeatureIndexSnapshot snap = stubSnapshot("snap-1", "ciam-policies", "alice");
-        snap.setGeneratedStrategyId("strat-existing");   // already generated once
         when(snapshotService.find("snap-1")).thenReturn(Optional.of(snap));
+        when(snapshotService.claimForGeneration("snap-1"))
+                .thenThrow(new ConflictException("already generated"));   // claim refuses a second/concurrent generate
 
         mvc.perform(post("/api/v1/multi-source-strategy/snapshots/snap-1/strategy"))
                 .andExpect(status().isConflict());
 
         verify(strategyService, never()).generateFromIndex(any(), any(), any());   // no duplicate paid synthesis
+    }
+
+    @Test
+    void aSnapshotOwnedByAnotherUserIs404() throws Exception {
+        FeatureIndexSnapshot bobs = stubSnapshot("snap-1", "ciam-policies", "bob");
+        when(snapshotService.find("snap-1")).thenReturn(Optional.of(bobs));   // current principal is "alice"
+
+        mvc.perform(get("/api/v1/multi-source-strategy/snapshots/snap-1")).andExpect(status().isNotFound());
+        mvc.perform(post("/api/v1/multi-source-strategy/snapshots/snap-1/strategy")).andExpect(status().isNotFound());
+        verify(snapshotService, never()).claimForGeneration(any());
     }
 
     @Test

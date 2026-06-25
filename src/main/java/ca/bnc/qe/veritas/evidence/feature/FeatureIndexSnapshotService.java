@@ -1,5 +1,7 @@
 package ca.bnc.qe.veritas.evidence.feature;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -14,11 +16,14 @@ import ca.bnc.qe.veritas.evidence.EvidenceId;
 import ca.bnc.qe.veritas.evidence.EvidenceUnit;
 import ca.bnc.qe.veritas.persistence.FeatureIndexSnapshot;
 import ca.bnc.qe.veritas.persistence.FeatureIndexSnapshotRepository;
+import ca.bnc.qe.veritas.skill.ConflictException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Persists a multi-source preview's {@link FeatureIndexResult} as an editable {@link FeatureIndexSnapshot}, and
@@ -36,12 +41,15 @@ public class FeatureIndexSnapshotService {
     private final FeatureIndexSnapshotRepository repository;
     private final GapDetector gapDetector;
     private final ObjectMapper mapper;
+    private final Duration generationLease;
 
     public FeatureIndexSnapshotService(FeatureIndexSnapshotRepository repository, GapDetector gapDetector,
-                                       ObjectMapper mapper) {
+                                       ObjectMapper mapper,
+                                       @Value("${veritas.multi-source.generation-lease-minutes:15}") long leaseMinutes) {
         this.repository = repository;
         this.gapDetector = gapDetector;
         this.mapper = mapper;
+        this.generationLease = Duration.ofMinutes(leaseMinutes);
     }
 
     /** Persist a freshly-built preview result as an editable snapshot. */
@@ -69,10 +77,51 @@ public class FeatureIndexSnapshotService {
         return readPins(snapshot.getPinnedFeatureIds());
     }
 
-    /** Record that a strategy was generated from this snapshot (audit link back to the strategy). */
-    public void linkGenerated(FeatureIndexSnapshot snapshot, String strategyId) {
-        snapshot.setGeneratedStrategyId(strategyId);
-        repository.save(snapshot);
+    /**
+     * Atomically admit exactly one generation for a snapshot, BEFORE the (paid) synthesis runs. Re-reads the row
+     * inside the transaction and, under the {@code @Version} optimistic lock, sets the claim marker — so two
+     * concurrent generate calls can't both pass the check and double-spend on synthesis: the loser fails the
+     * version check ({@code OptimisticLockingFailureException} → 409) or sees the claim/audit-link already set
+     * ({@link ConflictException} → 409). Returns the claimed snapshot; the caller synthesizes outside this tx
+     * (so no DB row is locked across the slow LLM calls) and then {@link #linkGenerated} or {@link #releaseClaim}.
+     *
+     * <p>The claim is a <b>lease</b>, not a permanent flag: a claim older than {@code generationLease} is treated
+     * as abandoned (e.g. the process died mid-synthesis) and may be re-claimed, so a crash can't wedge a snapshot
+     * non-generatable forever. A completed generation ({@code generatedStrategyId} set) stays a permanent reject.
+     */
+    @Transactional
+    public FeatureIndexSnapshot claimForGeneration(String id) {
+        FeatureIndexSnapshot s = repository.findById(id)
+                .orElseThrow(() -> new ConflictException("This preview no longer exists — start a new one."));
+        if (s.getGeneratedStrategyId() != null) {
+            throw new ConflictException("This preview already generated strategy " + s.getGeneratedStrategyId()
+                    + " — start a new preview to generate again.");
+        }
+        Instant inFlight = s.getGenerationStartedAt();
+        if (inFlight != null && inFlight.isAfter(Instant.now().minus(generationLease))) {
+            throw new ConflictException("A strategy is already being generated from this preview.");
+        }
+        s.setGenerationStartedAt(Instant.now());   // (re)claim — a claim older than the lease is abandoned, take it
+        return repository.save(s);
+    }
+
+    /**
+     * Record the generated strategy (audit link) and clear the claim — a column-scoped bulk update, so it neither
+     * contends with the optimistic {@code @Version} of a concurrent feature edit nor throws if the row was swept
+     * (it just affects 0 rows). Takes the id, not the detached entity handed back from {@link #claimForGeneration},
+     * to avoid a stale-version stomp.
+     */
+    @Transactional
+    public void linkGenerated(String id, String strategyId) {
+        if (repository.linkGenerated(id, strategyId) == 0) {
+            log.warn("Snapshot {} vanished before its generated strategy {} could be linked", id, strategyId);
+        }
+    }
+
+    /** Release a generation claim so a legitimate retry can re-claim (column-scoped bulk update; never throws on a concurrent edit). */
+    @Transactional
+    public void releaseClaim(String id) {
+        repository.releaseClaim(id);
     }
 
     // ---- the override layer (deterministic, $0) -------------------------------------------------
