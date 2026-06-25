@@ -31,6 +31,12 @@ public class MockLlmGateway implements LlmGateway {
             // Mock can't do semantic clustering; return no merge groups so the deterministic seed stands unchanged.
             return "Feature tags (mock).\n```json\n{\"features\":[]}\n```\n";
         }
+        if (prompt != null && prompt.contains("[EVIDENCE-SECTION:")) {
+            // Mock can't synthesize grounded content; cite the first allowed unit id (bare id = grounded enough for
+            // the CitationValidator) so the evidence-first section is valid in mock mode, with placeholder content.
+            return "Section (mock).\n```json\n{\"feature\":\"(mock)\",\"evidence\":[{\"unitId\":\""
+                    + firstAllowedId(prompt) + "\"}],\"content\":\"(mock section — a real run uses Copilot)\"}\n```\n";
+        }
         if (prompt != null && prompt.contains("[TEST-STRATEGY-SECTION:")) {
             int i = prompt.indexOf("[TEST-STRATEGY-SECTION:") + "[TEST-STRATEGY-SECTION:".length();
             int j = prompt.indexOf("]", i);
@@ -136,4 +142,24 @@ public class MockLlmGateway implements LlmGateway {
                 ```
                 """;
     }
+
+    // Pull the first id from the section contract's "Cite ONLY these unit ids: [id1, id2]" list. The marker must
+    // stay in sync with EvidenceFirstSectionGenerator's contract (guarded end-to-end by the SpringBootTest
+    // EvidenceFirstSectionGeneratorMockModeTest). Assumes evidence ids contain no ',' or ']' (true for the
+    // JIRA / CONF / CODE:Class#method / POLICY id shapes).
+    private static String firstAllowedId(String prompt) {
+        String marker = "Cite ONLY these unit ids: [";
+        int start = prompt.indexOf(marker);
+        if (start < 0) {
+            return "NONE";
+        }
+        start += marker.length();
+        int end = prompt.indexOf(']', start);
+        if (end <= start) {
+            return "NONE";
+        }
+        String first = prompt.substring(start, end).split(",")[0].trim();
+        return first.isEmpty() ? "NONE" : first;
+    }
 }
+
