@@ -66,6 +66,18 @@ class JavaSpringExtractorRobustnessTest {
     }
 
     @Test
+    void endpointCarriesItsDeclaringControllerClassNotTheFileName(@TempDir Path dir) throws Exception {
+        // The file is named differently from the (package-private) controller class — the endpoint must report the
+        // real declaring class, so the CODE:<Class>#<path> evidence id is precise even in a multi-controller file.
+        Files.writeString(dir.resolve("routes.java"),
+                "package demo;\nimport org.springframework.web.bind.annotation.*;\n"
+                        + "@RestController class PolicyController { @GetMapping(\"/policies\") String g(){return null;} }");
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(m.endpoints()).hasSize(1);
+        assertThat(m.endpoints().get(0).controllerClass()).isEqualTo("PolicyController");
+    }
+
+    @Test
     void placeholderPathRecordsBlindSpot(@TempDir Path dir) throws Exception {
         ApiModel m = extract(dir, "PhCtrl",
                 "@RestController class PhCtrl { @GetMapping(\"${api.base}/x\") String g(){return null;} }");

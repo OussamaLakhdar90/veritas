@@ -113,7 +113,7 @@ public class JavaSpringExtractor {
                         for (Object mo : ctrl.getMethods()) {
                             MethodDeclaration method = (MethodDeclaration) mo;
                             seenSignatures.add(signatureKey(method));
-                            endpoints.addAll(toEndpoints(file, bases, method, types, referenced,
+                            endpoints.addAll(toEndpoints(file, ctrl.getNameAsString(), bases, method, types, referenced,
                                     classSecurity, blindSpots, constants, serviceStatuses));
                         }
                         // Mappings inherited from an abstract/base class the controller EXTENDS are real routes at
@@ -121,8 +121,8 @@ public class JavaSpringExtractor {
                         if (ctrl instanceof ClassOrInterfaceDeclaration coid) {
                             for (MethodDeclaration inherited :
                                     inheritedMappedMethods(coid, types, seenSignatures, new java.util.HashSet<>())) {
-                                endpoints.addAll(toEndpoints(file, bases, inherited, types, referenced,
-                                        classSecurity, blindSpots, constants, serviceStatuses));
+                                endpoints.addAll(toEndpoints(file, ctrl.getNameAsString(), bases, inherited, types,
+                                        referenced, classSecurity, blindSpots, constants, serviceStatuses));
                             }
                             // A base we can't see can't be analysed — record an honest blind spot, never drop silently.
                             for (ClassOrInterfaceType ext : coid.getExtendedTypes()) {
@@ -164,7 +164,7 @@ public class JavaSpringExtractor {
                     }
                 }
                 return new Endpoint(e.method(), e.pathTemplate(), e.operationId(), e.params(), e.requestBody(),
-                        merged, e.consumes(), e.produces(), e.security(), e.source());
+                        merged, e.consumes(), e.produces(), e.security(), e.source(), e.controllerClass());
             });
         }
 
@@ -322,7 +322,7 @@ public class JavaSpringExtractor {
         }
     }
 
-    private List<Endpoint> toEndpoints(String file, List<String> bases, MethodDeclaration m,
+    private List<Endpoint> toEndpoints(String file, String controllerClass, List<String> bases, MethodDeclaration m,
                                        Map<String, TypeDeclaration<?>> types, List<String> referenced,
                                        List<String> classSecurity, List<String> blindSpots,
                                        Map<String, String> constants, Map<String, Set<Integer>> serviceStatuses) {
@@ -414,7 +414,7 @@ public class JavaSpringExtractor {
                 String path = joinPath(b, mp);
                 for (HttpMethod verb : mm.verbs()) {
                     out.add(new Endpoint(verb, path, m.getNameAsString(), params, body, responses,
-                            consumes, produces, security, src));
+                            consumes, produces, security, src, controllerClass));
                 }
             }
         }
