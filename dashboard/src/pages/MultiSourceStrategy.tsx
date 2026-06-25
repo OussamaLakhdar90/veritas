@@ -23,7 +23,7 @@ const STATUS_LABEL: Record<string, string> = {
 const SOURCE_TONE: Record<string, string> = { JIRA: TONE.info, CONFLUENCE: TONE.warn, CODE: TONE.muted, POLICY: TONE.ok };
 const GAP_LABEL: Record<string, string> = {
   PLANNED_NOT_IMPLEMENTED: 'Specified, not built', IMPLEMENTED_UNDOCUMENTED: 'Built, unspecified',
-  POSSIBLE_MISCLUSTER: 'Possible mis-cluster',
+  COVERAGE_GAP: 'Done in Jira, not built', POSSIBLE_MISCLUSTER: 'Possible mis-cluster',
 };
 
 /** A labelled checkbox that reveals its source's inputs when ticked. */
@@ -256,7 +256,7 @@ export function MultiSourceStrategy() {
               <CardBody className="space-y-2">
                 {preview.gaps.map((g, i) => (
                   <div key={i} className="flex items-start gap-2 text-[13px]">
-                    <Badge className={g.kind === 'IMPLEMENTED_UNDOCUMENTED' ? TONE.danger : TONE.warn}>{GAP_LABEL[g.kind] ?? g.kind}</Badge>
+                    <Badge className={g.kind === 'IMPLEMENTED_UNDOCUMENTED' || g.kind === 'COVERAGE_GAP' ? TONE.danger : TONE.warn}>{GAP_LABEL[g.kind] ?? g.kind}</Badge>
                     <span className="text-ink-900">{g.message}</span>
                   </div>
                 ))}

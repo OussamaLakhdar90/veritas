@@ -61,9 +61,15 @@ public class GapDetector {
                                     + "(possible scope creep).", f.unitIds()));
                     undocumented.add(f);
                 }
-                case IMPLEMENTED -> contradiction.add(f.featureId());
+                case COVERAGE_GAP -> {
+                    gaps.add(new Gap(GapKind.COVERAGE_GAP, f.featureId(),
+                            "\"" + f.displayName() + "\" is marked done in Jira but no implementing code was found — "
+                                    + "confirm whether it shipped (a coverage gap, not a planned feature).", f.unitIds()));
+                    planned.add(f);   // intent-only/no-code → also a mis-cluster candidate against a code-only feature
+                }
+                // Both have intent + code, so synthesis must assert intent↔impl agreement (PARTIAL is still in flight).
+                case IMPLEMENTED, PARTIAL -> contradiction.add(f.featureId());
                 default -> {
-                    // PARTIAL / COVERAGE_GAP need the Jira lifecycle (deferred with the field widening).
                 }
             }
         }

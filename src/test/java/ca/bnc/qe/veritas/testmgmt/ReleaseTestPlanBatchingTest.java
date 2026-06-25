@@ -66,9 +66,9 @@ class ReleaseTestPlanBatchingTest {
         // 3 testable issues + a tiny batch budget → 3 batches. The mock returns the same plan per batch, so a
         // correct merge must DEDUP back to the single plan's cases/risks (not triple them).
         when(jira.search(any(), any(), anyInt())).thenReturn(List.of(
-                new JiraIssue("CIAM-1", "Create policy", null),
-                new JiraIssue("CIAM-2", "Get policy", null),
-                new JiraIssue("CIAM-3", "Update policy", null)));
+                JiraIssue.basic("CIAM-1", "Create policy", null),
+                JiraIssue.basic("CIAM-2", "Get policy", null),
+                JiraIssue.basic("CIAM-3", "Update policy", null)));
         when(xray.getTestsByJql(any())).thenReturn(List.of());
 
         CoverageSummary summary = service.generate("batch-svc", "8.2", null, "project = CIAM", "CIAM", false, "tester");

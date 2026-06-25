@@ -92,6 +92,20 @@ class FeatureSeederTest {
     }
 
     @Test
+    void descopedUnitsAreExcludedFromTheIndexEntirely() {
+        EvidenceUnit live = EvidenceUnit.jira("JIRA-1", UnitType.REQUIREMENT, "Get policy", "Get policy by id",
+                null, "IN_PROGRESS", null, Set.of(), Hints.fromText("Get policy by id"));
+        EvidenceUnit descoped = EvidenceUnit.jira("JIRA-2", UnitType.REQUIREMENT, "Old idea", "Won't build this",
+                null, "DESCOPED", null, Set.of(), Hints.fromText("Won't build this"));
+
+        FeatureIndex idx = seeder.seed(List.of(live, descoped), new SourceMix(false, true, false));
+
+        assertThat(idx.unitsById()).containsKey("JIRA-1").doesNotContainKey("JIRA-2");
+        assertThat(idx.features().values().stream().flatMap(f -> f.unitIds().stream()))
+                .contains("JIRA-1").doesNotContain("JIRA-2");
+    }
+
+    @Test
     void isDeterministicAndContentDigestedForReRunIdentity() {
         List<EvidenceUnit> corpus = List.of(
                 hintUnit("JIRA-1", SourceKind.JIRA, UnitType.REQUIREMENT, Set.of("policy", "rule")),
