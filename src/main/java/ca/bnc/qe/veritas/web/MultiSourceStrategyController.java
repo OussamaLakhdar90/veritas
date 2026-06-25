@@ -1,11 +1,13 @@
 package ca.bnc.qe.veritas.web;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import ca.bnc.qe.veritas.engine.extract.java.JavaSpringExtractor;
 import ca.bnc.qe.veritas.engine.model.ApiModel;
+import ca.bnc.qe.veritas.evidence.SourceExpander;
 import ca.bnc.qe.veritas.evidence.SourceSelection;
 import ca.bnc.qe.veritas.evidence.feature.AsyncStrategyGenerator;
 import ca.bnc.qe.veritas.evidence.feature.FeatureIndex;
@@ -59,19 +61,22 @@ public class MultiSourceStrategyController {
     private final MultiSourceStrategyService strategyService;
     private final FeatureIndexSnapshotService snapshotService;
     private final AsyncStrategyGenerator asyncStrategyGenerator;
+    private final SourceExpander sourceExpander;
     private final CurrentUser currentUser;
 
     public MultiSourceStrategyController(WorkspaceService workspace, JavaSpringExtractor extractor,
                                         FeatureIndexBuilder featureIndexBuilder,
                                         MultiSourceStrategyService strategyService,
                                         FeatureIndexSnapshotService snapshotService,
-                                        AsyncStrategyGenerator asyncStrategyGenerator, CurrentUser currentUser) {
+                                        AsyncStrategyGenerator asyncStrategyGenerator, SourceExpander sourceExpander,
+                                        CurrentUser currentUser) {
         this.workspace = workspace;
         this.extractor = extractor;
         this.featureIndexBuilder = featureIndexBuilder;
         this.strategyService = strategyService;
         this.snapshotService = snapshotService;
         this.asyncStrategyGenerator = asyncStrategyGenerator;
+        this.sourceExpander = sourceExpander;
         this.currentUser = currentUser;
     }
 
@@ -210,16 +215,33 @@ public class MultiSourceStrategyController {
                 workspace.cleanup(repo);   // the API model is in memory now; drop the cloned temp dir
             }
         }
+        // Jira: a raw jql, OR an epic key expanded to its child-issues jql (the explicit jql wins if both are given).
         String jql = request.jira() != null ? request.jira().jql() : null;
+        if ((jql == null || jql.isBlank()) && request.jira() != null
+                && request.jira().epicKey() != null && !request.jira().epicKey().isBlank()) {
+            jql = sourceExpander.jqlForEpic(request.jira().epicKey());
+        }
         int maxResults = request.jira() != null && request.jira().maxResults() != null
                 ? request.jira().maxResults() : 50;
-        List<String> pageIds = request.confluence() != null && request.confluence().pageIds() != null
-                ? request.confluence().pageIds() : List.of();
+
+        // Confluence: the explicit page ids UNIONed with the descendant tree of an optional root page.
+        List<String> pageIds = new ArrayList<>();
+        if (request.confluence() != null && request.confluence().pageIds() != null) {
+            pageIds.addAll(request.confluence().pageIds());
+        }
+        if (request.confluence() != null && request.confluence().rootPageId() != null
+                && !request.confluence().rootPageId().isBlank()) {
+            for (String id : sourceExpander.pageIdsForRoot(request.confluence().rootPageId())) {
+                if (!pageIds.contains(id)) {
+                    pageIds.add(id);
+                }
+            }
+        }
 
         SourceSelection selection = new SourceSelection(code, jql, maxResults, pageIds);
         if (selection.selected().isEmpty()) {
             throw new IllegalArgumentException("Select at least one source: code (app-id + repo-slug, or repo-path), "
-                    + "jira (a jql), or confluence (page ids).");
+                    + "jira (a jql or epic key), or confluence (page ids or a root page).");
         }
         return selection;
     }

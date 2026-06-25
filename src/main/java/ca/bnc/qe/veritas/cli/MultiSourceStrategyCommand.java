@@ -1,10 +1,12 @@
 package ca.bnc.qe.veritas.cli;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
 import ca.bnc.qe.veritas.engine.extract.java.JavaSpringExtractor;
 import ca.bnc.qe.veritas.engine.model.ApiModel;
+import ca.bnc.qe.veritas.evidence.SourceExpander;
 import ca.bnc.qe.veritas.evidence.SourceSelection;
 import ca.bnc.qe.veritas.evidence.feature.MultiSourceStrategyService;
 import ca.bnc.qe.veritas.persistence.TestStrategy;
@@ -42,21 +44,29 @@ public class MultiSourceStrategyCommand implements Callable<Integer> {
     @Option(names = "--jql", description = "Jira JQL selecting the intent issues (Jira arm).")
     private String jql;
 
+    @Option(names = "--epic", description = "Jira epic key whose child issues are the intent (expands to a child-issues JQL).")
+    private String epicKey;
+
     @Option(names = "--max-results", defaultValue = "50", description = "Max Jira issues to fetch (default 50).")
     private int maxResults;
 
     @Option(names = "--confluence", split = ",", description = "Confluence page ids (comma-separated; Confluence arm).")
     private List<String> confluencePages;
 
+    @Option(names = "--confluence-root", description = "Confluence root page id whose descendant tree to include.")
+    private String confluenceRoot;
+
     private final WorkspaceService workspace;
     private final JavaSpringExtractor extractor;
     private final MultiSourceStrategyService strategyService;
+    private final SourceExpander sourceExpander;
 
     public MultiSourceStrategyCommand(WorkspaceService workspace, JavaSpringExtractor extractor,
-                                      MultiSourceStrategyService strategyService) {
+                                      MultiSourceStrategyService strategyService, SourceExpander sourceExpander) {
         this.workspace = workspace;
         this.extractor = extractor;
         this.strategyService = strategyService;
+        this.sourceExpander = sourceExpander;
     }
 
     @Override
@@ -70,10 +80,23 @@ public class MultiSourceStrategyCommand implements Callable<Integer> {
                 workspace.cleanup(repoPath);   // the API model is in memory now; drop the cloned temp dir
             }
         }
-        List<String> pages = confluencePages == null ? List.of() : confluencePages;
-        SourceSelection selection = new SourceSelection(code, jql, maxResults, pages);
+        // Expand the convenience inputs to the primitives: --epic → a child-issues JQL; --confluence-root → the page tree.
+        String effectiveJql = jql;
+        if ((effectiveJql == null || effectiveJql.isBlank()) && epicKey != null && !epicKey.isBlank()) {
+            effectiveJql = sourceExpander.jqlForEpic(epicKey);
+        }
+        List<String> pages = new ArrayList<>(confluencePages == null ? List.of() : confluencePages);
+        if (confluenceRoot != null && !confluenceRoot.isBlank()) {
+            for (String id : sourceExpander.pageIdsForRoot(confluenceRoot)) {
+                if (!pages.contains(id)) {
+                    pages.add(id);
+                }
+            }
+        }
+        SourceSelection selection = new SourceSelection(code, effectiveJql, maxResults, pages);
         if (selection.selected().isEmpty()) {
-            System.err.println("Select at least one source: --repo (or --app-id + --repo-slug), --jql, or --confluence.");
+            System.err.println("Select at least one source: --repo (or --app-id + --repo-slug), "
+                    + "--jql/--epic, or --confluence/--confluence-root.");
             return 2;
         }
 

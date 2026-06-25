@@ -17,7 +17,9 @@ public record MultiSourceStrategyRequest(Code code, Jira jira, Confluence conflu
         }
     }
 
-    public record Jira(String jql, Integer maxResults) {}
+    /** A raw {@code jql}, OR an {@code epicKey} expanded to its child-issues JQL. {@code maxResults} bounds both. */
+    public record Jira(String jql, Integer maxResults, String epicKey) {}
 
-    public record Confluence(List<String> pageIds) {}
+    /** Explicit {@code pageIds}, AND/OR a {@code rootPageId} expanded to its whole descendant page tree. */
+    public record Confluence(List<String> pageIds, String rootPageId) {}
 }

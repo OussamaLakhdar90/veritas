@@ -241,8 +241,8 @@ export interface TestStrategy {
 /** Request to the multi-source strategy endpoints — any subset of code + Jira + Confluence. */
 export interface MultiSourceStrategyRequest {
   code?: { appId?: string; repoSlug?: string; branch?: string; repoPath?: string }
-  jira?: { jql?: string; maxResults?: number }
-  confluence?: { pageIds?: string[] }
+  jira?: { jql?: string; maxResults?: number; epicKey?: string }
+  confluence?: { pageIds?: string[]; rootPageId?: string }
 }
 
 /** The §6 preview: the persisted, editable feature index — what the pipeline extracted + clustered, before synthesis. */

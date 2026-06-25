@@ -12,6 +12,14 @@ public interface ConfluenceClient {
         throw new UnsupportedOperationException("getPagesBySpace not supported by this Confluence client");
     }
 
+    /**
+     * The page tree rooted at {@code rootPageRef} (the root itself + every descendant), ids only — so a reviewer can
+     * point at one parent page instead of listing every child id. Bounded by {@code maxPages} and a cycle guard.
+     */
+    default java.util.List<ConfluencePage> descendants(String rootPageRef, int maxPages) {
+        throw new UnsupportedOperationException("descendants not supported by this Confluence client");
+    }
+
     /** Cheap authenticated identity probe (current user) for Test Connection; returns the name or throws. */
     default String whoAmI() {
         throw new UnsupportedOperationException("whoAmI not supported by this Confluence client");

@@ -27,9 +27,12 @@ class MultiSourceStrategyCommandTest {
     private final WorkspaceService workspace = mock(WorkspaceService.class);
     private final JavaSpringExtractor extractor = mock(JavaSpringExtractor.class);
     private final MultiSourceStrategyService strategyService = mock(MultiSourceStrategyService.class);
+    private final ca.bnc.qe.veritas.evidence.SourceExpander sourceExpander =
+            mock(ca.bnc.qe.veritas.evidence.SourceExpander.class);
 
     private int run(String... args) {
-        return new CommandLine(new MultiSourceStrategyCommand(workspace, extractor, strategyService)).execute(args);
+        return new CommandLine(new MultiSourceStrategyCommand(workspace, extractor, strategyService, sourceExpander))
+                .execute(args);
     }
 
     @Test
@@ -51,6 +54,30 @@ class MultiSourceStrategyCommandTest {
     void noSourceReturns2AndGeneratesNothing() {
         assertThat(run("--name", "ciam")).isEqualTo(2);
         verifyNoInteractions(strategyService);
+    }
+
+    @Test
+    void anEpicKeyExpandsToAChildIssuesJqlSelection() {
+        when(sourceExpander.jqlForEpic("CIAM-100")).thenReturn("parent = \"CIAM-100\"");
+        when(strategyService.generate(eq("ciam"), any(), eq("local"))).thenReturn(new TestStrategy());
+
+        assertThat(run("--name", "ciam", "--epic", "CIAM-100")).isZero();
+
+        ArgumentCaptor<SourceSelection> sel = ArgumentCaptor.forClass(SourceSelection.class);
+        verify(strategyService).generate(eq("ciam"), sel.capture(), eq("local"));
+        assertThat(sel.getValue().jql()).isEqualTo("parent = \"CIAM-100\"");
+    }
+
+    @Test
+    void aConfluenceRootExpandsToDescendantPageIds() {
+        when(sourceExpander.pageIdsForRoot("987")).thenReturn(List.of("987", "988"));
+        when(strategyService.generate(eq("ciam"), any(), eq("local"))).thenReturn(new TestStrategy());
+
+        assertThat(run("--name", "ciam", "--confluence-root", "987")).isZero();
+
+        ArgumentCaptor<SourceSelection> sel = ArgumentCaptor.forClass(SourceSelection.class);
+        verify(strategyService).generate(eq("ciam"), sel.capture(), eq("local"));
+        assertThat(sel.getValue().pageIds()).contains("987", "988");
     }
 
     @Test
