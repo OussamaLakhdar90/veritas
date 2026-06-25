@@ -40,8 +40,11 @@ public class CodeEvidenceAdapter {
         for (Endpoint e : model.endpoints()) {
             String cls = classFromSource(e.source());
             String id = EvidenceId.endpoint(cls, e.method().name(), e.pathTemplate());
-            units.add(unit(id, UnitType.ENDPOINT, e.signature(), endpointText(e), refLink(e.source()),
-                    Hints.fromPath(e.pathTemplate()), redactions));
+            // Path-nouns + the controller class as high-precision clustering signals: endpoints of the same
+            // resource/controller co-cluster, without the noisy free-text bridges that come from prose sources.
+            java.util.Set<String> hints = new java.util.LinkedHashSet<>(Hints.fromPath(e.pathTemplate()));
+            hints.add(cls.toLowerCase(java.util.Locale.ROOT));
+            units.add(unit(id, UnitType.ENDPOINT, e.signature(), endpointText(e), refLink(e.source()), hints, redactions));
         }
 
         if (model.schemas() != null) {

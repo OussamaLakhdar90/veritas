@@ -52,7 +52,7 @@ class CodeEvidenceAdapterTest {
                 .contains("appId (PATH, required)")
                 .contains("200 Policy").contains("404")
                 .contains("secured: ROLE_ADMIN");
-        assertThat(endpoint.hints()).contains("policies");
+        assertThat(endpoint.hints()).contains("policies", "policycontroller");   // path-noun + controller class
         assertThat(endpoint.link()).isEqualTo("src/main/java/ca/bnc/PolicyController.java:30");
 
         EvidenceUnit dto = byType(r, UnitType.DTO_CONSTRAINT);

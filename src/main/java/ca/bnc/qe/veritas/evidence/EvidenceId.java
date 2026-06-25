@@ -63,8 +63,11 @@ public final class EvidenceId {
         return text.strip().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
     }
 
-    /** First 8 lowercase base32 chars of SHA-256 over the normalised text (40 bits → exactly 8 chars). */
-    static String hash8(String text) {
+    /**
+     * First 8 lowercase base32 chars of SHA-256 over the normalised text (40 bits → exactly 8 chars). Public so the
+     * feature index can derive stable {@code featureId}s and a {@code sourceDigest} from the same scheme.
+     */
+    public static String hash8(String text) {
         return base32(sha256(normalize(text)), 5);
     }
 
