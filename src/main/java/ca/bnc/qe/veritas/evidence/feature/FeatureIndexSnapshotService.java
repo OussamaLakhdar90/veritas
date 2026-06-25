@@ -59,10 +59,45 @@ public class FeatureIndexSnapshotService {
         s.setOwner(owner);
         s.setResultJson(writeJson(result));
         s.setPinnedFeatureIds("[]");
+        s.setEditsJson("[]");
         FeatureIndexSnapshot saved = repository.save(s);
         log.info("Persisted feature-index snapshot {} for {}: {} feature(s)", saved.getId(), serviceName,
                 result.index().features().size());
         return saved;
+    }
+
+    /**
+     * Persist a freshly re-extracted preview as a NEW snapshot, carrying the reviewer's edits forward from
+     * {@code prior} (design §3.2 lineage re-run). The prior snapshot's {@link FeatureEdit} log is
+     * {@link FeatureEditReplay replayed} onto the fresh index by unit-id overlap, so the reviewer's renames / merges
+     * / pins survive the code/Jira/Confluence change instead of being re-done by hand. Edits whose features no
+     * longer exist are reported (not guessed) in the returned notes. The log itself is copied onto the new snapshot
+     * so a further re-run re-applies the same reviewer intent. A brand-new id is minted (the original is left intact
+     * as history); ownership follows the principal doing the re-run.
+     */
+    public CarryForward createCarryingForward(String serviceName, FeatureIndexResult fresh, String owner,
+                                              FeatureIndexSnapshot prior) {
+        List<FeatureEdit> edits = editsOf(prior);
+        FeatureEditReplay.Outcome outcome = FeatureEditReplay.apply(fresh, edits, gapDetector);
+        FeatureIndexSnapshot s = new FeatureIndexSnapshot();
+        s.setServiceName(serviceName);
+        s.setOwner(owner);
+        s.setResultJson(writeJson(outcome.result()));
+        s.setPinnedFeatureIds(writeJson(new ArrayList<>(outcome.pins())));
+        s.setEditsJson(writeJson(edits));
+        s.setCarriedForwardFrom(prior.getId());
+        FeatureIndexSnapshot saved = repository.save(s);
+        log.info("Carried {} edit(s) forward from snapshot {} into {} for {} ({} could not be re-applied)",
+                edits.size(), prior.getId(), saved.getId(), serviceName, outcome.notes().size());
+        return new CarryForward(saved, outcome.notes());
+    }
+
+    /** A re-extracted snapshot plus any reviewer edits that could not be re-applied (their features vanished). */
+    public record CarryForward(FeatureIndexSnapshot snapshot, List<String> notes) {}
+
+    /** The reviewer-override log (rename/merge/pin), oldest first; empty for an unedited or pre-existing snapshot. */
+    public List<FeatureEdit> editsOf(FeatureIndexSnapshot snapshot) {
+        return readEdits(snapshot.getEditsJson());
     }
 
     public Optional<FeatureIndexSnapshot> find(String id) {
@@ -136,7 +171,8 @@ public class FeatureIndexSnapshotService {
 
         Map<String, Feature> features = new LinkedHashMap<>(result.index().features());
         features.put(featureId, new Feature(featureId, name.strip(), target.unitIds(), target.status()));
-        return persist(snapshot, rebuild(result, features), pinnedOf(snapshot));
+        return persist(snapshot, rebuild(result, features), pinnedOf(snapshot),
+                FeatureEdit.rename(target.unitIds(), name.strip()));
     }
 
     /**
@@ -166,8 +202,11 @@ public class FeatureIndexSnapshotService {
 
         // Union the member unit ids (sorted, stable) → recompute the content-derived id with the seeder's scheme.
         Set<String> unitIdSet = new TreeSet<>();
+        List<List<String>> sourceGroups = new ArrayList<>();
         for (String id : ids) {
-            unitIdSet.addAll(index.features().get(id).unitIds());
+            List<String> memberUnits = index.features().get(id).unitIds();
+            unitIdSet.addAll(memberUnits);
+            sourceGroups.add(List.copyOf(memberUnits));
         }
         List<String> mergedUnitIds = List.copyOf(unitIdSet);
         String mergedId = "feat-" + EvidenceId.hash8(String.join("|", mergedUnitIds));
@@ -203,12 +242,12 @@ public class FeatureIndexSnapshotService {
         }
         log.info("Merged features {} → {} ({} units) in snapshot {}", ids, mergedId, mergedUnitIds.size(),
                 snapshot.getId());
-        return persist(snapshot, rebuild(result, features), pins);
+        return persist(snapshot, rebuild(result, features), pins, FeatureEdit.merge(sourceGroups, mergedName));
     }
 
     /** Pin (reviewer-confirm / lock) or unpin a feature. A pin is metadata only; it never changes the clustering. */
     public FeatureIndexSnapshot pin(FeatureIndexSnapshot snapshot, String featureId, boolean pinned) {
-        require(resultOf(snapshot).index(), featureId);
+        Feature target = require(resultOf(snapshot).index(), featureId);
         Set<String> pins = pinnedOf(snapshot);
         if (pinned) {
             pins.add(featureId);
@@ -216,6 +255,7 @@ public class FeatureIndexSnapshotService {
             pins.remove(featureId);
         }
         snapshot.setPinnedFeatureIds(writeJson(new ArrayList<>(pins)));
+        appendEdit(snapshot, FeatureEdit.pin(target.unitIds(), pinned));
         return repository.save(snapshot);
     }
 
@@ -229,10 +269,22 @@ public class FeatureIndexSnapshotService {
         return new FeatureIndexResult(edited, gapDetector.detect(edited), original.extraction());
     }
 
-    private FeatureIndexSnapshot persist(FeatureIndexSnapshot snapshot, FeatureIndexResult result, Set<String> pins) {
+    private FeatureIndexSnapshot persist(FeatureIndexSnapshot snapshot, FeatureIndexResult result, Set<String> pins,
+                                         FeatureEdit edit) {
         snapshot.setResultJson(writeJson(result));
         snapshot.setPinnedFeatureIds(writeJson(new ArrayList<>(pins)));
+        appendEdit(snapshot, edit);
         return repository.save(snapshot);
+    }
+
+    /** Append one override to the snapshot's edit log (in memory; the caller's {@code save} persists it). */
+    private void appendEdit(FeatureIndexSnapshot snapshot, FeatureEdit edit) {
+        if (edit == null) {
+            return;
+        }
+        List<FeatureEdit> log = new ArrayList<>(editsOf(snapshot));
+        log.add(edit);
+        snapshot.setEditsJson(writeJson(log));
     }
 
     private static Feature require(FeatureIndex index, String featureId) {
@@ -279,6 +331,17 @@ public class FeatureIndexSnapshotService {
             return new LinkedHashSet<>(mapper.readValue(json, new TypeReference<List<String>>() {}));
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("Corrupt pinned-feature ids in snapshot", e);
+        }
+    }
+
+    private List<FeatureEdit> readEdits(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            return mapper.readValue(json, new TypeReference<List<FeatureEdit>>() {});
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Corrupt feature-edit log in snapshot", e);
         }
     }
 }

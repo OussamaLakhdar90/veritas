@@ -273,6 +273,43 @@ class MultiSourceStrategyControllerTest {
     }
 
     @Test
+    void previewWithCarryForwardReExtractsAndCarriesTheReviewerEditsForward() throws Exception {
+        FeatureIndexResult fresh = oneFeatureResult();
+        when(featureIndexBuilder.build(any(), any())).thenReturn(fresh);
+
+        FeatureIndexSnapshot prior = stubSnapshot("snap-prior", "ciam-policies", "alice");
+        when(snapshotService.find("snap-prior")).thenReturn(Optional.of(prior));
+
+        FeatureIndexSnapshot carried = stubSnapshot("snap-2", "ciam-policies", "alice");
+        when(snapshotService.createCarryingForward(eq("ciam-policies"), eq(fresh), eq("alice"), eq(prior)))
+                .thenReturn(new FeatureIndexSnapshotService.CarryForward(carried,
+                        List.of("Couldn't re-apply a rename (\"Legacy name\"): that feature is no longer present.")));
+        when(snapshotService.resultOf(carried)).thenReturn(fresh);
+        when(snapshotService.pinnedOf(carried)).thenReturn(Set.of("feat-1"));
+
+        mvc.perform(post("/api/v1/services/ciam-policies/multi-source-strategy/preview?carryForwardFrom=snap-prior")
+                        .contentType("application/json").content("{\"jira\":{\"jql\":\"project = CIAM\"}}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.snapshotId").value("snap-2"))
+                .andExpect(jsonPath("$.features[0].pinned").value(true))   // the carried-forward pin
+                .andExpect(jsonPath("$.carryForwardNotes.length()").value(1));   // the un-replayable edit is surfaced
+
+        verify(snapshotService).createCarryingForward(eq("ciam-policies"), eq(fresh), eq("alice"), eq(prior));
+        verify(snapshotService, never()).create(any(), any(), any());   // carry-forward path, not a plain new preview
+    }
+
+    @Test
+    void carryForwardFromAMissingOrUnownedPriorIs400() throws Exception {
+        when(featureIndexBuilder.build(any(), any())).thenReturn(oneFeatureResult());
+        when(snapshotService.find("nope")).thenReturn(Optional.empty());
+
+        mvc.perform(post("/api/v1/services/ciam-policies/multi-source-strategy/preview?carryForwardFrom=nope")
+                        .contentType("application/json").content("{\"jira\":{\"jql\":\"project = CIAM\"}}"))
+                .andExpect(status().isBadRequest());
+        verify(snapshotService, never()).createCarryingForward(any(), any(), any(), any());
+    }
+
+    @Test
     void generateAndEditOnAMissingSnapshotAre404() throws Exception {
         when(snapshotService.find("nope")).thenReturn(Optional.empty());
         mvc.perform(post("/api/v1/multi-source-strategy/snapshots/nope/strategy")).andExpect(status().isNotFound());

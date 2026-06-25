@@ -16,6 +16,8 @@ import ca.bnc.qe.veritas.evidence.SourceMix;
  * @param fetchFailures   per-item fetch failures (blind-spot banner)
  * @param hardFail        true if a selected source returned nothing usable (generating would be refused)
  * @param estimatedCostUsd a rough estimate of what generating the full strategy will cost (clearly an estimate)
+ * @param carryForwardNotes on a "re-run keeping my edits" preview, any reviewer edits that could NOT be re-applied
+ *                        because their features vanished from the new extraction (empty on a normal preview)
  */
 public record StrategyPreview(
         String snapshotId,
@@ -25,7 +27,8 @@ public record StrategyPreview(
         int redactionCount,
         List<String> fetchFailures,
         boolean hardFail,
-        double estimatedCostUsd) {
+        double estimatedCostUsd,
+        List<String> carryForwardNotes) {
 
     public record FeatureView(String featureId, String displayName, String status, List<UnitView> units,
                               boolean pinned) {}

@@ -170,6 +170,54 @@ class FeatureIndexSnapshotServiceTest {
     }
 
     @Test
+    void everyEditIsRecordedInTheReplayableLog() {
+        FeatureIndexSnapshot s = service.create("svc", sampleResult(), "alice");
+
+        service.rename(s, "feat-jira", "Get a policy by id");
+        service.pin(s, "feat-code", true);
+        service.merge(s, List.of("feat-jira", "feat-code"), "Policies");
+
+        // The override log accumulates in order — the durable reviewer intent a re-extraction replays.
+        assertThat(service.editsOf(s)).extracting(FeatureEdit::kind)
+                .containsExactly(FeatureEdit.Kind.RENAME, FeatureEdit.Kind.PIN, FeatureEdit.Kind.MERGE);
+    }
+
+    @Test
+    void carryForwardReAppliesReviewerEditsToAFreshReExtraction() {
+        FeatureIndexSnapshot original = service.create("svc", sampleResult(), "alice");
+        service.rename(original, "feat-jira", "Get a policy by id");
+        service.pin(original, "feat-code", true);
+
+        // A fresh re-extraction of the same sources, but the clustering handed back NEW (content-derived) ids.
+        FeatureIndexResult reExtracted = withFeatureIds(sampleResult(), "feat-jira-v2", "feat-code-v2");
+        FeatureIndexSnapshotService.CarryForward carried =
+                service.createCarryingForward("svc", reExtracted, "alice", original);
+        FeatureIndexResult after = service.resultOf(carried.snapshot());
+
+        assertThat(carried.snapshot().getCarriedForwardFrom()).isEqualTo(original.getId());
+        assertThat(carried.snapshot().getId()).isNotEqualTo(original.getId());   // a new snapshot; the original is history
+        // The rename and pin re-targeted onto the new feature ids by unit overlap — no manual re-doing.
+        assertThat(after.index().features().get("feat-jira-v2").displayName()).isEqualTo("Get a policy by id");
+        assertThat(service.pinnedOf(carried.snapshot())).containsExactly("feat-code-v2");
+        assertThat(carried.notes()).isEmpty();
+        // The log is copied forward so a further re-run re-applies the same intent.
+        assertThat(service.editsOf(carried.snapshot())).hasSize(2);
+    }
+
+    /** Re-key {@code base}'s two sample features under new feature ids (same units) — simulating re-clustering. */
+    private FeatureIndexResult withFeatureIds(FeatureIndexResult base, String jiraId, String codeId) {
+        FeatureIndex idx = base.index();
+        Feature j = idx.features().get("feat-jira");
+        Feature c = idx.features().get("feat-code");
+        Map<String, Feature> remapped = new java.util.LinkedHashMap<>();
+        remapped.put(jiraId, new Feature(jiraId, j.displayName(), j.unitIds(), j.status()));
+        remapped.put(codeId, new Feature(codeId, c.displayName(), c.unitIds(), c.status()));
+        FeatureIndex ni = new FeatureIndex(remapped, idx.unitsById(), idx.crossCuttingIds(), idx.unassignedUnitIds(),
+                idx.mix(), idx.sourceDigest());
+        return new FeatureIndexResult(ni, new GapDetector().detect(ni), base.extraction());
+    }
+
+    @Test
     void rejectsBadEdits() {
         FeatureIndexSnapshot saved = service.create("svc", sampleResult(), "alice");
 

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import {
   Layers, GitBranch, FileText, Bug, AlertTriangle, ArrowLeft, Sparkles, ShieldCheck,
-  Pin, Pencil, Check, X, GitMerge,
+  Pin, Pencil, Check, X, GitMerge, RefreshCw,
 } from 'lucide-react';
 import { api, MultiSourceStrategyRequest, StrategyPreview } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, Field, Input, PageHeader } from '../components/ui';
@@ -81,6 +81,18 @@ export function MultiSourceStrategy() {
     onSuccess: (p) => { setPreview(p); setSelected(new Set()); },
     onError: onErr,
   });
+  // Lineage re-run: re-extract the same sources, carrying the reviewer's pins/renames/merges forward onto the
+  // fresh index (the prior snapshotId is the carry-forward source). Edits whose features vanished are surfaced.
+  const recheckM = useMutation({
+    mutationFn: () => api.previewMultiSourceStrategy(service.trim(), body(), snapshotId),
+    onSuccess: (p) => {
+      setPreview(p); setSelected(new Set());
+      toast.push('success', p.carryForwardNotes.length
+        ? `Re-extracted — ${p.carryForwardNotes.length} edit(s) couldn't be carried forward.`
+        : 'Re-extracted — your edits were carried forward.');
+    },
+    onError: onErr,
+  });
   const renameM = useMutation({
     mutationFn: (v: { featureId: string; name: string }) => api.renameFeature(snapshotId, v.featureId, v.name),
     onSuccess: (p) => { setPreview(p); setRenaming(null); },
@@ -112,7 +124,7 @@ export function MultiSourceStrategy() {
     if (renaming && renameValue.trim()) renameM.mutate({ featureId: renaming, name: renameValue.trim() });
   };
 
-  const busy = renameM.isPending || mergeM.isPending || pinM.isPending;
+  const busy = renameM.isPending || mergeM.isPending || pinM.isPending || recheckM.isPending;
 
   return (
     <div className="max-w-3xl">
@@ -161,6 +173,14 @@ export function MultiSourceStrategy() {
           {!preview.hardFail && preview.fetchFailures.length > 0 && (
             <Card className="border-l-4 border-l-warning"><CardBody className="text-[13px] text-muted">
               <span className="font-medium text-ink-900">Some items couldn't be fetched:</span> {preview.fetchFailures.join('; ')}
+            </CardBody></Card>
+          )}
+          {preview.carryForwardNotes.length > 0 && (
+            <Card className="border-l-4 border-l-warning"><CardBody className="text-[13px] text-muted">
+              <p className="font-medium text-ink-900">Some of your edits couldn't be carried forward</p>
+              <ul className="mt-1 list-disc space-y-0.5 pl-5">
+                {preview.carryForwardNotes.map((n, i) => <li key={i}>{n}</li>)}
+              </ul>
             </CardBody></Card>
           )}
 
@@ -273,6 +293,10 @@ export function MultiSourceStrategy() {
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="secondary" onClick={() => setPreview(null)}><ArrowLeft className="h-4 w-4" /> Back</Button>
+                <Button variant="secondary" onClick={() => recheckM.mutate()} loading={recheckM.isPending} disabled={busy}
+                  title="Re-extract the same sources and carry your pins, renames and merges forward onto the fresh index">
+                  <RefreshCw className="h-4 w-4" /> Re-extract (keep edits)
+                </Button>
                 <Button onClick={() => generateM.mutate()} loading={generateM.isPending} disabled={preview.hardFail || busy}>
                   <Sparkles className="h-4 w-4" /> Generate strategy
                 </Button>
