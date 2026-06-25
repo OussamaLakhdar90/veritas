@@ -72,6 +72,11 @@ public class ContractValidationService {
     private final Preflight preflight;
     private final ScanPersistence scanPersistence;
     private final ca.bnc.qe.veritas.report.TranslationService translationService;
+    private final ca.bnc.qe.veritas.llm.LlmCallContext callContext;
+
+    /** Throttle for the live AI-generating progress detail — write at most every PROGRESS_MS_STEP ms / PROGRESS_CHAR_STEP chars. */
+    private static final long PROGRESS_MS_STEP = 750L;
+    private static final long PROGRESS_CHAR_STEP = 1000L;
 
     /** Per-batch token budget for the reconcile findings list (chunk-and-merge for large scans). 0 = never batch. */
     @Value("${veritas.llm.batch-input-tokens:24000}")
@@ -96,7 +101,8 @@ public class ContractValidationService {
                                      ObjectMapper objectMapper,
                                      Preflight preflight,
                                      ScanPersistence scanPersistence,
-                                     ca.bnc.qe.veritas.report.TranslationService translationService) {
+                                     ca.bnc.qe.veritas.report.TranslationService translationService,
+                                     ca.bnc.qe.veritas.llm.LlmCallContext callContext) {
         this.javaSpringExtractor = javaSpringExtractor;
         this.openApiModelExtractor = openApiModelExtractor;
         this.correctedSpecBuilder = correctedSpecBuilder;
@@ -114,6 +120,7 @@ public class ContractValidationService {
         this.preflight = preflight;
         this.scanPersistence = scanPersistence;
         this.translationService = translationService;
+        this.callContext = callContext;
     }
 
     /** Synchronous entry (CLI/tests): create the scan row, then run the pipeline on the current thread. */
@@ -168,6 +175,32 @@ public class ContractValidationService {
                     scan.getId());
             return false;
         }
+    }
+
+    /** The live "AI generating…" detail for the reconcile step (well within {@code Scan.stageDetail}'s column width). */
+    private static String aiDetail(int batchNo, int totalBatches, long chars) {
+        return totalBatches > 1
+                ? "Reviewing findings — batch " + batchNo + " of " + totalBatches + " — AI generating… ~" + chars + " chars"
+                : "Generating the corrected spec — AI generating… ~" + chars + " chars";
+    }
+
+    /**
+     * A throttled progress sink that updates the scan's live AI-generating detail as the streamed reply grows. It
+     * writes at most once per {@code PROGRESS_MS_STEP}/{@code PROGRESS_CHAR_STEP} (a burst of tiny deltas collapses to
+     * one DB write), routing through the version-synced {@link #detail} so it never thrashes the optimistic lock.
+     * Package-private for direct testing of the throttle. */
+    ca.bnc.qe.veritas.llm.LlmCallContext.ProgressSink reconcileProgressSink(Scan scan, int batchNo, int totalBatches) {
+        final long[] lastWriteMs = {0L};
+        final long[] lastChars = {0L};
+        return chars -> {
+            long now = System.currentTimeMillis();
+            if (chars - lastChars[0] < PROGRESS_CHAR_STEP && now - lastWriteMs[0] < PROGRESS_MS_STEP) {
+                return;
+            }
+            lastChars[0] = chars;
+            lastWriteMs[0] = now;
+            detail(scan, aiDetail(batchNo, totalBatches, chars));
+        };
     }
 
     /** Run extract → diff → reconcile → report into a pre-created scan row, updating its stage as it goes. */
@@ -424,7 +457,16 @@ public class ContractValidationService {
                 log.warn("Scan {} finalized externally — stopping reconcile before further LLM calls", scanId);
                 break;   // the scan was failed under us (e.g. timed out); don't burn more Copilot spend on a dead scan
             }
-            String raw = llm.complete(prompt, model);
+            // Live progress: as the (streamed) reply grows, update the scan's stageDetail so the dashboard shows the
+            // AI is actively writing — throttled (ms + chars) and routed through the same version-synced detail()
+            // path. A no-op for the mock/non-streaming gateways (they never call reportProgress). Cleared in finally.
+            callContext.armProgressSink(reconcileProgressSink(scan, batchNo, batches.size()));
+            String raw;
+            try {
+                raw = llm.complete(prompt, model);
+            } finally {
+                callContext.clearProgressSink();
+            }
             CostResult c = costRecorder.record("validate-contract", "reconcile", model, prompt, raw, owner, scanId);   // bill before parse
             JsonNode node = objectMapper.readTree(jsonExtractor.extract(raw));
             schemaValidator.validate(node, "contract-reconcile.schema.json");

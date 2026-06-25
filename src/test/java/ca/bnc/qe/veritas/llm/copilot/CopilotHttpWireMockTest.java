@@ -157,6 +157,36 @@ class CopilotHttpWireMockTest {
     }
 
     @Test
+    void gatewayReportsStreamingProgressToAnArmedSink() throws Exception {
+        long future = Instant.now().plusSeconds(3600).getEpochSecond();
+        wm.stubFor(get(urlPathEqualTo("/copilot_internal/v2/token")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"token\":\"sess-1\",\"expires_at\":" + future + "}")));
+        wm.stubFor(post(urlPathEqualTo("/chat/completions")).willReturn(aResponse()
+                .withHeader("Content-Type", "text/event-stream")
+                .withBody("data: {\"choices\":[{\"delta\":{\"content\":\"hello \"}}]}\n\n"
+                        + "data: {\"choices\":[{\"delta\":{\"content\":\"from \"}}]}\n\n"
+                        + "data: {\"choices\":[{\"delta\":{\"content\":\"copilot\"}}]}\n\n"
+                        + "data: [DONE]\n\n")));
+
+        CopilotProperties p = props();
+        writeStoredOAuth(p);
+        CopilotAuthService auth = new CopilotAuthService(p, mapper, corp);
+        LlmCallContext ctx = new LlmCallContext();
+        List<Long> progress = new java.util.ArrayList<>();
+        ctx.armProgressSink(progress::add);   // the gateway notifies as content accumulates
+        try {
+            CopilotHttpGateway gw = new CopilotHttpGateway(auth, p, mapper, corp, ctx);
+            assertThat(gw.complete("hi", "claude-sonnet-4")).isEqualTo("hello from copilot");
+        } finally {
+            ctx.clearProgressSink();
+        }
+        assertThat(progress).isNotEmpty();
+        assertThat(progress).isSorted();   // output length is monotonically non-decreasing as deltas arrive
+        assertThat(progress.get(progress.size() - 1)).isEqualTo(18L);   // "hello from copilot".length()
+    }
+
+    @Test
     void modelsRefreshFeedsLiveMultiplierAndCost() throws Exception {
         long future = Instant.now().plusSeconds(3600).getEpochSecond();
         wm.stubFor(get(urlPathEqualTo("/copilot_internal/v2/token")).willReturn(aResponse()

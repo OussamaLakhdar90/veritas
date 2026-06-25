@@ -90,10 +90,12 @@ public class CopilotHttpGateway implements LlmGateway {
                     String delta = choice.path("delta").path("content").asText(null);
                     if (delta != null) {
                         content.append(delta);
+                        callContext.reportProgress(content.length());   // live progress for an armed sink (no-op otherwise)
                     } else {
                         String msg = choice.path("message").path("content").asText(null);
                         if (msg != null) {
                             content.append(msg);
+                            callContext.reportProgress(content.length());
                         }
                     }
                 } catch (Exception ignore) {
