@@ -1,13 +1,14 @@
 import { HashRouter, Routes, Route, NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, ShieldCheck, Bug, ClipboardList, ListChecks, Code2, GitPullRequestArrow,
-  Coins, Settings, Moon, Sun, Target, ClipboardCheck, Rocket, BookOpen,
+  Coins, Settings, Moon, Sun, Target, ClipboardCheck, Rocket, BookOpen, Layers,
 } from 'lucide-react';
 import { Dashboard } from './pages/Dashboard';
 import { Onboarding } from './pages/Onboarding';
 import { RepoPicker } from './pages/RepoPicker';
 import { Findings } from './pages/Findings';
 import { TestStrategy } from './pages/TestStrategy';
+import { MultiSourceStrategy } from './pages/MultiSourceStrategy';
 import { TestPlans } from './pages/TestPlans';
 import { TestPlanDetail } from './pages/TestPlanDetail';
 import { TestCases } from './pages/TestCases';
@@ -29,6 +30,7 @@ const NAV = [
   { to: '/repos', label: 'Validate', icon: ShieldCheck },
   { to: '/defects', label: 'Defects', icon: Bug },
   { to: '/test-strategy', label: 'Test Strategy', icon: Target },
+  { to: '/multi-source-strategy', label: 'Multi-source', icon: Layers },
   { to: '/test-plans', label: 'Test Plans', icon: ClipboardList },
   { to: '/test-cases', label: 'Test Cases', icon: ListChecks },
   { to: '/review-test-cases', label: 'Reviews', icon: ClipboardCheck },
@@ -90,6 +92,7 @@ export function App() {
               <Route path="/findings/:scanId" element={<Findings />} />
               <Route path="/defects" element={<Defects />} />
               <Route path="/test-strategy" element={<TestStrategy />} />
+              <Route path="/multi-source-strategy" element={<MultiSourceStrategy />} />
               <Route path="/test-plans" element={<TestPlans />} />
               <Route path="/test-plans/:id" element={<TestPlanDetail />} />
               <Route path="/test-cases" element={<TestCases />} />
