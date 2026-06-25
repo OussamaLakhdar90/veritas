@@ -19,6 +19,7 @@ import ca.bnc.qe.veritas.finding.Confidence;
 import ca.bnc.qe.veritas.finding.Finding;
 import ca.bnc.qe.veritas.finding.FindingType;
 import ca.bnc.qe.veritas.finding.Severity;
+import ca.bnc.qe.veritas.report.FidelityScore;
 import org.junit.jupiter.api.Test;
 
 /** Deep L4 diff: response-schema mismatch, extra spec status code, and constraint VALUE mismatch. */
@@ -58,10 +59,13 @@ class DiffEngineDeepTest {
         List<Finding> findings = diff.diffCodeVsSpec(code, spec);
         Set<FindingType> types = findings.stream().map(Finding::getType).collect(toSet());
 
+        // code Foo{name} vs spec Bar{id} → the precise field-level diff fires (name missing / id extra); the coarse
+        // RESPONSE_SCHEMA_MISMATCH is suppressed so the one shape defect isn't double-penalised.
         assertThat(types).contains(
-                FindingType.RESPONSE_SCHEMA_MISMATCH,   // code returns Foo{name}, spec declares Bar{id}
+                FindingType.SCHEMA_FIELD_MISSING,       // 'name' is in code but not the spec schema
                 FindingType.STATUS_CODE_EXTRA,          // spec documents 202, code never returns it
                 FindingType.CONSTRAINT_GAP);            // maxLength 10 (code) vs 20 (spec)
+        assertThat(types).doesNotContain(FindingType.RESPONSE_SCHEMA_MISMATCH);
         assertThat(findings).anyMatch(f -> f.getType() == FindingType.CONSTRAINT_GAP
                 && f.getSummary().contains("maxLength"));
     }
@@ -90,8 +94,42 @@ class DiffEngineDeepTest {
                 List.of(ep("policies", List.of(new ResponseModel(200, "policies", null, "SPEC", src)))),
                 Map.of("policies", schema("policies", "token", "string")));   // different field name
 
+        // Real divergence still surfaces — as the precise field-level finding (password in code, not the spec) — and
+        // the now-redundant coarse RESPONSE_SCHEMA_MISMATCH is suppressed so it isn't double-counted.
+        Set<FindingType> types = diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType).collect(toSet());
+        assertThat(types).contains(FindingType.SCHEMA_FIELD_MISSING);
+        assertThat(types).doesNotContain(FindingType.RESPONSE_SCHEMA_MISMATCH);
+    }
+
+    @Test
+    void arrayVsObjectResponseStillEmitsTheCoarseMismatch() {
+        // code returns Foo[] but the spec declares a single Bar object — fieldDiffByBinding can't field-diff an array
+        // against an object (it returns early), so the coarse RESPONSE_SCHEMA_MISMATCH is the ONLY signal and is kept.
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(ep("Foo[]", List.of(new ResponseModel(200, "Foo[]", null, "RETURN", src)))),
+                Map.of("Foo", schema("Foo", "name", "string")));
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(ep("Bar", List.of(new ResponseModel(200, "Bar", null, "SPEC", src)))),
+                Map.of("Bar", schema("Bar", "name", "string")));
+
         assertThat(diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType))
                 .contains(FindingType.RESPONSE_SCHEMA_MISMATCH);
+    }
+
+    @Test
+    void scoreCountsOneResponseShapeDefectOnceNotTwice() {
+        // code Foo{name} vs spec Bar{id}: ONE response-shape defect. It must cost a single MAJOR (the
+        // SCHEMA_FIELD_MISSING for 'name'), not a MAJOR for that PLUS a MAJOR for the redundant coarse mismatch.
+        ApiModel code = new ApiModel("code", null, null, null,
+                List.of(ep("Foo", List.of(new ResponseModel(200, "Foo", null, "RETURN", src)))),
+                Map.of("Foo", schema("Foo", "name", "string")));
+        ApiModel spec = new ApiModel("repo-spec", null, null, null,
+                List.of(ep("Bar", List.of(new ResponseModel(200, "Bar", null, "SPEC", src)))),
+                Map.of("Bar", schema("Bar", "id", "integer")));
+
+        // 100 - 8 (one counted MAJOR). The 'id' SCHEMA_FIELD_EXTRA is LOW/MINOR (excluded); the coarse mismatch is
+        // suppressed. Before the fix this was 100 - 16 (coarse + field both counted) = 84.
+        assertThat(FidelityScore.of(diff.diffCodeVsSpec(code, spec))).isEqualTo(92);
     }
 
     @Test
@@ -164,8 +202,11 @@ class DiffEngineDeepTest {
         ApiModel spec = new ApiModel("repo-spec", null, null, null,
                 List.of(ep("RootS", List.of(new ResponseModel(200, "RootS", null, "SPEC", src)))), specSchemas);
 
-        assertThat(diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType))
-                .contains(FindingType.RESPONSE_SCHEMA_MISMATCH);
+        // The divergence is caught at the leaf as a precise type mismatch (Leaf.v string vs LeafS.v integer); the
+        // coarse mismatch is suppressed because the field-level diff already describes the same defect (no double-count).
+        Set<FindingType> types = diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType).collect(toSet());
+        assertThat(types).contains(FindingType.SCHEMA_FIELD_TYPE_MISMATCH);
+        assertThat(types).doesNotContain(FindingType.RESPONSE_SCHEMA_MISMATCH);
     }
 
     @Test
