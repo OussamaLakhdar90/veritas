@@ -59,7 +59,11 @@ public class CreateTestCasesCommand implements Callable<Integer> {
         String basis;
         if (repo != null || (appId != null && repoSlug != null)) {
             Path repoPath = workspace.resolve(appId, repoSlug, branch, repo == null ? null : repo.toString());
-            basis = basisBuilder.fromRepo(repoPath);
+            try {
+                basis = basisBuilder.fromRepo(repoPath);
+            } finally {
+                workspace.cleanup(repoPath);   // basis is in memory now; drop the cloned temp dir
+            }
         } else {
             List<String> pages = confluencePages == null ? List.of() : Arrays.asList(confluencePages.split(","));
             basis = basisBuilder.fromIngest(jql, pages);
