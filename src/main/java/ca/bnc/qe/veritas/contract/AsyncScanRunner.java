@@ -50,7 +50,7 @@ public class AsyncScanRunner {
 
     /** Create the RUNNING scan row, kick off the pipeline on a worker, and return the id immediately. */
     public String submit(String serviceName, String appId, String repoSlug, String branch, String repoPath,
-                         List<SpecRef> specs, boolean llmEnabled, String owner) {
+                         List<SpecRef> specs, boolean llmEnabled, String owner, Thoroughness thoroughness) {
         Scan scan = new Scan();
         scan.setServiceName(serviceName != null && !serviceName.isBlank() ? serviceName : repoSlug);
         scan.setAppId(appId);
@@ -64,7 +64,7 @@ public class AsyncScanRunner {
         final Scan saved = scan;
         log.info("Scan {} [{}] queued — validating {} on branch '{}'",
                 scan.getId(), scan.getServiceName(), repoSlug, branch);
-        pool.submit(() -> run(saved, appId, repoSlug, branch, repoPath, specs, llmEnabled, owner));
+        pool.submit(() -> run(saved, appId, repoSlug, branch, repoPath, specs, llmEnabled, owner, thoroughness));
         return scan.getId();
     }
 
@@ -87,7 +87,7 @@ public class AsyncScanRunner {
     }
 
     private void run(Scan scan, String appId, String repoSlug, String branch, String repoPath,
-                     List<SpecRef> specRefs, boolean llmEnabled, String owner) {
+                     List<SpecRef> specRefs, boolean llmEnabled, String owner, Thoroughness thoroughness) {
         Path repo = null;
         try {
             stage(scan, ScanStages.CLONING);
@@ -102,7 +102,7 @@ public class AsyncScanRunner {
             persist(scan);
 
             ValidationRequest req = new ValidationRequest(scan.getServiceName(), appId, repoSlug, branch,
-                    repo, specs, llmEnabled, owner);
+                    repo, specs, llmEnabled, owner, thoroughness);
             preflight.validateContract(req);   // clear remediation if inputs/config are missing
 
             // Hand off to the engine, which continues the stages (EXTRACTING → … → DONE) on the same row.

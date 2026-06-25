@@ -5,6 +5,7 @@ import java.util.List;
 import ca.bnc.qe.veritas.contract.AsyncScanRunner;
 import ca.bnc.qe.veritas.contract.AsyncScanRunner.SpecRef;
 import ca.bnc.qe.veritas.contract.SpecSourceKind;
+import ca.bnc.qe.veritas.contract.Thoroughness;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -44,8 +45,9 @@ public class ScanController {
             }
         }
         boolean llm = req.llmEnabled() == null || req.llmEnabled();
+        Thoroughness thoroughness = Thoroughness.fromOrDefault(req.thoroughness());
         String scanId = runner.submit(req.serviceName(), req.appId(), req.repoSlug(), req.branch(),
-                req.repoPath(), specs, llm, "api");
+                req.repoPath(), specs, llm, "api", thoroughness);
         return new ScanAccepted(scanId, "RUNNING");
     }
 
@@ -53,7 +55,7 @@ public class ScanController {
 
     public record ScanRequest(String serviceName, String appId, String repoSlug, String branch,
                               String repoPath, List<String> specPaths, List<SpecSourceDto> specSources,
-                              Boolean llmEnabled) {}
+                              Boolean llmEnabled, String thoroughness) {}
 
     /** The 202 body: enough for the UI to start polling progress. */
     public record ScanAccepted(String scanId, String status) {}

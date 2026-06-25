@@ -207,7 +207,8 @@ public class ContractValidationService {
                 for (SpecInput s : req.specs()) {
                     presence = presence.merge(openApiModelExtractor.presenceOf(s.content()));
                 }
-                ReconcileResult rr = reconcile(code, specModels, findings, req.owner(), scan, presence);
+                ReconcileResult rr = reconcile(code, specModels, findings, req.owner(), scan, presence,
+                        req.thoroughness().tier());
                 log.info("Scan {} [{}] AI reconcile finished in {}s",
                         scan.getId(), scan.getServiceName(), (System.currentTimeMillis() - t0) / 1000);
                 enrich.putAll(rr.enrich());
@@ -351,7 +352,7 @@ public class ContractValidationService {
                                    List<Finding> llmFindings, Double confidence, String blindSpots) {}
 
     private ReconcileResult reconcile(ApiModel code, List<ApiModel> specs, List<Finding> findings,
-                                      String owner, Scan scan, SpecPresence presence) throws Exception {
+                                      String owner, Scan scan, SpecPresence presence, ModelTier tier) throws Exception {
         String scanId = scan.getId();
         List<Map<String, String>> brief = new ArrayList<>();
         for (Finding f : findings) {
@@ -386,7 +387,7 @@ public class ContractValidationService {
         // Batch the findings (deterministic) and merge the per-finding enrichment; the corrected YAML and design
         // findings come from the first batch (it carries the full endpoint context). Small scans → one call.
         List<List<Map<String, String>>> batches = partitionByTokens(brief, batchInputTokens);
-        String model = modelSelector.resolveTier(ModelTier.STANDARD);
+        String model = modelSelector.resolveTier(tier);   // per-scan thoroughness (ECONOMY/STANDARD/DEEP)
         scan.setModel(model);   // surfaced live so the user sees which Copilot model is doing the AI step
         detail(scan, "Reviewing " + findings.size() + " finding" + (findings.size() == 1 ? "" : "s")
                 + " and drafting a corrected spec…");

@@ -49,6 +49,9 @@ public class ValidateContractCommand implements Callable<Integer> {
     @Option(names = "--no-llm", description = "Skip the LLM reconcile step (deterministic findings only).")
     private boolean noLlm;
 
+    @Option(names = "--thoroughness", description = "Reconcile rigour/cost: ECONOMY | STANDARD (default) | DEEP.")
+    private String thoroughness;
+
     public ValidateContractCommand(ContractValidationService service, WorkspaceService workspace) {
         this.service = service;
         this.workspace = workspace;
@@ -67,7 +70,8 @@ public class ValidateContractCommand implements Callable<Integer> {
                     : (repoSlug != null ? repoSlug : repoPath.toAbsolutePath().getFileName().toString());
 
             ValidationRequest request = new ValidationRequest(serviceName, appId, repoSlug, branch,
-                    repoPath, specInputs, !noLlm, "local");
+                    repoPath, specInputs, !noLlm, "local",
+                    ca.bnc.qe.veritas.contract.Thoroughness.fromOrDefault(thoroughness));
             ValidationResult result = service.validate(request);
 
             System.out.println("Scan " + result.scanId() + " -> " + result.status());
