@@ -230,8 +230,10 @@ export interface TestStrategy {
   id: string
   serviceName?: string
   status?: string
+  source?: string          // CODE | JIRA_CONFLUENCE | multi-source
   confidence?: number
   deliverableJson?: string
+  scorecardJson?: string
   contentMarkdown?: string
   createdAt?: string
 }
@@ -335,6 +337,7 @@ export const api = {
   generateStrategy: (service: string, body: { basis: string; source?: string; owner?: string }) =>
     send<TestStrategy>('POST', `/services/${encodeURIComponent(service)}/strategies`, body),
   strategyRationaleUrl: (id: string) => `${BASE}/strategies/${id}/rationale`,
+  strategyWhyDocUrl: (id: string) => `${BASE}/strategies/${id}/why-doc`,
   previewMultiSourceStrategy: (service: string, body: MultiSourceStrategyRequest) =>
     send<StrategyPreview>('POST', `/services/${encodeURIComponent(service)}/multi-source-strategy/preview`, body),
   generateMultiSourceStrategy: (service: string, body: MultiSourceStrategyRequest) =>
