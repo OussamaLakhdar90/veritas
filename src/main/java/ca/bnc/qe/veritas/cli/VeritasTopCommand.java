@@ -15,9 +15,9 @@ import picocli.CommandLine.Command;
         version = "veritas 0.1.0-SNAPSHOT",
         description = "Veritas — API contract validation, ISTQB test management, template-driven test generation.",
         subcommands = { EchoCommand.class, ValidateContractCommand.class, CreateDefectCommand.class,
-                TestStrategyCommand.class, CreateTestCasesCommand.class, ReviewTestCasesCommand.class,
-                ReleaseTestPlanCommand.class, ImplementTestsCommand.class, CopilotLoginCommand.class,
-                DoctorCommand.class }
+                TestStrategyCommand.class, MultiSourceStrategyCommand.class, CreateTestCasesCommand.class,
+                ReviewTestCasesCommand.class, ReleaseTestPlanCommand.class, ImplementTestsCommand.class,
+                CopilotLoginCommand.class, DoctorCommand.class }
 )
 public class VeritasTopCommand implements Runnable {
 
