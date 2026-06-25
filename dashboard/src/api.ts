@@ -236,6 +236,25 @@ export interface TestStrategy {
   createdAt?: string
 }
 
+/** Request to the multi-source strategy endpoints — any subset of code + Jira + Confluence. */
+export interface MultiSourceStrategyRequest {
+  code?: { appId?: string; repoSlug?: string; branch?: string; repoPath?: string }
+  jira?: { jql?: string; maxResults?: number }
+  confluence?: { pageIds?: string[] }
+}
+
+/** The §6 preview: what the pipeline extracted + clustered, before the (expensive) synthesis. */
+export interface StrategyPreview {
+  features: Array<{ featureId: string; displayName: string; status: string;
+    units: Array<{ id: string; source: string; type: string; title: string }> }>
+  gaps: Array<{ kind: string; feature: string; message: string }>
+  mix: { code: boolean; jira: boolean; confluence: boolean }
+  redactionCount: number
+  fetchFailures: string[]
+  hardFail: boolean
+  estimatedCostUsd: number
+}
+
 export interface ReviewResult {
   id: string
   targetKey?: string
@@ -315,6 +334,10 @@ export const api = {
   generateStrategy: (service: string, body: { basis: string; source?: string; owner?: string }) =>
     send<TestStrategy>('POST', `/services/${encodeURIComponent(service)}/strategies`, body),
   strategyRationaleUrl: (id: string) => `${BASE}/strategies/${id}/rationale`,
+  previewMultiSourceStrategy: (service: string, body: MultiSourceStrategyRequest) =>
+    send<StrategyPreview>('POST', `/services/${encodeURIComponent(service)}/multi-source-strategy/preview`, body),
+  generateMultiSourceStrategy: (service: string, body: MultiSourceStrategyRequest) =>
+    send<TestStrategy>('POST', `/services/${encodeURIComponent(service)}/multi-source-strategy`, body),
   reviews: (targetKey: string) => get<ReviewResult[]>(`/reviews?targetKey=${encodeURIComponent(targetKey)}`),
   runReview: (body: { jql: string; apply: boolean; owner?: string }) => send<ReviewResult[]>('POST', '/reviews', body),
   generateTestCases: (service: string, body: { basis: string; owner?: string }) =>
