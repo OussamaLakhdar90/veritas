@@ -25,6 +25,11 @@ public class TestStrategy extends AuditableEntity {
     @Column(columnDefinition = "TEXT")
     private String deliverableJson;
 
+    /** Deterministic quality scorecard (multi-source path): verdict OK|DEGRADED + per-rule checks, as JSON. */
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String scorecardJson;
+
     private Double confidence;   // self-review confidence 0–100
 
     private String status;       // DRAFT | IN_REVIEW | APPROVED

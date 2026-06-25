@@ -31,8 +31,9 @@ class MultiSourceStrategyServiceTest {
     private final FeatureIndexBuilder builder = mock(FeatureIndexBuilder.class);
     private final MultiSourceStrategyAssembler assembler = mock(MultiSourceStrategyAssembler.class);
     private final TestStrategyRepository repository = mock(TestStrategyRepository.class);
-    private final MultiSourceStrategyService service = new MultiSourceStrategyService(builder, assembler, repository);
-    private final ObjectMapper om = new ObjectMapper();
+    private final ObjectMapper om = new ObjectMapper();   // declared before service (field initializers run in order)
+    private final MultiSourceStrategyService service =
+            new MultiSourceStrategyService(builder, assembler, new StrategyScorecardEngine(), repository, om);
 
     private FeatureIndexResult indexResult(boolean hardFail) {
         FetchProvenance prov = new FetchProvenance(Map.of(SourceKind.JIRA,
@@ -61,6 +62,9 @@ class MultiSourceStrategyServiceTest {
         assertThat(s.getDeliverableJson()).contains("Multi-source strategy");
         assertThat(s.getContentMarkdown()).contains("Test Strategy — ciam-policies");
         assertThat(s.getLineageId()).isEqualTo(s.getId());             // v1 seeds its own lineage
+        // The deterministic scorecard is computed + persisted: an empty index passes every check → OK / 100.
+        assertThat(s.getScorecardJson()).contains(StrategyScorecard.OK);
+        assertThat(s.getConfidence()).isEqualTo(100.0);
         verify(assembler).assemble(eq("ciam-policies"), any(), eq("alice"));
     }
 
