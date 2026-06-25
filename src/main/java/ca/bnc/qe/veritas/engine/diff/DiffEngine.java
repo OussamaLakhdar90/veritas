@@ -301,23 +301,30 @@ public class DiffEngine {
 
         // success-response body schema differs between code and spec. Compare the RESOLVED STRUCTURE, not the
         // type/schema NAME: a code DTO "PasswordPolicyWrapper" and a spec schema "policies" that serialize to the
-        // same property shape are NOT a contract break — the schema name never appears on the wire. Only emit when
-        // the structures genuinely diverge; suppress when they match or when either side can't be resolved.
+        // same property shape are NOT a contract break — the schema name never appears on the wire.
         String codeRef = successSchemaRef(ce);
         String specRef = successSchemaRef(se);
-        if (codeRef != null && specRef != null && !normRef(codeRef).equals(normRef(specRef))
+
+        // Binding-driven field diff FIRST: when the response schemas bind to the same response but carry DIFFERENT
+        // component names (code DTO "PasswordComplexity" vs spec "policies-password-complexity"), the same-name schema
+        // loop never field-compares them. Walk the bound pair (pairing nested DTOs by the binding FIELD, not by name)
+        // so an undocumented/diverging response field surfaces as a precise SCHEMA_FIELD_MISSING/TYPE_MISMATCH.
+        boolean fieldLevelEmitted = false;
+        if (codeRef != null && specRef != null) {
+            int before = findings.size();
+            fieldDiffByBinding(findings, code, spec, codeRef, specRef, label(ce) + " response",
+                    new java.util.HashSet<>(), MAX_SCHEMA_DEPTH);
+            fieldLevelEmitted = findings.size() > before;
+        }
+        // Emit the COARSE RESPONSE_SCHEMA_MISMATCH only when the precise field-level diff did NOT already describe the
+        // same response divergence — otherwise one schema defect would be penalised twice (the coarse mismatch AND its
+        // per-field findings), depressing the FidelityScore for a single underlying defect. The coarse finding is still
+        // the only signal for array-vs-object (fieldDiffByBinding returns early there) and is retained for it.
+        if (codeRef != null && specRef != null && !fieldLevelEmitted && !normRef(codeRef).equals(normRef(specRef))
                 && structuralVerdict(code, spec, codeRef, specRef) == SchemaVerdict.DIFFER) {
             findings.add(finding(FindingType.RESPONSE_SCHEMA_MISMATCH, label(ce), spec.source(),
                     "Success response schema — code returns '" + codeRef + "' but the spec declares '" + specRef + "'",
                     ce, Confidence.MEDIUM));
-        }
-        // Binding-driven field diff: when the response schemas bind to the same response but carry DIFFERENT component
-        // names (code DTO "PasswordComplexity" vs spec "policies-password-complexity"), the same-name schema loop never
-        // field-compares them. Walk the bound pair (pairing nested DTOs by the binding FIELD, not by name) so an
-        // undocumented response field surfaces as a precise SCHEMA_FIELD_MISSING, not just a coarse mismatch.
-        if (codeRef != null && specRef != null) {
-            fieldDiffByBinding(findings, code, spec, codeRef, specRef, label(ce) + " response",
-                    new java.util.HashSet<>(), MAX_SCHEMA_DEPTH);
         }
     }
 
