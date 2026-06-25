@@ -16,6 +16,7 @@ import ca.bnc.qe.veritas.evidence.SourceMix;
 import ca.bnc.qe.veritas.evidence.UnitType;
 import ca.bnc.qe.veritas.persistence.FeatureIndexSnapshot;
 import ca.bnc.qe.veritas.persistence.FeatureIndexSnapshotRepository;
+import ca.bnc.qe.veritas.skill.ConflictException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -32,6 +33,7 @@ class FeatureIndexSnapshotIT {
 
     @Autowired private FeatureIndexSnapshotService service;
     @Autowired private FeatureIndexSnapshotRepository repository;
+    @Autowired private FeatureIndexSnapshotCleaner cleaner;
 
     private static final String JIRA_ID = "JIRA-1";
     private static final String CODE_ID = "CODE:PolicyController#GET /policies";
@@ -73,6 +75,37 @@ class FeatureIndexSnapshotIT {
         String expectedId = "feat-" + EvidenceId.hash8(CODE_ID + "|" + JIRA_ID);
         assertThat(after.index().features()).hasSize(1).containsKey(expectedId);
         assertThat(after.index().features().get(expectedId).status()).isEqualTo(FeatureStatus.IMPLEMENTED);
+    }
+
+    @Test
+    void claimForGenerationIsOneShotAcrossTheRealDb() {
+        String id = service.create("svc", sample(), "alice").getId();
+
+        service.claimForGeneration(id);   // first claim persists the marker
+
+        // The second claim re-reads the committed row, sees the marker → conflict (no double synthesis).
+        assertThatThrownBy(() -> service.claimForGeneration(id)).isInstanceOf(ConflictException.class);
+    }
+
+    @Test
+    void theTtlSweepRunsAndKeepsFreshSnapshots() {
+        String id = service.create("svc", sample(), "alice").getId();
+
+        cleaner.sweep();   // deletes snapshots idle past the TTL (default 168h); a just-created one survives
+
+        assertThat(repository.findById(id)).isPresent();
+    }
+
+    @Test
+    void linkGeneratedSetsTheAuditLinkAndClearsTheClaimViaBulkUpdate() {
+        String id = service.create("svc", sample(), "alice").getId();
+        service.claimForGeneration(id);             // claim marker set
+
+        service.linkGenerated(id, "strat-xyz");     // column-scoped bulk update against the real DB
+
+        FeatureIndexSnapshot reloaded = repository.findById(id).orElseThrow();
+        assertThat(reloaded.getGeneratedStrategyId()).isEqualTo("strat-xyz");
+        assertThat(reloaded.getGenerationStartedAt()).isNull();   // claim cleared by the same update
     }
 
     @Test
