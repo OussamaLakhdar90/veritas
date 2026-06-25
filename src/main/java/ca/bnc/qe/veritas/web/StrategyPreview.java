@@ -18,6 +18,9 @@ import ca.bnc.qe.veritas.evidence.SourceMix;
  * @param estimatedCostUsd a rough estimate of what generating the full strategy will cost (clearly an estimate)
  * @param carryForwardNotes on a "re-run keeping my edits" preview, any reviewer edits that could NOT be re-applied
  *                        because their features vanished from the new extraction (empty on a normal preview)
+ * @param generatedStrategyId the strategy generated from this snapshot once async synthesis succeeds (poll target); null until then
+ * @param generationStartedAt non-null while a generation is in flight (the wizard shows "generating" and keeps polling)
+ * @param generationError   set when an async generation failed (shown to the reviewer, who can retry); null otherwise
  */
 public record StrategyPreview(
         String snapshotId,
@@ -28,7 +31,10 @@ public record StrategyPreview(
         List<String> fetchFailures,
         boolean hardFail,
         double estimatedCostUsd,
-        List<String> carryForwardNotes) {
+        List<String> carryForwardNotes,
+        String generatedStrategyId,
+        java.time.Instant generationStartedAt,
+        String generationError) {
 
     public record FeatureView(String featureId, String displayName, String status, List<UnitView> units,
                               boolean pinned) {}

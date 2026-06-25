@@ -27,12 +27,21 @@ public interface FeatureIndexSnapshotRepository extends JpaRepository<FeatureInd
      * concurrent feature edit nor fails if the row was swept — it just affects 0 rows.
      */
     @Modifying
-    @Query("update FeatureIndexSnapshot s set s.generatedStrategyId = :strategyId, s.generationStartedAt = null "
-            + "where s.id = :id")
+    @Query("update FeatureIndexSnapshot s set s.generatedStrategyId = :strategyId, s.generationStartedAt = null, "
+            + "s.generationError = null where s.id = :id")
     int linkGenerated(@Param("id") String id, @Param("strategyId") String strategyId);
 
     /** Clear a generation claim (column-scoped bulk update; safe against a concurrent edit or a vanished row). */
     @Modifying
     @Query("update FeatureIndexSnapshot s set s.generationStartedAt = null where s.id = :id")
     int releaseClaim(@Param("id") String id);
+
+    /**
+     * Release the claim AND record the failure atomically (column-scoped bulk update). The async worker uses this so
+     * a poller can tell "failed" ({@code generationError} set) from "never generated" — closing the race that a bare
+     * {@code releaseClaim} leaves (claim cleared, looks identical to idle).
+     */
+    @Modifying
+    @Query("update FeatureIndexSnapshot s set s.generationStartedAt = null, s.generationError = :error where s.id = :id")
+    int failGeneration(@Param("id") String id, @Param("error") String error);
 }

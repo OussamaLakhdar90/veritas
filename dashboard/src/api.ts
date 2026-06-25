@@ -258,6 +258,16 @@ export interface StrategyPreview {
   estimatedCostUsd: number
   /** On a "re-run keeping my edits" preview: reviewer edits that couldn't be re-applied (their features vanished). */
   carryForwardNotes: string[]
+  /** Async-generate poll fields: set on success (navigate target) / while in flight / on failure (show + retry). */
+  generatedStrategyId?: string
+  generationStartedAt?: string
+  generationError?: string
+}
+
+/** 202 body from kicking off an async multi-source generate — the snapshot id to poll + a status to show meanwhile. */
+export interface StrategyAccepted {
+  snapshotId: string
+  status: string
 }
 
 export interface ReviewResult {
@@ -354,8 +364,11 @@ export const api = {
     send<StrategyPreview>('PATCH', `/multi-source-strategy/snapshots/${snapshotId}/merge`, { featureIds, name }),
   pinFeature: (snapshotId: string, featureId: string, pinned: boolean) =>
     send<StrategyPreview>('PATCH', `/multi-source-strategy/snapshots/${snapshotId}/pin`, { featureId, pinned }),
+  // Kicks off generation async → 202 {snapshotId,status}; poll getStrategySnapshot until generatedStrategyId/generationError.
   generateStrategyFromSnapshot: (snapshotId: string) =>
-    send<TestStrategy>('POST', `/multi-source-strategy/snapshots/${snapshotId}/strategy`),
+    send<StrategyAccepted>('POST', `/multi-source-strategy/snapshots/${snapshotId}/strategy`),
+  getStrategySnapshot: (snapshotId: string) =>
+    get<StrategyPreview>(`/multi-source-strategy/snapshots/${encodeURIComponent(snapshotId)}`),
   reviews: (targetKey: string) => get<ReviewResult[]>(`/reviews?targetKey=${encodeURIComponent(targetKey)}`),
   runReview: (body: { jql: string; apply: boolean; owner?: string }) => send<ReviewResult[]>('POST', '/reviews', body),
   generateTestCases: (service: string, body: { basis: string; owner?: string }) =>

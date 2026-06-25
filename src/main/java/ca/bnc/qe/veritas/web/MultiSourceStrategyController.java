@@ -7,6 +7,7 @@ import java.util.Set;
 import ca.bnc.qe.veritas.engine.extract.java.JavaSpringExtractor;
 import ca.bnc.qe.veritas.engine.model.ApiModel;
 import ca.bnc.qe.veritas.evidence.SourceSelection;
+import ca.bnc.qe.veritas.evidence.feature.AsyncStrategyGenerator;
 import ca.bnc.qe.veritas.evidence.feature.FeatureIndex;
 import ca.bnc.qe.veritas.evidence.feature.FeatureIndexBuilder;
 import ca.bnc.qe.veritas.evidence.feature.FeatureIndexResult;
@@ -57,17 +58,20 @@ public class MultiSourceStrategyController {
     private final FeatureIndexBuilder featureIndexBuilder;
     private final MultiSourceStrategyService strategyService;
     private final FeatureIndexSnapshotService snapshotService;
+    private final AsyncStrategyGenerator asyncStrategyGenerator;
     private final CurrentUser currentUser;
 
     public MultiSourceStrategyController(WorkspaceService workspace, JavaSpringExtractor extractor,
                                         FeatureIndexBuilder featureIndexBuilder,
                                         MultiSourceStrategyService strategyService,
-                                        FeatureIndexSnapshotService snapshotService, CurrentUser currentUser) {
+                                        FeatureIndexSnapshotService snapshotService,
+                                        AsyncStrategyGenerator asyncStrategyGenerator, CurrentUser currentUser) {
         this.workspace = workspace;
         this.extractor = extractor;
         this.featureIndexBuilder = featureIndexBuilder;
         this.strategyService = strategyService;
         this.snapshotService = snapshotService;
+        this.asyncStrategyGenerator = asyncStrategyGenerator;
         this.currentUser = currentUser;
     }
 
@@ -137,25 +141,21 @@ public class MultiSourceStrategyController {
      * would also re-point the audit link. Start a fresh preview to generate again.
      */
     @PostMapping("/multi-source-strategy/snapshots/{id}/strategy")
-    public ResponseEntity<TestStrategy> generateFromSnapshot(@PathVariable String id) {
+    public ResponseEntity<StrategyAccepted> generateFromSnapshot(@PathVariable String id) {
         if (ownedSnapshot(id).isEmpty()) {
             return ResponseEntity.notFound().build();
         }
-        FeatureIndexSnapshot snapshot = snapshotService.claimForGeneration(id);   // atomic one-shot claim → 409 if taken
-        try {
-            TestStrategy strategy = strategyService.generateFromIndex(
-                    snapshot.getServiceName(), snapshotService.resultOf(snapshot), snapshot.getOwner());
-            snapshotService.linkGenerated(id, strategy.getId());
-            return ResponseEntity.status(HttpStatus.CREATED).body(strategy);
-        } catch (RuntimeException e) {
-            try {
-                snapshotService.releaseClaim(id);   // synthesis failed → let a legitimate retry re-claim
-            } catch (RuntimeException releaseError) {
-                log.warn("Failed to release generation claim on snapshot {}: {}", id, releaseError.toString());
-            }
-            throw e;
-        }
+        // Claim synchronously (atomic one-shot → 409 if already taken/generated) BEFORE handing off, so a duplicate or
+        // concurrent generate is rejected fast and the paid synthesis runs at most once. Then synthesize ASYNC and
+        // return 202 — the wizard polls GET .../snapshots/{id} until generatedStrategyId (done) or generationError
+        // (failed). A large real run makes several DEEP LLM calls, so it must not block the HTTP request.
+        FeatureIndexSnapshot snapshot = snapshotService.claimForGeneration(id);
+        asyncStrategyGenerator.submit(snapshot);
+        return ResponseEntity.status(HttpStatus.ACCEPTED).body(new StrategyAccepted(id, "GENERATING"));
     }
+
+    /** 202 body for an async generate: the snapshot to poll, and a status the wizard shows while it waits. */
+    public record StrategyAccepted(String snapshotId, String status) {}
 
     /**
      * Resolve a snapshot only if the current principal owns it — a non-owner (in the multi-user 'server' profile)
@@ -224,6 +224,7 @@ public class MultiSourceStrategyController {
                 .toList();
         double estimatedCost = index.features().size() * APPROX_COST_PER_FEATURE_USD;
         return new StrategyPreview(snapshot.getId(), features, gaps, index.mix(), result.redactionCount(),
-                result.fetchFailures(), result.hasHardFail(), estimatedCost, List.copyOf(carryForwardNotes));
+                result.fetchFailures(), result.hasHardFail(), estimatedCost, List.copyOf(carryForwardNotes),
+                snapshot.getGeneratedStrategyId(), snapshot.getGenerationStartedAt(), snapshot.getGenerationError());
     }
 }

@@ -137,6 +137,7 @@ public class FeatureIndexSnapshotService {
             throw new ConflictException("A strategy is already being generated from this preview.");
         }
         s.setGenerationStartedAt(Instant.now());   // (re)claim — a claim older than the lease is abandoned, take it
+        s.setGenerationError(null);                 // a fresh attempt clears any error from a previous failed run
         return repository.save(s);
     }
 
@@ -157,6 +158,17 @@ public class FeatureIndexSnapshotService {
     @Transactional
     public void releaseClaim(String id) {
         repository.releaseClaim(id);
+    }
+
+    /**
+     * Record an async synthesis failure: release the claim AND store the error, so the polling wizard can surface it
+     * (and a legitimate retry can re-claim). Column-scoped bulk update — never contends with a concurrent edit. The
+     * message is truncated to keep parity with how {@code Scan.errorMessage} is stored and avoid column overflow.
+     */
+    @Transactional
+    public void failGeneration(String id, String error) {
+        String msg = error == null ? "Generation failed." : error.length() > 2000 ? error.substring(0, 2000) : error;
+        repository.failGeneration(id, msg);
     }
 
     // ---- the override layer (deterministic, $0) -------------------------------------------------

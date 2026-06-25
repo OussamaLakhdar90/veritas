@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import {
   Layers, GitBranch, FileText, Bug, AlertTriangle, ArrowLeft, Sparkles, ShieldCheck,
   Pin, Pencil, Check, X, GitMerge, RefreshCw,
@@ -61,6 +61,7 @@ export function MultiSourceStrategy() {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [mergeName, setMergeName] = useState('');
+  const [generatingId, setGeneratingId] = useState<string | null>(null);   // async generate: the snapshot we're polling
 
   const snapshotId = preview?.snapshotId ?? '';
 
@@ -108,11 +109,34 @@ export function MultiSourceStrategy() {
     onSuccess: setPreview,
     onError: onErr,
   });
+  // Generation is async (202 + poll): kick it off, then poll the snapshot until it reports done or failed.
   const generateM = useMutation({
     mutationFn: () => api.generateStrategyFromSnapshot(snapshotId),
-    onSuccess: () => { toast.push('success', 'Multi-source strategy generated.'); nav('/test-strategy'); },
+    onSuccess: (acc) => { setGeneratingId(acc.snapshotId); toast.push('success', 'Generating the strategy…'); },
     onError: onErr,
   });
+  const genPoll = useQuery({
+    queryKey: ['strategy-gen', generatingId],
+    queryFn: () => api.getStrategySnapshot(generatingId as string),
+    enabled: !!generatingId,
+    refetchInterval: (q) => {
+      const d = q.state.data;
+      return d && (d.generatedStrategyId || d.generationError) ? false : 1200;   // stop polling once done/failed
+    },
+  });
+  useEffect(() => {
+    const d = genPoll.data;
+    if (!generatingId || !d) return;
+    if (d.generatedStrategyId) {
+      setGeneratingId(null);
+      toast.push('success', 'Multi-source strategy generated.');
+      nav('/test-strategy');
+    } else if (d.generationError) {
+      setGeneratingId(null);
+      toast.push('error', d.generationError);
+    }
+  }, [genPoll.data, generatingId, nav, toast]);
+  const generating = generateM.isPending || !!generatingId;
 
   const toggleSelect = (id: string) => setSelected((prev) => {
     const next = new Set(prev);
@@ -297,8 +321,8 @@ export function MultiSourceStrategy() {
                   title="Re-extract the same sources and carry your pins, renames and merges forward onto the fresh index">
                   <RefreshCw className="h-4 w-4" /> Re-extract (keep edits)
                 </Button>
-                <Button onClick={() => generateM.mutate()} loading={generateM.isPending} disabled={preview.hardFail || busy}>
-                  <Sparkles className="h-4 w-4" /> Generate strategy
+                <Button onClick={() => generateM.mutate()} loading={generating} disabled={preview.hardFail || busy || generating}>
+                  <Sparkles className="h-4 w-4" /> {generating ? 'Generating…' : 'Generate strategy'}
                 </Button>
               </div>
             </CardBody>
