@@ -52,8 +52,10 @@ export function MultiSourceStrategy() {
   const [branch, setBranch] = useState('');
   const [useJira, setUseJira] = useState(false);
   const [jql, setJql] = useState('');
+  const [epicKey, setEpicKey] = useState('');
   const [useConf, setUseConf] = useState(false);
   const [pageIds, setPageIds] = useState('');
+  const [rootPageId, setRootPageId] = useState('');
   const [preview, setPreview] = useState<StrategyPreview | null>(null);
 
   // Edit-step local state.
@@ -67,13 +69,17 @@ export function MultiSourceStrategy() {
 
   const body = (): MultiSourceStrategyRequest => ({
     code: useCode ? { appId: appId.trim() || undefined, repoSlug: repoSlug.trim() || undefined, branch: branch.trim() || undefined } : undefined,
-    jira: useJira ? { jql: jql.trim() || undefined } : undefined,
-    confluence: useConf ? { pageIds: pageIds.split(',').map((s) => s.trim()).filter(Boolean) } : undefined,
+    jira: useJira ? { jql: jql.trim() || undefined, epicKey: epicKey.trim() || undefined } : undefined,
+    confluence: useConf
+      ? { pageIds: pageIds.split(',').map((s) => s.trim()).filter(Boolean), rootPageId: rootPageId.trim() || undefined }
+      : undefined,
   });
 
   const ready = useMemo(() => service.trim() && (
-    (useCode && appId.trim() && repoSlug.trim()) || (useJira && jql.trim()) || (useConf && pageIds.trim())
-  ), [service, useCode, appId, repoSlug, useJira, jql, useConf, pageIds]);
+    (useCode && appId.trim() && repoSlug.trim())
+    || (useJira && (jql.trim() || epicKey.trim()))
+    || (useConf && (pageIds.trim() || rootPageId.trim()))
+  ), [service, useCode, appId, repoSlug, useJira, jql, epicKey, useConf, pageIds, rootPageId]);
 
   const onErr = (e: Error) => toast.push('error', e.message);
 
@@ -169,12 +175,14 @@ export function MultiSourceStrategy() {
               <Field label="Branch" hint="defaults to the repo default"><Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="develop" /></Field>
             </SourceToggle>
 
-            <SourceToggle on={useJira} setOn={setUseJira} icon={Bug} label="Jira (issues by JQL)">
+            <SourceToggle on={useJira} setOn={setUseJira} icon={Bug} label="Jira (issues by JQL or epic)">
               <Field label="JQL"><Input value={jql} onChange={(e) => setJql(e.target.value)} placeholder='project = CIAM AND fixVersion = "2025.1"' /></Field>
+              <Field label="…or epic key" hint="fetch all child issues of this epic"><Input value={epicKey} onChange={(e) => setEpicKey(e.target.value)} placeholder="CIAM-100" /></Field>
             </SourceToggle>
 
             <SourceToggle on={useConf} setOn={setUseConf} icon={FileText} label="Confluence (design pages)">
               <Field label="Page ids" hint="comma-separated"><Input value={pageIds} onChange={(e) => setPageIds(e.target.value)} placeholder="123456, 234567" /></Field>
+              <Field label="…or root page id" hint="include the whole page tree under this page"><Input value={rootPageId} onChange={(e) => setRootPageId(e.target.value)} placeholder="987654" /></Field>
             </SourceToggle>
 
             <div className="flex justify-end pt-1">

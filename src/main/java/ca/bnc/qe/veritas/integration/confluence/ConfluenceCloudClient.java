@@ -90,6 +90,45 @@ public class ConfluenceCloudClient implements ConfluenceClient {
     }
 
     @Override
+    public List<ConfluencePage> descendants(String rootPageRef, int maxPages) {
+        String rootId = pageId(rootPageRef);   // accept a full URL or a bare id
+        List<ConfluencePage> out = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        java.util.Deque<String> queue = new java.util.ArrayDeque<>();
+        queue.add(rootId);
+        try {
+            // Breadth-first over the page tree (the v1 child/page endpoint works on both Server and Cloud via apiBase),
+            // bounded by maxPages and a visited-set cycle guard so a deep or self-referential tree can't run away.
+            while (!queue.isEmpty() && out.size() < maxPages) {
+                String id = queue.poll();
+                if (!seen.add(id)) {
+                    continue;
+                }
+                out.add(new ConfluencePage(id, "", ""));   // id only — the adapter fetches each page's body later
+                String uri = apiBase() + "/content/" + id + "/child/page?limit=100";
+                while (uri != null && out.size() + queue.size() < maxPages) {
+                    final String pageUri = uri;
+                    String resp = retries.call(() -> http.get().uri(URI.create(pageUri))
+                            .header("Authorization", authHeader())
+                            .retrieve().body(String.class));
+                    JsonNode root = mapper.readTree(resp == null ? "{}" : resp);
+                    for (JsonNode v : root.path("results")) {
+                        String childId = v.path("id").asText("");
+                        if (!childId.isEmpty() && !seen.contains(childId)) {
+                            queue.add(childId);
+                        }
+                    }
+                    String next = root.path("_links").path("next").asText(null);
+                    uri = (next == null || next.isBlank()) ? null : base() + next;
+                }
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("Confluence descendants failed for '" + rootPageRef + "': " + e.getMessage(), e);
+        }
+        return out;
+    }
+
+    @Override
     public String whoAmI() {
         try {
             String resp = retries.call(() -> http.get()

@@ -64,6 +64,7 @@ class MultiSourceStrategyControllerTest {
     @MockBean private MultiSourceStrategyService strategyService;
     @MockBean private FeatureIndexSnapshotService snapshotService;
     @MockBean private AsyncStrategyGenerator asyncStrategyGenerator;
+    @MockBean private ca.bnc.qe.veritas.evidence.SourceExpander sourceExpander;
     @MockBean private CurrentUser currentUser;
 
     @BeforeEach
@@ -134,6 +135,35 @@ class MultiSourceStrategyControllerTest {
         ArgumentCaptor<SourceSelection> sel = ArgumentCaptor.forClass(SourceSelection.class);
         verify(strategyService).generate(eq("ciam-policies"), sel.capture(), eq("alice"));
         assertThat(sel.getValue().hasCode()).isTrue();
+    }
+
+    @Test
+    void aJiraEpicKeyExpandsToAChildIssuesJqlSelection() throws Exception {
+        stubGenerated();
+        when(sourceExpander.jqlForEpic("CIAM-100")).thenReturn("parent = \"CIAM-100\"");
+
+        mvc.perform(post("/api/v1/services/ciam-policies/multi-source-strategy")
+                        .contentType("application/json").content("{\"jira\":{\"epicKey\":\"CIAM-100\"}}"))
+                .andExpect(status().isCreated());
+
+        ArgumentCaptor<SourceSelection> sel = ArgumentCaptor.forClass(SourceSelection.class);
+        verify(strategyService).generate(eq("ciam-policies"), sel.capture(), eq("alice"));
+        assertThat(sel.getValue().hasJira()).isTrue();
+        assertThat(sel.getValue().jql()).isEqualTo("parent = \"CIAM-100\"");
+    }
+
+    @Test
+    void aConfluenceRootPageExpandsToTheDescendantPageIds() throws Exception {
+        stubGenerated();
+        when(sourceExpander.pageIdsForRoot("987")).thenReturn(List.of("987", "988"));
+
+        mvc.perform(post("/api/v1/services/ciam-policies/multi-source-strategy")
+                        .contentType("application/json").content("{\"confluence\":{\"rootPageId\":\"987\"}}"))
+                .andExpect(status().isCreated());
+
+        ArgumentCaptor<SourceSelection> sel = ArgumentCaptor.forClass(SourceSelection.class);
+        verify(strategyService).generate(eq("ciam-policies"), sel.capture(), eq("alice"));
+        assertThat(sel.getValue().pageIds()).contains("987", "988");
     }
 
     @Test
