@@ -23,12 +23,15 @@ public class StrategyController {
     private final TestStrategyRepository repository;
     private final TestStrategyService service;
     private final ca.bnc.qe.veritas.report.StrategyRationaleRenderer rationaleRenderer;
+    private final ca.bnc.qe.veritas.report.WhyDocRenderer whyDocRenderer;
 
     public StrategyController(TestStrategyRepository repository, TestStrategyService service,
-                             ca.bnc.qe.veritas.report.StrategyRationaleRenderer rationaleRenderer) {
+                             ca.bnc.qe.veritas.report.StrategyRationaleRenderer rationaleRenderer,
+                             ca.bnc.qe.veritas.report.WhyDocRenderer whyDocRenderer) {
         this.repository = repository;
         this.service = service;
         this.rationaleRenderer = rationaleRenderer;
+        this.whyDocRenderer = whyDocRenderer;
     }
 
     @GetMapping("/services/{service}/strategies")
@@ -46,6 +49,17 @@ public class StrategyController {
     public ResponseEntity<String> rationale(@PathVariable String id) {
         return repository.findById(id)
                 .map(s -> ResponseEntity.ok(rationaleRenderer.renderHtml(s)))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * The evidence "why-doc" for a multi-source strategy: each feature's status + sections traced to the cited
+     * Jira/Confluence/code units (id + verbatim quote + gloss), the coverage gaps, and the quality scorecard.
+     */
+    @GetMapping(value = "/strategies/{id}/why-doc", produces = org.springframework.http.MediaType.TEXT_HTML_VALUE)
+    public ResponseEntity<String> whyDoc(@PathVariable String id) {
+        return repository.findById(id)
+                .map(s -> ResponseEntity.ok(whyDocRenderer.renderHtml(s)))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 

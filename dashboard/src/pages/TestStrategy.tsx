@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ClipboardList, Play, FileText, ExternalLink } from 'lucide-react';
+import { ClipboardList, Play, FileText, ExternalLink, ScrollText } from 'lucide-react';
 import { api } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, PageHeader, Select, Spinner, Table, Td, Th, Row, Textarea } from '../components/ui';
 import { useToast } from '../components/Toast';
@@ -77,10 +77,19 @@ export function TestStrategy() {
                   <Td className="text-right tabular-nums text-ink-900">{s.confidence != null ? `${Math.round(s.confidence)}%` : '—'}</Td>
                   <Td className="text-muted">{s.createdAt ? new Date(s.createdAt).toLocaleString() : '—'}</Td>
                   <Td className="text-right">
-                    <a href={api.strategyRationaleUrl(s.id)} target="_blank" rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-[13px] font-medium text-gold hover:underline">
-                      <FileText className="h-3.5 w-3.5" /> Rationale <ExternalLink className="h-3 w-3" />
-                    </a>
+                    <div className="inline-flex items-center gap-4">
+                      {s.source === 'multi-source' && (
+                        <a href={api.strategyWhyDocUrl(s.id)} target="_blank" rel="noreferrer"
+                          title="Evidence why-doc: each section traced to its Jira/Confluence/code units"
+                          className="inline-flex items-center gap-1 text-[13px] font-medium text-gold hover:underline">
+                          <ScrollText className="h-3.5 w-3.5" /> Evidence <ExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
+                      <a href={api.strategyRationaleUrl(s.id)} target="_blank" rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-[13px] font-medium text-gold hover:underline">
+                        <FileText className="h-3.5 w-3.5" /> Rationale <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
                   </Td>
                 </Row>
               ))}
