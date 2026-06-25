@@ -95,6 +95,26 @@ class GapDetectorTest {
     }
 
     @Test
+    void coverageGapFeatureProducesADoneButNotBuiltGap() {
+        EvidenceUnit jira = u("JIRA-1", SourceKind.JIRA, UnitType.REQUIREMENT, "policy");
+        FeatureIndex idx = index(List.of(jira),
+                List.of(new Feature("f1", "policy", List.of("JIRA-1"), FeatureStatus.COVERAGE_GAP)));
+        GapReport r = detector.detect(idx);
+        assertThat(r.gapsOfKind(GapKind.COVERAGE_GAP)).hasSize(1);
+        assertThat(r.gaps().get(0).message()).contains("marked done in Jira");
+        assertThat(r.contradictionCheckFeatureIds()).isEmpty();
+    }
+
+    @Test
+    void partialFeatureIsContradictionCheckedLikeImplemented() {
+        EvidenceUnit jira = u("JIRA-1", SourceKind.JIRA, UnitType.REQUIREMENT, "policy");
+        EvidenceUnit code = u("CODE-1", SourceKind.CODE, UnitType.ENDPOINT, "policies");
+        FeatureIndex idx = index(List.of(jira, code),
+                List.of(new Feature("f1", "policy", List.of("JIRA-1", "CODE-1"), FeatureStatus.PARTIAL)));
+        assertThat(detector.detect(idx).contradictionCheckFeatureIds()).containsExactly("f1");
+    }
+
+    @Test
     void unitLessFeatureProducesNoUncitablePresenceGap() {
         FeatureIndex idx = index(List.of(),
                 List.of(new Feature("ghost", "ghost", List.of("MISSING-1"), FeatureStatus.PLANNED)));

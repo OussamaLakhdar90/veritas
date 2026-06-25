@@ -29,8 +29,9 @@ import org.springframework.stereotype.Component;
  * can't (login/authentication, intent↔endpoint across sources) and canonicalises display names — it never splits,
  * so the seed must not over-merge. Until the tagger lands this is a usable, fully-deterministic conservative index.
  *
- * <p>The {@code DESCOPED} Jira-lifecycle exclusion (§3.1) is deferred with the Jira field widening (lifecycle is
- * not populated yet), like the PARTIAL/COVERAGE_GAP status states.
+ * <p>{@code DESCOPED} units (a won't-do/rejected Jira resolution, §1.2) are excluded from the index here so they
+ * don't inflate the plan; the lifecycle drives the {@code PARTIAL}/{@code COVERAGE_GAP} statuses in
+ * {@link FeatureStatusEngine}.
  */
 @Component
 public class FeatureSeeder {
@@ -41,6 +42,9 @@ public class FeatureSeeder {
     public FeatureIndex seed(List<EvidenceUnit> units, SourceMix mix) {
         Map<String, EvidenceUnit> byId = new LinkedHashMap<>();
         for (EvidenceUnit u : units) {
+            if ("DESCOPED".equals(u.lifecycle())) {
+                continue;   // §1.2 — won't-do/rejected intent is out of scope; excluded from the index entirely
+            }
             byId.putIfAbsent(u.id(), u);
         }
 

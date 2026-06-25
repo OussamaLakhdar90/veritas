@@ -171,7 +171,9 @@ public class JiraCloudClient implements JiraClient {
         JsonNode fields = issue.path("fields");
         JsonNode description = fields.get("description");
         return new JiraIssue(issue.path("key").asText(""), fields.path("summary").asText(""),
-                description != null && !description.isNull() ? description : null);
+                description != null && !description.isNull() ? description : null,
+                JiraFieldParser.lifecycle(fields), JiraFieldParser.priority(fields),
+                JiraFieldParser.labels(fields), JiraFieldParser.components(fields), JiraFieldParser.links(fields));
     }
 
     String authHeader() {

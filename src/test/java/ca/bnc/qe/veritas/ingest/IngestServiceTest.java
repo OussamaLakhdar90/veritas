@@ -32,7 +32,7 @@ class IngestServiceTest {
         JiraClient jira = new JiraClient() {
             public List<JiraIssue> search(String jql, List<String> fields, int max) {
                 try {
-                    return List.of(new JiraIssue("CIAM-100", "Create policy", mapper.readTree(adfJson)));
+                    return List.of(JiraIssue.basic("CIAM-100", "Create policy", mapper.readTree(adfJson)));
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 }

@@ -70,8 +70,8 @@ class ReleaseTestPlanServiceTest {
     @Test
     void reconcilesCoverageWithMatchedAndGap() {
         when(jira.search(any(), any(), anyInt())).thenReturn(List.of(
-                new JiraIssue("CIAM-1", "Create policy", null),
-                new JiraIssue("CIAM-2", "Get policy", null)));
+                JiraIssue.basic("CIAM-1", "Create policy", null),
+                JiraIssue.basic("CIAM-2", "Get policy", null)));
         when(xray.getTestsByJql(any())).thenReturn(List.of(
                 new XrayTest("CIAM-T1", "2001", "Validate create policy", "Manual", List.of()),
                 new XrayTest("CIAM-T9", "2009", "Legacy smoke test", "Manual", List.of())));
@@ -98,8 +98,8 @@ class ReleaseTestPlanServiceTest {
     @Test
     void createsAndAttachesTestsToReleaseTestPlan() {
         when(jira.search(any(), any(), anyInt())).thenReturn(List.of(
-                new JiraIssue("CIAM-1", "Create policy", null),
-                new JiraIssue("CIAM-2", "Get policy", null)));
+                JiraIssue.basic("CIAM-1", "Create policy", null),
+                JiraIssue.basic("CIAM-2", "Get policy", null)));
         when(xray.getTestsByJql(any())).thenReturn(List.of(
                 new XrayTest("CIAM-T1", "2001", "Validate create policy", "Manual", List.of())));
         when(xray.createTest(any())).thenReturn("CIAM-NEW");
@@ -116,8 +116,8 @@ class ReleaseTestPlanServiceTest {
     @Test
     void reRunCreatesNothingNew() {
         when(jira.search(any(), any(), anyInt())).thenReturn(List.of(
-                new JiraIssue("CIAM-1", "Create policy", null),
-                new JiraIssue("CIAM-2", "Get policy", null)));
+                JiraIssue.basic("CIAM-1", "Create policy", null),
+                JiraIssue.basic("CIAM-2", "Get policy", null)));
         when(jira.createIssue(any())).thenReturn("CIAM-TP1");
         when(xray.createTest(any())).thenReturn("CIAM-NEW1", "CIAM-NEW2");
 
@@ -140,8 +140,8 @@ class ReleaseTestPlanServiceTest {
     @Test
     void partialCreateFailureIsRecordedNotFatal() {
         when(jira.search(any(), any(), anyInt())).thenReturn(List.of(
-                new JiraIssue("CIAM-1", "Create policy", null),
-                new JiraIssue("CIAM-2", "Get policy", null)));
+                JiraIssue.basic("CIAM-1", "Create policy", null),
+                JiraIssue.basic("CIAM-2", "Get policy", null)));
         when(xray.getTestsByJql(any())).thenReturn(List.of());   // both required cases are gaps
         when(jira.createIssue(any())).thenReturn("CIAM-TP1");
         // One create fails, the other succeeds — the batch must survive (plan §3.9 / blind spots #4, #20).
@@ -174,8 +174,8 @@ class ReleaseTestPlanServiceTest {
     @Test
     void recordsNonTestableAndMultiDimensionCoverage() {
         when(jira.search(any(), any(), anyInt())).thenReturn(List.of(
-                new JiraIssue("CIAM-1", "Create policy", null),
-                new JiraIssue("CIAM-9", "[SPIKE] research auth options", null)));
+                JiraIssue.basic("CIAM-1", "Create policy", null),
+                JiraIssue.basic("CIAM-9", "[SPIKE] research auth options", null)));
         when(xray.getTestsByJql(any())).thenReturn(List.of());
 
         CoverageSummary summary = service.generate("svc", "8.2", null, "project = CIAM", "CIAM", false, "tester");
