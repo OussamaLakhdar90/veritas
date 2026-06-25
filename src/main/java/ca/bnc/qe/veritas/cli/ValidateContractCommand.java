@@ -57,32 +57,35 @@ public class ValidateContractCommand implements Callable<Integer> {
     @Override
     public Integer call() throws Exception {
         Path repoPath = workspace.resolve(appId, repoSlug, branch, repo == null ? null : repo.toString());
+        try {
+            List<SpecInput> specInputs = new ArrayList<>();
+            for (Path p : specs) {
+                Path resolved = p.isAbsolute() ? p : repoPath.resolve(p.toString());
+                specInputs.add(new SpecInput(stem(resolved), Files.readString(resolved)));
+            }
+            String serviceName = name != null ? name
+                    : (repoSlug != null ? repoSlug : repoPath.toAbsolutePath().getFileName().toString());
 
-        List<SpecInput> specInputs = new ArrayList<>();
-        for (Path p : specs) {
-            Path resolved = p.isAbsolute() ? p : repoPath.resolve(p.toString());
-            specInputs.add(new SpecInput(stem(resolved), Files.readString(resolved)));
-        }
-        String serviceName = name != null ? name
-                : (repoSlug != null ? repoSlug : repoPath.toAbsolutePath().getFileName().toString());
+            ValidationRequest request = new ValidationRequest(serviceName, appId, repoSlug, branch,
+                    repoPath, specInputs, !noLlm, "local");
+            ValidationResult result = service.validate(request);
 
-        ValidationRequest request = new ValidationRequest(serviceName, appId, repoSlug, branch,
-                repoPath, specInputs, !noLlm, "local");
-        ValidationResult result = service.validate(request);
-
-        System.out.println("Scan " + result.scanId() + " -> " + result.status());
-        System.out.println("Findings: " + result.totalFindings() + " " + result.bySeverity());
-        System.out.printf("Est. LLM cost: $%.4f%n", result.estCostUsd());
-        if (result.reportPath() != null) {
-            System.out.println("Report: " + result.reportPath());
+            System.out.println("Scan " + result.scanId() + " -> " + result.status());
+            System.out.println("Findings: " + result.totalFindings() + " " + result.bySeverity());
+            System.out.printf("Est. LLM cost: $%.4f%n", result.estCostUsd());
+            if (result.reportPath() != null) {
+                System.out.println("Report: " + result.reportPath());
+            }
+            if (result.reportPdfPath() != null) {
+                System.out.println("Report (PDF): " + result.reportPdfPath());
+            }
+            if (result.correctedYamlPath() != null) {
+                System.out.println("Corrected YAML: " + result.correctedYamlPath());
+            }
+            return "COMPLETED".equals(result.status()) ? 0 : 1;
+        } finally {
+            workspace.cleanup(repoPath);   // drop the cloned temp dir (no-op for a local --repo)
         }
-        if (result.reportPdfPath() != null) {
-            System.out.println("Report (PDF): " + result.reportPdfPath());
-        }
-        if (result.correctedYamlPath() != null) {
-            System.out.println("Corrected YAML: " + result.correctedYamlPath());
-        }
-        return "COMPLETED".equals(result.status()) ? 0 : 1;
     }
 
     private String stem(Path p) {

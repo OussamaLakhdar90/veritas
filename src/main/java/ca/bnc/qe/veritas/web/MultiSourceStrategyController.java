@@ -177,7 +177,11 @@ public class MultiSourceStrategyController {
             // Code arm: clone (or use a local path) then extract the API model — the contract-validation flow.
             Path repo = workspace.resolve(request.code().appId(), request.code().repoSlug(),
                     request.code().branch(), request.code().repoPath());
-            code = extractor.extract(repo);
+            try {
+                code = extractor.extract(repo);
+            } finally {
+                workspace.cleanup(repo);   // the API model is in memory now; drop the cloned temp dir
+            }
         }
         String jql = request.jira() != null ? request.jira().jql() : null;
         int maxResults = request.jira() != null && request.jira().maxResults() != null

@@ -88,9 +88,10 @@ public class AsyncScanRunner {
 
     private void run(Scan scan, String appId, String repoSlug, String branch, String repoPath,
                      List<SpecRef> specRefs, boolean llmEnabled, String owner) {
+        Path repo = null;
         try {
             stage(scan, ScanStages.CLONING);
-            Path repo = workspace.resolve(appId, repoSlug, branch, repoPath);
+            repo = workspace.resolve(appId, repoSlug, branch, repoPath);
 
             stage(scan, ScanStages.RESOLVING_SPEC);
             List<SpecInput> specs = new ArrayList<>();
@@ -115,6 +116,8 @@ public class AsyncScanRunner {
             scan.setErrorMessage(e.getMessage());
             scan.setFinishedAt(Instant.now());
             persist(scan);
+        } finally {
+            workspace.cleanup(repo);   // delete the cloned temp dir (no-op for a local repoPath or a failed clone)
         }
     }
 
