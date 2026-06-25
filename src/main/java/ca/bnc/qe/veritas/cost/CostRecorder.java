@@ -1,5 +1,6 @@
 package ca.bnc.qe.veritas.cost;
 
+import ca.bnc.qe.veritas.llm.LlmCallContext;
 import ca.bnc.qe.veritas.persistence.CostEntry;
 import ca.bnc.qe.veritas.persistence.CostEntryRepository;
 import org.springframework.stereotype.Service;
@@ -15,10 +16,9 @@ public class CostRecorder {
 
     private final CostEstimator estimator;
     private final CostEntryRepository repository;
-    private final ca.bnc.qe.veritas.llm.LlmCallContext callContext;
+    private final LlmCallContext callContext;
 
-    public CostRecorder(CostEstimator estimator, CostEntryRepository repository,
-                        ca.bnc.qe.veritas.llm.LlmCallContext callContext) {
+    public CostRecorder(CostEstimator estimator, CostEntryRepository repository, LlmCallContext callContext) {
         this.estimator = estimator;
         this.repository = repository;
         this.callContext = callContext;
@@ -33,7 +33,15 @@ public class CostRecorder {
         // A cache HIT spent no tokens — bill it as zero instead of a full-cost row that overstates spend.
         // (Action name is left unchanged so the ledger's action semantics hold; a zeroed cost is the hit signal.)
         boolean cached = callContext.consumeCached();
-        CostResult cost = cached ? CostResult.zero(model) : estimator.estimate(model, prompt, response);
+        LlmCallContext.Usage usage = callContext.consumeUsage();   // the provider's real token counts, if reported
+        CostResult cost;
+        if (cached) {
+            cost = CostResult.zero(model);
+        } else if (usage != null) {
+            cost = estimator.fromActualUsage(model, usage.promptTokens(), usage.completionTokens());   // accurate
+        } else {
+            cost = estimator.estimate(model, prompt, response);   // fall back to the ~4-chars/token estimate
+        }
         CostEntry entry = new CostEntry();
         entry.setSkill(skill);
         entry.setAction(action);
@@ -43,6 +51,7 @@ public class CostRecorder {
         entry.setEstTokensIn(cost.estTokensIn());
         entry.setEstTokensOut(cost.estTokensOut());
         entry.setEstCostUsd(cost.estCostUsd());
+        entry.setTokensActual(cost.tokensActual());
         entry.setOwner(owner);
         entry.setRefId(refId);
         repository.save(entry);

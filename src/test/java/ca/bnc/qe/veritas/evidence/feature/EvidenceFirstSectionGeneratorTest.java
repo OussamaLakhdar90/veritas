@@ -61,7 +61,7 @@ class EvidenceFirstSectionGeneratorTest {
         when(promptComposer.compose(anyString(), anyString(), any(), anyString(), anyString())).thenReturn("PROMPT");
         when(modelSelector.resolveTier(any())).thenReturn("mock-model");
         when(costRecorder.record(anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
-                .thenReturn(new CostResult("mock-model", BillingMode.PER_REQUEST, 0, 0, 0, 0.05));   // $0.05 / call
+                .thenReturn(new CostResult("mock-model", BillingMode.PER_REQUEST, 0, 0, 0, 0.05, false));   // $0.05 / call
     }
 
     private SectionResult run() {

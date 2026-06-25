@@ -22,6 +22,7 @@ import ca.bnc.qe.veritas.cost.ModelTier;
 import ca.bnc.qe.veritas.integration.CorpHttp;
 import ca.bnc.qe.veritas.integration.Retries;
 import ca.bnc.qe.veritas.llm.CopilotHttpGateway;
+import ca.bnc.qe.veritas.llm.LlmCallContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
@@ -121,9 +122,11 @@ class CopilotHttpWireMockTest {
         CopilotProperties p = props();
         writeStoredOAuth(p);
         CopilotAuthService auth = new CopilotAuthService(p, mapper, corp);
-        CopilotHttpGateway gw = new CopilotHttpGateway(auth, p, mapper, corp);
+        LlmCallContext ctx = new LlmCallContext();
+        CopilotHttpGateway gw = new CopilotHttpGateway(auth, p, mapper, corp, ctx);
         assertThat(gw.isAvailable()).isTrue();
         assertThat(gw.complete("hi", "claude-sonnet-4")).isEqualTo("hello from copilot");
+        assertThat(ctx.consumeUsage()).isNull();   // this stub reports no usage → fall back to the estimate
     }
 
     @Test
@@ -132,19 +135,25 @@ class CopilotHttpWireMockTest {
         wm.stubFor(get(urlPathEqualTo("/copilot_internal/v2/token")).willReturn(aResponse()
                 .withHeader("Content-Type", "application/json")
                 .withBody("{\"token\":\"sess-1\",\"expires_at\":" + future + "}")));
-        // Server-Sent-Events: token-by-token deltas terminated by [DONE], as Copilot streams.
+        // Server-Sent-Events: token-by-token deltas, then a final usage chunk (choices empty), terminated by [DONE].
         wm.stubFor(post(urlPathEqualTo("/chat/completions")).willReturn(aResponse()
                 .withHeader("Content-Type", "text/event-stream")
                 .withBody("data: {\"choices\":[{\"delta\":{\"content\":\"hello \"}}]}\n\n"
                         + "data: {\"choices\":[{\"delta\":{\"content\":\"from \"}}]}\n\n"
                         + "data: {\"choices\":[{\"delta\":{\"content\":\"copilot\"}}]}\n\n"
+                        + "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":11,\"completion_tokens\":7}}\n\n"
                         + "data: [DONE]\n\n")));
 
         CopilotProperties p = props();
         writeStoredOAuth(p);
         CopilotAuthService auth = new CopilotAuthService(p, mapper, corp);
-        CopilotHttpGateway gw = new CopilotHttpGateway(auth, p, mapper, corp);
+        LlmCallContext ctx = new LlmCallContext();
+        CopilotHttpGateway gw = new CopilotHttpGateway(auth, p, mapper, corp, ctx);
         assertThat(gw.complete("hi", "claude-sonnet-4")).isEqualTo("hello from copilot");
+        LlmCallContext.Usage usage = ctx.consumeUsage();   // the real token counts from the final chunk
+        assertThat(usage).isNotNull();
+        assertThat(usage.promptTokens()).isEqualTo(11);
+        assertThat(usage.completionTokens()).isEqualTo(7);
     }
 
     @Test
