@@ -230,10 +230,31 @@ class MultiSourceStrategyControllerTest {
                 .andExpect(jsonPath("$.status").value("GENERATING"));
 
         verify(snapshotService).claimForGeneration("snap-1");
-        verify(asyncStrategyGenerator).submit(snap);   // synthesis handed to the worker, off the request thread
+        verify(asyncStrategyGenerator).submit(snap, null, null);   // off-thread; no prior context (not a re-run)
         verify(strategyService, never()).generateFromIndex(any(), any(), any());   // not on the request thread
         verify(snapshotService, never()).linkGenerated(any(), any());
         verify(featureIndexBuilder, never()).build(any(), any());   // no second pipeline run
+    }
+
+    @Test
+    void generatingFromACarriedForwardSnapshotResolvesAndPassesThePriorStrategyForReuse() throws Exception {
+        FeatureIndexSnapshot child = stubSnapshot("snap-2", "ciam-policies", "alice");
+        child.setCarriedForwardFrom("snap-1");
+        FeatureIndexSnapshot parent = stubSnapshot("snap-1", "ciam-policies", "alice");
+        parent.setGeneratedStrategyId("strat-1");
+        when(snapshotService.find("snap-2")).thenReturn(Optional.of(child));
+        when(snapshotService.find("snap-1")).thenReturn(Optional.of(parent));
+        when(snapshotService.claimForGeneration("snap-2")).thenReturn(child);
+        TestStrategy priorStrat = new TestStrategy();
+        priorStrat.setId("strat-1");
+        when(strategyService.findStrategy("strat-1")).thenReturn(Optional.of(priorStrat));
+        FeatureIndexResult priorIndex = oneFeatureResult();
+        when(snapshotService.resultOf(parent)).thenReturn(priorIndex);
+
+        mvc.perform(post("/api/v1/multi-source-strategy/snapshots/snap-2/strategy"))
+                .andExpect(status().isAccepted());
+
+        verify(asyncStrategyGenerator).submit(child, priorIndex, priorStrat);   // incremental reuse context resolved
     }
 
     @Test

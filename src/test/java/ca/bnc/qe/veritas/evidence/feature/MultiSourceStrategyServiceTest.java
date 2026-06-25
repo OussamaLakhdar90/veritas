@@ -24,6 +24,7 @@ import ca.bnc.qe.veritas.persistence.TestStrategyRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 /** The wire-up: build → assemble → persist a TestStrategy; the §1.3 hard-fail gate stops before any synthesis spend. */
 class MultiSourceStrategyServiceTest {
@@ -49,7 +50,7 @@ class MultiSourceStrategyServiceTest {
         ObjectNode deliverable = om.createObjectNode();
         deliverable.put("summary", "Multi-source strategy");
         deliverable.set("gaps", om.createArrayNode());
-        when(assembler.assemble(anyString(), any(), anyString()))
+        when(assembler.assemble(anyString(), any(), anyString(), any()))
                 .thenReturn(new AssembledStrategy(deliverable, List.of(), 2, 0.21));
         when(repository.save(any())).thenAnswer(i -> i.getArgument(0));
 
@@ -65,7 +66,7 @@ class MultiSourceStrategyServiceTest {
         // The deterministic scorecard is computed + persisted: an empty index passes every check → OK / 100.
         assertThat(s.getScorecardJson()).contains(StrategyScorecard.OK);
         assertThat(s.getConfidence()).isEqualTo(100.0);
-        verify(assembler).assemble(eq("ciam-policies"), any(), eq("alice"));
+        verify(assembler).assemble(eq("ciam-policies"), any(), eq("alice"), any());
     }
 
     @Test
@@ -74,7 +75,47 @@ class MultiSourceStrategyServiceTest {
         assertThatThrownBy(() -> service.generate("svc", SourceSelection.ofJira("project = NONE", 50), "alice"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("no usable evidence");
-        verify(assembler, never()).assemble(anyString(), any(), anyString());   // no paid synthesis
+        verify(assembler, never()).assemble(anyString(), any(), anyString(), any());   // no paid synthesis
         verify(repository, never()).save(any());
+    }
+
+    private void stubAssembleAndSave() {
+        ObjectNode deliverable = om.createObjectNode();
+        deliverable.put("summary", "s");
+        deliverable.set("gaps", om.createArrayNode());
+        when(assembler.assemble(anyString(), any(), anyString(), any()))
+                .thenReturn(new AssembledStrategy(deliverable, List.of(), 1, 0.0));
+        when(repository.save(any())).thenAnswer(i -> i.getArgument(0));
+    }
+
+    @Test
+    void theReuseOverloadPassesAPriorContextToTheAssembler() {
+        stubAssembleAndSave();
+        TestStrategy prior = new TestStrategy();
+        prior.setDeliverableJson("{\"riskRegister\":[]}");
+        FeatureIndexResult index = indexResult(false);
+
+        service.generateFromIndex("svc", index, "alice", index, prior);
+
+        ArgumentCaptor<MultiSourceStrategyAssembler.ReuseContext> cap =
+                ArgumentCaptor.forClass(MultiSourceStrategyAssembler.ReuseContext.class);
+        verify(assembler).assemble(eq("svc"), any(), eq("alice"), cap.capture());
+        assertThat(cap.getValue()).isNotNull();
+        assertThat(cap.getValue().priorDeliverable().has("riskRegister")).isTrue();
+    }
+
+    @Test
+    void anUnparseablePriorDeliverableFallsBackToFullSynthesis() {
+        stubAssembleAndSave();
+        TestStrategy prior = new TestStrategy();
+        prior.setDeliverableJson("{not valid json");
+        FeatureIndexResult index = indexResult(false);
+
+        service.generateFromIndex("svc", index, "alice", index, prior);   // must not throw
+
+        ArgumentCaptor<MultiSourceStrategyAssembler.ReuseContext> cap =
+                ArgumentCaptor.forClass(MultiSourceStrategyAssembler.ReuseContext.class);
+        verify(assembler).assemble(eq("svc"), any(), eq("alice"), cap.capture());
+        assertThat(cap.getValue()).isNull();   // corrupt prior → reuse declined, full synthesis
     }
 }

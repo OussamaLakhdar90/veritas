@@ -50,6 +50,26 @@ public class MultiSourceStrategyService {
      * a half-empty corpus is refused before any (paid) synthesis, exactly as the one-shot path is.
      */
     public TestStrategy generateFromIndex(String serviceName, FeatureIndexResult index, String owner) {
+        return synthesize(serviceName, index, owner, null);
+    }
+
+    /**
+     * Incremental re-synthesis (design §3.2): generate from a carried-forward index but REUSE the prior strategy's
+     * per-feature sections for features whose grounding is unchanged — paying the LLM only for what actually changed.
+     * Reuse is a pure optimization: an unparseable/absent prior deliverable degrades to a full synthesis.
+     */
+    public TestStrategy generateFromIndex(String serviceName, FeatureIndexResult index, String owner,
+                                          FeatureIndexResult priorIndex, TestStrategy priorStrategy) {
+        return synthesize(serviceName, index, owner, reuseContext(priorIndex, priorStrategy));
+    }
+
+    /** Load a previously generated strategy (e.g. the parent of a carry-forward), for incremental reuse. */
+    public java.util.Optional<TestStrategy> findStrategy(String id) {
+        return id == null ? java.util.Optional.empty() : repository.findById(id);
+    }
+
+    private TestStrategy synthesize(String serviceName, FeatureIndexResult index, String owner,
+                                    MultiSourceStrategyAssembler.ReuseContext reuse) {
         if (index.hasHardFail()) {
             // A selected source returning nothing is a caller-input problem → IllegalArgumentException (maps to 400),
             // mirroring how the rest of the codebase signals preconditions. Stops before any (paid) synthesis (§1.3).
@@ -57,7 +77,7 @@ public class MultiSourceStrategyService {
                     + index.fetchFailures() + " — fix or deselect it before generating a strategy.");
         }
 
-        AssembledStrategy assembled = assembler.assemble(serviceName, index, owner);
+        AssembledStrategy assembled = assembler.assemble(serviceName, index, owner, reuse);
         StrategyScorecard scorecard = scorecardEngine.score(assembled.deliverable(), index, assembled.droppedSections());
 
         TestStrategy strategy = new TestStrategy();   // id is assigned at construction (UUID)
@@ -73,10 +93,27 @@ public class MultiSourceStrategyService {
         strategy.setVersion(1);
         strategy.setLineageId(strategy.getId());      // v1 seeds its own lineage
         TestStrategy saved = repository.save(strategy);
-        log.info("Persisted multi-source strategy {} for {}: {} feature(s), {} dropped, scorecard {} ({}%), ${}",
-                saved.getId(), serviceName, assembled.featuresCovered(), assembled.droppedSections().size(),
-                scorecard.verdict(), scorecard.confidence(), String.format("%.4f", assembled.estCostUsd()));
+        log.info("Persisted multi-source strategy {} for {}: {} feature(s), {} reused, {} dropped, scorecard {} ({}%), ${}",
+                saved.getId(), serviceName, assembled.featuresCovered(), assembled.reusedSections(),
+                assembled.droppedSections().size(), scorecard.verdict(), scorecard.confidence(),
+                String.format("%.4f", assembled.estCostUsd()));
         return saved;
+    }
+
+    /** Build the assembler's reuse context from a prior index + strategy; null (full synthesis) if either is absent
+     *  or the prior deliverable can't be parsed — reuse must never block a generate. */
+    private MultiSourceStrategyAssembler.ReuseContext reuseContext(FeatureIndexResult priorIndex, TestStrategy priorStrategy) {
+        if (priorIndex == null || priorStrategy == null || priorStrategy.getDeliverableJson() == null) {
+            return null;
+        }
+        try {
+            return new MultiSourceStrategyAssembler.ReuseContext(priorIndex,
+                    objectMapper.readTree(priorStrategy.getDeliverableJson()));
+        } catch (JsonProcessingException e) {
+            log.warn("Prior strategy {} deliverable unparseable — falling back to full synthesis: {}",
+                    priorStrategy.getId(), e.getMessage());
+            return null;
+        }
     }
 
     /** Serialize the scorecard for persistence; a serialization failure is internal, never blocks the strategy. */
