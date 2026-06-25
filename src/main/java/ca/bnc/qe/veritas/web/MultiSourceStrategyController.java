@@ -2,19 +2,25 @@ package ca.bnc.qe.veritas.web;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 import ca.bnc.qe.veritas.engine.extract.java.JavaSpringExtractor;
 import ca.bnc.qe.veritas.engine.model.ApiModel;
 import ca.bnc.qe.veritas.evidence.SourceSelection;
 import ca.bnc.qe.veritas.evidence.feature.FeatureIndex;
 import ca.bnc.qe.veritas.evidence.feature.FeatureIndexBuilder;
 import ca.bnc.qe.veritas.evidence.feature.FeatureIndexResult;
+import ca.bnc.qe.veritas.evidence.feature.FeatureIndexSnapshotService;
 import ca.bnc.qe.veritas.evidence.feature.MultiSourceStrategyService;
+import ca.bnc.qe.veritas.persistence.FeatureIndexSnapshot;
 import ca.bnc.qe.veritas.persistence.TestStrategy;
 import ca.bnc.qe.veritas.settings.CurrentUser;
+import ca.bnc.qe.veritas.skill.ConflictException;
 import ca.bnc.qe.veritas.vcs.WorkspaceService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -26,6 +32,12 @@ import org.springframework.web.bind.annotation.RestController;
  * {@link SourceSelection} from the request — for the <b>code arm</b> it reuses the contract-validation clone flow
  * ({@link WorkspaceService#resolve} → {@link JavaSpringExtractor#extract}) — then runs the pipeline via
  * {@link MultiSourceStrategyService} and returns the persisted {@link TestStrategy}.
+ *
+ * <p>The §6 wizard flow is preview → (edit) → generate, backed by a persisted {@link FeatureIndexSnapshot}:
+ * <b>preview</b> extracts + clusters once and persists the editable feature index; the wizard then
+ * <b>rename</b>/<b>merge</b>/<b>pin</b> features on that snapshot; <b>generate-from-snapshot</b> synthesizes from
+ * the same (edited) index — so the expensive extract + repo clone is not re-run on generate. The one-shot
+ * {@code POST .../multi-source-strategy} (extract + generate together) is kept for the API/CLI.
  *
  * <p>Synchronous for now (fast in mock mode / for small corpora). A large real run clones a repo and makes
  * several DEEP LLM calls, so an async variant mirroring {@code POST /scans} (202 + poll) is the production
@@ -43,29 +55,89 @@ public class MultiSourceStrategyController {
     private final JavaSpringExtractor extractor;
     private final FeatureIndexBuilder featureIndexBuilder;
     private final MultiSourceStrategyService strategyService;
+    private final FeatureIndexSnapshotService snapshotService;
     private final CurrentUser currentUser;
 
     public MultiSourceStrategyController(WorkspaceService workspace, JavaSpringExtractor extractor,
                                         FeatureIndexBuilder featureIndexBuilder,
-                                        MultiSourceStrategyService strategyService, CurrentUser currentUser) {
+                                        MultiSourceStrategyService strategyService,
+                                        FeatureIndexSnapshotService snapshotService, CurrentUser currentUser) {
         this.workspace = workspace;
         this.extractor = extractor;
         this.featureIndexBuilder = featureIndexBuilder;
         this.strategyService = strategyService;
+        this.snapshotService = snapshotService;
         this.currentUser = currentUser;
     }
 
     /**
      * Build the feature index but stop BEFORE the expensive per-feature synthesis — the §6 "extract + preview"
-     * step. Returns the features (with their units, by source), the detected gaps, the realised source mix,
-     * the redaction count, any fetch failures, the hard-fail flag, and a rough estimate of what generating the
-     * full strategy will cost — so a reviewer can sanity-check the clustering and decide before any DEEP spend.
+     * step — and PERSIST it as an editable snapshot. Returns the features (with their units, by source), the
+     * detected gaps, the realised source mix, the redaction count, any fetch failures, the hard-fail flag, a rough
+     * cost estimate, and the {@code snapshotId} the wizard edits and then generates from.
      */
     @PostMapping("/services/{serviceName}/multi-source-strategy/preview")
     public StrategyPreview preview(@PathVariable String serviceName, @RequestBody MultiSourceStrategyRequest request) {
         SourceSelection selection = buildSelection(request);
         FeatureIndexResult result = featureIndexBuilder.build(selection, currentUser.principalId());
-        return toPreview(result);
+        FeatureIndexSnapshot snapshot = snapshotService.create(serviceName, result, currentUser.principalId());
+        return toPreview(snapshot);
+    }
+
+    /** Re-fetch a persisted preview snapshot (e.g. on wizard reload). */
+    @GetMapping("/multi-source-strategy/snapshots/{id}")
+    public ResponseEntity<StrategyPreview> snapshot(@PathVariable String id) {
+        return snapshotService.find(id)
+                .map(s -> ResponseEntity.ok(toPreview(s)))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** Rename one feature's display label. */
+    @PatchMapping("/multi-source-strategy/snapshots/{id}/rename")
+    public ResponseEntity<StrategyPreview> rename(@PathVariable String id, @RequestBody RenameRequest req) {
+        return snapshotService.find(id)
+                .map(s -> ResponseEntity.ok(toPreview(snapshotService.rename(s, req.featureId(), req.name()))))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** Merge two or more features into one. */
+    @PatchMapping("/multi-source-strategy/snapshots/{id}/merge")
+    public ResponseEntity<StrategyPreview> merge(@PathVariable String id, @RequestBody MergeRequest req) {
+        return snapshotService.find(id)
+                .map(s -> ResponseEntity.ok(toPreview(snapshotService.merge(s, req.featureIds(), req.name()))))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** Pin (reviewer-confirm/lock) or unpin a feature. */
+    @PatchMapping("/multi-source-strategy/snapshots/{id}/pin")
+    public ResponseEntity<StrategyPreview> pin(@PathVariable String id, @RequestBody PinRequest req) {
+        if (req.pinned() == null) {
+            throw new IllegalArgumentException("'pinned' (true or false) is required.");
+        }
+        return snapshotService.find(id)
+                .map(s -> ResponseEntity.ok(toPreview(snapshotService.pin(s, req.featureId(), req.pinned()))))
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * Generate the strategy from a (possibly edited) snapshot — reuses the index, no second pipeline run. Generation
+     * is one-shot per snapshot: a second POST is a conflict (409) rather than a duplicate, paid synthesis run that
+     * would also re-point the audit link. Start a fresh preview to generate again.
+     */
+    @PostMapping("/multi-source-strategy/snapshots/{id}/strategy")
+    public ResponseEntity<TestStrategy> generateFromSnapshot(@PathVariable String id) {
+        return snapshotService.find(id)
+                .map(s -> {
+                    if (s.getGeneratedStrategyId() != null) {
+                        throw new ConflictException("This preview already generated strategy "
+                                + s.getGeneratedStrategyId() + " — start a new preview to generate again.");
+                    }
+                    TestStrategy strategy = strategyService.generateFromIndex(
+                            s.getServiceName(), snapshotService.resultOf(s), s.getOwner());
+                    snapshotService.linkGenerated(s, strategy.getId());
+                    return ResponseEntity.status(HttpStatus.CREATED).body(strategy);
+                })
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @PostMapping("/services/{serviceName}/multi-source-strategy")
@@ -75,6 +147,12 @@ public class MultiSourceStrategyController {
         TestStrategy strategy = strategyService.generate(serviceName, selection, currentUser.principalId());
         return ResponseEntity.status(HttpStatus.CREATED).body(strategy);
     }
+
+    public record RenameRequest(String featureId, String name) {}
+
+    public record MergeRequest(List<String> featureIds, String name) {}
+
+    public record PinRequest(String featureId, Boolean pinned) {}
 
     /** Assemble the {@link SourceSelection} from the request, cloning + extracting the code arm when present. */
     private SourceSelection buildSelection(MultiSourceStrategyRequest request) {
@@ -99,19 +177,22 @@ public class MultiSourceStrategyController {
         return selection;
     }
 
-    private StrategyPreview toPreview(FeatureIndexResult result) {
+    private StrategyPreview toPreview(FeatureIndexSnapshot snapshot) {
+        FeatureIndexResult result = snapshotService.resultOf(snapshot);
+        Set<String> pinned = snapshotService.pinnedOf(snapshot);
         FeatureIndex index = result.index();
         List<StrategyPreview.FeatureView> features = index.features().values().stream()
                 .map(f -> new StrategyPreview.FeatureView(f.featureId(), f.displayName(), f.status().name(),
                         index.unitsOf(f.featureId()).stream()
                                 .map(u -> new StrategyPreview.UnitView(u.id(), u.source().name(), u.type().name(), u.title()))
-                                .toList()))
+                                .toList(),
+                        pinned.contains(f.featureId())))
                 .toList();
         List<StrategyPreview.GapView> gaps = result.gaps().gaps().stream()
                 .map(g -> new StrategyPreview.GapView(g.kind().name(), g.featureId(), g.message()))
                 .toList();
         double estimatedCost = index.features().size() * APPROX_COST_PER_FEATURE_USD;
-        return new StrategyPreview(features, gaps, index.mix(), result.redactionCount(), result.fetchFailures(),
-                result.hasHardFail(), estimatedCost);
+        return new StrategyPreview(snapshot.getId(), features, gaps, index.mix(), result.redactionCount(),
+                result.fetchFailures(), result.hasHardFail(), estimatedCost);
     }
 }

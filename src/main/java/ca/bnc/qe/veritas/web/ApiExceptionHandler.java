@@ -50,6 +50,16 @@ public class ApiExceptionHandler {
         return pd;
     }
 
+    @ExceptionHandler(org.springframework.dao.OptimisticLockingFailureException.class)
+    public ProblemDetail onOptimisticLock(org.springframework.dao.OptimisticLockingFailureException e) {
+        // A @Version-guarded row (e.g. a feature-index snapshot) was changed by a concurrent request between read
+        // and write — surface it as a conflict so the caller reloads and retries, rather than a silent lost update.
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT,
+                "This item was changed by another request — reload and try again.");
+        pd.setTitle("Conflict");
+        return pd;
+    }
+
     @ExceptionHandler(Exception.class)
     public ProblemDetail onUnexpected(Exception e) {
         log.error("Unhandled API error", e);

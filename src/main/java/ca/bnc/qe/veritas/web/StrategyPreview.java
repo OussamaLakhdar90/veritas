@@ -5,9 +5,11 @@ import ca.bnc.qe.veritas.evidence.SourceMix;
 
 /**
  * The §6 wizard preview: what the multi-source pipeline extracted and clustered, BEFORE the expensive synthesis,
- * so a reviewer can sanity-check the feature clustering and the cost and decide whether to generate.
+ * so a reviewer can sanity-check the feature clustering and the cost, edit it, and decide whether to generate.
  *
- * @param features        the clustered features, each with its units (by source) and implementation status
+ * @param snapshotId      the persisted, editable feature index this preview reflects — the id the wizard edits and
+ *                        then generates from (so generate reuses the index instead of re-running the pipeline)
+ * @param features        the clustered features, each with its units (by source), implementation status, and pin
  * @param gaps            the deterministic coverage gaps detected
  * @param mix             which sources actually contributed
  * @param redactionCount  PII/secret spans redacted across all sources (for QE attestation)
@@ -16,6 +18,7 @@ import ca.bnc.qe.veritas.evidence.SourceMix;
  * @param estimatedCostUsd a rough estimate of what generating the full strategy will cost (clearly an estimate)
  */
 public record StrategyPreview(
+        String snapshotId,
         List<FeatureView> features,
         List<GapView> gaps,
         SourceMix mix,
@@ -24,7 +27,8 @@ public record StrategyPreview(
         boolean hardFail,
         double estimatedCostUsd) {
 
-    public record FeatureView(String featureId, String displayName, String status, List<UnitView> units) {}
+    public record FeatureView(String featureId, String displayName, String status, List<UnitView> units,
+                              boolean pinned) {}
 
     public record UnitView(String id, String source, String type, String title) {}
 
