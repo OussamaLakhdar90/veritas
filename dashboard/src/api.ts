@@ -297,7 +297,8 @@ export const api = {
   createDefect: (findingId: string, projectKey: string) =>
     post<DefectResult>(`/findings/${findingId}/defect`, { projectKey, issueType: 'Bug' }),
   triggerScan: (body: { serviceName?: string; appId?: string; repoSlug?: string; branch?: string; repoPath?: string;
-    specPaths?: string[]; specSources?: { kind: string; ref: string }[]; llmEnabled?: boolean }) =>
+    specPaths?: string[]; specSources?: { kind: string; ref: string }[]; llmEnabled?: boolean;
+    thoroughness?: string }) =>
     post<ScanAccepted>('/scans', body),
   reportUrl: (scanId: string) => `${BASE}/scans/${scanId}/report`,
   testPlans: () => get<TestPlan[]>('/test-plans'),

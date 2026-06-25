@@ -180,6 +180,7 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
   const [branch, setBranch] = useState(repo.defaultBranch || '');
   const [specKind, setSpecKind] = useState<'REPO_PATH' | 'LIVE_DOCS' | 'CONFLUENCE'>('REPO_PATH');
   const [specRef, setSpecRef] = useState('openapi.yaml');
+  const [thoroughness, setThoroughness] = useState<'ECONOMY' | 'STANDARD' | 'DEEP'>('STANDARD');
   const [starting, setStarting] = useState(false);
   const [scanId, setScanId] = useState<string | null>(null);
   const [startedAtMs, setStartedAtMs] = useState<number | null>(null);
@@ -234,7 +235,7 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
     if (!specRef.trim()) { toast.push('error', `Enter the ${SPEC.field.toLowerCase()}.`); return; }
     setStarting(true);
     try {
-      const common = { serviceName: repo.slug, appId, repoSlug: repo.slug, branch: branch.trim() || undefined };
+      const common = { serviceName: repo.slug, appId, repoSlug: repo.slug, branch: branch.trim() || undefined, thoroughness };
       const res = await api.triggerScan(specKind === 'REPO_PATH'
         ? { ...common, specPaths: [specRef.trim()] }
         : { ...common, specSources: [{ kind: specKind, ref: specRef.trim() }] });
@@ -321,6 +322,13 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
                   onChange={(e) => setSpecRef(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && !starting && start()} />
               </div>
+            </Field>
+            <Field label="Thoroughness" hint="How deeply the AI reviews the findings — trades cost for rigour.">
+              <Select value={thoroughness} onChange={(e) => setThoroughness(e.target.value as 'ECONOMY' | 'STANDARD' | 'DEEP')}>
+                <option value="ECONOMY">Quick — cheapest model</option>
+                <option value="STANDARD">Standard — balanced (default)</option>
+                <option value="DEEP">Deep — strongest model, for a release gate</option>
+              </Select>
             </Field>
           </div>
         </>
