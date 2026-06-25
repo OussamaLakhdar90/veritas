@@ -21,10 +21,10 @@ import org.springframework.stereotype.Component;
  * {@code GLOBAL_CAVEAT} unit per static-analysis blind spot (the cross-cutting signal the strategy basis
  * previously dropped). Pure: takes an already-built model, so it's trivially testable with a fixture (design §2).
  *
- * <p>The {@code CODE:<Class>#<HTTP> <path>} id derives the class from the endpoint's source file name; the
- * method+path is the routing key, so the id is unique by construction (a same-method-same-path collision would be
- * an actual Spring mapping conflict). A first-class {@code Endpoint.controllerClass} is a possible follow-up if
- * multi-controller files ever appear.
+ * <p>The {@code CODE:<Class>#<HTTP> <path>} id uses the endpoint's declaring {@code Endpoint.controllerClass}
+ * (the real controller, threaded through by {@code JavaSpringExtractor}), falling back to the source file name for
+ * spec/legacy endpoints that don't carry one. The method+path is the routing key, so the id is unique by
+ * construction (a same-method-same-path collision would be an actual Spring mapping conflict).
  */
 @Component
 public class CodeEvidenceAdapter {
@@ -38,7 +38,8 @@ public class CodeEvidenceAdapter {
         int[] redactions = {0};
 
         for (Endpoint e : model.endpoints()) {
-            String cls = classFromSource(e.source());
+            String cls = e.controllerClass() != null && !e.controllerClass().isBlank()
+                    ? e.controllerClass() : classFromSource(e.source());
             String id = EvidenceId.endpoint(cls, e.method().name(), e.pathTemplate());
             // Path-nouns + the controller class as high-precision clustering signals: endpoints of the same
             // resource/controller co-cluster, without the noisy free-text bridges that come from prose sources.

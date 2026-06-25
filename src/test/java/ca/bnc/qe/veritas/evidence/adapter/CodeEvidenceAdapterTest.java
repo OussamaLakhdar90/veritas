@@ -88,6 +88,18 @@ class CodeEvidenceAdapterTest {
     }
 
     @Test
+    void theEndpointIdPrefersTheDeclaringControllerClassOverTheFileName() {
+        SourceRef src = SourceRef.code("src/main/java/ca/bnc/routes.java", 10, 12, null);   // file name != class name
+        Endpoint ep = new Endpoint(HttpMethod.GET, "/policies", "list", List.of(), null,
+                List.of(), List.of(), List.of("application/json"), List.of(), src, "PolicyController");   // real class
+        ApiModel model = new ApiModel("code", "svc", "1", null, List.of(ep), Map.of());
+
+        EvidenceUnit endpoint = byType(adapter.extract(model), UnitType.ENDPOINT);
+        assertThat(endpoint.id()).isEqualTo("CODE:PolicyController#GET /policies");   // the class, not "routes"
+        assertThat(endpoint.hints()).contains("policycontroller");                    // controller-class hint too
+    }
+
+    @Test
     void classNameIsDerivedFromTheSourceFileBasename() {
         assertThat(CodeEvidenceAdapter.classFromSource(
                 SourceRef.code("a/b/AuthController.java", 1, 1, null))).isEqualTo("AuthController");
