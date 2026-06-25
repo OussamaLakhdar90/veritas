@@ -61,15 +61,15 @@ public class EvidenceFirstSectionGenerator {
     }
 
     /**
-     * @return the validated section node ({@code {feature, evidence[], content}}), or empty when it can't be
-     *         grounded (the LLM is unavailable, the feature has no citable evidence, or the reply stays invalid
-     *         after the one retry).
+     * @return the validated section node ({@code {feature, evidence[], content}}) plus the cost spent, or an empty
+     *         node when it can't be grounded (the LLM is unavailable, the feature has no citable evidence, or the
+     *         reply stays invalid after the one retry). A dropped section still reports the cost it burned.
      */
-    public Optional<JsonNode> generate(String sectionKey, String instruction, Set<String> pack, ModelTier tier,
-                                       FeatureIndex index, String featureId, String owner) {
+    public SectionResult generate(String sectionKey, String instruction, Set<String> pack, ModelTier tier,
+                                  FeatureIndex index, String featureId, String owner) {
         Set<String> allowed = retriever.allowedIds(index, featureId);
         if (allowed.isEmpty() || !llm.isAvailable()) {
-            return Optional.empty();   // nothing to cite, or no LLM — no spend, the caller carries on
+            return SectionResult.empty();   // nothing to cite, or no LLM — no spend, the caller carries on
         }
 
         String basis = retriever.forFeature(index, featureId);
@@ -81,6 +81,7 @@ public class EvidenceFirstSectionGenerator {
                 + " No prose after.";
 
         String feedback = "";
+        double cost = 0;
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
             String inputs = promptComposer.data("TEST_BASIS", basis) + promptComposer.data("FACTS", facts)
                     + (feedback.isEmpty() ? "" : promptComposer.data("FIX_THESE", feedback));
@@ -88,13 +89,14 @@ public class EvidenceFirstSectionGenerator {
                     "strategy-section.prompt.md", pack, inputs, contract);
             String model = modelSelector.resolveTier(tier);
             String raw = llm.complete(prompt, model);
-            costRecorder.record("test-strategy", "section:" + sectionKey + ":" + featureId, model, prompt, raw, owner);
+            cost += costRecorder.record("test-strategy", "section:" + sectionKey + ":" + featureId, model, prompt, raw, owner)
+                    .estCostUsd();
             try {
                 JsonNode node = objectMapper.readTree(jsonExtractor.extract(raw));
                 schemaValidator.validate(node, "test-strategy-section.schema.json");
                 CitationValidator.Result cv = citationValidator.validate(node.path("evidence"), index.unitsById(), allowed);
                 if (cv.valid()) {
-                    return Optional.of(node);
+                    return new SectionResult(Optional.of(node), cost);
                 }
                 feedback = "Your previous reply cited invalid evidence: " + String.join("; ", cv.problems())
                         + ". Cite ONLY: " + String.join(", ", allowed)
@@ -105,6 +107,6 @@ public class EvidenceFirstSectionGenerator {
             }
         }
         log.warn("Dropping section '{}' for feature {} — couldn't ground it after a retry.", sectionKey, featureId);
-        return Optional.empty();
+        return new SectionResult(Optional.empty(), cost);
     }
 }

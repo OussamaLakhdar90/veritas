@@ -4,14 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import ca.bnc.qe.veritas.cost.ModelTier;
 import ca.bnc.qe.veritas.evidence.EvidenceUnit;
 import ca.bnc.qe.veritas.evidence.SourceKind;
 import ca.bnc.qe.veritas.evidence.SourceMix;
 import ca.bnc.qe.veritas.evidence.UnitType;
-import com.fasterxml.jackson.databind.JsonNode;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -36,10 +34,10 @@ class EvidenceFirstSectionGeneratorMockModeTest {
                 Map.of("feat-1", new Feature("feat-1", "login", List.of("JIRA-1"), FeatureStatus.PLANNED)),
                 Map.of("JIRA-1", unit), Set.of(), Set.of(), new SourceMix(false, true, false), "src");
 
-        Optional<JsonNode> section = generator.generate("riskRegister", "List the product risks.",
+        SectionResult section = generator.generate("riskRegister", "List the product risks.",
                 Set.of("1"), ModelTier.DEEP, index, "feat-1", "tester");
 
-        assertThat(section).isPresent();   // mock parsed the allowed id from the real contract → valid citation
-        assertThat(section.get().path("evidence").get(0).path("unitId").asText()).isEqualTo("JIRA-1");
+        assertThat(section.node()).isPresent();   // mock parsed the allowed id from the real contract → valid citation
+        assertThat(section.node().get().path("evidence").get(0).path("unitId").asText()).isEqualTo("JIRA-1");
     }
 }

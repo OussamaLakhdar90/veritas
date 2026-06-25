@@ -12,9 +12,10 @@ import static org.mockito.Mockito.when;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
+import ca.bnc.qe.veritas.cost.BillingMode;
 import ca.bnc.qe.veritas.cost.CostRecorder;
+import ca.bnc.qe.veritas.cost.CostResult;
 import ca.bnc.qe.veritas.cost.ModelSelector;
 import ca.bnc.qe.veritas.cost.ModelTier;
 import ca.bnc.qe.veritas.evidence.EvidenceUnit;
@@ -59,44 +60,51 @@ class EvidenceFirstSectionGeneratorTest {
         when(promptComposer.data(anyString(), anyString())).thenReturn("DATA");
         when(promptComposer.compose(anyString(), anyString(), any(), anyString(), anyString())).thenReturn("PROMPT");
         when(modelSelector.resolveTier(any())).thenReturn("mock-model");
+        when(costRecorder.record(anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(new CostResult("mock-model", BillingMode.PER_REQUEST, 0, 0, 0, 0.05));   // $0.05 / call
     }
 
-    private Optional<JsonNode> run() {
+    private SectionResult run() {
         return gen.generate("riskRegister", "List the risks.", Set.of(), ModelTier.DEEP, index, "feat-1", "alice");
     }
 
     @Test
-    void returnsAGroundedSectionWithoutRetry() {
+    void returnsAGroundedSectionWithoutRetryAndReportsCost() {
         stub();
         when(llm.complete(anyString(), anyString())).thenReturn(GOOD);
-        Optional<JsonNode> r = run();
-        assertThat(r).isPresent();
-        assertThat(r.get().path("feature").asText()).isEqualTo("login");
-        verify(llm, times(1)).complete(anyString(), anyString());   // grounded first try → no regenerate
+        SectionResult r = run();
+        assertThat(r.node()).isPresent();
+        assertThat(r.node().get().path("feature").asText()).isEqualTo("login");
+        assertThat(r.costUsd()).isEqualTo(0.05);                      // one call billed
+        verify(llm, times(1)).complete(anyString(), anyString());     // grounded first try → no regenerate
     }
 
     @Test
     void regeneratesOnceWhenTheFirstReplyIsUngroundedThenSucceeds() {
         stub();
         when(llm.complete(anyString(), anyString())).thenReturn(BAD, GOOD);
-        Optional<JsonNode> r = run();
-        assertThat(r).isPresent();
-        verify(llm, times(2)).complete(anyString(), anyString());   // one regenerate with the feedback
+        SectionResult r = run();
+        assertThat(r.node()).isPresent();
+        assertThat(r.costUsd()).isEqualTo(0.10);                      // both attempts billed
+        verify(llm, times(2)).complete(anyString(), anyString());     // one regenerate with the feedback
     }
 
     @Test
-    void dropsTheSectionWhenStillUngroundedAfterTheRetry() {
+    void dropsTheSectionWhenStillUngroundedAfterTheRetryButStillReportsCost() {
         stub();
         when(llm.complete(anyString(), anyString())).thenReturn(BAD, BAD);
-        Optional<JsonNode> r = run();
-        assertThat(r).isEmpty();                                     // dropped, not aborted
+        SectionResult r = run();
+        assertThat(r.node()).isEmpty();                               // dropped, not aborted
+        assertThat(r.costUsd()).isEqualTo(0.10);                      // tokens were still spent on both attempts
         verify(llm, times(2)).complete(anyString(), anyString());
     }
 
     @Test
     void returnsEmptyWithoutSpendWhenLlmUnavailable() {
         when(llm.isAvailable()).thenReturn(false);
-        assertThat(run()).isEmpty();
+        SectionResult r = run();
+        assertThat(r.node()).isEmpty();
+        assertThat(r.costUsd()).isZero();
         verify(llm, never()).complete(anyString(), anyString());
     }
 
