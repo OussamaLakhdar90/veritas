@@ -16,6 +16,18 @@ server:
   address: 127.0.0.1
   port: 8080
 
+# Operational observability. The built-in meters (http.server.requests, jvm.*, hikaricp.*) plus the veritas.*
+# domain gauges (MetricsConfig) are exposed at /actuator/metrics; health/info round it out. Only these three
+# endpoints are exposed (never env/beans/configprops). On the EC2 'server' profile, lock /actuator down too.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics
+  endpoint:
+    health:
+      show-details: when_authorized
+
 veritas:
   secret:
     auto-passphrase: true   # local-first: auto-generate a machine-bound key (~/.veritas/secret.key) so in-app token
