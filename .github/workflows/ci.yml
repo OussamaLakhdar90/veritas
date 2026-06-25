@@ -30,6 +30,26 @@ jobs:
           path: target/surefire-reports/
           if-no-files-found: ignore
 
+  # Dashboard tests run in their OWN job with node — independent of the Java 'build' job, which stays node-free.
+  # A node/npm flake here never blocks the backend build.
+  dashboard-tests:
+    name: Dashboard tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install
+        run: npm ci
+        working-directory: dashboard
+      - name: Test
+        run: npm run test
+        working-directory: dashboard
+
   docker:
     name: Build Docker image
     runs-on: ubuntu-latest

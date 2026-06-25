@@ -218,6 +218,18 @@
                                     <arguments>run build</arguments>
                                 </configuration>
                             </execution>
+                            <!-- Dashboard unit/e2e tests (Vitest + MSW). Only runs under -Pdashboard; the default
+                                 node-free `mvn verify` never reaches it. -->
+                            <execution>
+                                <id>npm-test</id>
+                                <goals>
+                                    <goal>npm</goal>
+                                </goals>
+                                <phase>test</phase>
+                                <configuration>
+                                    <arguments>run test</arguments>
+                                </configuration>
+                            </execution>
                         </executions>
                     </plugin>
                 </plugins>
