@@ -6,6 +6,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -13,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import ca.bnc.qe.veritas.engine.extract.java.JavaSpringExtractor;
 import ca.bnc.qe.veritas.engine.model.ApiModel;
@@ -27,11 +30,13 @@ import ca.bnc.qe.veritas.evidence.feature.Feature;
 import ca.bnc.qe.veritas.evidence.feature.FeatureIndex;
 import ca.bnc.qe.veritas.evidence.feature.FeatureIndexBuilder;
 import ca.bnc.qe.veritas.evidence.feature.FeatureIndexResult;
+import ca.bnc.qe.veritas.evidence.feature.FeatureIndexSnapshotService;
 import ca.bnc.qe.veritas.evidence.feature.FeatureStatus;
 import ca.bnc.qe.veritas.evidence.feature.Gap;
 import ca.bnc.qe.veritas.evidence.feature.GapKind;
 import ca.bnc.qe.veritas.evidence.feature.GapReport;
 import ca.bnc.qe.veritas.evidence.feature.MultiSourceStrategyService;
+import ca.bnc.qe.veritas.persistence.FeatureIndexSnapshot;
 import ca.bnc.qe.veritas.persistence.TestStrategy;
 import ca.bnc.qe.veritas.settings.CurrentUser;
 import ca.bnc.qe.veritas.vcs.WorkspaceService;
@@ -42,7 +47,10 @@ import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-/** The multi-source strategy endpoint: builds the SourceSelection (incl. the code-arm clone+extract) and returns 201. */
+/**
+ * The multi-source strategy endpoint: the one-shot generate (builds the SourceSelection incl. the code-arm
+ * clone+extract → 201), and the §6 preview → edit → generate-from-snapshot flow over a persisted, editable index.
+ */
 @WebMvcTest(MultiSourceStrategyController.class)
 class MultiSourceStrategyControllerTest {
 
@@ -51,6 +59,7 @@ class MultiSourceStrategyControllerTest {
     @MockBean private JavaSpringExtractor extractor;
     @MockBean private FeatureIndexBuilder featureIndexBuilder;
     @MockBean private MultiSourceStrategyService strategyService;
+    @MockBean private FeatureIndexSnapshotService snapshotService;
     @MockBean private CurrentUser currentUser;
 
     private TestStrategy stubGenerated() {
@@ -61,6 +70,25 @@ class MultiSourceStrategyControllerTest {
         s.setStatus("DRAFT");
         when(strategyService.generate(any(), any(), any())).thenReturn(s);
         return s;
+    }
+
+    private static FeatureIndexSnapshot stubSnapshot(String id, String service, String owner) {
+        FeatureIndexSnapshot s = new FeatureIndexSnapshot();
+        s.setId(id);
+        s.setServiceName(service);
+        s.setOwner(owner);
+        return s;
+    }
+
+    /** A minimal one-feature result, for the snapshot read/edit/generate paths (the round-trip is tested elsewhere). */
+    private static FeatureIndexResult oneFeatureResult() {
+        EvidenceUnit jira = EvidenceUnit.of("JIRA-1", SourceKind.JIRA, UnitType.REQUIREMENT, "Get policy", "x", null, Set.of());
+        FeatureIndex idx = new FeatureIndex(
+                Map.of("feat-1", new Feature("feat-1", "Policies", List.of("JIRA-1"), FeatureStatus.PLANNED)),
+                Map.of("JIRA-1", jira), Set.of(), Set.of(), new SourceMix(false, true, false), "src");
+        ExtractionResult ex = new ExtractionResult(List.of(jira), new FetchProvenance(Map.of()),
+                new SourceMix(false, true, false), 0, Set.of());
+        return new FeatureIndexResult(idx, new GapReport(List.of(), Set.of()), ex);
     }
 
     @Test
@@ -109,7 +137,7 @@ class MultiSourceStrategyControllerTest {
     }
 
     @Test
-    void previewReturnsTheFeatureIndexAndCostEstimateWithoutGenerating() throws Exception {
+    void previewPersistsASnapshotAndReturnsTheFeatureIndexWithoutGenerating() throws Exception {
         when(currentUser.principalId()).thenReturn("alice");
         EvidenceUnit jira = EvidenceUnit.of("JIRA-1", SourceKind.JIRA, UnitType.REQUIREMENT, "Get policy", "x", null, Set.of());
         FeatureIndex idx = new FeatureIndex(
@@ -120,20 +148,117 @@ class MultiSourceStrategyControllerTest {
                 Set.of());
         ExtractionResult ex = new ExtractionResult(List.of(), new FetchProvenance(Map.of()),
                 new SourceMix(false, true, false), 2, Set.of());
-        when(featureIndexBuilder.build(any(), any())).thenReturn(new FeatureIndexResult(idx, gaps, ex));
+        FeatureIndexResult result = new FeatureIndexResult(idx, gaps, ex);
+        when(featureIndexBuilder.build(any(), any())).thenReturn(result);
+
+        FeatureIndexSnapshot snap = stubSnapshot("snap-1", "ciam-policies", "alice");
+        when(snapshotService.create(eq("ciam-policies"), any(), eq("alice"))).thenReturn(snap);
+        when(snapshotService.resultOf(snap)).thenReturn(result);
+        when(snapshotService.pinnedOf(snap)).thenReturn(Set.of());
 
         mvc.perform(post("/api/v1/services/ciam-policies/multi-source-strategy/preview")
                         .contentType("application/json").content("{\"jira\":{\"jql\":\"project = CIAM\"}}"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.snapshotId").value("snap-1"))
                 .andExpect(jsonPath("$.features[0].displayName").value("login"))
                 .andExpect(jsonPath("$.features[0].status").value("PLANNED"))
                 .andExpect(jsonPath("$.features[0].units[0].id").value("JIRA-1"))
+                .andExpect(jsonPath("$.features[0].pinned").value(false))
                 .andExpect(jsonPath("$.gaps[0].kind").value("PLANNED_NOT_IMPLEMENTED"))
                 .andExpect(jsonPath("$.mix.jira").value(true))
                 .andExpect(jsonPath("$.redactionCount").value(2))
                 .andExpect(jsonPath("$.hardFail").value(false))
                 .andExpect(jsonPath("$.estimatedCostUsd").value(0.035));   // 1 feature × the per-feature estimate
 
+        verify(snapshotService).create(eq("ciam-policies"), any(), eq("alice"));
         verify(strategyService, never()).generate(any(), any(), any());   // preview never spends on synthesis
+    }
+
+    @Test
+    void getSnapshotReturnsThePreviewOr404() throws Exception {
+        FeatureIndexSnapshot snap = stubSnapshot("snap-1", "ciam-policies", "alice");
+        when(snapshotService.find("snap-1")).thenReturn(Optional.of(snap));
+        when(snapshotService.resultOf(snap)).thenReturn(oneFeatureResult());
+        when(snapshotService.pinnedOf(snap)).thenReturn(Set.of("feat-1"));
+
+        mvc.perform(get("/api/v1/multi-source-strategy/snapshots/snap-1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.snapshotId").value("snap-1"))
+                .andExpect(jsonPath("$.features[0].pinned").value(true));
+
+        when(snapshotService.find("nope")).thenReturn(Optional.empty());
+        mvc.perform(get("/api/v1/multi-source-strategy/snapshots/nope")).andExpect(status().isNotFound());
+    }
+
+    @Test
+    void mergeAppliesTheEditAndReturnsTheUpdatedPreview() throws Exception {
+        FeatureIndexSnapshot snap = stubSnapshot("snap-1", "ciam-policies", "alice");
+        when(snapshotService.find("snap-1")).thenReturn(Optional.of(snap));
+        when(snapshotService.merge(eq(snap), any(), eq("Policies"))).thenReturn(snap);
+        when(snapshotService.resultOf(snap)).thenReturn(oneFeatureResult());
+        when(snapshotService.pinnedOf(snap)).thenReturn(Set.of());
+
+        mvc.perform(patch("/api/v1/multi-source-strategy/snapshots/snap-1/merge")
+                        .contentType("application/json").content("{\"featureIds\":[\"a\",\"b\"],\"name\":\"Policies\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.snapshotId").value("snap-1"))
+                .andExpect(jsonPath("$.features.length()").value(1));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<String>> ids = ArgumentCaptor.forClass(List.class);
+        verify(snapshotService).merge(eq(snap), ids.capture(), eq("Policies"));
+        assertThat(ids.getValue()).containsExactly("a", "b");
+    }
+
+    @Test
+    void generateFromSnapshotSynthesizesFromTheStoredIndexAndLinksBack() throws Exception {
+        FeatureIndexSnapshot snap = stubSnapshot("snap-1", "ciam-policies", "alice");
+        when(snapshotService.find("snap-1")).thenReturn(Optional.of(snap));
+        FeatureIndexResult result = oneFeatureResult();
+        when(snapshotService.resultOf(snap)).thenReturn(result);
+        TestStrategy s = new TestStrategy();
+        s.setId("strat-1");
+        s.setServiceName("ciam-policies");
+        s.setSource("multi-source");
+        when(strategyService.generateFromIndex(eq("ciam-policies"), eq(result), eq("alice"))).thenReturn(s);
+
+        mvc.perform(post("/api/v1/multi-source-strategy/snapshots/snap-1/strategy"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.serviceName").value("ciam-policies"))
+                .andExpect(jsonPath("$.source").value("multi-source"));
+
+        verify(strategyService).generateFromIndex("ciam-policies", result, "alice");
+        verify(snapshotService).linkGenerated(snap, "strat-1");
+        verify(featureIndexBuilder, never()).build(any(), any());   // no second pipeline run
+    }
+
+    @Test
+    void generatingTwiceFromASnapshotIs409AndDoesNotReGenerate() throws Exception {
+        FeatureIndexSnapshot snap = stubSnapshot("snap-1", "ciam-policies", "alice");
+        snap.setGeneratedStrategyId("strat-existing");   // already generated once
+        when(snapshotService.find("snap-1")).thenReturn(Optional.of(snap));
+
+        mvc.perform(post("/api/v1/multi-source-strategy/snapshots/snap-1/strategy"))
+                .andExpect(status().isConflict());
+
+        verify(strategyService, never()).generateFromIndex(any(), any(), any());   // no duplicate paid synthesis
+    }
+
+    @Test
+    void pinWithoutAValueIs400() throws Exception {
+        mvc.perform(patch("/api/v1/multi-source-strategy/snapshots/snap-1/pin")
+                        .contentType("application/json").content("{\"featureId\":\"feat-1\"}"))
+                .andExpect(status().isBadRequest());
+        verify(snapshotService, never()).pin(any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+    }
+
+    @Test
+    void generateAndEditOnAMissingSnapshotAre404() throws Exception {
+        when(snapshotService.find("nope")).thenReturn(Optional.empty());
+        mvc.perform(post("/api/v1/multi-source-strategy/snapshots/nope/strategy")).andExpect(status().isNotFound());
+        mvc.perform(patch("/api/v1/multi-source-strategy/snapshots/nope/pin")
+                        .contentType("application/json").content("{\"featureId\":\"x\",\"pinned\":true}"))
+                .andExpect(status().isNotFound());
+        verify(strategyService, never()).generateFromIndex(any(), any(), any());
     }
 }

@@ -31,8 +31,18 @@ public class MultiSourceStrategyService {
         this.repository = repository;
     }
 
+    /** Extract → build the feature index → synthesize → persist, in one shot (no editable preview snapshot). */
     public TestStrategy generate(String serviceName, SourceSelection selection, String owner) {
-        FeatureIndexResult index = featureIndexBuilder.build(selection, owner);
+        return generateFromIndex(serviceName, featureIndexBuilder.build(selection, owner), owner);
+    }
+
+    /**
+     * Synthesize + persist from an already-built {@link FeatureIndexResult} — the §6 path where the index was
+     * previewed (and possibly edited) once and is reused on generate, instead of re-running the whole pipeline.
+     * Honours the §1.3 hard-fail gate here too: the persisted extraction carries the provenance, so a snapshot of
+     * a half-empty corpus is refused before any (paid) synthesis, exactly as the one-shot path is.
+     */
+    public TestStrategy generateFromIndex(String serviceName, FeatureIndexResult index, String owner) {
         if (index.hasHardFail()) {
             // A selected source returning nothing is a caller-input problem → IllegalArgumentException (maps to 400),
             // mirroring how the rest of the codebase signals preconditions. Stops before any (paid) synthesis (§1.3).

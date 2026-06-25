@@ -1,0 +1,235 @@
+package ca.bnc.qe.veritas.evidence.feature;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
+import ca.bnc.qe.veritas.evidence.EvidenceId;
+import ca.bnc.qe.veritas.evidence.EvidenceUnit;
+import ca.bnc.qe.veritas.persistence.FeatureIndexSnapshot;
+import ca.bnc.qe.veritas.persistence.FeatureIndexSnapshotRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+/**
+ * Persists a multi-source preview's {@link FeatureIndexResult} as an editable {@link FeatureIndexSnapshot}, and
+ * applies the deterministic ($0) override layer the §6 wizard exposes — <b>rename</b>, <b>merge</b>, and
+ * <b>pin</b>. The snapshot is the single source of truth from preview through generate, so generating reuses the
+ * already-extracted index (no second pipeline run / repo clone) and reflects the reviewer's edits.
+ *
+ * <p>Every edit re-runs the deterministic {@link GapDetector} over the edited index, so the coverage gaps (whose
+ * messages embed the feature names and whose targets are feature ids) never drift from the clustering they describe.
+ */
+@Service
+@Slf4j
+public class FeatureIndexSnapshotService {
+
+    private final FeatureIndexSnapshotRepository repository;
+    private final GapDetector gapDetector;
+    private final ObjectMapper mapper;
+
+    public FeatureIndexSnapshotService(FeatureIndexSnapshotRepository repository, GapDetector gapDetector,
+                                       ObjectMapper mapper) {
+        this.repository = repository;
+        this.gapDetector = gapDetector;
+        this.mapper = mapper;
+    }
+
+    /** Persist a freshly-built preview result as an editable snapshot. */
+    public FeatureIndexSnapshot create(String serviceName, FeatureIndexResult result, String owner) {
+        FeatureIndexSnapshot s = new FeatureIndexSnapshot();
+        s.setServiceName(serviceName);
+        s.setOwner(owner);
+        s.setResultJson(writeJson(result));
+        s.setPinnedFeatureIds("[]");
+        FeatureIndexSnapshot saved = repository.save(s);
+        log.info("Persisted feature-index snapshot {} for {}: {} feature(s)", saved.getId(), serviceName,
+                result.index().features().size());
+        return saved;
+    }
+
+    public Optional<FeatureIndexSnapshot> find(String id) {
+        return repository.findById(id);
+    }
+
+    public FeatureIndexResult resultOf(FeatureIndexSnapshot snapshot) {
+        return readResult(snapshot.getResultJson());
+    }
+
+    public Set<String> pinnedOf(FeatureIndexSnapshot snapshot) {
+        return readPins(snapshot.getPinnedFeatureIds());
+    }
+
+    /** Record that a strategy was generated from this snapshot (audit link back to the strategy). */
+    public void linkGenerated(FeatureIndexSnapshot snapshot, String strategyId) {
+        snapshot.setGeneratedStrategyId(strategyId);
+        repository.save(snapshot);
+    }
+
+    // ---- the override layer (deterministic, $0) -------------------------------------------------
+
+    /** Rename one feature's display label. Its content-derived id and its membership are unchanged. */
+    public FeatureIndexSnapshot rename(FeatureIndexSnapshot snapshot, String featureId, String name) {
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("A new feature name is required.");
+        }
+        FeatureIndexResult result = resultOf(snapshot);
+        Feature target = require(result.index(), featureId);
+
+        Map<String, Feature> features = new LinkedHashMap<>(result.index().features());
+        features.put(featureId, new Feature(featureId, name.strip(), target.unitIds(), target.status()));
+        return persist(snapshot, rebuild(result, features), pinnedOf(snapshot));
+    }
+
+    /**
+     * Merge two or more features into one — the manual cross-source merge the conservative seed and the LLM tagger
+     * left separate. The merged feature unions the member units, recomputes its content-derived id and its
+     * source-presence status, and inherits a pin if any of the merged features was pinned.
+     */
+    public FeatureIndexSnapshot merge(FeatureIndexSnapshot snapshot, List<String> featureIds, String name) {
+        FeatureIndexResult result = resultOf(snapshot);
+        FeatureIndex index = result.index();
+
+        // Distinct, non-blank, order-preserving. Validate membership explicitly (naming any unknown id) BEFORE the
+        // count check, so a stray/stale id is a clear 400 rather than a silently-dropped partial merge.
+        List<String> ids = new ArrayList<>();
+        for (String id : featureIds == null ? List.<String>of() : featureIds) {
+            if (id != null && !id.isBlank() && !ids.contains(id)) {
+                ids.add(id);
+            }
+        }
+        List<String> missing = ids.stream().filter(id -> !index.features().containsKey(id)).toList();
+        if (!missing.isEmpty()) {
+            throw new IllegalArgumentException("No feature(s) " + missing + " in this snapshot.");
+        }
+        if (ids.size() < 2) {
+            throw new IllegalArgumentException("Merging needs at least two distinct existing features.");
+        }
+
+        // Union the member unit ids (sorted, stable) → recompute the content-derived id with the seeder's scheme.
+        Set<String> unitIdSet = new TreeSet<>();
+        for (String id : ids) {
+            unitIdSet.addAll(index.features().get(id).unitIds());
+        }
+        List<String> mergedUnitIds = List.copyOf(unitIdSet);
+        String mergedId = "feat-" + EvidenceId.hash8(String.join("|", mergedUnitIds));
+
+        List<EvidenceUnit> mergedUnits = new ArrayList<>();
+        for (String uid : mergedUnitIds) {
+            EvidenceUnit u = index.unitsById().get(uid);
+            if (u != null) {
+                mergedUnits.add(u);
+            }
+        }
+        String mergedName = (name != null && !name.isBlank()) ? name.strip() : largestName(index, ids);
+        Feature merged = new Feature(mergedId, mergedName, mergedUnitIds, FeatureStatusEngine.statusOf(mergedUnits));
+
+        // Rebuild the feature map: drop the merged-away features; put the new one where the first one was.
+        Map<String, Feature> features = new LinkedHashMap<>();
+        boolean placed = false;
+        for (Map.Entry<String, Feature> e : index.features().entrySet()) {
+            if (ids.contains(e.getKey())) {
+                if (!placed) {
+                    features.put(mergedId, merged);
+                    placed = true;
+                }
+            } else {
+                features.put(e.getKey(), e.getValue());
+            }
+        }
+
+        // Carry the pins forward: a merged feature is pinned iff any of its sources was pinned.
+        Set<String> pins = pinnedOf(snapshot);
+        if (pins.removeAll(ids)) {
+            pins.add(mergedId);
+        }
+        log.info("Merged features {} → {} ({} units) in snapshot {}", ids, mergedId, mergedUnitIds.size(),
+                snapshot.getId());
+        return persist(snapshot, rebuild(result, features), pins);
+    }
+
+    /** Pin (reviewer-confirm / lock) or unpin a feature. A pin is metadata only; it never changes the clustering. */
+    public FeatureIndexSnapshot pin(FeatureIndexSnapshot snapshot, String featureId, boolean pinned) {
+        require(resultOf(snapshot).index(), featureId);
+        Set<String> pins = pinnedOf(snapshot);
+        if (pinned) {
+            pins.add(featureId);
+        } else {
+            pins.remove(featureId);
+        }
+        snapshot.setPinnedFeatureIds(writeJson(new ArrayList<>(pins)));
+        return repository.save(snapshot);
+    }
+
+    // ---- internals ------------------------------------------------------------------------------
+
+    /** A new result with the edited feature map, fresh deterministic gaps, and the original extraction. */
+    private FeatureIndexResult rebuild(FeatureIndexResult original, Map<String, Feature> features) {
+        FeatureIndex idx = original.index();
+        FeatureIndex edited = new FeatureIndex(features, idx.unitsById(), idx.crossCuttingIds(),
+                idx.unassignedUnitIds(), idx.mix(), idx.sourceDigest());
+        return new FeatureIndexResult(edited, gapDetector.detect(edited), original.extraction());
+    }
+
+    private FeatureIndexSnapshot persist(FeatureIndexSnapshot snapshot, FeatureIndexResult result, Set<String> pins) {
+        snapshot.setResultJson(writeJson(result));
+        snapshot.setPinnedFeatureIds(writeJson(new ArrayList<>(pins)));
+        return repository.save(snapshot);
+    }
+
+    private static Feature require(FeatureIndex index, String featureId) {
+        // Guard null/blank BEFORE the lookup: index.features() is an immutable Map.copyOf, whose get(null) throws an
+        // NPE (not returns null) — so an unchecked null would surface as a 500 instead of a clean 400.
+        if (featureId == null || featureId.isBlank()) {
+            throw new IllegalArgumentException("A feature id is required.");
+        }
+        Feature f = index.features().get(featureId);
+        if (f == null) {
+            throw new IllegalArgumentException("No feature '" + featureId + "' in this snapshot.");
+        }
+        return f;
+    }
+
+    /** The display name of the largest (most-units) of the merged features — the most representative default. */
+    private static String largestName(FeatureIndex index, List<String> ids) {
+        return ids.stream().map(index.features()::get).filter(Objects::nonNull)
+                .max(Comparator.comparingInt(f -> f.unitIds().size()))
+                .map(Feature::displayName).orElse(ids.get(0));
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return mapper.writeValueAsString(value);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to serialize feature-index snapshot state", e);
+        }
+    }
+
+    private FeatureIndexResult readResult(String json) {
+        try {
+            return mapper.readValue(json, FeatureIndexResult.class);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Corrupt feature-index snapshot", e);
+        }
+    }
+
+    private Set<String> readPins(String json) {
+        if (json == null || json.isBlank()) {
+            return new LinkedHashSet<>();
+        }
+        try {
+            return new LinkedHashSet<>(mapper.readValue(json, new TypeReference<List<String>>() {}));
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Corrupt pinned-feature ids in snapshot", e);
+        }
+    }
+}
