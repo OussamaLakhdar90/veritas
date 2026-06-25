@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
-import { Layers, GitBranch, FileText, Bug, AlertTriangle, ArrowLeft, Sparkles, ShieldCheck } from 'lucide-react';
+import {
+  Layers, GitBranch, FileText, Bug, AlertTriangle, ArrowLeft, Sparkles, ShieldCheck,
+  Pin, Pencil, Check, X, GitMerge,
+} from 'lucide-react';
 import { api, MultiSourceStrategyRequest, StrategyPreview } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, Field, Input, PageHeader } from '../components/ui';
 import { useToast } from '../components/Toast';
@@ -53,6 +56,14 @@ export function MultiSourceStrategy() {
   const [pageIds, setPageIds] = useState('');
   const [preview, setPreview] = useState<StrategyPreview | null>(null);
 
+  // Edit-step local state.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState('');
+  const [mergeName, setMergeName] = useState('');
+
+  const snapshotId = preview?.snapshotId ?? '';
+
   const body = (): MultiSourceStrategyRequest => ({
     code: useCode ? { appId: appId.trim() || undefined, repoSlug: repoSlug.trim() || undefined, branch: branch.trim() || undefined } : undefined,
     jira: useJira ? { jql: jql.trim() || undefined } : undefined,
@@ -63,21 +74,50 @@ export function MultiSourceStrategy() {
     (useCode && appId.trim() && repoSlug.trim()) || (useJira && jql.trim()) || (useConf && pageIds.trim())
   ), [service, useCode, appId, repoSlug, useJira, jql, useConf, pageIds]);
 
+  const onErr = (e: Error) => toast.push('error', e.message);
+
   const previewM = useMutation({
     mutationFn: () => api.previewMultiSourceStrategy(service.trim(), body()),
+    onSuccess: (p) => { setPreview(p); setSelected(new Set()); },
+    onError: onErr,
+  });
+  const renameM = useMutation({
+    mutationFn: (v: { featureId: string; name: string }) => api.renameFeature(snapshotId, v.featureId, v.name),
+    onSuccess: (p) => { setPreview(p); setRenaming(null); },
+    onError: onErr,
+  });
+  const mergeM = useMutation({
+    mutationFn: () => api.mergeFeatures(snapshotId, [...selected], mergeName.trim() || undefined),
+    onSuccess: (p) => { setPreview(p); setSelected(new Set()); setMergeName(''); },
+    onError: onErr,
+  });
+  const pinM = useMutation({
+    mutationFn: (v: { featureId: string; pinned: boolean }) => api.pinFeature(snapshotId, v.featureId, v.pinned),
     onSuccess: setPreview,
-    onError: (e: Error) => toast.push('error', e.message),
+    onError: onErr,
   });
   const generateM = useMutation({
-    mutationFn: () => api.generateMultiSourceStrategy(service.trim(), body()),
+    mutationFn: () => api.generateStrategyFromSnapshot(snapshotId),
     onSuccess: () => { toast.push('success', 'Multi-source strategy generated.'); nav('/test-strategy'); },
-    onError: (e: Error) => toast.push('error', e.message),
+    onError: onErr,
   });
+
+  const toggleSelect = (id: string) => setSelected((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+  const startRename = (featureId: string, current: string) => { setRenaming(featureId); setRenameValue(current); };
+  const submitRename = () => {
+    if (renaming && renameValue.trim()) renameM.mutate({ featureId: renaming, name: renameValue.trim() });
+  };
+
+  const busy = renameM.isPending || mergeM.isPending || pinM.isPending;
 
   return (
     <div className="max-w-3xl">
       <PageHeader title="Multi-source strategy"
-        subtitle="Build a test strategy from Jira + Confluence + code. Preview the clustered features and cost before generating." />
+        subtitle="Build a test strategy from Jira + Confluence + code. Preview the clustered features, tidy them up, then generate." />
 
       {!preview ? (
         <Card>
@@ -124,11 +164,12 @@ export function MultiSourceStrategy() {
             </CardBody></Card>
           )}
 
-          {/* Summary */}
+          {/* Feature index — editable */}
           <Card>
-            <CardHeader title="2 · Review the feature index" subtitle="What the pipeline extracted and clustered — check it before generating." />
+            <CardHeader title="2 · Review &amp; tidy the feature index"
+              subtitle="Merge features that are the same capability, rename them, and pin the ones you've confirmed — then generate." />
             <CardBody>
-              <div className="mb-4 flex flex-wrap items-center gap-2 text-[13px]">
+              <div className="mb-3 flex flex-wrap items-center gap-2 text-[13px]">
                 <span className="text-muted">Sources:</span>
                 {preview.mix.code && <Badge className={SOURCE_TONE.CODE}>code</Badge>}
                 {preview.mix.jira && <Badge className={SOURCE_TONE.JIRA}>jira</Badge>}
@@ -136,23 +177,74 @@ export function MultiSourceStrategy() {
                 <span className="ml-auto text-muted">{preview.features.length} feature(s) · {preview.gaps.length} gap(s) · {preview.redactionCount} redaction(s)</span>
               </div>
 
+              {/* Merge action bar */}
+              {selected.size >= 1 && (
+                <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-brand/40 bg-brand/5 p-2.5">
+                  <span className="text-[13px] font-medium text-ink-900">{selected.size} selected</span>
+                  {selected.size >= 2 ? (
+                    <>
+                      <Input className="h-8 max-w-[220px]" value={mergeName} onChange={(e) => setMergeName(e.target.value)}
+                        placeholder="Merged name (optional)" />
+                      <Button size="sm" onClick={() => mergeM.mutate()} loading={mergeM.isPending}>
+                        <GitMerge className="h-4 w-4" /> Merge {selected.size}
+                      </Button>
+                    </>
+                  ) : (
+                    <span className="text-[12px] text-muted">Select another feature to merge.</span>
+                  )}
+                  <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
+                </div>
+              )}
+
               <div className="space-y-3">
-                {preview.features.map((f) => (
-                  <div key={f.featureId} className="rounded-lg border border-border p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium text-ink-900">{f.displayName}</span>
-                      <Badge className={STATUS_TONE[f.status] ?? TONE.muted}>{STATUS_LABEL[f.status] ?? f.status}</Badge>
+                {preview.features.map((f) => {
+                  const isSel = selected.has(f.featureId);
+                  return (
+                    <div key={f.featureId}
+                      className={cn('rounded-lg border p-3 transition',
+                        isSel ? 'border-brand/50 bg-brand/5' : f.pinned ? 'border-success/40' : 'border-border')}>
+                      <div className="flex items-center gap-2">
+                        <input type="checkbox" checked={isSel} onChange={() => toggleSelect(f.featureId)}
+                          aria-label={`Select ${f.displayName} to merge`}
+                          className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40" />
+
+                        {renaming === f.featureId ? (
+                          <form className="flex flex-1 items-center gap-1.5"
+                            onSubmit={(e) => { e.preventDefault(); submitRename(); }}>
+                            <Input className="h-8" autoFocus value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(null); }} />
+                            <Button size="sm" type="submit" loading={renameM.isPending} aria-label="Save name"><Check className="h-4 w-4" /></Button>
+                            <Button size="sm" variant="ghost" type="button" onClick={() => setRenaming(null)} aria-label="Cancel"><X className="h-4 w-4" /></Button>
+                          </form>
+                        ) : (
+                          <>
+                            <span className="font-medium text-ink-900">{f.displayName}</span>
+                            <button type="button" onClick={() => startRename(f.featureId, f.displayName)} disabled={busy}
+                              className="text-muted hover:text-ink-700 disabled:opacity-40" title="Rename" aria-label="Rename feature">
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <Badge className={STATUS_TONE[f.status] ?? TONE.muted}>{STATUS_LABEL[f.status] ?? f.status}</Badge>
+                            <button type="button" onClick={() => pinM.mutate({ featureId: f.featureId, pinned: !f.pinned })}
+                              disabled={busy} title={f.pinned ? 'Unpin' : 'Pin (confirm)'} aria-label={f.pinned ? 'Unpin feature' : 'Pin feature'}
+                              className={cn('ml-auto rounded p-1 disabled:opacity-40',
+                                f.pinned ? 'text-success' : 'text-muted hover:text-ink-700')}>
+                              <Pin className={cn('h-4 w-4', f.pinned && 'fill-current')} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5 pl-6">
+                        {f.units.map((u) => (
+                          <span key={u.id} title={`${u.id} — ${u.title}`}
+                            className={cn('rounded px-1.5 py-0.5 text-[11px] ring-1', SOURCE_TONE[u.source] ?? TONE.muted)}>
+                            {u.source.toLowerCase()} · {u.title || u.type.toLowerCase()}
+                          </span>
+                        ))}
+                      </div>
                     </div>
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {f.units.map((u) => (
-                        <span key={u.id} title={`${u.id} — ${u.title}`}
-                          className={cn('rounded px-1.5 py-0.5 text-[11px] ring-1', SOURCE_TONE[u.source] ?? TONE.muted)}>
-                          {u.source.toLowerCase()} · {u.title || u.type.toLowerCase()}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </CardBody>
           </Card>
@@ -160,7 +252,7 @@ export function MultiSourceStrategy() {
           {/* Gaps */}
           {preview.gaps.length > 0 && (
             <Card>
-              <CardHeader title="Coverage gaps" subtitle="Detected deterministically from the clustering — where intent and implementation diverge." />
+              <CardHeader title="Coverage gaps" subtitle="Detected deterministically from the clustering — they update as you merge." />
               <CardBody className="space-y-2">
                 {preview.gaps.map((g, i) => (
                   <div key={i} className="flex items-start gap-2 text-[13px]">
@@ -181,7 +273,7 @@ export function MultiSourceStrategy() {
               </div>
               <div className="flex items-center gap-2">
                 <Button variant="secondary" onClick={() => setPreview(null)}><ArrowLeft className="h-4 w-4" /> Back</Button>
-                <Button onClick={() => generateM.mutate()} loading={generateM.isPending} disabled={preview.hardFail}>
+                <Button onClick={() => generateM.mutate()} loading={generateM.isPending} disabled={preview.hardFail || busy}>
                   <Sparkles className="h-4 w-4" /> Generate strategy
                 </Button>
               </div>
@@ -192,7 +284,7 @@ export function MultiSourceStrategy() {
 
       {!preview && (
         <p className="mt-4 flex items-center gap-1.5 text-[12px] text-muted">
-          <ShieldCheck className="h-3.5 w-3.5" /> Preview runs the cheap stages only (extract + cluster); the priced synthesis runs only when you click Generate.
+          <ShieldCheck className="h-3.5 w-3.5" /> Preview runs the cheap stages only (extract + cluster); editing is free; the priced synthesis runs only when you click Generate.
         </p>
       )}
     </div>

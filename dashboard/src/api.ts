@@ -243,9 +243,10 @@ export interface MultiSourceStrategyRequest {
   confluence?: { pageIds?: string[] }
 }
 
-/** The §6 preview: what the pipeline extracted + clustered, before the (expensive) synthesis. */
+/** The §6 preview: the persisted, editable feature index — what the pipeline extracted + clustered, before synthesis. */
 export interface StrategyPreview {
-  features: Array<{ featureId: string; displayName: string; status: string;
+  snapshotId: string
+  features: Array<{ featureId: string; displayName: string; status: string; pinned: boolean;
     units: Array<{ id: string; source: string; type: string; title: string }> }>
   gaps: Array<{ kind: string; feature: string; message: string }>
   mix: { code: boolean; jira: boolean; confluence: boolean }
@@ -338,6 +339,15 @@ export const api = {
     send<StrategyPreview>('POST', `/services/${encodeURIComponent(service)}/multi-source-strategy/preview`, body),
   generateMultiSourceStrategy: (service: string, body: MultiSourceStrategyRequest) =>
     send<TestStrategy>('POST', `/services/${encodeURIComponent(service)}/multi-source-strategy`, body),
+  // §6 edit-then-generate over the persisted snapshot (no second pipeline run).
+  renameFeature: (snapshotId: string, featureId: string, name: string) =>
+    send<StrategyPreview>('PATCH', `/multi-source-strategy/snapshots/${snapshotId}/rename`, { featureId, name }),
+  mergeFeatures: (snapshotId: string, featureIds: string[], name?: string) =>
+    send<StrategyPreview>('PATCH', `/multi-source-strategy/snapshots/${snapshotId}/merge`, { featureIds, name }),
+  pinFeature: (snapshotId: string, featureId: string, pinned: boolean) =>
+    send<StrategyPreview>('PATCH', `/multi-source-strategy/snapshots/${snapshotId}/pin`, { featureId, pinned }),
+  generateStrategyFromSnapshot: (snapshotId: string) =>
+    send<TestStrategy>('POST', `/multi-source-strategy/snapshots/${snapshotId}/strategy`),
   reviews: (targetKey: string) => get<ReviewResult[]>(`/reviews?targetKey=${encodeURIComponent(targetKey)}`),
   runReview: (body: { jql: string; apply: boolean; owner?: string }) => send<ReviewResult[]>('POST', '/reviews', body),
   generateTestCases: (service: string, body: { basis: string; owner?: string }) =>
