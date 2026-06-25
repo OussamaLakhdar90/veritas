@@ -1,7 +1,11 @@
 package ca.bnc.qe.veritas.evidence.feature;
 
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.TreeSet;
+import ca.bnc.qe.veritas.evidence.EvidenceId;
 import ca.bnc.qe.veritas.evidence.EvidenceUnit;
 import org.springframework.stereotype.Component;
 
@@ -71,6 +75,28 @@ public class EvidenceRetriever {
         ids.addAll(index.crossCuttingIds());
         ids.removeIf(id -> !index.unitsById().containsKey(id));
         return ids;
+    }
+
+    /**
+     * A content fingerprint over a feature's <b>entire citable set</b> (its own units PLUS the cross-cutting units),
+     * including each unit's title + text — exactly the material {@link #forFeature} shows the model. Two runs with
+     * the same fingerprint for a feature would synthesize from byte-identical grounding, so a prior section can be
+     * reused verbatim (incremental regen, design §3.2). Because the cross-cutting ids are folded in, a changed
+     * caveat/standard flips the fingerprint of <b>every</b> feature — correctly forcing a full re-synthesis.
+     */
+    public String groundingFingerprint(FeatureIndex index, String featureId) {
+        String sep = String.valueOf((char) 1);   // a delimiter that can't appear in ids/titles/text, so fields can't bleed
+        List<String> ids = new ArrayList<>(new TreeSet<>(allowedIds(index, featureId)));   // sorted, stable
+        StringBuilder sb = new StringBuilder();
+        for (String id : ids) {
+            EvidenceUnit u = index.unitsById().get(id);
+            sb.append(id).append(sep)
+                    .append(u == null ? "" : u.source()).append(sep)
+                    .append(u == null ? "" : u.type()).append(sep)
+                    .append(u == null ? "" : nz(u.title())).append(sep)
+                    .append(u == null ? "" : nz(u.text())).append(sep);
+        }
+        return EvidenceId.hash8(sb.toString());
     }
 
     private static String nz(String s) {

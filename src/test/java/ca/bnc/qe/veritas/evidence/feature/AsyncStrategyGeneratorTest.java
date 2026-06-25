@@ -47,4 +47,21 @@ class AsyncStrategyGeneratorTest {
         verify(snapshots, timeout(2000)).failGeneration("snap-1", "boom");   // releases the claim + records the error
         verify(snapshots, never()).linkGenerated(any(), any());
     }
+
+    @Test
+    void aPriorStrategyRoutesThroughTheIncrementalReuseOverload() {
+        FeatureIndexSnapshotService snapshots = mock(FeatureIndexSnapshotService.class);
+        MultiSourceStrategyService strategyService = mock(MultiSourceStrategyService.class);
+        TestStrategy strat = new TestStrategy();
+        strat.setId("strat-2");
+        when(strategyService.generateFromIndex(any(), any(), any(), any(), any())).thenReturn(strat);   // 5-arg reuse
+        TestStrategy prior = new TestStrategy();
+        prior.setId("prior-1");
+
+        new AsyncStrategyGenerator(snapshots, strategyService).submit(claimed("snap-2"), null, prior);
+
+        verify(strategyService, timeout(2000)).generateFromIndex(any(), any(), any(), any(), any());   // the reuse overload
+        verify(strategyService, never()).generateFromIndex(any(), any(), any());                       // not the 3-arg one
+        verify(snapshots, timeout(2000)).linkGenerated("snap-2", "strat-2");
+    }
 }

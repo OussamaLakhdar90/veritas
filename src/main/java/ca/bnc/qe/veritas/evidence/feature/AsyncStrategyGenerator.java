@@ -39,17 +39,28 @@ public class AsyncStrategyGenerator {
 
     /** Capture the claimed snapshot's data on the request thread, hand synthesis to a worker, and return its id. */
     public String submit(FeatureIndexSnapshot claimed) {
+        return submit(claimed, null, null);
+    }
+
+    /**
+     * As {@link #submit(FeatureIndexSnapshot)} but with a prior index + strategy for INCREMENTAL reuse (a lineage
+     * re-run): the worker reuses unchanged-feature sections from {@code priorStrategy}, paying only for what changed.
+     */
+    public String submit(FeatureIndexSnapshot claimed, FeatureIndexResult priorIndex, TestStrategy priorStrategy) {
         String id = claimed.getId();
         String serviceName = claimed.getServiceName();
         String owner = claimed.getOwner();
         FeatureIndexResult index = snapshots.resultOf(claimed);   // cheap JSON read now, so the worker holds no entity
-        pool.submit(() -> run(id, serviceName, index, owner));
+        pool.submit(() -> run(id, serviceName, index, owner, priorIndex, priorStrategy));
         return id;
     }
 
-    private void run(String id, String serviceName, FeatureIndexResult index, String owner) {
+    private void run(String id, String serviceName, FeatureIndexResult index, String owner,
+                     FeatureIndexResult priorIndex, TestStrategy priorStrategy) {
         try {
-            TestStrategy strategy = strategyService.generateFromIndex(serviceName, index, owner);
+            TestStrategy strategy = priorStrategy != null
+                    ? strategyService.generateFromIndex(serviceName, index, owner, priorIndex, priorStrategy)
+                    : strategyService.generateFromIndex(serviceName, index, owner);
             snapshots.linkGenerated(id, strategy.getId());
             log.info("Generated multi-source strategy {} from snapshot {}", strategy.getId(), id);
         } catch (RuntimeException e) {

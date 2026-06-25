@@ -150,7 +150,23 @@ public class MultiSourceStrategyController {
         // return 202 — the wizard polls GET .../snapshots/{id} until generatedStrategyId (done) or generationError
         // (failed). A large real run makes several DEEP LLM calls, so it must not block the HTTP request.
         FeatureIndexSnapshot snapshot = snapshotService.claimForGeneration(id);
-        asyncStrategyGenerator.submit(snapshot);
+        // Lineage re-run: if this snapshot was carried forward from a parent that already generated a strategy, reuse
+        // the parent's sections for features whose grounding is unchanged (incremental synthesis — pay only for what
+        // changed). Resolve the prior context here, on the request thread; reuse is a pure optimization, so a missing/
+        // unowned/ungenerated parent simply means a full synthesis.
+        FeatureIndexResult priorIndex = null;
+        TestStrategy priorStrategy = null;
+        String parentId = snapshot.getCarriedForwardFrom();
+        if (parentId != null) {
+            Optional<FeatureIndexSnapshot> parent = ownedSnapshot(parentId);
+            if (parent.isPresent() && parent.get().getGeneratedStrategyId() != null) {
+                priorStrategy = strategyService.findStrategy(parent.get().getGeneratedStrategyId()).orElse(null);
+                if (priorStrategy != null) {
+                    priorIndex = snapshotService.resultOf(parent.get());
+                }
+            }
+        }
+        asyncStrategyGenerator.submit(snapshot, priorIndex, priorStrategy);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(new StrategyAccepted(id, "GENERATING"));
     }
 
