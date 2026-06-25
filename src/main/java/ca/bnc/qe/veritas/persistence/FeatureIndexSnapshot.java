@@ -39,6 +39,19 @@ public class FeatureIndexSnapshot extends AuditableEntity {
     @Column(columnDefinition = "TEXT")
     private String pinnedFeatureIds;
 
+    /**
+     * The ordered log of reviewer overrides (rename/merge/pin) as a JSON array of {@code FeatureEdit}, keyed by the
+     * affected features' member unit ids — so the edits can be <b>carried forward</b> onto a freshly re-extracted
+     * index (design §3.2 lineage re-run) rather than being lost when the code/Jira/Confluence sources change.
+     * Nullable: pre-existing snapshots (and an unedited preview) have no log, read as empty.
+     */
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String editsJson;
+
+    /** The snapshot this one was re-extracted from (carry-forward lineage); null for an original preview. */
+    private String carriedForwardFrom;
+
     /** Set once a strategy is generated from this snapshot (audit link back to the {@link TestStrategy}); null until then. */
     private String generatedStrategyId;
 

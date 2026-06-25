@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -77,18 +78,28 @@ public class MultiSourceStrategyController {
      * cost estimate, and the {@code snapshotId} the wizard edits and then generates from.
      */
     @PostMapping("/services/{serviceName}/multi-source-strategy/preview")
-    public StrategyPreview preview(@PathVariable String serviceName, @RequestBody MultiSourceStrategyRequest request) {
+    public StrategyPreview preview(@PathVariable String serviceName, @RequestBody MultiSourceStrategyRequest request,
+                                   @RequestParam(required = false) String carryForwardFrom) {
         SourceSelection selection = buildSelection(request);
         FeatureIndexResult result = featureIndexBuilder.build(selection, currentUser.principalId());
-        FeatureIndexSnapshot snapshot = snapshotService.create(serviceName, result, currentUser.principalId());
-        return toPreview(snapshot);
+        if (carryForwardFrom == null || carryForwardFrom.isBlank()) {
+            return toPreview(snapshotService.create(serviceName, result, currentUser.principalId()), List.of());
+        }
+        // Lineage re-run (§3.2): re-extracted the same sources — carry the reviewer's edits forward onto the fresh
+        // index. Only the owner of the prior preview may carry it forward (else 404, same as snapshot enumeration).
+        FeatureIndexSnapshot prior = ownedSnapshot(carryForwardFrom)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "No prior preview '" + carryForwardFrom + "' to carry edits forward from."));
+        FeatureIndexSnapshotService.CarryForward carried =
+                snapshotService.createCarryingForward(serviceName, result, currentUser.principalId(), prior);
+        return toPreview(carried.snapshot(), carried.notes());
     }
 
     /** Re-fetch a persisted preview snapshot (e.g. on wizard reload). */
     @GetMapping("/multi-source-strategy/snapshots/{id}")
     public ResponseEntity<StrategyPreview> snapshot(@PathVariable String id) {
         return ownedSnapshot(id)
-                .map(s -> ResponseEntity.ok(toPreview(s)))
+                .map(s -> ResponseEntity.ok(toPreview(s, List.of())))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
@@ -96,7 +107,7 @@ public class MultiSourceStrategyController {
     @PatchMapping("/multi-source-strategy/snapshots/{id}/rename")
     public ResponseEntity<StrategyPreview> rename(@PathVariable String id, @RequestBody RenameRequest req) {
         return ownedSnapshot(id)
-                .map(s -> ResponseEntity.ok(toPreview(snapshotService.rename(s, req.featureId(), req.name()))))
+                .map(s -> ResponseEntity.ok(toPreview(snapshotService.rename(s, req.featureId(), req.name()), List.of())))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
@@ -104,7 +115,7 @@ public class MultiSourceStrategyController {
     @PatchMapping("/multi-source-strategy/snapshots/{id}/merge")
     public ResponseEntity<StrategyPreview> merge(@PathVariable String id, @RequestBody MergeRequest req) {
         return ownedSnapshot(id)
-                .map(s -> ResponseEntity.ok(toPreview(snapshotService.merge(s, req.featureIds(), req.name()))))
+                .map(s -> ResponseEntity.ok(toPreview(snapshotService.merge(s, req.featureIds(), req.name()), List.of())))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
@@ -115,7 +126,7 @@ public class MultiSourceStrategyController {
             throw new IllegalArgumentException("'pinned' (true or false) is required.");
         }
         return ownedSnapshot(id)
-                .map(s -> ResponseEntity.ok(toPreview(snapshotService.pin(s, req.featureId(), req.pinned()))))
+                .map(s -> ResponseEntity.ok(toPreview(snapshotService.pin(s, req.featureId(), req.pinned()), List.of())))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
@@ -197,7 +208,7 @@ public class MultiSourceStrategyController {
         return selection;
     }
 
-    private StrategyPreview toPreview(FeatureIndexSnapshot snapshot) {
+    private StrategyPreview toPreview(FeatureIndexSnapshot snapshot, List<String> carryForwardNotes) {
         FeatureIndexResult result = snapshotService.resultOf(snapshot);
         Set<String> pinned = snapshotService.pinnedOf(snapshot);
         FeatureIndex index = result.index();
@@ -213,6 +224,6 @@ public class MultiSourceStrategyController {
                 .toList();
         double estimatedCost = index.features().size() * APPROX_COST_PER_FEATURE_USD;
         return new StrategyPreview(snapshot.getId(), features, gaps, index.mix(), result.redactionCount(),
-                result.fetchFailures(), result.hasHardFail(), estimatedCost);
+                result.fetchFailures(), result.hasHardFail(), estimatedCost, List.copyOf(carryForwardNotes));
     }
 }

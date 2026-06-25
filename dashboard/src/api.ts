@@ -256,6 +256,8 @@ export interface StrategyPreview {
   fetchFailures: string[]
   hardFail: boolean
   estimatedCostUsd: number
+  /** On a "re-run keeping my edits" preview: reviewer edits that couldn't be re-applied (their features vanished). */
+  carryForwardNotes: string[]
 }
 
 export interface ReviewResult {
@@ -339,8 +341,10 @@ export const api = {
     send<TestStrategy>('POST', `/services/${encodeURIComponent(service)}/strategies`, body),
   strategyRationaleUrl: (id: string) => `${BASE}/strategies/${id}/rationale`,
   strategyWhyDocUrl: (id: string) => `${BASE}/strategies/${id}/why-doc`,
-  previewMultiSourceStrategy: (service: string, body: MultiSourceStrategyRequest) =>
-    send<StrategyPreview>('POST', `/services/${encodeURIComponent(service)}/multi-source-strategy/preview`, body),
+  // Pass carryForwardFrom (a prior snapshot id) to re-extract the same sources and carry the reviewer's edits forward.
+  previewMultiSourceStrategy: (service: string, body: MultiSourceStrategyRequest, carryForwardFrom?: string) =>
+    send<StrategyPreview>('POST', `/services/${encodeURIComponent(service)}/multi-source-strategy/preview${
+      carryForwardFrom ? `?carryForwardFrom=${encodeURIComponent(carryForwardFrom)}` : ''}`, body),
   generateMultiSourceStrategy: (service: string, body: MultiSourceStrategyRequest) =>
     send<TestStrategy>('POST', `/services/${encodeURIComponent(service)}/multi-source-strategy`, body),
   // §6 edit-then-generate over the persisted snapshot (no second pipeline run).
