@@ -27,6 +27,10 @@ public class MockLlmGateway implements LlmGateway {
             // the cheapest Copilot model). Keeps the report bilingual-capable without a real LLM in tests.
             return "Translations (mock).\n```json\n{}\n```\n";
         }
+        if (prompt != null && prompt.contains("[FEATURE-TAGGER]")) {
+            // Mock can't do semantic clustering; return no merge groups so the deterministic seed stands unchanged.
+            return "Feature tags (mock).\n```json\n{\"features\":[]}\n```\n";
+        }
         if (prompt != null && prompt.contains("[TEST-STRATEGY-SECTION:")) {
             int i = prompt.indexOf("[TEST-STRATEGY-SECTION:") + "[TEST-STRATEGY-SECTION:".length();
             int j = prompt.indexOf("]", i);
