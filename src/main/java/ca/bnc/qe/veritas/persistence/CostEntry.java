@@ -27,6 +27,8 @@ public class CostEntry extends AuditableEntity {
     private long estTokensIn;
     private long estTokensOut;
     private double estCostUsd;
+    private Boolean tokensActual;   // true = estTokensIn/Out are the provider's real usage, not a char estimate
+                                    // (nullable so ddl-auto can ALTER-ADD it to an existing SQLite cost_entry table)
     private String owner;
     private String refId;        // optional link to the produced artifact (scanId, planId, testCaseId, …)
 }

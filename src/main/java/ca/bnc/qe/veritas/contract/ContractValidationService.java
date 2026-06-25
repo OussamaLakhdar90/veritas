@@ -472,7 +472,7 @@ public class ContractValidationService {
                     + " findings to fit the model context; per-finding enrichment is merged across batches.");
         }
         CostResult cost = new CostResult(model, mode == null ? BillingMode.PER_REQUEST : mode, premium, tokIn, tokOut,
-                Math.round(costUsd * 10_000.0) / 10_000.0);
+                Math.round(costUsd * 10_000.0) / 10_000.0, false);   // aggregate across batches; per-batch ledger rows carry the real flag
         String blindSpots = blind.isEmpty() ? null : String.join("; ", blind);
         return new ReconcileResult(correctedYaml, enrich, cost, design, confidence, blindSpots);
     }
