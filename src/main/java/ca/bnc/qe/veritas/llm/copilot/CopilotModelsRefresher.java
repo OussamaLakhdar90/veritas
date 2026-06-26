@@ -44,9 +44,17 @@ public class CopilotModelsRefresher {
         }
         try {
             int n = models.refresh();
-            log.debug("Copilot multiplier {} refresh: {} model(s)", when, n);
+            if (n == 0) {
+                // 0 multipliers → billing silently uses fallback rates; visible because the live BNC run hit exactly
+                // this ("Refreshed 0 Copilot model multiplier(s)") when the requested model wasn't one Copilot serves.
+                log.warn("Copilot multiplier {} refresh returned 0 model(s) — billing uses fallback rates; confirm "
+                        + "the configured model is one Copilot actually serves.", when);
+            } else {
+                log.info("Copilot multiplier {} refresh: {} model(s)", when, n);
+            }
         } catch (Exception e) {
-            log.debug("Copilot multiplier {} refresh skipped: {}", when, e.getMessage());
+            // A failed refresh means cost is billed at stale/fallback rates — worth a WARN, not a hidden DEBUG line.
+            log.warn("Copilot multiplier {} refresh failed: {} — billing uses fallback rates.", when, e.getMessage());
         }
     }
 }

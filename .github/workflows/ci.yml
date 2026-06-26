@@ -79,6 +79,35 @@ jobs:
           path: target/pit-reports/
           if-no-files-found: ignore
 
+  # Frontend mutation testing (Stryker) — symmetric with the backend PIT job: its own non-blocking, push-only job
+  # that surfaces dashboard test-strength gaps without ever gating a merge.
+  frontend-mutation:
+    name: Frontend mutation (Stryker)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install
+        run: npm ci
+        working-directory: dashboard
+      - name: Stryker
+        run: npm run test:mutation
+        working-directory: dashboard
+      - name: Upload Stryker report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stryker-report
+          path: dashboard/reports/
+          if-no-files-found: ignore
+
   docker:
     name: Build Docker image
     runs-on: ubuntu-latest

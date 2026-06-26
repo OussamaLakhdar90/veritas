@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config'
+import { defineConfig, configDefaults } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 
 // Separate from vite.config.ts so the build's outDir/proxy never bleed into the test run. The tests drive the
@@ -11,6 +11,8 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     css: false,
     restoreMocks: true,
+    // Keep vitest's defaults (node_modules, dist, …) and also never glob Stryker's mutated sandbox copies.
+    exclude: [...configDefaults.exclude, '.stryker-tmp/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text-summary', 'lcov'],
