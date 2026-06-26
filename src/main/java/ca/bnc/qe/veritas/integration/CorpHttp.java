@@ -79,6 +79,11 @@ public class CorpHttp {
         return exec(http, "POST", url, headers, body, contentType, true);
     }
 
+    /** DELETE a known resource by id (e.g. an Xray test step) — idempotent, so connect-failure retry is safe. */
+    public String delete(String url, Map<String, String> headers) {
+        return exec(http, "DELETE", url, headers, null, null, true);
+    }
+
     /** POST with the longer read timeout — for LLM/Copilot calls whose generation can take minutes. */
     public String postLong(String url, Map<String, String> headers, String body, String contentType) {
         return exec(longHttp, "POST", url, headers, body, contentType, false);

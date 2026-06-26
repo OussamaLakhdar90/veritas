@@ -96,14 +96,37 @@ public class XrayCloudClient implements XrayClient {
         return data.path("createTest").path("test").path("jira").path("key").asText("");
     }
 
-    /** Additive step update (adds the provided steps to the test); full replace is a live-validated enhancement. */
+    /**
+     * Set the test's steps to exactly {@code steps} — REPLACE, not append: remove the existing steps first, then add
+     * the new ones. The old additive behaviour stacked corrected steps on top of the originals on a review-apply,
+     * corrupting the test. A new test has no steps, so this degrades to add-only.
+     */
     public void updateTestSteps(String testKey, List<XrayStep> steps) {
         String issueId = resolveIssueId(testKey);
+        for (String stepId : fetchStepIds(testKey)) {
+            graphqlWrite("mutation { removeTestStep(stepId: \"" + esc(stepId) + "\") }");
+        }
         for (XrayStep s : steps) {
             graphqlWrite("mutation { addTestStep(issueId: \"" + issueId + "\", step: { action: \""
                     + esc(s.action()) + "\", data: \"" + esc(s.data()) + "\", result: \"" + esc(s.result())
                     + "\" }) { id } }");
         }
+    }
+
+    /** The ids of a test's existing steps (best-effort: none → add-only). */
+    private List<String> fetchStepIds(String testKey) {
+        List<String> ids = new ArrayList<>();
+        JsonNode results = graphql("{ getTests(jql: \"key = " + esc(testKey)
+                + "\", start: 0, limit: 1) { results { steps { id } } } }").path("getTests").path("results");
+        for (JsonNode r : results) {
+            for (JsonNode s : r.path("steps")) {
+                String id = s.path("id").asText("");
+                if (!id.isBlank()) {
+                    ids.add(id);
+                }
+            }
+        }
+        return ids;
     }
 
     @Override
@@ -181,7 +204,18 @@ public class XrayCloudClient implements XrayClient {
                     .body(reqBody)
                     .retrieve().body(String.class);
             String resp = write ? retries.callWrite(op) : retries.call(op);
-            return mapper.readTree(resp == null ? "{}" : resp).path("data");
+            JsonNode root = mapper.readTree(resp == null ? "{}" : resp);
+            // GraphQL returns HTTP 200 with an errors[] array on failure; surface it instead of reading a blank
+            // data node (which silently poisoned coverage/dedup — a "no tests" reply that was really an auth/query error).
+            JsonNode errors = root.path("errors");
+            if (errors.isArray() && !errors.isEmpty()) {
+                List<String> msgs = new ArrayList<>();
+                errors.forEach(e -> msgs.add(e.path("message").asText(e.toString())));
+                throw new IllegalStateException("GraphQL error: " + String.join("; ", msgs));
+            }
+            return root.path("data");
+        } catch (IllegalStateException e) {
+            throw e;
         } catch (Exception e) {
             throw new IllegalStateException("Xray GraphQL call failed: " + e.getMessage(), e);
         }

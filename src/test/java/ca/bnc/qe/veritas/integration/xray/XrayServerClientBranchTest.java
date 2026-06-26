@@ -2,12 +2,15 @@ package ca.bnc.qe.veritas.integration.xray;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.containing;
+import static com.github.tomakehurst.wiremock.client.WireMock.delete;
+import static com.github.tomakehurst.wiremock.client.WireMock.deleteRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
+import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -275,6 +278,26 @@ class XrayServerClientBranchTest {
                 List.of(new XrayStep("a1", "d1", "r1"), new XrayStep("a2", "d2", "r2"))));
         assertThat(key).isEqualTo("CIAM-10");
         wm.verify(2, postRequestedFor(urlPathEqualTo("/rest/raven/1.0/api/test/CIAM-10/step")));
+    }
+
+    @Test
+    void updateTestStepsReplacesExistingStepsByDeletingThemFirst() {
+        // The existing steps (ids 11, 12) must be DELETEd before the new step is POSTed — a review-apply replaces,
+        // it doesn't stack corrected steps on top of the originals (which corrupted the test).
+        wm.stubFor(get(urlPathEqualTo("/rest/raven/1.0/api/test/CIAM-5/steps")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("[{\"id\":11,\"step\":\"old A\"},{\"id\":12,\"step\":\"old B\"}]")));
+        wm.stubFor(delete(urlPathMatching("/rest/raven/1.0/api/test/CIAM-5/step/.*"))
+                .willReturn(aResponse().withStatus(204)));
+        wm.stubFor(post(urlPathEqualTo("/rest/raven/1.0/api/test/CIAM-5/step")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json").withBody("{\"id\":99}")));
+
+        client().updateTestSteps("CIAM-5", List.of(new XrayStep("new step", "data", "result")));
+
+        wm.verify(deleteRequestedFor(urlPathEqualTo("/rest/raven/1.0/api/test/CIAM-5/step/11")));
+        wm.verify(deleteRequestedFor(urlPathEqualTo("/rest/raven/1.0/api/test/CIAM-5/step/12")));
+        wm.verify(1, postRequestedFor(urlPathEqualTo("/rest/raven/1.0/api/test/CIAM-5/step"))
+                .withRequestBody(containing("new step")));
     }
 
     @Test

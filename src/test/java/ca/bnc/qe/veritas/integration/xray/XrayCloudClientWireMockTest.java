@@ -257,6 +257,42 @@ class XrayCloudClientWireMockTest {
                 .withRequestBody(containing("9002")));
     }
 
+    @Test
+    void graphqlErrorsArraySurfacesAsAnException() {
+        stubAuth("\"" + TOKEN + "\"");
+        // Xray returns HTTP 200 with an errors[] array on failure — must surface, not be read as blank data.
+        stubGraphql("{\"errors\":[{\"message\":\"Variable jql is invalid\"}],\"data\":null}");
+
+        assertThatThrownBy(() -> client().getTestsByJql("bad jql"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("GraphQL error")
+                .hasMessageContaining("Variable jql is invalid");
+    }
+
+    @Test
+    void updateTestStepsRemovesExistingStepsBeforeAddingNew() {
+        stubAuth("\"" + TOKEN + "\"");
+        // getTests (resolveIssueId + fetchStepIds) returns the issueId AND the existing step ids.
+        wm.stubFor(post(urlPathEqualTo("/api/v2/graphql")).withRequestBody(containing("getTests"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json")
+                        .withBody("{\"data\":{\"getTests\":{\"total\":1,\"results\":[{\"issueId\":\"9999\","
+                                + "\"jira\":{\"key\":\"CIAM-7\"},\"testType\":{\"name\":\"Manual\"},"
+                                + "\"steps\":[{\"id\":\"s1\"},{\"id\":\"s2\"}]}]}}}")));
+        wm.stubFor(post(urlPathEqualTo("/api/v2/graphql")).withRequestBody(containing("removeTestStep"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json")
+                        .withBody("{\"data\":{\"removeTestStep\":true}}")));
+        wm.stubFor(post(urlPathEqualTo("/api/v2/graphql")).withRequestBody(containing("addTestStep"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json")
+                        .withBody("{\"data\":{\"addTestStep\":{\"id\":\"new1\"}}}")));
+
+        client().updateTestSteps("CIAM-7", List.of(new XrayStep("a1", "d1", "r1")));
+
+        // Both existing steps removed, then the one new step added.
+        wm.verify(2, postRequestedFor(urlPathEqualTo("/api/v2/graphql")).withRequestBody(containing("removeTestStep")));
+        wm.verify(1, postRequestedFor(urlPathEqualTo("/api/v2/graphql"))
+                .withRequestBody(containing("addTestStep(issueId: \\\"9999\\\"")));
+    }
+
     // ---- linkTestToRequirement (unsupported on Cloud) ----
 
     @Test

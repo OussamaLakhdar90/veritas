@@ -34,7 +34,9 @@ public class ConfluenceCloudClient implements ConfluenceClient {
 
     @Override
     public ConfluencePage getPage(String pageRef) {
-        String id = pageId(pageRef);   // accept a full page URL or a bare id
+        // pageId() returns digits for a real URL, but a bare ref is passed through — encode it as a single path
+        // segment so a crafted ref can't smuggle extra path/query parts into the REST URL.
+        String id = URLEncoder.encode(pageId(pageRef), StandardCharsets.UTF_8);
         try {
             String resp = retries.call(() -> http.get()
                     .uri(URI.create(apiBase() + "/content/" + id + "?expand=body.storage"))

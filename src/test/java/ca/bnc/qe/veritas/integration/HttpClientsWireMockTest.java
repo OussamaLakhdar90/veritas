@@ -89,6 +89,21 @@ class HttpClientsWireMockTest {
     }
 
     @Test
+    void jiraCloudAttachFilePostsMultipartToTheV3AttachmentsEndpoint() {
+        wm.stubFor(post(urlPathEqualTo("/rest/api/3/issue/CIAM-42/attachments")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json").withBody("[{\"id\":\"10001\"}]")));
+
+        new JiraCloudClient(props(), secrets, mapper, retries)
+                .attachFile("CIAM-42", "corrected-openapi.yaml", "openapi: 3.0.1");
+
+        wm.verify(com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor(
+                        urlPathEqualTo("/rest/api/3/issue/CIAM-42/attachments"))
+                .withHeader("X-Atlassian-Token", com.github.tomakehurst.wiremock.client.WireMock.equalTo("no-check"))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.containing("corrected-openapi.yaml"))
+                .withRequestBody(com.github.tomakehurst.wiremock.client.WireMock.containing("openapi: 3.0.1")));
+    }
+
+    @Test
     void confluenceGetPageParsesStorageBody() {
         // props() defaults confluence edition to SERVER_DC → REST at the host root (no /wiki Cloud prefix).
         wm.stubFor(get(urlPathEqualTo("/rest/api/content/777")).willReturn(aResponse()
