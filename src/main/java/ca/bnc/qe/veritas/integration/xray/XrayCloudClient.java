@@ -91,11 +91,6 @@ public class XrayCloudClient implements XrayClient {
         return tests;
     }
 
-    public List<XrayStep> getTestSteps(String testKey) {
-        List<XrayTest> t = getTestsByJql("key = " + testKey);
-        return t.isEmpty() ? List.of() : t.get(0).steps();
-    }
-
     public String createTest(XrayTestSpec spec) {
         JsonNode data = graphqlWrite(buildCreateTestMutation(spec));
         return data.path("createTest").path("test").path("jira").path("key").asText("");

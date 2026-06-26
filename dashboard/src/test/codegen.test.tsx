@@ -135,7 +135,7 @@ describe('Codegen — Generate tests workspace', () => {
   })
 
   it('triggers a new generation (POST implement-tests) and selects the returned run', async () => {
-    let body: { serviceRepo?: string; outputDir?: string; templatePath?: string } | null = null
+    let body: { serviceRepo?: string; outputDir?: string; templatePath?: string } = {}
     let generated = false
     server.use(
       http.get('*/api/v1/codegen-runs', () => HttpResponse.json(generated ? [run()] : [])),
@@ -157,7 +157,7 @@ describe('Codegen — Generate tests workspace', () => {
     expect(await screen.findByText(/Generation complete/)).toBeInTheDocument()
     expect(body).toMatchObject({ serviceRepo: '/work/ciam-policies', outputDir: '/work/out' })
     // templatePath left blank → omitted (bundled default used).
-    expect(body?.templatePath).toBeUndefined()
+    expect(body.templatePath).toBeUndefined()
     // The returned run is auto-selected → its files render.
     expect(await screen.findByText('src/test/PolicyTest.java')).toBeInTheDocument()
   })

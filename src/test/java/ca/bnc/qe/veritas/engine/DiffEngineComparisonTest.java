@@ -2,6 +2,7 @@ package ca.bnc.qe.veritas.engine;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
@@ -14,21 +15,33 @@ import ca.bnc.qe.veritas.engine.openapi.SpecParse;
 import ca.bnc.qe.veritas.finding.Finding;
 import ca.bnc.qe.veritas.finding.FindingType;
 import org.junit.jupiter.api.Test;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Empirical probe of the real {@link DiffEngine}: runs many code/spec fixture pairs through the full
- * extract -> diff pipeline and prints, per case, whether the engine produced (or correctly suppressed)
- * the expected finding. Pure observation — the engine is never modified. One @Test, many cases.
+ * Golden FP/FN regression guard for the real {@link DiffEngine}: runs many code/spec fixture pairs through the full
+ * extract → diff pipeline and asserts, per case, that the engine produces (FALSE_NEGATIVE_CHECK) or correctly
+ * suppresses (FALSE_POSITIVE_CHECK) the expected finding type. Was a print-only {@code *Probe} that surefire's
+ * default pattern never even ran; now a real {@code *Test} so the 17 fixtures are an enforced regression guard.
+ * {@link #KNOWN_GAPS} documents the intentional non-detections (e.g. object is a wildcard) so they don't read as bugs.
  */
-class DiffEngineComparisonProbe {
+class DiffEngineComparisonTest {
+
+    /**
+     * Cases the engine intentionally does NOT flag (documented design choices), so they don't fail the guard. If a
+     * future change starts detecting one, this set must shrink — a deliberate "update me" tripwire.
+     */
+    private static final Set<String> KNOWN_GAPS = Set.of(
+            // An `object`-typed field is a wildcard in compareSchema (avoids false type-mismatch FPs), so an
+            // object-vs-string field divergence is deliberately not reported as SCHEMA_FIELD_TYPE_MISMATCH.
+            "edge_object_vs_string_guard");
 
     private final JavaSpringExtractor javaExtractor = new JavaSpringExtractor();
     private final OpenApiModelExtractor specExtractor = new OpenApiModelExtractor();
     private final DiffEngine diffEngine = new DiffEngine();
+    private final List<String> regressions = new ArrayList<>();
 
     @Test
-    void probe() throws Exception {
+    void diffEngineMatchesTheGoldenFpFnCatalog() throws Exception {
         // ============ FALSE-POSITIVE CHECKS (code & spec AGREE -> expect NO finding of that type) ============
 
         // FP1: enum field present on both sides — must NOT diff as object-vs-string (post enum-fix)
@@ -332,7 +345,9 @@ class DiffEngineComparisonProbe {
                               properties: {payload: {type: string}}
                         """));
 
-        assertTrue(true);
+        assertThat(regressions)
+                .as("DiffEngine FP/FN regressions (each line: case | expected | actual)")
+                .isEmpty();
     }
 
     // ---------- harness ----------
@@ -354,15 +369,15 @@ class DiffEngineComparisonProbe {
             boolean correct = (kind == Kind.FALSE_POSITIVE_CHECK) ? !produced : produced;
             String expected = (kind == Kind.FALSE_POSITIVE_CHECK)
                     ? "no " + target.name() : target.name();
-            System.out.println("CASE " + name + " | " + kind + " | expected=" + expected
-                    + " | actual=" + (types.isEmpty() ? "[]" : types)
-                    + " | correct=" + correct
-                    + " | parsed=" + parsed);
-            findings.stream().filter(f -> f.getType() == FindingType.RESPONSE_SCHEMA_MISMATCH)
-                    .forEach(f -> System.out.println("    DETAIL " + name + " :: " + f.getSummary()));
+            if (!correct && !KNOWN_GAPS.contains(name)) {
+                regressions.add(name + " | expected " + expected + " | actual " + (types.isEmpty() ? "[]" : types));
+            }
+            // A documented known gap that has STARTED being detected → the tripwire fired; update KNOWN_GAPS.
+            if (correct && KNOWN_GAPS.contains(name)) {
+                regressions.add(name + " | is in KNOWN_GAPS but is now detected — remove it from KNOWN_GAPS");
+            }
         } catch (Exception e) {
-            System.out.println("CASE " + name + " | " + kind + " | expected=" + target.name()
-                    + " | actual=ERROR:" + e + " | correct=false");
+            regressions.add(name + " | " + kind + " | threw " + e);
         }
     }
 
