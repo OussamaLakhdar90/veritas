@@ -51,10 +51,14 @@ public class OpenApiModelExtractor {
         }
 
         String version = detectVersion(content, openApi);
+        // A spec path is relative to servers[].url, so prepend its base path (e.g. servers:/api → /api/owner) for an
+        // apples-to-apples comparison with the code's controller mappings. Ignoring it (the prior behaviour) made every
+        // endpoint look MISSING/EXTRA whenever the spec declared a base path the code's @RequestMapping also carries.
+        String basePath = serverBasePath(openApi);
         List<Endpoint> endpoints = new ArrayList<>();
         if (openApi.getPaths() != null) {
             for (Map.Entry<String, PathItem> pathEntry : openApi.getPaths().entrySet()) {
-                String path = pathEntry.getKey();
+                String path = joinBase(basePath, pathEntry.getKey());
                 Map<PathItem.HttpMethod, Operation> ops = pathEntry.getValue().readOperationsMap();
                 for (Map.Entry<PathItem.HttpMethod, Operation> opEntry : ops.entrySet()) {
                     endpoints.add(toEndpoint(specId, path, opEntry.getKey(), opEntry.getValue(),
@@ -73,6 +77,49 @@ public class OpenApiModelExtractor {
         String title = openApi.getInfo() != null ? openApi.getInfo().getTitle() : null;
         ApiModel model = new ApiModel(specId, title, version, version, endpoints, schemas);
         return new SpecParse(model, messages, true);
+    }
+
+    /**
+     * The base path of the first {@code servers[].url}: an absolute URL (e.g. {@code http://host:8080/api} → {@code
+     * /api}), a relative base ({@code /api} → {@code /api}), or none/templated/root (→ {@code ""}, no prefix). A
+     * server templated with {@code {var}} is left alone (no resolvable static base). Trailing slash stripped.
+     */
+    static String serverBasePath(OpenAPI openApi) {
+        if (openApi.getServers() == null || openApi.getServers().isEmpty()) {
+            return "";
+        }
+        String url = openApi.getServers().get(0).getUrl();
+        if (url == null || url.isBlank() || url.contains("{")) {
+            return "";
+        }
+        String p;
+        if (url.matches("(?i)^[a-z][a-z0-9+.-]*://.*")) {   // absolute URL → take the path component only
+            try {
+                p = java.net.URI.create(url).getPath();
+            } catch (RuntimeException e) {
+                return "";
+            }
+        } else {
+            p = url;   // already a relative base path
+        }
+        if (p == null || p.isBlank() || p.equals("/")) {
+            return "";
+        }
+        if (!p.startsWith("/")) {
+            p = "/" + p;
+        }
+        return p.endsWith("/") ? p.substring(0, p.length() - 1) : p;
+    }
+
+    /** Prepend {@code base} to a spec {@code path} (base already has no trailing slash; path may be "" or "/"). */
+    static String joinBase(String base, String path) {
+        if (base.isEmpty()) {
+            return path;
+        }
+        if (path == null || path.isEmpty() || path.equals("/")) {
+            return base;
+        }
+        return path.startsWith("/") ? base + path : base + "/" + path;
     }
 
     /**
