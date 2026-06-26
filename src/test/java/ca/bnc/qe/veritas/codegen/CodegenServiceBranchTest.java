@@ -336,10 +336,10 @@ class CodegenServiceBranchTest {
         when(jsonExtractor.extract("raw")).thenReturn(
                 "{\"files\":[],\"todos\":[]}",
                 "{\"files\":[{\"path\":\"a.json\",\"content\":\"{}\"}],\"todos\":[]}");
-        // GeneratedFileWriter.write declares IOException (checked) → service wraps it.
+        // GeneratedFileWriter.writeWithin declares IOException (checked) → service wraps it.
         when(buildVerifier.verify(any(), any())).thenReturn(new BuildVerifier.BuildResult("SKIPPED", ""));
         org.mockito.Mockito.doThrow(new java.io.IOException("disk full"))
-                .when(generatedFileWriter).write(any(), eq("a.json"), anyString());
+                .when(generatedFileWriter).writeWithin(any(), eq("a.json"), anyString());
 
         assertThatThrownBy(() -> service.generate("svc", serviceRepo, Files.createTempFile("t", ".md"),
                 outputDir, "tester"))

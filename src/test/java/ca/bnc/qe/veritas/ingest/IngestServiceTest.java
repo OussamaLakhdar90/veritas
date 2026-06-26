@@ -66,4 +66,22 @@ class IngestServiceTest {
         assertThat(basis.items()).anyMatch(i -> i.kind() == TestBasisKind.BUSINESS_RULE
                 && i.text().contains("name must be unique") && i.id().startsWith("12345#"));
     }
+
+    @Test
+    void redactsPiiAndSecretsBeforeTheBasisLeavesTheService() {
+        // Developer-pasted ticket text routinely carries PII/secrets — none of it may reach the LLM. The basis
+        // text fed to BasisBuilder.fromIngest must be scrubbed at this choke-point (mirrors the evidence adapters).
+        String adminEmail = "admin@bnc.ca";
+        String awsKey = "AKIAIOSFODNN7EXAMPLE";
+        ConfluenceClient confluence = pageId -> new ConfluencePage(pageId, "Onboarding",
+                "<h2>Rules</h2><ul><li>Contact " + adminEmail + " with key " + awsKey
+                        + " to provision the policy account</li></ul>");
+
+        TestBasis basis = service(null, confluence).fromConfluence(List.of("99"));
+
+        assertThat(basis.items()).isNotEmpty();
+        String allText = basis.items().stream().map(TestBasisItem::text).reduce("", (a, b) -> a + "\n" + b);
+        assertThat(allText).doesNotContain(adminEmail).doesNotContain(awsKey);
+        assertThat(allText).contains("[REDACTED-EMAIL]").contains("[REDACTED-SECRET]");
+    }
 }

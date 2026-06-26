@@ -2,6 +2,7 @@ package ca.bnc.qe.veritas.codegen;
 
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.List;
@@ -70,6 +71,47 @@ public class GeneratedFileWriter {
                             + "'. Use the approved automated framework (TestNG + Rest-Assured / ca.bnc.lsist.api); "
                             + "for ad-hoc API checks use Bruno or the IntelliJ HTTP Client (.http) — never Postman/Newman."));
         }
+    }
+
+    /**
+     * Containment-safe write: resolves the LLM-supplied {@code relPath} <i>within</i> {@code baseDir} (rejecting
+     * absolute paths and {@code ../} traversal) before scanning + writing. The generated file path comes from the
+     * model and is reachable over the authenticated implement-tests endpoint, so without this a crafted path
+     * (e.g. {@code ../../../../etc/cron.d/x} or {@code C:\Windows\...}) would be an arbitrary-file-write sink.
+     */
+    public void writeWithin(Path baseDir, String relPath, String content) throws IOException {
+        write(resolveWithin(baseDir, relPath), relPath, content);
+    }
+
+    /**
+     * Resolve {@code relPath} under {@code baseDir} with traversal containment. Throws {@link PreconditionException}
+     * (a 400-style config error, not a 500) when the path is empty, absolute, malformed, or escapes {@code baseDir}.
+     */
+    Path resolveWithin(Path baseDir, String relPath) {
+        if (relPath == null || relPath.isBlank()) {
+            throw new PreconditionException("implement-tests", List.of(
+                    "Generated file has an empty path — refusing to write."));
+        }
+        Path rel;
+        try {
+            rel = Path.of(relPath);
+        } catch (InvalidPathException e) {
+            throw new PreconditionException("implement-tests", List.of(
+                    "Generated file path '" + relPath + "' is not a valid path — refusing to write."));
+        }
+        if (rel.isAbsolute()) {
+            throw new PreconditionException("implement-tests", List.of(
+                    "Refusing to write generated file to the absolute path '" + relPath
+                            + "'. Generated paths must be relative to the output repo."));
+        }
+        Path base = baseDir.toAbsolutePath().normalize();
+        Path target = base.resolve(rel).normalize();
+        if (!target.startsWith(base)) {
+            throw new PreconditionException("implement-tests", List.of(
+                    "Generated file path '" + relPath + "' escapes the output directory — refusing to write "
+                            + "outside the run's output repo."));
+        }
+        return target;
     }
 
     /** Scan, then write — merging into an existing JSON registry rather than clobbering it. */
