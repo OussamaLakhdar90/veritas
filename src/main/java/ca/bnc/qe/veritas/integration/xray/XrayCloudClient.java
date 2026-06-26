@@ -97,7 +97,7 @@ public class XrayCloudClient implements XrayClient {
     }
 
     public String createTest(XrayTestSpec spec) {
-        JsonNode data = graphql(buildCreateTestMutation(spec));
+        JsonNode data = graphqlWrite(buildCreateTestMutation(spec));
         return data.path("createTest").path("test").path("jira").path("key").asText("");
     }
 
@@ -105,7 +105,7 @@ public class XrayCloudClient implements XrayClient {
     public void updateTestSteps(String testKey, List<XrayStep> steps) {
         String issueId = resolveIssueId(testKey);
         for (XrayStep s : steps) {
-            graphql("mutation { addTestStep(issueId: \"" + issueId + "\", step: { action: \""
+            graphqlWrite("mutation { addTestStep(issueId: \"" + issueId + "\", step: { action: \""
                     + esc(s.action()) + "\", data: \"" + esc(s.data()) + "\", result: \"" + esc(s.result())
                     + "\" }) { id } }");
         }
@@ -121,7 +121,7 @@ public class XrayCloudClient implements XrayClient {
                 ids.add("\"" + id + "\"");
             }
         }
-        graphql("mutation { addTestsToTestPlan(issueId: \"" + planId + "\", testIssueIds: ["
+        graphqlWrite("mutation { addTestsToTestPlan(issueId: \"" + planId + "\", testIssueIds: ["
                 + String.join(",", ids) + "]) { warning } }");
     }
 
@@ -163,15 +163,29 @@ public class XrayCloudClient implements XrayClient {
         return String.join(", ", parts);
     }
 
+    /** Idempotent GraphQL query (getTests) — safe to retry on any transient failure. */
     private JsonNode graphql(String query) {
+        return graphql(query, false);
+    }
+
+    /**
+     * Non-idempotent GraphQL mutation (createTest/addTestStep/addTestsToTestPlan) — retried only on a connection
+     * failure, never replayed on a 5xx/read-timeout, so a mutation can't create a duplicate Xray test/step.
+     */
+    private JsonNode graphqlWrite(String query) {
+        return graphql(query, true);
+    }
+
+    private JsonNode graphql(String query, boolean write) {
         ensureToken();
         try {
             final String reqBody = mapper.writeValueAsString(Map.of("query", query));
-            String resp = retries.call(() -> http.post().uri(URI.create(base() + "/api/v2/graphql"))
+            java.util.function.Supplier<String> op = () -> http.post().uri(URI.create(base() + "/api/v2/graphql"))
                     .header("Authorization", "Bearer " + token)
                     .header("Content-Type", "application/json")
                     .body(reqBody)
-                    .retrieve().body(String.class));
+                    .retrieve().body(String.class);
+            String resp = write ? retries.callWrite(op) : retries.call(op);
             return mapper.readTree(resp == null ? "{}" : resp).path("data");
         } catch (Exception e) {
             throw new IllegalStateException("Xray GraphQL call failed: " + e.getMessage(), e);

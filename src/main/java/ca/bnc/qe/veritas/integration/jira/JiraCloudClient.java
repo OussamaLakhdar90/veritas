@@ -106,7 +106,7 @@ public class JiraCloudClient implements JiraClient {
     public String createIssue(JiraCreateRequest request) {
         try {
             String payload = buildCreatePayload(request);
-            String resp = retries.call(() -> http.post().uri(URI.create(base() + "/rest/api/3/issue"))
+            String resp = retries.callWrite(() -> http.post().uri(URI.create(base() + "/rest/api/3/issue"))
                     .header("Authorization", authHeader())
                     .header("Content-Type", "application/json")
                     .body(payload)

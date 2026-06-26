@@ -55,16 +55,25 @@ public class CorpHttp {
     }
 
     public String get(String url, Map<String, String> headers) {
-        return exec(http, "GET", url, headers, null, null);
+        return exec(http, "GET", url, headers, null, null, false);
     }
 
+    /** Idempotent POST (e.g. a Jira search) — safe to retry/replay on any transient failure. */
     public String post(String url, Map<String, String> headers, String body, String contentType) {
-        return exec(http, "POST", url, headers, body, contentType);
+        return exec(http, "POST", url, headers, body, contentType, false);
+    }
+
+    /**
+     * Non-idempotent write POST (createIssue/createTest/addStep/comment/link). Retried only on a connection failure
+     * (request never sent); never replayed on a 5xx/read-timeout, so a write can't be duplicated in the bank's tracker.
+     */
+    public String postWrite(String url, Map<String, String> headers, String body, String contentType) {
+        return exec(http, "POST", url, headers, body, contentType, true);
     }
 
     /** POST with the longer read timeout — for LLM/Copilot calls whose generation can take minutes. */
     public String postLong(String url, Map<String, String> headers, String body, String contentType) {
-        return exec(longHttp, "POST", url, headers, body, contentType);
+        return exec(longHttp, "POST", url, headers, body, contentType, false);
     }
 
     /**
@@ -110,27 +119,32 @@ public class CorpHttp {
         });
     }
 
-    private String exec(RestClient client, String method, String url, Map<String, String> headers, String body, String contentType) {
+    private String exec(RestClient client, String method, String url, Map<String, String> headers, String body,
+                        String contentType, boolean write) {
+        java.util.function.Supplier<String> op = () -> {
+            RestClient.RequestBodySpec spec = client.method(HttpMethod.valueOf(method)).uri(URI.create(url));
+            if (headers != null) {
+                spec = spec.headers(h -> headers.forEach((k, v) -> {
+                    if (v != null) {
+                        h.set(k, v);
+                    }
+                }));
+            }
+            if (contentType != null) {
+                spec = spec.header("Content-Type", contentType);
+            }
+            if (body != null) {
+                spec = spec.body(body);
+            }
+            return spec.retrieve().body(String.class);
+        };
         try {
-            return retries.call(() -> {
-                RestClient.RequestBodySpec spec = client.method(HttpMethod.valueOf(method)).uri(URI.create(url));
-                if (headers != null) {
-                    spec = spec.headers(h -> headers.forEach((k, v) -> {
-                        if (v != null) {
-                            h.set(k, v);
-                        }
-                    }));
-                }
-                if (contentType != null) {
-                    spec = spec.header("Content-Type", contentType);
-                }
-                if (body != null) {
-                    spec = spec.body(body);
-                }
-                return spec.retrieve().body(String.class);
-            });
+            return write ? retries.callWrite(op) : retries.call(op);
         } catch (RuntimeException e) {
-            if (powershellFallback) {
+            // The PowerShell fallback RE-SENDS the request. For a non-idempotent write that's only safe when the
+            // RestClient attempt never reached the server (a connection failure) — never on a 5xx/read-timeout,
+            // which could duplicate the write. Idempotent calls (GET / search POST / LLM) may always fall back.
+            if (powershellFallback && (!write || Retries.isConnectFailure(e))) {
                 log.warn("{} {} via RestClient failed ({}); trying PowerShell fallback", method, url, e.getMessage());
                 return viaPowerShell(method, url, headers, body, contentType);
             }

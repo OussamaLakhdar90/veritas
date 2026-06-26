@@ -116,7 +116,7 @@ public class XrayServerClient implements XrayClient {
             fields.put("issuetype", Map.of("name", "Test"));
             fields.put("summary", spec.summary());
             String body = mapper.writeValueAsString(Map.of("fields", fields));
-            String resp = corp.post(base() + "/rest/api/2/issue", authHeaders(), body, "application/json");
+            String resp = corp.postWrite(base() + "/rest/api/2/issue", authHeaders(), body, "application/json");
             String key = mapper.readTree(resp == null ? "{}" : resp).path("key").asText("");
             if (!key.isBlank() && spec.steps() != null && !spec.steps().isEmpty()) {
                 updateTestSteps(key, spec.steps());
@@ -139,7 +139,7 @@ public class XrayServerClient implements XrayClient {
                         "step", s.action() == null ? "" : s.action(),
                         "data", s.data() == null ? "" : s.data(),
                         "result", s.result() == null ? "" : s.result()));
-                corp.post(base() + "/rest/raven/1.0/api/test/" + testKey + "/step", authHeaders(), body, "application/json");
+                corp.postWrite(base() + "/rest/raven/1.0/api/test/" + testKey + "/step", authHeaders(), body, "application/json");
             }
         } catch (Exception e) {
             throw new IllegalStateException("Xray (Raven) updateTestSteps failed for " + testKey + ": " + e.getMessage(), e);
@@ -158,7 +158,7 @@ public class XrayServerClient implements XrayClient {
                     "type", Map.of("name", "Tests"),
                     "outwardIssue", Map.of("key", testKey),
                     "inwardIssue", Map.of("key", requirementKey)));
-            corp.post(base() + "/rest/api/2/issueLink", authHeaders(), body, "application/json");
+            corp.postWrite(base() + "/rest/api/2/issueLink", authHeaders(), body, "application/json");
         } catch (Exception e) {
             throw new IllegalStateException("Xray (Raven) linkTestToRequirement failed for " + testKey
                     + " -> " + requirementKey + ": " + e.getMessage(), e);
@@ -169,7 +169,7 @@ public class XrayServerClient implements XrayClient {
     public void addTestsToTestPlan(String planKey, List<String> testKeys) {
         try {
             String body = mapper.writeValueAsString(Map.of("add", testKeys));
-            corp.post(base() + "/rest/raven/1.0/api/testplan/" + planKey + "/test", authHeaders(), body, "application/json");
+            corp.postWrite(base() + "/rest/raven/1.0/api/testplan/" + planKey + "/test", authHeaders(), body, "application/json");
         } catch (Exception e) {
             throw new IllegalStateException("Xray (Raven) addTestsToTestPlan failed for " + planKey + ": " + e.getMessage(), e);
         }
