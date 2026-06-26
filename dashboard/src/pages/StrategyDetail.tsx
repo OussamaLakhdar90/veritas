@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FileText, ExternalLink, ScrollText, CheckCircle2, XCircle, RefreshCw, Save, History } from 'lucide-react';
+import { FileText, ExternalLink, ScrollText, CheckCircle2, XCircle, RefreshCw, Save, History, ListTree } from 'lucide-react';
 import { api, Deliverable, StrategyScorecard } from '../api';
 import {
   Badge, Button, Card, CardBody, CardHeader, Field, Input, PageHeader, Spinner, Table, Td, Th, Row, Textarea, ErrorState,
@@ -218,6 +218,10 @@ export function StrategyDetail() {
               className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[13px] font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50">
               <FileText className="h-4 w-4" /> Rationale <ExternalLink className="h-3 w-3" />
             </a>
+            <Link to={`/test-conditions/${s.id}`}
+              className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[13px] font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50">
+              <ListTree className="h-4 w-4" /> Test conditions
+            </Link>
             {s.source === 'multi-source' && (
               <a href={api.strategyWhyDocUrl(s.id)} target="_blank" rel="noreferrer"
                 className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[13px] font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50">

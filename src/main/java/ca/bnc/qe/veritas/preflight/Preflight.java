@@ -63,6 +63,10 @@ public class Preflight {
         require("test-strategy", ordered("service name", serviceName, "test basis (code or stories)", basis));
     }
 
+    public void testAnalysis(String serviceName, String basis) {
+        require("analyze-test-conditions", ordered("service name", serviceName, "test basis", basis));
+    }
+
     public void createTestCases(String serviceName, String basis) {
         require("create-test-cases", ordered("service name", serviceName, "test basis", basis));
     }
