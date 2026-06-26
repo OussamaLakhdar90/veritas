@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import ca.bnc.qe.veritas.integration.HttpFactory;
 import ca.bnc.qe.veritas.integration.confluence.ConfluenceClient;
 import ca.bnc.qe.veritas.integration.confluence.ConfluencePage;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +26,9 @@ import org.springframework.web.client.RestClientException;
 public class SpecResolver {
 
     private final ConfluenceClient confluence;
-    private final RestClient http = RestClient.builder().build();
+    // Bounded connect/read timeout: a user-supplied LIVE_DOCS URL that hangs must not wedge a scan-pool worker
+    // forever. Mirrors the six peer integration clients (XrayCloud, Jira, etc.) that already use HttpFactory.
+    private final RestClient http = RestClient.builder().requestFactory(HttpFactory.bounded()).build();
 
     public SpecResolver(ConfluenceClient confluence) {
         this.confluence = confluence;

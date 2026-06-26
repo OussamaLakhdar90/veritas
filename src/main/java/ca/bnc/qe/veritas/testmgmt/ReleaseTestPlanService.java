@@ -115,7 +115,7 @@ public class ReleaseTestPlanService {
                     "No test strategy found for '" + serviceName + "'. Create a strategy first (test-strategy) — the "
                             + "release plan's risk register and coverage goals derive from it."));
         }
-        ca.bnc.qe.veritas.persistence.TestStrategy strategy = strategies.get(0);
+        ca.bnc.qe.veritas.persistence.TestStrategy strategy = selectStrategy(serviceName, strategies);
         String strategyBasis = strategy.getDeliverableJson() != null && !strategy.getDeliverableJson().isBlank()
                 ? strategy.getDeliverableJson() : strategy.getContentMarkdown();
         try {
@@ -338,6 +338,28 @@ public class ReleaseTestPlanService {
         } catch (Exception e) {
             throw new IllegalStateException("release-test-plan failed: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Pick the strategy the release plan derives from: the APPROVED, signed-off one — not merely the newest-created.
+     * Otherwise approve-v1 → revise-to-v2(DRAFT) would silently base the release plan on an unapproved draft, voiding
+     * the whole approval gate. {@code strategies} is createdAt-desc, so the first APPROVED is the latest approved;
+     * with none approved we fall back to the most recent (logged, so it's visible that the gate wasn't crossed).
+     */
+    static ca.bnc.qe.veritas.persistence.TestStrategy selectStrategy(
+            String serviceName, List<ca.bnc.qe.veritas.persistence.TestStrategy> strategies) {
+        ca.bnc.qe.veritas.persistence.TestStrategy strategy = strategies.stream()
+                .filter(s -> "APPROVED".equalsIgnoreCase(s.getStatus()))
+                .findFirst()
+                .orElseGet(() -> {
+                    log.warn("No APPROVED test strategy for '{}'; deriving the release plan from the most recent "
+                            + "strategy (status={}). Approve a strategy so the plan rests on a signed-off baseline.",
+                            serviceName, strategies.get(0).getStatus());
+                    return strategies.get(0);
+                });
+        log.info("Release plan for '{}' uses strategy {} (v{}, status={}).",
+                serviceName, strategy.getId(), strategy.getVersion(), strategy.getStatus());
+        return strategy;
     }
 
     /** Heuristic: issues that aren't worth test cases (spikes, research, infra, docs, chores). */

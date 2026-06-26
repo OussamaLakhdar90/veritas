@@ -105,6 +105,26 @@ class XrayServerClientBranchTest {
     }
 
     @Test
+    void getTestsByJqlPagesThroughAllResultsUsingStartAtAndTotal() {
+        // total=3 with PAGE_SIZE rows per page: page 1 (startAt=0) returns 2, page 2 (startAt=2) returns the 3rd.
+        // Pre-fix this capped at one page and silently dropped tests beyond it.
+        wm.stubFor(get(urlPathEqualTo("/rest/api/2/search")).withQueryParam("startAt", equalTo("0"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json")
+                        .withBody("{\"total\":3,\"issues\":["
+                                + "{\"key\":\"CIAM-1\",\"id\":\"1\",\"fields\":{\"summary\":\"a\"}},"
+                                + "{\"key\":\"CIAM-2\",\"id\":\"2\",\"fields\":{\"summary\":\"b\"}}]}")));
+        wm.stubFor(get(urlPathEqualTo("/rest/api/2/search")).withQueryParam("startAt", equalTo("2"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json")
+                        .withBody("{\"total\":3,\"issues\":["
+                                + "{\"key\":\"CIAM-3\",\"id\":\"3\",\"fields\":{\"summary\":\"c\"}}]}")));
+
+        List<XrayTest> tests = client().getTestsByJql("project = CIAM");
+
+        assertThat(tests).extracting(XrayTest::key).containsExactly("CIAM-1", "CIAM-2", "CIAM-3");
+        wm.verify(2, getRequestedFor(urlPathEqualTo("/rest/api/2/search")));   // exactly two pages, then stop
+    }
+
+    @Test
     void getTestsByJqlMapsKeyIdSummaryAndStripsHtmlSteps() {
         wm.stubFor(get(urlPathEqualTo("/rest/api/2/search")).willReturn(aResponse()
                 .withHeader("Content-Type", "application/json")
