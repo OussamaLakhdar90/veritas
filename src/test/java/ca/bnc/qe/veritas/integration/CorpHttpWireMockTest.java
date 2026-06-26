@@ -69,6 +69,26 @@ class CorpHttpWireMockTest {
     }
 
     @Test
+    void recordsAPerCallTimerMetricTaggedByOutcomeWhenARegistryIsWired() {
+        wm.stubFor(get(urlPathEqualTo("/ok")).willReturn(aResponse().withBody("hi")));
+        wm.stubFor(get(urlPathEqualTo("/boom")).willReturn(aResponse().withStatus(500)));
+        var registry = new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
+        CorpHttp corp = new CorpHttp(retries);
+        corp.setMeterRegistry(registry);
+
+        corp.get(base() + "/ok", Map.of());
+        var success = registry.find("veritas.integration.http")
+                .tag("outcome", "success").tag("method", "GET").timer();
+        assertThat(success).isNotNull();
+        assertThat(success.count()).isEqualTo(1);
+
+        catchThrowable(() -> corp.get(base() + "/boom", Map.of()));
+        var error = registry.find("veritas.integration.http").tag("outcome", "error").timer();
+        assertThat(error).isNotNull();
+        assertThat(error.count()).isEqualTo(1);
+    }
+
+    @Test
     void postSendsBodyContentTypeAndHeaderThenReturnsBody() {
         wm.stubFor(post(urlPathEqualTo("/thing")).willReturn(aResponse()
                 .withHeader("Content-Type", "application/json").withBody("{\"created\":1}")));

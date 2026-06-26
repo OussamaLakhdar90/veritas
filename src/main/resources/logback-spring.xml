@@ -10,8 +10,10 @@
     <conversionRule conversionWord="maskedMsg"
                     converterClass="ca.bnc.qe.veritas.secret.MaskingMessageConverter"/>
 
+    <!-- %X{correlationId} (set by CorrelationIdFilter) ties every line of one request/scan together for post-mortem. -->
     <property name="VERITAS_LOG_PATTERN"
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %5level [%thread] %logger{36} - %maskedMsg%n"/>
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %5level [%thread] [%X{correlationId:-}] %logger{36} - %maskedMsg%n"/>
+    <property name="LOG_DIR" value="${LOG_DIR:-logs}"/>
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
@@ -19,7 +21,21 @@
         </encoder>
     </appender>
 
+    <!-- Rolling file appender so a crash/run leaves a durable, masked log on disk (console-only had no record). -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/veritas.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/veritas.%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>14</maxHistory>
+            <totalSizeCap>200MB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${VERITAS_LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
     </root>
 </configuration>
