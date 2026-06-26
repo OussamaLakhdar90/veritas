@@ -10,6 +10,7 @@ import ca.bnc.qe.veritas.integration.Retries;
 import ca.bnc.qe.veritas.secret.SecretProvider;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -20,8 +21,14 @@ import org.springframework.web.client.RestClient;
  * Server/DC "Raven" REST client ({@link XrayServerClient}), which matches the BNC contract-validator app.
  */
 @Component
+@Slf4j
 @ConditionalOnProperty(name = "veritas.connections.xray.edition", havingValue = "CLOUD")
 public class XrayCloudClient implements XrayClient {
+
+    /** Xray Cloud GraphQL page size for getTests (the API itself caps a single page at 100). */
+    private static final int PAGE_SIZE = 100;
+    /** Hard cap so a wrong/missing {@code total} can never spin forever; 100 × 100 = 10k tests covers any real project. */
+    private static final int MAX_PAGES = 100;
 
     private final ConnectionsProperties connections;
     private final SecretProvider secrets;
@@ -52,16 +59,35 @@ public class XrayCloudClient implements XrayClient {
     }
 
     public List<XrayTest> getTestsByJql(String jql) {
-        JsonNode data = graphql(buildGetTestsQuery(jql));
         List<XrayTest> tests = new ArrayList<>();
-        for (JsonNode r : data.path("getTests").path("results")) {
-            List<XrayStep> steps = new ArrayList<>();
-            for (JsonNode s : r.path("steps")) {
-                steps.add(new XrayStep(s.path("action").asText(""), s.path("data").asText(""), s.path("result").asText("")));
+        // Page through getTests (start/total) instead of capping at one 100-row page. A project with >100 tests
+        // was silently truncated → false coverage gaps, missed orphans, and duplicate test creation on outward writes.
+        int start = 0;
+        int total = 0;
+        int page = 0;
+        do {
+            JsonNode getTests = graphql(buildGetTestsQuery(jql, start, PAGE_SIZE)).path("getTests");
+            JsonNode results = getTests.path("results");
+            for (JsonNode r : results) {
+                List<XrayStep> steps = new ArrayList<>();
+                for (JsonNode s : r.path("steps")) {
+                    steps.add(new XrayStep(s.path("action").asText(""), s.path("data").asText(""), s.path("result").asText("")));
+                }
+                tests.add(new XrayTest(r.path("jira").path("key").asText(""), r.path("issueId").asText(""),
+                        r.path("jira").path("summary").asText(""), r.path("testType").path("name").asText(""), steps));
             }
-            tests.add(new XrayTest(r.path("jira").path("key").asText(""), r.path("issueId").asText(""),
-                    r.path("jira").path("summary").asText(""), r.path("testType").path("name").asText(""), steps));
-        }
+            total = getTests.path("total").asInt(0);
+            int fetched = results.size();
+            start += fetched;
+            if (fetched == 0) {
+                break;
+            }
+            if (++page >= MAX_PAGES) {
+                log.warn("Xray getTestsByJql hit the {}-page cap ({} tests) for jql '{}'; results truncated at {}.",
+                        MAX_PAGES, tests.size(), jql, total);
+                break;
+            }
+        } while (start < total);
         return tests;
     }
 
@@ -110,7 +136,12 @@ public class XrayCloudClient implements XrayClient {
     // ---- testable builders ----
 
     public String buildGetTestsQuery(String jql) {
-        return "{ getTests(jql: \"" + esc(jql) + "\", limit: 100) { results { issueId "
+        return buildGetTestsQuery(jql, 0, PAGE_SIZE);
+    }
+
+    /** Paged variant: requests {@code [start, start+limit)} and selects {@code total} so the caller can page. */
+    public String buildGetTestsQuery(String jql, int start, int limit) {
+        return "{ getTests(jql: \"" + esc(jql) + "\", start: " + start + ", limit: " + limit + ") { total results { issueId "
                 + "jira(fields: [\"key\", \"summary\"]) testType { name } steps { action data result } } } }";
     }
 

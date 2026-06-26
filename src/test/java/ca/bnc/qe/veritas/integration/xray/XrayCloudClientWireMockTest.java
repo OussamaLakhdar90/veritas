@@ -175,6 +175,28 @@ class XrayCloudClientWireMockTest {
     }
 
     @Test
+    void getTestsByJqlPagesThroughAllResultsUsingStartAndTotal() {
+        stubAuth("\"" + TOKEN + "\"");
+        // total=2, one result per page: page 1 (start: 0) → CIAM-1, page 2 (start: 1) → CIAM-2, then stop.
+        // Pre-fix this capped at one 100-row page and silently dropped tests beyond it.
+        wm.stubFor(post(urlPathEqualTo("/api/v2/graphql")).withRequestBody(containing("start: 0"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json")
+                        .withBody("{\"data\":{\"getTests\":{\"total\":2,\"results\":[{"
+                                + "\"issueId\":\"1\",\"jira\":{\"key\":\"CIAM-1\",\"summary\":\"a\"},"
+                                + "\"testType\":{\"name\":\"Manual\"},\"steps\":[]}]}}}")));
+        wm.stubFor(post(urlPathEqualTo("/api/v2/graphql")).withRequestBody(containing("start: 1"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json")
+                        .withBody("{\"data\":{\"getTests\":{\"total\":2,\"results\":[{"
+                                + "\"issueId\":\"2\",\"jira\":{\"key\":\"CIAM-2\",\"summary\":\"b\"},"
+                                + "\"testType\":{\"name\":\"Manual\"},\"steps\":[]}]}}}")));
+
+        List<XrayTest> tests = client().getTestsByJql("project = CIAM");
+
+        assertThat(tests).extracting(XrayTest::key).containsExactly("CIAM-1", "CIAM-2");
+        wm.verify(2, postRequestedFor(urlPathEqualTo("/api/v2/graphql")).withRequestBody(containing("getTests")));
+    }
+
+    @Test
     void getTestStepsReturnsStepsOfFirstMatch() {
         stubAuth("\"" + TOKEN + "\"");
         stubGraphql("{\"data\":{\"getTests\":{\"results\":[{"

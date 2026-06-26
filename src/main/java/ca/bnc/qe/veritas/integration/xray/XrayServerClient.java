@@ -11,6 +11,7 @@ import ca.bnc.qe.veritas.integration.CorpHttp;
 import ca.bnc.qe.veritas.secret.SecretProvider;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
@@ -27,8 +28,14 @@ import org.springframework.stereotype.Component;
  * URL is the configured Jira base. Step bodies are HTML-stripped (Xray stores rich text).
  */
 @Component
+@Slf4j
 @ConditionalOnProperty(name = "veritas.connections.xray.edition", havingValue = "SERVER_DC", matchIfMissing = true)
 public class XrayServerClient implements XrayClient {
+
+    /** Jira REST page size for the test search. */
+    private static final int PAGE_SIZE = 200;
+    /** Hard cap so a wrong/missing {@code total} can never spin forever; 50 × 200 = 10k tests covers any real project. */
+    private static final int MAX_PAGES = 50;
 
     private final ConnectionsProperties connections;
     private final SecretProvider secrets;
@@ -46,16 +53,36 @@ public class XrayServerClient implements XrayClient {
     public List<XrayTest> getTestsByJql(String jql) {
         try {
             String testJql = jql == null || jql.isBlank() ? "issuetype = Test" : jql;
-            String uri = base() + "/rest/api/2/search?jql=" + URLEncoder.encode(testJql, StandardCharsets.UTF_8)
-                    + "&maxResults=200&fields=summary,labels,status";
-            String resp = corp.get(uri, authHeaders());
-            JsonNode root = mapper.readTree(resp == null ? "{}" : resp);
+            String encoded = URLEncoder.encode(testJql, StandardCharsets.UTF_8);
             List<XrayTest> tests = new ArrayList<>();
-            for (JsonNode issue : root.path("issues")) {
-                String key = issue.path("key").asText("");
-                tests.add(new XrayTest(key, issue.path("id").asText(""),
-                        issue.path("fields").path("summary").asText(""), "Manual", fetchSteps(key)));
-            }
+            // Page through the Jira search (startAt/total) instead of capping at one 200-row page. A project with
+            // >200 tests was silently truncated → false coverage gaps, missed orphans, and duplicate test creation.
+            int startAt = 0;
+            int total = 0;
+            int page = 0;
+            do {
+                String uri = base() + "/rest/api/2/search?jql=" + encoded
+                        + "&startAt=" + startAt + "&maxResults=" + PAGE_SIZE + "&fields=summary,labels,status";
+                String resp = corp.get(uri, authHeaders());
+                JsonNode root = mapper.readTree(resp == null ? "{}" : resp);
+                JsonNode issues = root.path("issues");
+                for (JsonNode issue : issues) {
+                    String key = issue.path("key").asText("");
+                    tests.add(new XrayTest(key, issue.path("id").asText(""),
+                            issue.path("fields").path("summary").asText(""), "Manual", fetchSteps(key)));
+                }
+                total = root.path("total").asInt(0);
+                int fetched = issues.size();   // advance by what the server actually returned (it may cap maxResults)
+                startAt += fetched;
+                if (fetched == 0) {
+                    break;
+                }
+                if (++page >= MAX_PAGES) {
+                    log.warn("Xray getTestsByJql hit the {}-page cap ({} tests) for jql '{}'; results truncated at {}.",
+                            MAX_PAGES, tests.size(), testJql, total);
+                    break;
+                }
+            } while (startAt < total);
             return tests;
         } catch (Exception e) {
             throw new IllegalStateException("Xray (Raven) getTestsByJql failed: " + e.getMessage(), e);
