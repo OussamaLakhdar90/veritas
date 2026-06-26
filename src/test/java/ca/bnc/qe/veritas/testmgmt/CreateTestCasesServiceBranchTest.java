@@ -52,6 +52,7 @@ class CreateTestCasesServiceBranchTest {
     @Mock CostRecorder costRecorder;
     @Mock PromptComposer promptComposer;
     @Mock TestCaseRepository repository;
+    @Mock ca.bnc.qe.veritas.persistence.TestConditionRepository conditionRepository;
     @Mock XrayClient xray;
     @Mock GateService gateService;
     @Spy ObjectMapper objectMapper = new ObjectMapper();

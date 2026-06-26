@@ -29,6 +29,7 @@ public class TestCase extends AuditableEntity {
     private String status;
     private String xrayKey;
     private String linkedRequirement;
+    private String testConditionId;    // the test condition this case was designed from (basis ↔ condition ↔ case)
     private String dedupFingerprint;   // stable fingerprint for idempotent create / dedup
     private String approvedBy;
     private java.time.Instant approvedAt;

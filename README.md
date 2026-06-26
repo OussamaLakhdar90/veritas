@@ -29,6 +29,7 @@ java -jar target/veritas-0.1.0-SNAPSHOT.jar --version     # CLI
 | `create-defect --finding <id> --project <KEY>` | Create a Jira defect from a finding. |
 | `test-strategy --name <svc>` (`--repo`/`--app-id` or `--jql`/`--confluence`) | Global ISTQB Test Manager strategy from code or Jira/Confluence. |
 | `multi-source-strategy --name <svc>` (any combo of `--repo`/`--app-id`, `--jql`, `--confluence`) | Strategy synthesized from code + Jira + Confluence together (feature index → scorecard). |
+| `analyze-test-conditions --name <svc>` (`--repo`/`--app-id` or `--jql`/`--confluence`) | ISTQB **test analysis**: identify + prioritize the test conditions ("what to test") from the approved strategy + basis; each traces a basis item + a risk and carries an automation candidacy. The work product between the strategy and the cases. |
 | `release-test-plan --name <svc> --fix-version <v> --project <KEY> [--create]` | Release plan + coverage reconciliation (RTM); `--create` raises gap tests in Xray. |
 | `create-test-cases --name <svc> ... [--project --push]` | ISTQB Test Analyst cases; `--push` creates them in Xray. |
 | `review-test-cases --jql "<jql>" [--apply]` | Review/score Xray tests; `--apply` writes corrected steps back. |
@@ -60,8 +61,9 @@ See [docs/configuration.md](docs/configuration.md).
 Implemented & tested (mock LLM + stubbed HTTP where live systems are required): the orchestration
 framework, cost/model selection, the contract-validation engine (+ validate-contract skill, report,
 corrected YAML, spec drift), Jira/Confluence ingestion (ADF/storage → markdown → test basis), Bitbucket
-Cloud discovery/clone, Jira/Xray clients, create-defect, test-strategy, release-test-plan + coverage,
-create-test-cases, review-test-cases, implement-tests, and the React dashboard.
+Cloud discovery/clone, Jira/Xray clients, create-defect, test-strategy, analyze-test-conditions (test
+analysis → Test Condition List + automation candidacy), release-test-plan + coverage, create-test-cases
+(linked back to their test conditions), review-test-cases, implement-tests, and the React dashboard.
 
 Management report exports to **HTML and PDF** (openhtmltopdf).
 

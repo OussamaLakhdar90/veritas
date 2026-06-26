@@ -238,6 +238,25 @@ export interface TestStrategy {
   createdAt?: string
 }
 
+/** A test condition (ISTQB test analysis) — the work product between the strategy and the cases. */
+export interface TestCondition {
+  id: string
+  serviceName?: string
+  conditionRef?: string
+  description?: string
+  sourceBasisItem?: string
+  priority?: string
+  riskRef?: string
+  qualityCharacteristic?: string
+  technique?: string
+  automation?: string          // MANUAL | AUTOMATED | CANDIDATE
+  automationRationale?: string
+  status?: string
+  testStrategyId?: string
+  confidence?: number
+  createdAt?: string
+}
+
 /** Request to the multi-source strategy endpoints — any subset of code + Jira + Confluence. */
 export interface MultiSourceStrategyRequest {
   code?: { appId?: string; repoSlug?: string; branch?: string; repoPath?: string }
@@ -406,6 +425,15 @@ export const api = {
   runReview: (body: { jql: string; apply: boolean; owner?: string }) => send<ReviewResult[]>('POST', '/reviews', body),
   generateTestCases: (service: string, body: { basis: string; owner?: string }) =>
     send<TestCase[]>('POST', `/services/${encodeURIComponent(service)}/test-cases`, body),
+
+  // Test conditions (ISTQB test analysis) — derived from the strategy; the auto/manual split is decided per condition.
+  testConditions: (strategyId: string) =>
+    get<TestCondition[]>(`/strategies/${encodeURIComponent(strategyId)}/test-conditions`),
+  analyzeConditions: (service: string, body: { basis: string; owner?: string }) =>
+    send<TestCondition[]>('POST', `/services/${encodeURIComponent(service)}/test-conditions`, body),
+  patchCondition: (id: string, body: { automation?: string; status?: string; priority?: string }) =>
+    send<TestCondition>('PATCH', `/test-conditions/${encodeURIComponent(id)}`, body),
+  testConditionsReportUrl: (strategyId: string) => `${BASE}/strategies/${strategyId}/test-conditions/report`,
 
   // ── Settings: secrets, connections, test-connection, Copilot sign-in ──
   secretsStatus: () => get<SecretStatus>('/settings/secrets'),

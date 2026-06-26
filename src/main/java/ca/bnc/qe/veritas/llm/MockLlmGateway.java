@@ -106,6 +106,17 @@ public class MockLlmGateway implements LlmGateway {
                     ```
                     """;
         }
+        if (prompt != null && prompt.contains("[TEST-ANALYSIS]")) {
+            // Test conditions (ISTQB test analysis) — traced to the mock strategy's risks R1/R2, with an
+            // automation candidacy per condition. Schema-valid stand-in so the analysis pipeline runs in mock mode.
+            return """
+                    Test conditions (mock — a real run uses Copilot).
+
+                    ```json
+                    {"conditions": [{"ref": "TCD-001", "description": "Create policy rejects payloads that violate field constraints", "sourceBasisItem": "POST /policies", "priority": "P1", "riskRef": "R1", "qualityCharacteristic": "Functional suitability", "technique": "Boundary Value Analysis", "automation": "AUTOMATED", "automationRationale": "Stable, repeatable regression check — high value to automate"}, {"ref": "TCD-002", "description": "Unauthorized read of a policy is denied", "sourceBasisItem": "GET /policies/{id}", "priority": "P1", "riskRef": "R2", "qualityCharacteristic": "Security", "technique": "Decision Table", "automation": "AUTOMATED", "automationRationale": "AuthZ matrix is deterministic and regression-critical"}, {"ref": "TCD-003", "description": "Exploratory check of error-message clarity on validation failure", "sourceBasisItem": "POST /policies", "priority": "P3", "riskRef": "R1", "qualityCharacteristic": "Usability", "technique": "Exploratory", "automation": "MANUAL", "automationRationale": "Judgement-based, no stable oracle — better run by a human"}], "selfReview": {"confidence": 81, "blindSpots": ["No performance NFRs supplied in the basis"]}}
+                    ```
+                    """;
+        }
         if (prompt != null && prompt.contains("[TEST-CASES]")) {
             return """
                     Test cases (mock).

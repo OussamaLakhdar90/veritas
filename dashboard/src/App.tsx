@@ -9,6 +9,7 @@ import { RepoPicker } from './pages/RepoPicker';
 import { Findings } from './pages/Findings';
 import { TestStrategy } from './pages/TestStrategy';
 import { StrategyDetail } from './pages/StrategyDetail';
+import { TestConditions } from './pages/TestConditions';
 import { MultiSourceStrategy } from './pages/MultiSourceStrategy';
 import { TestPlans } from './pages/TestPlans';
 import { TestPlanDetail } from './pages/TestPlanDetail';
@@ -94,6 +95,7 @@ export function App() {
               <Route path="/defects" element={<Defects />} />
               <Route path="/test-strategy" element={<TestStrategy />} />
               <Route path="/test-strategy/:id" element={<StrategyDetail />} />
+              <Route path="/test-conditions/:id" element={<TestConditions />} />
               <Route path="/multi-source-strategy" element={<MultiSourceStrategy />} />
               <Route path="/test-plans" element={<TestPlans />} />
               <Route path="/test-plans/:id" element={<TestPlanDetail />} />
