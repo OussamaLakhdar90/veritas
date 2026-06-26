@@ -124,6 +124,36 @@ class XrayServerClientBranchTest {
         wm.verify(2, getRequestedFor(urlPathEqualTo("/rest/api/2/search")));   // exactly two pages, then stop
     }
 
+    /** A client whose CorpHttp retries transient failures up to 3× — to prove the read/write retry distinction. */
+    private XrayServerClient retryingClient() {
+        CorpHttp retryingCorp = new CorpHttp(new Retries(RetryTemplate.builder()
+                .maxAttempts(3).fixedBackoff(1)
+                .retryOn(org.springframework.web.client.RestClientException.class).build()));
+        ConnectionsProperties p = new ConnectionsProperties();
+        p.getJira().setBaseUrl("http://localhost:" + wm.port());
+        return new XrayServerClient(p, patSecrets, mapper, retryingCorp);
+    }
+
+    @Test
+    void createTestIsNotRetriedOnServerErrorSoNoDuplicateXrayTest() {
+        // A 5xx on createTest (non-idempotent write) must NOT be replayed: the server may already have created the
+        // Test, so a retry would create a duplicate in the bank's real tracker. Exactly one POST, then surface.
+        wm.stubFor(post(urlPathEqualTo("/rest/api/2/issue")).willReturn(aResponse().withStatus(500)));
+        assertThatThrownBy(() -> retryingClient().createTest(new XrayTestSpec("CIAM", "T", "Manual", List.of())))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("createTest failed");
+        wm.verify(1, postRequestedFor(urlPathEqualTo("/rest/api/2/issue")));
+    }
+
+    @Test
+    void getTestsByJqlIsRetriedOnServerErrorSinceReadsAreIdempotent() {
+        // The contrast: a GET read IS idempotent, so the same retrying client replays it to exhaustion (3×).
+        wm.stubFor(get(urlPathEqualTo("/rest/api/2/search")).willReturn(aResponse().withStatus(500)));
+        assertThatThrownBy(() -> retryingClient().getTestsByJql("project = CIAM"))
+                .isInstanceOf(IllegalStateException.class);
+        wm.verify(3, getRequestedFor(urlPathEqualTo("/rest/api/2/search")));
+    }
+
     @Test
     void getTestsByJqlMapsKeyIdSummaryAndStripsHtmlSteps() {
         wm.stubFor(get(urlPathEqualTo("/rest/api/2/search")).willReturn(aResponse()

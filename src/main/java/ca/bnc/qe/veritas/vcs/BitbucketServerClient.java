@@ -140,7 +140,8 @@ public class BitbucketServerClient implements GitHost {
                                   String title, String description) {
         try {
             String payload = buildPullRequestPayload(sourceBranch, targetBranch, title, description);
-            String body = retries.call(() -> http.post().uri(URI.create(buildPullRequestUri(repoSlug)))
+            // Non-idempotent write: don't replay on a 5xx/read-timeout (would risk a duplicate PR).
+            String body = retries.callWrite(() -> http.post().uri(URI.create(buildPullRequestUri(repoSlug)))
                     .header("Authorization", authHeader())
                     .header("Content-Type", "application/json")
                     .body(payload)

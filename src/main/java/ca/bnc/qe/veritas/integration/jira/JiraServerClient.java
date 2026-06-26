@@ -107,7 +107,7 @@ public class JiraServerClient implements JiraClient {
     public String createIssue(JiraCreateRequest request) {
         try {
             String payload = buildCreatePayload(request);
-            String resp = corp.post(base() + "/rest/api/2/issue", authHeaders(), payload, "application/json");
+            String resp = corp.postWrite(base() + "/rest/api/2/issue", authHeaders(), payload, "application/json");
             return mapper.readTree(resp == null ? "{}" : resp).path("key").asText("");
         } catch (Exception e) {
             throw new IllegalStateException("Jira createIssue failed: " + e.getMessage(), e);
@@ -131,7 +131,7 @@ public class JiraServerClient implements JiraClient {
     public void addComment(String key, String wikiBody) {
         try {
             String body = mapper.writeValueAsString(Map.of("body", wikiBody == null ? "" : wikiBody));
-            corp.post(base() + "/rest/api/2/issue/" + key + "/comment", authHeaders(), body, "application/json");
+            corp.postWrite(base() + "/rest/api/2/issue/" + key + "/comment", authHeaders(), body, "application/json");
         } catch (Exception e) {
             throw new IllegalStateException("Jira addComment failed for " + key + ": " + e.getMessage(), e);
         }
@@ -150,7 +150,7 @@ public class JiraServerClient implements JiraClient {
             buf.write(content == null ? new byte[0] : content.getBytes(StandardCharsets.UTF_8));
             buf.write(tail.getBytes(StandardCharsets.UTF_8));
             byte[] body = buf.toByteArray();
-            retries.call(() -> http.post().uri(URI.create(base() + "/rest/api/2/issue/" + key + "/attachments"))
+            retries.callWrite(() -> http.post().uri(URI.create(base() + "/rest/api/2/issue/" + key + "/attachments"))
                     .header("Authorization", authHeader())
                     .header("X-Atlassian-Token", "no-check")   // required by Jira for attachments
                     .header("Content-Type", "multipart/form-data; boundary=" + boundary)
