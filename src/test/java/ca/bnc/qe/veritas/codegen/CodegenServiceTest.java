@@ -54,7 +54,7 @@ class CodegenServiceTest {
               name: demo-framework
               language: java
             buildTool: maven
-            verifyCommand: "veritas-nonexistent-build-cmd-xyz"
+            verifyCommand: "java --veritas-bogus-flag-xyz"
             layout: {}
             ---
             body

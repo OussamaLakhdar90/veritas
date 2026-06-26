@@ -117,6 +117,31 @@ public class JiraCloudClient implements JiraClient {
         }
     }
 
+    /** Attach a file to a Cloud issue (REST v3 multipart). Mirrors the Server/DC client so report-attach works on Cloud. */
+    @Override
+    public void attachFile(String key, String fileName, String content) {
+        try {
+            String boundary = "----veritasBoundary7MA4YWxkTrZu0gW";
+            String head = "--" + boundary + "\r\n"
+                    + "Content-Disposition: form-data; name=\"file\"; filename=\"" + fileName + "\"\r\n"
+                    + "Content-Type: application/octet-stream\r\n\r\n";
+            String tail = "\r\n--" + boundary + "--\r\n";
+            java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
+            buf.write(head.getBytes(StandardCharsets.UTF_8));
+            buf.write(content == null ? new byte[0] : content.getBytes(StandardCharsets.UTF_8));
+            buf.write(tail.getBytes(StandardCharsets.UTF_8));
+            byte[] body = buf.toByteArray();
+            retries.callWrite(() -> http.post().uri(URI.create(base() + "/rest/api/3/issue/" + key + "/attachments"))
+                    .header("Authorization", authHeader())
+                    .header("X-Atlassian-Token", "no-check")   // required by Jira for attachments
+                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                    .body(body)
+                    .retrieve().body(String.class));
+        } catch (Exception e) {
+            throw new IllegalStateException("Jira attachFile failed for " + key + ": " + e.getMessage(), e);
+        }
+    }
+
     @Override
     public JiraStatus getStatus(String key) {
         try {

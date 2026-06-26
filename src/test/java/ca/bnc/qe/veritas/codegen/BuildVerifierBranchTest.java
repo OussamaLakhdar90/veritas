@@ -84,10 +84,19 @@ class BuildVerifierBranchTest {
 
     @Test
     void unrunnableCommandIsFailWithExceptionMessage(@TempDir Path dir) {
-        // Spawn failure → the catch branch returns FAIL carrying the exception message (non-empty).
-        BuildResult r = verifier.verify(dir, "veritas-no-such-command-xyz123 --flag");
+        // Spawn failure → the catch branch returns FAIL carrying the exception message. Use an ALLOW-LISTED tool
+        // (so it isn't short-circuited to SKIPPED) but a non-existent working dir so ProcessBuilder.start() throws.
+        BuildResult r = verifier.verify(dir.resolve("does-not-exist"), javaExecutable() + " --version");
         assertThat(r.status()).isEqualTo("FAIL");
         assertThat(r.output()).isNotEmpty();
+    }
+
+    @Test
+    void nonAllowListedExecutableIsSkippedNotRun(@TempDir Path dir) {
+        // A verifyCommand from a (semi-trusted) template whose program isn't an allow-listed build tool must NOT run.
+        BuildResult r = verifier.verify(dir, "veritas-no-such-command-xyz123 --flag");
+        assertThat(r.status()).isEqualTo("SKIPPED");
+        assertThat(r.output()).contains("not an allow-listed");
     }
 
     @Test

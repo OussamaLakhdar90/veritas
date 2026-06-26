@@ -16,9 +16,26 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class BuildVerifier {
 
+    /**
+     * Allow-list of build/verify executables. The {@code verifyCommand} comes from a (semi-trusted) template's
+     * front-matter and is run directly with ProcessBuilder, so it's a command-execution sink — restrict the program
+     * to known build tools (no shells: a {@code bash -c …} would re-open arbitrary execution). Args are literal
+     * (no shell), so this gates WHAT runs. Refused → SKIPPED (verification not run), never the attacker's program.
+     */
+    private static final java.util.Set<String> ALLOWED_TOOLS = java.util.Set.of(
+            "mvn", "mvnw", "gradle", "gradlew", "npm", "npx", "node", "yarn", "pnpm",
+            "make", "dotnet", "python", "python3", "go", "cargo", "ant", "ng", "tsc", "java");
+
     public BuildResult verify(Path workingDir, String command) {
         if (command == null || command.isBlank()) {
             return new BuildResult("SKIPPED", "");
+        }
+        if (!isAllowListed(command)) {
+            String exe = command.trim().split("\\s+")[0];
+            log.warn("Refusing to run verifyCommand '{}' — not an allow-listed build tool; skipping build "
+                    + "verification.", exe);
+            return new BuildResult("SKIPPED",
+                    "verifyCommand '" + exe + "' is not an allow-listed build tool; build verification skipped.");
         }
         try {
             Process p = new ProcessBuilder(command.trim().split("\\s+"))
@@ -36,6 +53,24 @@ public class BuildVerifier {
             log.warn("Build verify failed to run '{}': {}", command, e.getMessage());
             return new BuildResult("FAIL", e.getMessage());
         }
+    }
+
+    /**
+     * Is the command's executable an allow-listed build tool? Checked against two candidates because the program
+     * can't be tokenised reliably when its path has spaces: (a) the basename of the first whitespace token —
+     * covers a bare tool with args ({@code mvn test}); (b) the basename of the command up to the first flag —
+     * covers a full executable PATH with spaces ({@code C:\Program Files\…\java.exe --version}).
+     */
+    static boolean isAllowListed(String command) {
+        String c = command.trim();
+        String firstToken = c.split("\\s+")[0];
+        int flag = c.indexOf(" -");
+        String beforeFlags = flag > 0 ? c.substring(0, flag).trim() : c;
+        return ALLOWED_TOOLS.contains(basename(firstToken)) || ALLOWED_TOOLS.contains(basename(beforeFlags));
+    }
+
+    private static String basename(String p) {
+        return p.replaceAll("^.*[/\\\\]", "").replaceAll("(?i)\\.(cmd|bat|exe|sh|ps1)$", "").toLowerCase();
     }
 
     private String drain(Process p) throws Exception {

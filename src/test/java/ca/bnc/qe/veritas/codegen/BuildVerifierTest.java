@@ -16,7 +16,8 @@ class BuildVerifierTest {
     }
 
     @Test
-    void failsOnUnrunnableCommand() {
-        assertThat(verifier.verify(Path.of("."), "veritas-no-such-command-xyz123").status()).isEqualTo("FAIL");
+    void skipsACommandWhoseExecutableIsNotAllowListed() {
+        // The verifyCommand comes from a semi-trusted template, so a non-build-tool program is refused (not run).
+        assertThat(verifier.verify(Path.of("."), "veritas-no-such-command-xyz123").status()).isEqualTo("SKIPPED");
     }
 }

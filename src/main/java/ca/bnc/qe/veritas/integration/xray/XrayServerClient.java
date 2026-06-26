@@ -127,13 +127,21 @@ public class XrayServerClient implements XrayClient {
         }
     }
 
-    /** Additive: POST each step to the Raven step endpoint (mirrors the Cloud client's additive semantics). */
+    /**
+     * Set the test's steps to exactly {@code steps} — REPLACE, not append. Delete the existing Raven steps first,
+     * then add the new ones. The old additive behaviour stacked the corrected steps on top of the originals when a
+     * reviewer applied a review, corrupting the test (duplicated steps). On a new test (createTest) there are no
+     * existing steps, so this degrades to add-only.
+     */
     @Override
     public void updateTestSteps(String testKey, List<XrayStep> steps) {
         if (steps == null) {
             return;
         }
         try {
+            for (String stepId : fetchStepIds(testKey)) {
+                corp.delete(base() + "/rest/raven/1.0/api/test/" + testKey + "/step/" + stepId, authHeaders());
+            }
             for (XrayStep s : steps) {
                 String body = mapper.writeValueAsString(Map.of(
                         "step", s.action() == null ? "" : s.action(),
@@ -144,6 +152,25 @@ public class XrayServerClient implements XrayClient {
         } catch (Exception e) {
             throw new IllegalStateException("Xray (Raven) updateTestSteps failed for " + testKey + ": " + e.getMessage(), e);
         }
+    }
+
+    /** The ids of a test's existing Raven steps (best-effort: a missing/empty steps list yields none → add-only). */
+    private List<String> fetchStepIds(String testKey) {
+        List<String> ids = new ArrayList<>();
+        try {
+            String resp = corp.get(base() + "/rest/raven/1.0/api/test/" + testKey + "/steps", authHeaders());
+            JsonNode root = mapper.readTree(resp == null ? "{}" : resp);
+            JsonNode arr = root.isArray() ? root : root.path("steps");
+            for (JsonNode s : arr) {
+                String id = s.path("id").asText("");
+                if (!id.isBlank()) {
+                    ids.add(id);
+                }
+            }
+        } catch (Exception ignored) {
+            // can't list existing steps (no steps / endpoint error) → add-only, never throw here
+        }
+        return ids;
     }
 
     /**
