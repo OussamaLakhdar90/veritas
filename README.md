@@ -73,9 +73,14 @@ credentials/egress for those on this dev box — every such path is built and st
 
 ## Docs
 
-[architecture](docs/architecture.md) · [cost & model selection](docs/cost-and-model-selection.md) ·
-[security/auth](docs/security-auth-and-credentials.md) · [review-test-cases](docs/review-test-cases.md) ·
-[ingestion](docs/ingestion-jira-confluence.md) · [test-generation template](docs/test-generation-template.md) ·
+[architecture](docs/architecture.md) · [how it works: AST/diff/cost](docs/concepts-ast-diff-cost.md) ·
+[cost & model selection](docs/cost-and-model-selection.md) · [security/auth](docs/security-auth-and-credentials.md) ·
+[review-test-cases](docs/review-test-cases.md) · [ingestion](docs/ingestion-jira-confluence.md) ·
+[test-generation template](docs/test-generation-template.md) · [test-strategy design](docs/test-strategy-design.md) ·
 [multi-source strategy pipeline](docs/test-strategy-multisource-pipeline.md) ·
-[prompt review](docs/prompts-review.md) · [configuration](docs/configuration.md) ·
+[prompt review](docs/prompts-review.md) · [configuration](docs/configuration.md) · [CI](docs/ci.md) ·
+[BNC contract-validator reference](docs/reference-contract-validator.md) ·
 [open questions & risks](docs/open-questions-and-risks.md).
+
+> Historical planning notes: [gaps & definition-of-done](docs/gaps.md) and [remaining-work roadmap](docs/roadmap-remaining.md)
+> predate the recent remediation waves and are kept for provenance only — they no longer reflect current status.

@@ -16,3 +16,7 @@ dashboard/dist/
 .claude/
 dashboard/coverage/
 logs/
+
+# Stryker mutation testing
+dashboard/reports/
+dashboard/.stryker-tmp/
