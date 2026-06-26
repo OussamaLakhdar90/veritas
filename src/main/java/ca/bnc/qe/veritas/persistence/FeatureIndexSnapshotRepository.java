@@ -22,6 +22,15 @@ public interface FeatureIndexSnapshotRepository extends JpaRepository<FeatureInd
     int deleteIdleBefore(@Param("cutoff") Instant cutoff, @Param("leaseCutoff") Instant leaseCutoff);
 
     /**
+     * Snapshots whose generation claim is older than the lease but never finished or failed — i.e. a worker that
+     * crashed mid-generation. A poll on these shows "Generating…" forever until they're failed; the reaper uses this
+     * to mark them failed so the poll surfaces a clean error.
+     */
+    @Query("select s.id from FeatureIndexSnapshot s where s.generationStartedAt is not null "
+            + "and s.generationStartedAt < :leaseCutoff and s.generatedStrategyId is null and s.generationError is null")
+    List<String> findStaleInFlightIds(@Param("leaseCutoff") Instant leaseCutoff);
+
+    /**
      * Set the generated-strategy audit link and clear the claim, as a column-scoped bulk update. Touching only
      * these two columns (not the whole entity) means it neither contends with the optimistic {@code @Version} of a
      * concurrent feature edit nor fails if the row was swept — it just affects 0 rows.

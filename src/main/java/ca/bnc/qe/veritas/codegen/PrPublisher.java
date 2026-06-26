@@ -52,8 +52,18 @@ public class PrPublisher {
         } catch (Exception e) {
             throw new IllegalStateException("Push failed for '" + req.repoSlug() + "': " + e.getMessage(), e);
         }
-        String prUrl = gitHost.openPullRequest(
-                req.repoSlug(), req.branch(), req.targetBranch(), req.title(), req.description());
+        String prUrl;
+        try {
+            prUrl = gitHost.openPullRequest(
+                    req.repoSlug(), req.branch(), req.targetBranch(), req.title(), req.description());
+        } catch (RuntimeException e) {
+            // The branch is already pushed; only PR creation failed. Return the branch (prUrl=null) as a breadcrumb
+            // so the caller persists it instead of losing the pushed work — the user can retry the PR (the branch is
+            // reused, so it's idempotent).
+            log.warn("Branch {} pushed to {}, but opening the PR failed: {} — the branch is up; retry to open the PR.",
+                    req.branch(), req.repoSlug(), e.getMessage());
+            return new PrResult(req.branch(), null);
+        }
         return new PrResult(req.branch(), prUrl);
     }
 

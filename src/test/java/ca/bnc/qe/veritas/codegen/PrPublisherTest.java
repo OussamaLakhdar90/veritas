@@ -71,4 +71,38 @@ class PrPublisherTest {
             assertThat(pushed).isTrue();
         }
     }
+
+    @Test
+    void returnsThePushedBranchAsABreadcrumbWhenOpeningThePrFails(@TempDir Path tmp) throws Exception {
+        Path bare = tmp.resolve("origin.git");
+        Git.init().setBare(true).setDirectory(bare.toFile()).call().close();
+        Path work = tmp.resolve("work");
+        try (Git git = Git.cloneRepository().setURI(bare.toUri().toString()).setDirectory(work.toFile()).call()) {
+            Files.writeString(work.resolve("README.md"), "seed");
+            git.add().addFilepattern(".").call();
+            git.commit().setMessage("seed").setAuthor("t", "t@t").setCommitter("t", "t@t").call();
+            git.push().setRemote("origin").call();
+        }
+        Files.writeString(work.resolve("GeneratedApiTest.java"), "class GeneratedApiTest {}");
+
+        GitHost host = new GitHost() {
+            public List<RepoInfo> discoverRepos(String appId) { return List.of(); }
+            public List<String> listBranches(String appId, String repoSlug) { return List.of(); }
+            public Path clone(RepoInfo repo, String branch, Path destinationParent) { return null; }
+            public String openPullRequest(String r, String s, String t, String ti, String d) {
+                throw new IllegalStateException("Bitbucket PR creation failed");   // push succeeded, PR didn't
+            }
+        };
+
+        PrPublisher.PrResult result = new PrPublisher(host, (key) -> Optional.empty())
+                .publish(new PrPublisher.PrRequest(work, "ciam-tests", "veritas/gen", "main", "t", "d", "msg"));
+
+        // The branch is returned (so the caller persists it) with a null PR url — not an exception that loses it.
+        assertThat(result.branch()).isEqualTo("veritas/gen");
+        assertThat(result.prUrl()).isNull();
+        try (Git origin = Git.open(bare.toFile())) {
+            assertThat(origin.branchList().call().stream()
+                    .anyMatch(r -> r.getName().equals("refs/heads/veritas/gen"))).isTrue();
+        }
+    }
 }

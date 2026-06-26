@@ -38,6 +38,16 @@ public class FeatureIndexSnapshotCleaner {
     @Transactional
     public void sweep() {
         Instant now = Instant.now();
+        // Crash recovery: a generation claim older than the lease that never finished is from a crashed worker —
+        // mark it failed so a poll sees a clean error instead of spinning on "Generating…" until the TTL delete.
+        int recovered = 0;
+        for (String id : repository.findStaleInFlightIds(now.minus(lease))) {
+            repository.failGeneration(id, "Generation interrupted by a process restart");
+            recovered++;
+        }
+        if (recovered > 0) {
+            log.warn("Recovered {} multi-source generation(s) left in-flight by a previous run → FAILED", recovered);
+        }
         int deleted = repository.deleteIdleBefore(now.minus(ttl), now.minus(lease));
         if (deleted > 0) {
             log.info("Swept {} idle feature-index snapshot(s) (TTL {}h)", deleted, ttl.toHours());
