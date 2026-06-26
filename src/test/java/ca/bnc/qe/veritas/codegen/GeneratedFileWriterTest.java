@@ -86,4 +86,43 @@ class GeneratedFileWriterTest {
         writer.write(f, "FooTest.java", "new content");
         assertThat(Files.readString(f)).isEqualTo("new content");
     }
+
+    // ---- path-traversal containment (writeWithin) ----
+
+    @Test
+    void writeWithinWritesNestedRelativePathInsideBaseDir(@TempDir Path dir) throws Exception {
+        writer.writeWithin(dir, "src/api/PolicyTest.java", "class PolicyTest {}");
+        Path written = dir.resolve("src/api/PolicyTest.java");
+        assertThat(Files.readString(written)).isEqualTo("class PolicyTest {}");
+        assertThat(written.normalize().startsWith(dir.normalize())).isTrue();
+    }
+
+    @Test
+    void writeWithinRejectsParentTraversal(@TempDir Path dir) {
+        assertThatThrownBy(() -> writer.writeWithin(dir, "../../../../etc/cron.d/pwn", "* * * * * root sh"))
+                .isInstanceOf(PreconditionException.class)
+                .hasMessageContaining("escapes the output directory");
+    }
+
+    @Test
+    void writeWithinRejectsAbsolutePath(@TempDir Path dir) {
+        String absolute = dir.getRoot().resolve("evil.txt").toString();   // platform-correct absolute path
+        assertThatThrownBy(() -> writer.writeWithin(dir, absolute, "x"))
+                .isInstanceOf(PreconditionException.class)
+                .hasMessageContaining("absolute path");
+    }
+
+    @Test
+    void writeWithinRejectsEmptyPath(@TempDir Path dir) {
+        assertThatThrownBy(() -> writer.writeWithin(dir, "  ", "x"))
+                .isInstanceOf(PreconditionException.class)
+                .hasMessageContaining("empty path");
+    }
+
+    @Test
+    void writeWithinStillEnforcesSecretScan(@TempDir Path dir) {
+        // containment is layered BEFORE the existing secret scan — a contained-but-secret file is still rejected.
+        assertThatThrownBy(() -> writer.writeWithin(dir, "config.json", "{\"apiKey\": \"AKIAIOSFODNN7EXAMPLE\"}"))
+                .isInstanceOf(PreconditionException.class);
+    }
 }

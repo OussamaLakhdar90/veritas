@@ -102,7 +102,7 @@ public class CodegenService {
             JsonNode node = objectMapper.readTree(jsonExtractor.extract(raw));
             for (JsonNode f : node.path("files")) {
                 String rel = f.path("path").asText();
-                generatedFileWriter.write(outputDir.resolve(rel), rel, f.path("content").asText(""));
+                generatedFileWriter.writeWithin(outputDir, rel, f.path("content").asText(""));
                 if (!written.contains(rel)) {
                     written.add(rel);
                 }
@@ -226,26 +226,26 @@ public class CodegenService {
             // Data files first — merge-don't-clobber (#14) JSON registries, secret-scan (#15), both in GeneratedFileWriter.
             for (JsonNode f : dataNode.path("files")) {
                 String relPath = f.path("path").asText();
-                generatedFileWriter.write(outputDir.resolve(relPath), relPath, f.path("content").asText(""));
+                generatedFileWriter.writeWithin(outputDir, relPath, f.path("content").asText(""));
                 written.add(relPath);
             }
             for (JsonNode f : node.path("files")) {
                 String relPath = f.path("path").asText();
                 String content = f.path("content").asText("");
-                // secret-scan (#15) + merge-don't-clobber (#14) handled by GeneratedFileWriter.
-                generatedFileWriter.write(outputDir.resolve(relPath), relPath, content);
+                // path containment (LLM-supplied path) + secret-scan (#15) + merge-don't-clobber (#14) in GeneratedFileWriter.
+                generatedFileWriter.writeWithin(outputDir, relPath, content);
                 written.add(relPath);
             }
 
             // Deterministic ad-hoc API artifact (IntelliJ HTTP Client / Bruno) — from the AST, no LLM.
             String httpFile = serviceName.replaceAll("[^A-Za-z0-9._-]", "-") + ".http";
-            generatedFileWriter.write(outputDir.resolve(httpFile), httpFile, httpRequestsEmitter.emit(serviceName, code));
+            generatedFileWriter.writeWithin(outputDir, httpFile, httpRequestsEmitter.emit(serviceName, code));
             written.add(httpFile);
 
             // Deterministic TestNG suites (smoke / regression / full) from the generated test classes — no LLM.
             for (var suite : suiteXmlEmitter.emit(serviceName, written).entrySet()) {
                 String rel = "suites/" + suite.getKey();
-                generatedFileWriter.write(outputDir.resolve(rel), rel, suite.getValue());
+                generatedFileWriter.writeWithin(outputDir, rel, suite.getValue());
                 written.add(rel);
             }
 

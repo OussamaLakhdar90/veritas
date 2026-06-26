@@ -2,6 +2,7 @@ package ca.bnc.qe.veritas.ingest;
 
 import java.util.ArrayList;
 import java.util.List;
+import ca.bnc.qe.veritas.evidence.Redactor;
 import ca.bnc.qe.veritas.integration.confluence.ConfluenceClient;
 import ca.bnc.qe.veritas.integration.confluence.ConfluencePage;
 import ca.bnc.qe.veritas.integration.jira.JiraClient;
@@ -10,8 +11,10 @@ import org.springframework.stereotype.Service;
 
 /**
  * Builds a compact, citable {@link TestBasis} from Jira and/or Confluence — fetch (deterministic) →
- * normalize (ADF/XHTML → markdown) → extract (test-basis items). The LLM never sees raw payloads; this is
- * the no-codebase path for test-strategy/plan generation and the token-optimization layer.
+ * normalize (ADF/XHTML → markdown) → extract (test-basis items) → <b>redact</b>. Developer-pasted tickets and
+ * Confluence pages routinely carry PII/secrets; this legacy basis text is fed verbatim to the LLM by
+ * {@code BasisBuilder.fromIngest}, so — exactly like the evidence adapters — every item's text passes through
+ * {@link Redactor} here, the one choke-point before the basis leaves this service. The LLM never sees raw payloads.
  */
 @Service
 public class IngestService {
@@ -41,7 +44,7 @@ public class IngestService {
             String md = issue.description() == null ? "" : adf.toMarkdown(issue.description());
             items.addAll(extractor.extract(new NormalizedDoc("jira", issue.key(), issue.summary(), md)));
         }
-        return new TestBasis(items);
+        return new TestBasis(redactAll(items));
     }
 
     public TestBasis fromConfluence(List<String> pageIds) {
@@ -51,7 +54,19 @@ public class IngestService {
             NormalizedDoc doc = storage.normalize(page.id(), page.title(), page.storageXhtml());
             items.addAll(extractor.extract(doc));
         }
-        return new TestBasis(items);
+        return new TestBasis(redactAll(items));
+    }
+
+    /**
+     * Redact PII/secrets from each item's text before it can reach the LLM (mirrors the evidence adapters). The
+     * id/origin/kind are structural (issue keys / page ids), never free text, so only {@code text} is scrubbed.
+     */
+    private List<TestBasisItem> redactAll(List<TestBasisItem> items) {
+        List<TestBasisItem> out = new ArrayList<>(items.size());
+        for (TestBasisItem it : items) {
+            out.add(new TestBasisItem(it.id(), it.origin(), it.kind(), Redactor.redact(it.text()).text()));
+        }
+        return out;
     }
 
     public TestBasis assemble(String jql, List<String> pageIds, int maxResults) {
