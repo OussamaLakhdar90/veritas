@@ -1,8 +1,10 @@
 package ca.bnc.qe.veritas.contract;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import ca.bnc.qe.veritas.engine.model.SourceRef;
 import ca.bnc.qe.veritas.finding.Finding;
 import ca.bnc.qe.veritas.persistence.FindingRecord;
@@ -38,6 +40,15 @@ public class ScanPersistence {
     }
 
     private List<FindingRecord> toRecords(String scanId, List<Finding> findings, Map<String, JsonNode> enrich) {
+        // Carry-forward dispositions in ONE query for the whole scan (was an N+1: one lookup per finding). Newest
+        // first → keep the first row per fingerprint as the most recent disposition.
+        List<String> fingerprints = findings.stream().map(Finding::getFindingId).filter(Objects::nonNull).distinct().toList();
+        Map<String, FindingRecord> priorByFingerprint = new HashMap<>();
+        if (!fingerprints.isEmpty()) {
+            for (FindingRecord prior : findingRepository.findPriorDispositions(fingerprints, scanId)) {
+                priorByFingerprint.putIfAbsent(prior.getFingerprint(), prior);
+            }
+        }
         List<FindingRecord> records = new ArrayList<>();
         for (Finding f : findings) {
             FindingRecord r = new FindingRecord();
@@ -72,26 +83,20 @@ public class ScanPersistence {
                 }
                 // citation is set deterministically (StandardsReference) — never from the LLM.
             }
-            carryForwardStatus(r, scanId);
+            carryForwardStatus(r, priorByFingerprint.get(r.getFingerprint()));
             records.add(r);
         }
         return records;
     }
 
     /** Carry a prior finding's disposition (status + who/when/why audit) forward to the same fingerprint on a re-scan. */
-    private void carryForwardStatus(FindingRecord r, String scanId) {
-        if (r.getFingerprint() == null) {
+    private void carryForwardStatus(FindingRecord r, FindingRecord prior) {
+        if (prior == null) {
             return;
         }
-        findingRepository.findByFingerprintOrderByCreatedAtDesc(r.getFingerprint()).stream()
-                .filter(prior -> !scanId.equals(prior.getScanId()))
-                .filter(prior -> prior.getStatus() != null && !"OPEN".equals(prior.getStatus()))
-                .findFirst()
-                .ifPresent(prior -> {
-                    r.setStatus(prior.getStatus());
-                    r.setReviewedBy(prior.getReviewedBy());
-                    r.setReviewedAt(prior.getReviewedAt());
-                    r.setReviewNote(prior.getReviewNote());
-                });
+        r.setStatus(prior.getStatus());
+        r.setReviewedBy(prior.getReviewedBy());
+        r.setReviewedAt(prior.getReviewedAt());
+        r.setReviewNote(prior.getReviewNote());
     }
 }

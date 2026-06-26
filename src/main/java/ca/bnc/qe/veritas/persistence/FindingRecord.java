@@ -13,7 +13,10 @@ import lombok.Setter;
 @Entity
 @Table(name = "finding", indexes = {
         @Index(name = "idx_finding_scan", columnList = "scanId"),
-        @Index(name = "idx_finding_severity", columnList = "severity")
+        @Index(name = "idx_finding_severity", columnList = "severity"),
+        // Backs the carry-forward disposition lookup (findPriorDispositions / findByFingerprint…) which would
+        // otherwise full-scan the finding table once per re-scan as it grows.
+        @Index(name = "idx_finding_fingerprint", columnList = "fingerprint")
 })
 @Getter
 @Setter
