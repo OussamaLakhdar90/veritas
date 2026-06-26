@@ -46,9 +46,38 @@ jobs:
       - name: Install
         run: npm ci
         working-directory: dashboard
-      - name: Test
-        run: npm run test
+      - name: Test (with coverage gate)
+        run: npm run test:cov
         working-directory: dashboard
+
+  # PIT mutation testing — slow and occasionally flaky, so it runs in its OWN non-blocking job (continue-on-error)
+  # that never gates a merge. It surfaces test-strength regressions on the core engine without slowing the build.
+  mutation:
+    name: Mutation testing (PIT)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: PIT (engine core)
+        run: >
+          mvn -B -ntp -Pmutation
+          -Dmutation.classes=ca.bnc.qe.veritas.engine.*
+          -Dmutation.tests=ca.bnc.qe.veritas.engine.*
+          test-compile org.pitest:pitest-maven:mutationCoverage
+      - name: Upload PIT report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pit-report
+          path: target/pit-reports/
+          if-no-files-found: ignore
 
   docker:
     name: Build Docker image

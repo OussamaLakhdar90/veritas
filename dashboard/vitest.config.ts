@@ -17,6 +17,9 @@ export default defineConfig({
       include: ['src/**/*.{ts,tsx}'],
       // Test harness, the entrypoint, and pure type files carry no testable logic.
       exclude: ['src/test/**', 'src/main.tsx', 'src/vite-env.d.ts', '**/*.d.ts'],
+      // Enforced floor (gates `npm run test:cov` / CI). Current is ~98% lines / 89% functions / 84% branches;
+      // minimums set a safe margin below so a regression fails CI without blocking a normal PR.
+      thresholds: { lines: 90, statements: 90, functions: 80, branches: 75 },
     },
   },
 })
