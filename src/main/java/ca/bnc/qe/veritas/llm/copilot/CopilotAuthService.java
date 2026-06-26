@@ -32,6 +32,7 @@ public class CopilotAuthService {
     private final ObjectMapper mapper;
     private final CorpHttp corp;
     private volatile SessionToken sessionCache;
+    private final Object tokenLock = new Object();   // single-flights the session-token exchange
 
     public CopilotAuthService(CopilotProperties props, ObjectMapper mapper, CorpHttp corp) {
         this.props = props;
@@ -98,6 +99,18 @@ public class CopilotAuthService {
         if (cached != null && Instant.now().isBefore(cached.expiresAt().minusSeconds(300))) {
             return cached.token();
         }
+        // Single-flight: serialise the token exchange so concurrent callers don't each hit the network. Double-check
+        // the cache inside the lock — another thread may have refreshed it while we waited.
+        synchronized (tokenLock) {
+            SessionToken fresh = sessionCache;
+            if (fresh != null && Instant.now().isBefore(fresh.expiresAt().minusSeconds(300))) {
+                return fresh.token();
+            }
+            return exchangeSessionToken();
+        }
+    }
+
+    private String exchangeSessionToken() {
         StoredOAuthToken oauth = storedOAuth();
         if (oauth == null) {
             throw new IllegalStateException("Not authenticated. Run `veritas copilot-login` first.");

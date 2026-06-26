@@ -141,21 +141,17 @@ public class JiraServerClient implements JiraClient {
     public void attachFile(String key, String fileName, String content) {
         try {
             String boundary = "----veritasBoundary7MA4YWxkTrZu0gW";
-            String head = "--" + boundary + "\r\n"
+            // The attachment is text (a corrected YAML), so the multipart body is a String — route it through
+            // CorpHttp so attachments inherit the same PowerShell firewall fallback as every other Server/DC call
+            // (the direct RestClient path bypassed it). postWrite = connect-only retry (non-idempotent write).
+            String body = "--" + boundary + "\r\n"
                     + "Content-Disposition: form-data; name=\"file\"; filename=\"" + fileName + "\"\r\n"
-                    + "Content-Type: application/octet-stream\r\n\r\n";
-            String tail = "\r\n--" + boundary + "--\r\n";
-            java.io.ByteArrayOutputStream buf = new java.io.ByteArrayOutputStream();
-            buf.write(head.getBytes(StandardCharsets.UTF_8));
-            buf.write(content == null ? new byte[0] : content.getBytes(StandardCharsets.UTF_8));
-            buf.write(tail.getBytes(StandardCharsets.UTF_8));
-            byte[] body = buf.toByteArray();
-            retries.callWrite(() -> http.post().uri(URI.create(base() + "/rest/api/2/issue/" + key + "/attachments"))
-                    .header("Authorization", authHeader())
-                    .header("X-Atlassian-Token", "no-check")   // required by Jira for attachments
-                    .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                    .body(body)
-                    .retrieve().body(String.class));
+                    + "Content-Type: application/octet-stream\r\n\r\n"
+                    + (content == null ? "" : content)
+                    + "\r\n--" + boundary + "--\r\n";
+            corp.postWrite(base() + "/rest/api/2/issue/" + key + "/attachments",
+                    java.util.Map.of("Authorization", authHeader(), "X-Atlassian-Token", "no-check"),
+                    body, "multipart/form-data; boundary=" + boundary);
         } catch (Exception e) {
             throw new IllegalStateException("Jira attachFile failed for " + key + ": " + e.getMessage(), e);
         }

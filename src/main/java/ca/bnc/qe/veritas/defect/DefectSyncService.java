@@ -26,12 +26,9 @@ public class DefectSyncService {
         this.jira = jira;
     }
 
-    /** Sync every linked defect. Returns how many were updated (status changed or first sync). */
+    /** Sync every open linked defect (skips already-closed ones, includes never-synced). Returns how many changed. */
     public int syncAll() {
-        List<DefectLink> links = defects.findAll().stream()
-                .filter(DefectLink::isCreatedInJira)
-                .filter(l -> l.getJiraKey() != null && !l.getJiraKey().isBlank())
-                .toList();
+        List<DefectLink> links = defects.findNeedingStatusSync();
         int updated = 0;
         for (DefectLink link : links) {
             if (sync(link)) {
