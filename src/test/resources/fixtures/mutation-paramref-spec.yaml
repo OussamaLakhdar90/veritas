@@ -1,0 +1,33 @@
+openapi: 3.0.1
+info:
+  title: Param Ref API
+  version: 1.0.0
+paths:
+  /search:
+    get:
+      operationId: search
+      parameters:
+        - $ref: '#/components/parameters/TenantHeader'
+        - name: noschema
+          in: query
+          description: "Choose [YES, NO] please"
+        - name: emptyenum
+          in: query
+          description: "Pick [UP, DOWN]"
+          schema:
+            type: string
+            enum: []
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json: {}
+components:
+  parameters:
+    TenantHeader:
+      name: X-Tenant-Id
+      in: header
+      required: true
+      schema:
+        type: string
+        maxLength: 12

@@ -1,0 +1,20 @@
+openapi: 3.0.1
+info:
+  title: Schema Example API
+  version: 1.0.0
+paths:
+  /sample:
+    get:
+      operationId: getSample
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: string
+                example: "hello-world"
+components:
+  schemas:
+    Plain:
+      type: string

@@ -1,0 +1,121 @@
+openapi: 3.0.1
+info:
+  title: Mutation Rich API
+  version: 9.9.9
+security:
+  - globalScheme: []
+paths:
+  /widgets:
+    post:
+      operationId: createWidget
+      security:
+        - opScheme: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Widget'
+      parameters:
+        - name: flagged
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int32
+            maxLength: 7
+        - name: status
+          in: query
+          description: "Filter. Must be one of [OPEN, CLOSED]"
+          schema:
+            type: string
+        - name: kind
+          in: query
+          schema:
+            $ref: '#/components/schemas/Kind'
+      responses:
+        '200':
+          description: ok success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Widget'
+        '300':
+          description: multiple choices
+          content:
+            application/vnd.redirect+json:
+              schema:
+                type: string
+        '500':
+          description: server error
+          content:
+            application/problem+json:
+              schema:
+                type: object
+  /widgets/list:
+    get:
+      operationId: listWidgets
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Widget'
+  /widgets/raw:
+    get:
+      operationId: rawWidget
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: string
+        default:
+          description: fallback with no numeric status
+        '204':
+          description: no content here
+  /widgets/loosearray:
+    get:
+      operationId: looseArray
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+components:
+  securitySchemes:
+    globalScheme:
+      type: apiKey
+      name: X-Global
+      in: header
+    opScheme:
+      type: apiKey
+      name: X-Op
+      in: header
+  schemas:
+    Kind:
+      type: string
+      enum:
+        - ALPHA
+        - BETA
+        - GAMMA
+    Widget:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          maxLength: 36
+        kind:
+          $ref: '#/components/schemas/Kind'
+        plainName:
+          type: string
