@@ -11,6 +11,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 import ca.bnc.qe.veritas.config.ConnectionsProperties;
@@ -23,6 +24,7 @@ import com.github.tomakehurst.wiremock.stubbing.Scenario;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.retry.support.RetryTemplate;
 
 /**
@@ -268,5 +270,18 @@ class BitbucketCloudClientWireMockTest {
                 .openPullRequest("ciam", "veritas/gen", "main", "t", "d"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Bitbucket PR creation failed for 'ciam'");
+    }
+
+    // ---------- clone (error branch; no real git remote is reachable) ----------
+
+    @Test
+    void cloneWrapsFailureInIllegalStateWithSlug(@TempDir Path tmp) {
+        // The clone URL points at WireMock, which is not a git remote -> jgit fails -> wrapped.
+        RepoInfo repo = new RepoInfo("ciam", "CIAM", "", "main",
+                "http://localhost:" + wm.port() + "/not-a-git-repo.git", "APP7571", "");
+
+        assertThatThrownBy(() -> client("APP_PASSWORD").clone(repo, "main", tmp))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Clone failed for 'ciam'");
     }
 }
