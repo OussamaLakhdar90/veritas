@@ -27,6 +27,12 @@ management:
   endpoint:
     health:
       show-details: when_authorized
+      group:
+        # Downstream-integration health (Jira/Bitbucket/Confluence/Xray/Copilot) in its own group so it can be
+        # scraped at /actuator/health/integrations without live network probes sitting on the default liveness path.
+        # Opt-in via veritas.health.integrations.enabled=true (the indicator bean is otherwise not registered).
+        integrations:
+          include: downstreamIntegrations
 
 veritas:
   secret:

@@ -26,6 +26,14 @@ public class CorpHttp {
     private final RestClient http;
     private final RestClient longHttp;   // longer read timeout for LLM calls (generation can exceed the REST timeout)
 
+    /** Optional: present when actuator/Micrometer is on the classpath; null in unit tests that construct CorpHttp bare. */
+    private io.micrometer.core.instrument.MeterRegistry meterRegistry;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setMeterRegistry(io.micrometer.core.instrument.MeterRegistry meterRegistry) {
+        this.meterRegistry = meterRegistry;
+    }
+
     @Value("${veritas.http.powershell-fallback:false}")
     private boolean powershellFallback;
 
@@ -138,8 +146,12 @@ public class CorpHttp {
             }
             return spec.retrieve().body(String.class);
         };
+        long start = System.nanoTime();
         try {
-            return write ? retries.callWrite(op) : retries.call(op);
+            String result = write ? retries.callWrite(op) : retries.call(op);
+            metric(method, write, "success", start);
+            log.debug("{} {} -> ok in {} ms", method, url, elapsedMs(start));
+            return result;
         } catch (RuntimeException e) {
             // The PowerShell fallback RE-SENDS the request. For a non-idempotent write that's only safe when the
             // RestClient attempt never reached the server (a connection failure) — never on a 5xx/read-timeout,
@@ -148,8 +160,25 @@ public class CorpHttp {
                 log.warn("{} {} via RestClient failed ({}); trying PowerShell fallback", method, url, e.getMessage());
                 return viaPowerShell(method, url, headers, body, contentType);
             }
+            metric(method, write, "error", start);
+            log.warn("{} {} failed after {} ms: {}", method, url, elapsedMs(start), e.getMessage());
             throw e;
         }
+    }
+
+    private long elapsedMs(long startNanos) {
+        return (System.nanoTime() - startNanos) / 1_000_000;
+    }
+
+    /** Per-event integration-call timer (tagged method/outcome/write) — no-op when no registry is wired. */
+    private void metric(String method, boolean write, String outcome, long startNanos) {
+        if (meterRegistry == null) {
+            return;
+        }
+        io.micrometer.core.instrument.Timer.builder("veritas.integration.http")
+                .tag("method", method).tag("outcome", outcome).tag("write", Boolean.toString(write))
+                .register(meterRegistry)
+                .record(System.nanoTime() - startNanos, java.util.concurrent.TimeUnit.NANOSECONDS);
     }
 
     private String viaPowerShell(String method, String url, Map<String, String> headers, String body, String contentType) {
