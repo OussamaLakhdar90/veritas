@@ -1,0 +1,22 @@
+openapi: 3.0.1
+info:
+  title: Messages API
+  version: 1.0.0
+paths:
+  /broken:
+    get:
+      operationId: broken
+      responses:
+        '200':
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DoesNotExist'
+components:
+  schemas:
+    Present:
+      type: object
+      properties:
+        id:
+          type: string

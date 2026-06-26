@@ -1,0 +1,30 @@
+openapi: 3.0.2
+info:
+  title: Global Security API
+  version: 1.0.0
+security:
+  - globalOnly: []
+paths:
+  /things:
+    get:
+      operationId: getThings
+      parameters:
+        - name: pair
+          in: query
+          description: "Allowed [LEFT, RIGHT] only"
+          schema:
+            type: string
+        - name: nomatch
+          in: query
+          description: "lowercase words and numbers 123 but no bracket enum"
+          schema:
+            type: string
+      responses:
+        '200':
+          description: ok
+components:
+  securitySchemes:
+    globalOnly:
+      type: apiKey
+      name: X-Key
+      in: header

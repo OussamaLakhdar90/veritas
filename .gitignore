@@ -13,3 +13,4 @@ dashboard/dist/
 *.original
 *.log
 .DS_Store
+.claude/

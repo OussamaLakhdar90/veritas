@@ -1,0 +1,16 @@
+openapi: 3.0.1
+info:
+  title: Flat Constraint API
+  version: 1.0.0
+paths:
+  /flat:
+    get:
+      operationId: flat
+      responses:
+        '200':
+          description: ok
+components:
+  schemas:
+    BoundedString:
+      type: string
+      maxLength: 5

@@ -7,7 +7,7 @@
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>3.3.5</version>
+        <version>3.3.13</version>
         <relativePath/>
     </parent>
 
@@ -26,7 +26,7 @@
         <javaparser.version>3.26.4</javaparser.version>
         <swagger-parser.version>2.1.22</swagger-parser.version>
         <jsoup.version>1.18.1</jsoup.version>
-        <jgit.version>6.7.0.202309050840-r</jgit.version>
+        <jgit.version>6.10.1.202505221210-r</jgit.version>
     </properties>
 
     <dependencies>
@@ -161,10 +161,80 @@
                     </excludes>
                 </configuration>
             </plugin>
+            <!-- Line/branch coverage — feeds both the local report and SonarQube (jacoco.xml). -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <configuration>
+                    <!-- Keep these out of the coverage denominator (mirrors sonar.coverage.exclusions): framework
+                         wiring + config + the bootstrap EPP have no branches worth unit-testing. -->
+                    <excludes>
+                        <exclude>**/VeritasApplication.class</exclude>
+                        <exclude>**/cli/VeritasTopCommand.class</exclude>
+                        <exclude>ca/bnc/qe/veritas/config/**</exclude>
+                        <exclude>**/*Properties.class</exclude>
+                        <exclude>**/SettingsEnvironmentPostProcessor.class</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>jacoco-prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-report</id>
+                        <phase>test</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 
     <profiles>
+        <!-- Opt-in mutation testing (PIT). Slow, so it's a profile, not part of the normal build:
+             `mvn -Pmutation -Dmutation.classes=ca.bnc.qe.veritas.engine.diff.* test-compile org.pitest:pitest-maven:mutationCoverage` -->
+        <profile>
+            <id>mutation</id>
+            <properties>
+                <mutation.classes>ca.bnc.qe.veritas.*</mutation.classes>
+                <mutation.tests>ca.bnc.qe.veritas.*</mutation.tests>
+            </properties>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.pitest</groupId>
+                        <artifactId>pitest-maven</artifactId>
+                        <version>1.17.4</version>
+                        <dependencies>
+                            <dependency>
+                                <groupId>org.pitest</groupId>
+                                <artifactId>pitest-junit5-plugin</artifactId>
+                                <version>1.2.1</version>
+                            </dependency>
+                        </dependencies>
+                        <configuration>
+                            <targetClasses>
+                                <param>${mutation.classes}</param>
+                            </targetClasses>
+                            <targetTests>
+                                <param>${mutation.tests}</param>
+                            </targetTests>
+                            <outputFormats>
+                                <param>HTML</param>
+                                <param>CSV</param>
+                            </outputFormats>
+                            <timestampedReports>false</timestampedReports>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
         <!--
           Opt-in front-end build. The compiled dashboard is committed under
           src/main/resources/static, so the DEFAULT build is node-free (CI-friendly, offline).
