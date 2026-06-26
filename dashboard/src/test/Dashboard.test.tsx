@@ -211,6 +211,19 @@ describe('Dashboard', () => {
     expect(await screen.findByText('repos-page')).toBeInTheDocument()
   })
 
+  it('shows an error banner when the scans fetch fails (no misleading zeros alone)', async () => {
+    server.use(
+      http.get('*/api/v1/scans', () => HttpResponse.json({ detail: 'The database is unavailable', status: 500 }, { status: 500 })),
+      http.get('*/api/v1/defects', () => HttpResponse.json([])),
+      http.get('*/api/v1/costs/summary', () => HttpResponse.json(cost())),
+      http.get('*/api/v1/preflight', () => HttpResponse.json([])),
+    )
+    renderDashboard()
+
+    expect(await screen.findByText(/Couldn't load the overview/)).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+  })
+
   it('falls back to summing scan costs when costs/summary errors', async () => {
     server.use(
       http.get('*/api/v1/scans', () =>

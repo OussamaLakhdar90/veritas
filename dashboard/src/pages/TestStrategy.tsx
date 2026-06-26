@@ -1,6 +1,7 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ClipboardList, Play, FileText, ExternalLink, ScrollText } from 'lucide-react';
+import { ClipboardList, Play, FileText, ExternalLink, ScrollText, ArrowRight } from 'lucide-react';
 import { api } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, PageHeader, Select, Spinner, Table, Td, Th, Row, Textarea } from '../components/ui';
 import { useToast } from '../components/Toast';
@@ -89,6 +90,10 @@ export function TestStrategy() {
                         className="inline-flex items-center gap-1 text-[13px] font-medium text-gold hover:underline">
                         <FileText className="h-3.5 w-3.5" /> Rationale <ExternalLink className="h-3 w-3" />
                       </a>
+                      <Link to={`/test-strategy/${s.id}`}
+                        className="inline-flex items-center gap-1 text-[13px] font-medium text-gold hover:underline">
+                        Open <ArrowRight className="h-3.5 w-3.5" />
+                      </Link>
                     </div>
                   </Td>
                 </Row>
