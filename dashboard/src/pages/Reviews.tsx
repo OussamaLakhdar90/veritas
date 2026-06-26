@@ -95,7 +95,7 @@ export function Reviews() {
             <label className="inline-flex items-center gap-2 text-[13px] text-ink-700">
               <input type="checkbox" className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
                 checked={apply} onChange={(e) => setApply(e.target.checked)} />
-              Post the review as a Jira comment (gated write)
+              Apply the corrected steps back to Xray (gated write)
             </label>
             <span className="flex items-center gap-3">
               {notice}

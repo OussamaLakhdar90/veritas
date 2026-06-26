@@ -28,16 +28,20 @@ java -jar target/veritas-0.1.0-SNAPSHOT.jar --version     # CLI
 | `validate-contract --repo <path> --spec <path>...` (or `--app-id --repo-slug`) | Diff code vs OpenAPI/Swagger spec(s); findings + report + corrected YAML. Multiple `--spec` → spec-vs-spec drift. |
 | `create-defect --finding <id> --project <KEY>` | Create a Jira defect from a finding. |
 | `test-strategy --name <svc>` (`--repo`/`--app-id` or `--jql`/`--confluence`) | Global ISTQB Test Manager strategy from code or Jira/Confluence. |
+| `multi-source-strategy --name <svc>` (any combo of `--repo`/`--app-id`, `--jql`, `--confluence`) | Strategy synthesized from code + Jira + Confluence together (feature index → scorecard). |
 | `release-test-plan --name <svc> --fix-version <v> --project <KEY> [--create]` | Release plan + coverage reconciliation (RTM); `--create` raises gap tests in Xray. |
 | `create-test-cases --name <svc> ... [--project --push]` | ISTQB Test Analyst cases; `--push` creates them in Xray. |
 | `review-test-cases --jql "<jql>" [--apply]` | Review/score Xray tests; `--apply` writes corrected steps back. |
 | `implement-tests --name <svc> --service-repo <path> --template <md> --output-dir <dir>` | Template-driven test generation. |
+| `doctor` | Check configuration readiness (connections + secrets + LLM) before running a skill. |
+| `copilot-login` | GitHub Copilot device-flow sign-in (for `veritas.llm.mode=copilot`/`http`). |
 | `echo --text <s>` | Phase-0 smoke test of the skill framework. |
 
 ## REST API (dashboard)
 
-`GET /api/v1/ping` · `GET /api/v1/repos?appId=` · `GET /api/v1/scans` · `GET /api/v1/scans/{id}/findings` ·
-`POST /api/v1/scans` · `POST /api/v1/findings/{id}/defect` · `GET /api/v1/runs` (cost).
+The full, always-current REST reference is served live by springdoc: **`/swagger-ui`** (interactive) and
+**`/v3/api-docs`** (raw OpenAPI) when the server is running (`veritas serve`). ~60 endpoints across scans,
+findings, defects, gates, strategies, test plans/cases, reviews, codegen, costs and settings.
 
 ## LLM mode
 
@@ -72,5 +76,6 @@ credentials/egress for those on this dev box — every such path is built and st
 [architecture](docs/architecture.md) · [cost & model selection](docs/cost-and-model-selection.md) ·
 [security/auth](docs/security-auth-and-credentials.md) · [review-test-cases](docs/review-test-cases.md) ·
 [ingestion](docs/ingestion-jira-confluence.md) · [test-generation template](docs/test-generation-template.md) ·
+[multi-source strategy pipeline](docs/test-strategy-multisource-pipeline.md) ·
 [prompt review](docs/prompts-review.md) · [configuration](docs/configuration.md) ·
 [open questions & risks](docs/open-questions-and-risks.md).

@@ -75,7 +75,7 @@ sequenceDiagram
 
 ## Integration methods needed (new — both Cloud & DC)
 
-- `XrayClient.getTests(jql|planKey|setKey)` and `getTestSteps(testKey)` — load + step counts.
+- `XrayClient.getTestsByJql(jql)` — load tests + their steps for the review.
   Cloud = GraphQL `getTests { results { jira{key} steps{ action data result } } }`; DC = REST
   `/rest/raven/2.0/api/test/{key}/step`.
 - `XrayClient.updateTestSteps(testKey, steps)` — apply the accepted correction. Cloud = GraphQL

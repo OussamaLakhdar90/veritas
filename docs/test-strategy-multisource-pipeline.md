@@ -1,6 +1,6 @@
 # Multi-source test-strategy pipeline (design)
 
-**Status:** proposed (revised after design review) · **Audience:** Veritas engineers + QE leads · **Supersedes the source-routing half of** [`test-strategy-design.md`](test-strategy-design.md) · **Builds on** [`ingestion-jira-confluence.md`](ingestion-jira-confluence.md).
+**Status:** implemented (`multi-source-strategy` CLI + dashboard wizard) · **Audience:** Veritas engineers + QE leads · **Supersedes the source-routing half of** [`test-strategy-design.md`](test-strategy-design.md) · **Builds on** [`ingestion-jira-confluence.md`](ingestion-jira-confluence.md).
 
 > **Revision note.** This version closes the gaps from the multi-source design review. Two framing corrections run through it: (1) wherever a class is genuinely *reused*, it is named as such; wherever the change is **new control-flow or a model change**, it is called out as new work (the "Build plan" in §8 is the authority on what is new). (2) Consistency and "$0 re-runs" are no longer asserted as free side-effects — each is backed by a concrete mechanism (a per-feature **facts card**, schema-enforced validation, and a defined **source digest**).
 

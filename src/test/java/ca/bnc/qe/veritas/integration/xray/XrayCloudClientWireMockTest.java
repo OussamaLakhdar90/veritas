@@ -196,26 +196,6 @@ class XrayCloudClientWireMockTest {
         wm.verify(2, postRequestedFor(urlPathEqualTo("/api/v2/graphql")).withRequestBody(containing("getTests")));
     }
 
-    @Test
-    void getTestStepsReturnsStepsOfFirstMatch() {
-        stubAuth("\"" + TOKEN + "\"");
-        stubGraphql("{\"data\":{\"getTests\":{\"results\":[{"
-                + "\"issueId\":\"10001\",\"jira\":{\"key\":\"CIAM-1\"},\"testType\":{\"name\":\"Manual\"},"
-                + "\"steps\":[{\"action\":\"do\",\"data\":\"d\",\"result\":\"r\"}]}]}}}");
-
-        List<XrayStep> steps = client().getTestSteps("CIAM-1");
-
-        assertThat(steps).hasSize(1);
-        assertThat(steps.get(0).action()).isEqualTo("do");
-    }
-
-    @Test
-    void getTestStepsReturnsEmptyWhenNoMatch() {
-        stubAuth("\"" + TOKEN + "\"");
-        stubGraphql("{\"data\":{\"getTests\":{\"results\":[]}}}");
-
-        assertThat(client().getTestSteps("CIAM-404")).isEmpty();
-    }
 
     // ---- updateTestSteps (resolve issueId then addTestStep per step) ----
 
