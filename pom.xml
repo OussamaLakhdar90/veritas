@@ -191,6 +191,49 @@
                             <goal>report</goal>
                         </goals>
                     </execution>
+                    <!-- Coverage GATE: turn the ~95% line / ~85% branch we already achieve into an enforced floor
+                         so a regression fails `mvn verify` (and therefore CI). Minimums set a safe margin below
+                         current so a normal PR isn't blocked, while still catching a real coverage drop. -->
+                    <execution>
+                        <id>jacoco-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.90</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.80</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- Run the *IT.java integration tests in `verify` (they were never executed: surefire's default
+                 pattern skips *IT, and no failsafe plugin was configured). Version managed by the Boot parent. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>
