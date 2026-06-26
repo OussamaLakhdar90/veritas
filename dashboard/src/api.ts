@@ -276,8 +276,29 @@ export interface ReviewResult {
   verdict?: string
   score?: number
   confidence?: number
+  gapsJson?: string
+  correctedJson?: string
   deliverableJson?: string
   createdAt?: string
+}
+
+/** Parsed structure of ReviewResult.deliverableJson — the ISTQB C1–C6 rubric review the backend returns. */
+export interface ReviewDeliverable {
+  score?: number
+  verdict?: string
+  gaps?: Array<{ criterion?: string; severity?: string; issue?: string; citation?: string }>
+  rubric?: Array<{ criterion: string; score?: number; note?: string }>
+  correctedSteps?: Array<{ action?: string; data?: string; expected?: string }>
+  selfReview?: { confidence?: number; blindSpots?: string[] }
+}
+
+/** Parsed structure of TestStrategy.scorecardJson — the deterministic multi-source quality scorecard. */
+export interface StrategyScorecard {
+  verdict: string            // OK | DEGRADED
+  confidence: number
+  checks: Array<{ name: string; passed: boolean; detail: string }>
+  featuresCovered: number
+  droppedSections: number
 }
 
 /** Parsed structure of TestPlan.deliverableJson — the consultant-grade ISTQB deliverable. */
@@ -328,6 +349,9 @@ export const api = {
   codegenRun: (id: string) => get<CodegenRun>(`/codegen-runs/${id}`),
   publishCodegen: (id: string, repoSlug: string, targetBranch = 'main', allowFailedBuild = false) =>
     post<CodegenRun>(`/codegen-runs/${id}/publish?repoSlug=${encodeURIComponent(repoSlug)}&targetBranch=${encodeURIComponent(targetBranch)}&allowFailedBuild=${allowFailedBuild}`, {}),
+  // Kick off template-driven test generation for a service (202 → a CodegenRun to inspect/publish).
+  implementTests: (service: string, body: { serviceRepo: string; templatePath?: string; outputDir: string; owner?: string }) =>
+    send<CodegenRun>('POST', `/services/${encodeURIComponent(service)}/implement-tests`, body),
 
   // Release test plan trigger + RTM workspace
   triggerReleasePlan: (service: string, body: { fixVersion: string; issuesJql?: string; testsJql?: string; projectKey?: string; createGaps?: boolean }) =>
@@ -349,6 +373,15 @@ export const api = {
   strategies: (service: string) => get<TestStrategy[]>(`/services/${encodeURIComponent(service)}/strategies`),
   generateStrategy: (service: string, body: { basis: string; source?: string; owner?: string }) =>
     send<TestStrategy>('POST', `/services/${encodeURIComponent(service)}/strategies`, body),
+  // Strategy detail / revision workflow (each edit/regenerate stores a new immutable version; approve locks it).
+  strategy: (id: string) => get<TestStrategy>(`/strategies/${encodeURIComponent(id)}`),
+  strategyVersions: (id: string) => get<TestStrategy[]>(`/strategies/${encodeURIComponent(id)}/versions`),
+  reviseStrategySection: (id: string, key: string, content: string, actor = 'dashboard') =>
+    send<TestStrategy>('PATCH', `/strategies/${encodeURIComponent(id)}/sections/${encodeURIComponent(key)}`, { content, actor }),
+  regenerateStrategySection: (id: string, key: string, guidance?: string, actor = 'dashboard') =>
+    send<TestStrategy>('POST', `/strategies/${encodeURIComponent(id)}/sections/${encodeURIComponent(key)}/regenerate`, { guidance, actor }),
+  approveStrategy: (id: string, actor = 'dashboard') =>
+    send<TestStrategy>('POST', `/strategies/${encodeURIComponent(id)}/approve`, { actor }),
   strategyRationaleUrl: (id: string) => `${BASE}/strategies/${id}/rationale`,
   strategyWhyDocUrl: (id: string) => `${BASE}/strategies/${id}/why-doc`,
   // Pass carryForwardFrom (a prior snapshot id) to re-extract the same sources and carry the reviewer's edits forward.

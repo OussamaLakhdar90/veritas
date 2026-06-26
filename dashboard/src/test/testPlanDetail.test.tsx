@@ -60,7 +60,7 @@ const coverage = [
     matchStatus: 'GAP' },
 ]
 
-function stubPlan(body: unknown, init?: { status?: number }) {
+function stubPlan(body: Record<string, unknown> | null, init?: { status?: number }) {
   server.use(
     http.get('*/api/v1/test-plans/:id', () =>
       init?.status && init.status >= 400

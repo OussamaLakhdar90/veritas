@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Code2, FileCode, ExternalLink, GitPullRequestArrow } from 'lucide-react';
+import { Code2, FileCode, ExternalLink, GitPullRequestArrow, Play } from 'lucide-react';
 import { api, CodegenRun } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Field, Input, PageHeader, Spinner } from '../components/ui';
 import { useToast } from '../components/Toast';
+import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
 
@@ -22,6 +23,8 @@ export function Codegen() {
   const q = useQuery({ queryKey: ['codegen-runs'], queryFn: api.codegenRuns });
   const [selId, setSelId] = useState<string | null>(null);
   const [repoSlug, setRepoSlug] = useState('');
+  const { blocked, notice } = useCopilotGate();
+  const [gen, setGen] = useState({ service: '', serviceRepo: '', outputDir: '', templatePath: '' });
 
   const runs = q.data ?? [];
   const sel = runs.find((r) => r.id === selId) ?? null;
@@ -33,10 +36,40 @@ export function Codegen() {
     onError: (e: Error) => toast.push('error', e.message),
   });
 
+  const generate = useMutation({
+    mutationFn: () => api.implementTests(gen.service, {
+      serviceRepo: gen.serviceRepo, outputDir: gen.outputDir,
+      templatePath: gen.templatePath.trim() || undefined,
+    }),
+    onSuccess: (run) => { qc.invalidateQueries({ queryKey: ['codegen-runs'] }); setSelId(run.id); toast.push('success', 'Generation complete — review the files below.'); },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+
   return (
     <div>
       <PageHeader title="Generate tests"
         subtitle="Template-driven test generation — inspect the files, build status and TODOs, then approve & open a PR." />
+
+      <Card className="mb-6">
+        <CardHeader title="New generation" subtitle="Learn the template → analyze the service (AST) → generate tests → build-verify. The push & PR stay gated." />
+        <CardBody className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label="Service"><Input placeholder="ciam-policies" value={gen.service} onChange={(e) => setGen((g) => ({ ...g, service: e.target.value }))} /></Field>
+            <Field label="Output directory" hint="Where the generated test repo is written."><Input placeholder="/work/ciam-autotests" value={gen.outputDir} onChange={(e) => setGen((g) => ({ ...g, outputDir: e.target.value }))} /></Field>
+            <Field label="Service repo path" hint="Local path to the service code to analyze."><Input placeholder="/work/ciam-policies" value={gen.serviceRepo} onChange={(e) => setGen((g) => ({ ...g, serviceRepo: e.target.value }))} /></Field>
+            <Field label="Template path (optional)" hint="Leave blank to use the bundled BNC autotests template."><Input placeholder="(bundled default)" value={gen.templatePath} onChange={(e) => setGen((g) => ({ ...g, templatePath: e.target.value }))} /></Field>
+          </div>
+          <div className="flex items-center justify-end gap-3">
+            {notice}
+            <Button loading={generate.isPending} disabled={blocked}
+              onClick={() => (gen.service && gen.serviceRepo.trim() && gen.outputDir.trim())
+                ? generate.mutate()
+                : toast.push('error', 'Service, service repo path and output directory are required.')}>
+              <Play className="h-4 w-4" /> Generate tests
+            </Button>
+          </div>
+        </CardBody>
+      </Card>
 
       {q.isLoading ? (
         <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> Loading…</CardBody></Card>

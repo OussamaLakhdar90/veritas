@@ -136,6 +136,35 @@ describe('Reviews page', () => {
     expect(body.jql).toBe('project = CIAM')
   })
 
+  it('expands a result row to reveal the C1–C6 rubric, gaps and corrected steps', async () => {
+    const deliverable = {
+      score: 87, verdict: 'PASS',
+      rubric: [{ criterion: 'C1 Atomicity', score: 4, note: 'one behaviour per test' }, { criterion: 'C3 Oracle', score: 2 }],
+      gaps: [{ criterion: 'C4', issue: 'No negative path for expired token', citation: 'ISTQB-2.3' }],
+      correctedSteps: [{ action: 'POST /policies with an expired token', data: 'token=EXPIRED', expected: '401 Unauthorized' }],
+      selfReview: { confidence: 88, blindSpots: ['Concurrency not assessed'] },
+    }
+    server.use(http.post('*/api/v1/reviews', () =>
+      HttpResponse.json([result({ deliverableJson: JSON.stringify(deliverable) })])))
+    const user = userEvent.setup()
+    renderReviews()
+
+    await user.type(screen.getByPlaceholderText('project = CIAM AND issuetype = Test'), 'project = CIAM')
+    await user.click(screen.getByRole('button', { name: /Run review/ }))
+    expect(await screen.findByText('Results (1)')).toBeInTheDocument()
+
+    // Detail is hidden until the row is expanded.
+    expect(screen.queryByText('C1 Atomicity')).not.toBeInTheDocument()
+    await user.click(screen.getByText('CIAM-101'))
+
+    expect(await screen.findByText('C1 Atomicity')).toBeInTheDocument()
+    expect(screen.getByText(/one behaviour per test/)).toBeInTheDocument()
+    expect(screen.getByText(/No negative path for expired token/)).toBeInTheDocument()
+    expect(screen.getByText('POST /policies with an expired token')).toBeInTheDocument()
+    expect(screen.getByText('401 Unauthorized')).toBeInTheDocument()
+    expect(screen.getByText('Concurrency not assessed')).toBeInTheDocument()
+  })
+
   it('renders em-dashes for missing verdict/score/confidence fields', async () => {
     server.use(
       http.post('*/api/v1/reviews', () =>

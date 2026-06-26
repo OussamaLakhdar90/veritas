@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { ShieldCheck, AlertTriangle, Activity, FileText, ArrowRight, Settings as SettingsIcon } from 'lucide-react';
 import { api, Scan } from '../api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, KpiTile, PageHeader, Skeleton } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, KpiTile, PageHeader, Skeleton } from '../components/ui';
 import { TONE } from '../theme/tokens';
 
 /** Map a validation status to a status-pill tone. */
@@ -47,6 +47,9 @@ export function Dashboard() {
     .sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))
     .slice(0, 8);
 
+  // Don't render misleading zeros when the core data couldn't load — show a real error instead.
+  const loadError = (scansQ.isError && scansQ.error) || (costQ.isError && costQ.error) || (defectsQ.isError && defectsQ.error);
+
   return (
     <div>
       <PageHeader
@@ -58,6 +61,8 @@ export function Dashboard() {
           </Link>
         }
       />
+
+      {loadError && <div className="mb-6"><ErrorState message={`Couldn't load the overview: ${(loadError as Error).message}`} /></div>}
 
       {/* Setup nudge — only when something is unconfigured */}
       {missing.length > 0 && (

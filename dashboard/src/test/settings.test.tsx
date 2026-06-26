@@ -33,8 +33,8 @@ function mountGets(over: {
   preflight?: unknown
   connections?: unknown
   secrets?: unknown
-  llm?: unknown
-  copilot?: unknown
+  llm?: Record<string, unknown>
+  copilot?: Record<string, unknown>
 } = {}) {
   server.use(
     http.get('*/api/v1/preflight', () => HttpResponse.json(over.preflight ?? preflight)),

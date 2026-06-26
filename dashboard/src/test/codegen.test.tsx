@@ -134,6 +134,43 @@ describe('Codegen — Generate tests workspace', () => {
     expect(publishedAllowFailed).toBe('true')
   })
 
+  it('triggers a new generation (POST implement-tests) and selects the returned run', async () => {
+    let body: { serviceRepo?: string; outputDir?: string; templatePath?: string } | null = null
+    let generated = false
+    server.use(
+      http.get('*/api/v1/codegen-runs', () => HttpResponse.json(generated ? [run()] : [])),
+      http.post('*/api/v1/services/:service/implement-tests', async ({ request, params }) => {
+        body = (await request.json()) as { serviceRepo?: string; outputDir?: string; templatePath?: string }
+        expect(params.service).toBe('ciam-policies')
+        generated = true
+        return HttpResponse.json(run())
+      }),
+    )
+    const user = userEvent.setup()
+    renderCodegen()
+
+    await user.type(await screen.findByPlaceholderText('ciam-policies'), 'ciam-policies')
+    await user.type(screen.getByPlaceholderText('/work/ciam-policies'), '/work/ciam-policies')
+    await user.type(screen.getByPlaceholderText('/work/ciam-autotests'), '/work/out')
+    await user.click(screen.getByRole('button', { name: /Generate tests/ }))
+
+    expect(await screen.findByText(/Generation complete/)).toBeInTheDocument()
+    expect(body).toMatchObject({ serviceRepo: '/work/ciam-policies', outputDir: '/work/out' })
+    // templatePath left blank → omitted (bundled default used).
+    expect(body?.templatePath).toBeUndefined()
+    // The returned run is auto-selected → its files render.
+    expect(await screen.findByText('src/test/PolicyTest.java')).toBeInTheDocument()
+  })
+
+  it('blocks a generation with a toast when required fields are empty', async () => {
+    server.use(http.get('*/api/v1/codegen-runs', () => HttpResponse.json([])))
+    const user = userEvent.setup()
+    renderCodegen()
+
+    await user.click(await screen.findByRole('button', { name: /Generate tests/ }))
+    expect(await screen.findByText(/Service, service repo path and output directory are required/)).toBeInTheDocument()
+  })
+
   it('surfaces an error toast when the publish POST fails', async () => {
     server.use(
       http.get('*/api/v1/codegen-runs', () => HttpResponse.json([run()])),
