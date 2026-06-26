@@ -51,8 +51,9 @@ class BuildVerifierBranchTest {
         // `java --version` exits 0 and prints a short banner to stdout.
         BuildResult r = verifier.verify(dir, javaExecutable() + " --version");
         assertThat(r.status()).isEqualTo("PASS");
-        // The banner names the runtime; assert real captured content, not just non-empty.
-        assertThat(r.output().toLowerCase()).contains("java").contains("runtime environment");
+        // The banner names the runtime; assert real captured content (works on Oracle "Java(TM)..." AND the CI's
+        // OpenJDK/Temurin "OpenJDK Runtime Environment" — both contain "runtime environment", not both "java").
+        assertThat(r.output().toLowerCase()).contains("runtime environment");
     }
 
     @Test
