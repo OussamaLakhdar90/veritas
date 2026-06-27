@@ -43,11 +43,13 @@ public class ReviewService {
     private final GateService gateService;
     private final ObjectMapper objectMapper;
     private final Preflight preflight;
+    private final ca.bnc.qe.veritas.report.CitationSanitizer citationSanitizer;
 
     public ReviewService(LlmGateway llm, JsonBlockExtractor jsonExtractor, ResponseSchemaValidator schemaValidator,
                          ModelSelector modelSelector, CostRecorder costRecorder, PromptComposer promptComposer,
                          ReviewResultRepository repository, XrayClient xray, GateService gateService,
-                         ObjectMapper objectMapper, Preflight preflight) {
+                         ObjectMapper objectMapper, Preflight preflight,
+                         ca.bnc.qe.veritas.report.CitationSanitizer citationSanitizer) {
         this.llm = llm;
         this.jsonExtractor = jsonExtractor;
         this.schemaValidator = schemaValidator;
@@ -59,6 +61,7 @@ public class ReviewService {
         this.gateService = gateService;
         this.objectMapper = objectMapper;
         this.preflight = preflight;
+        this.citationSanitizer = citationSanitizer;
     }
 
     public List<ReviewResult> reviewByJql(String jql, String owner, boolean apply) {
@@ -103,6 +106,7 @@ public class ReviewService {
             // such a gap can only be fabricated. Keep the report and the persisted gaps consistent.
             List<String> droppedGaps = new ArrayList<>();
             ArrayNode keptGaps = suppressUnscoreableGaps(node.path("gaps"), droppedGaps);
+            citationSanitizer.sanitizeArrayField(keptGaps, "cite");   // enforce §0.1 on gap citations
             if (node instanceof ObjectNode on) {
                 on.set("gaps", keptGaps);
                 if (!droppedGaps.isEmpty()) {

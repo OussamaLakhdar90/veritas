@@ -12,6 +12,7 @@ import ca.bnc.qe.veritas.cost.ModelTier;
 import ca.bnc.qe.veritas.engine.extract.java.JavaSpringExtractor;
 import ca.bnc.qe.veritas.engine.model.ApiModel;
 import ca.bnc.qe.veritas.engine.model.Endpoint;
+import ca.bnc.qe.veritas.engine.model.FieldModel;
 import ca.bnc.qe.veritas.llm.JsonBlockExtractor;
 import ca.bnc.qe.veritas.llm.LlmGateway;
 import ca.bnc.qe.veritas.llm.PromptComposer;
@@ -122,14 +123,17 @@ public class CodegenService {
      * literal secrets); IDs that must pre-exist come back as TODOs, never invented. Returns the parsed reply
      * (files + todos) so the caller writes the files and merges the TODOs with the implement step's.
      */
-    private JsonNode generateData(TemplateSpec spec, List<String> endpoints, String owner) throws Exception {
+    private JsonNode generateData(TemplateSpec spec, List<String> endpoints, String dataModels, String owner)
+            throws Exception {
         String contract = "Generate the test DATA artifacts in the TEMPLATE's exact format (framework: "
                 + spec.frameworkName() + "). Secrets MUST be \"$sensitive:ENV_NAME\" references — never literal values. "
                 + "Any record/ID that must already exist in the system goes in todos (do not invent it). "
+                + "Fixture fields MUST come from DATA_MODELS — never invent a field the DTOs don't declare. "
                 + "One fenced ```json block last: {\"files\":[{\"path\":string,\"content\":string}],\"todos\":[string]}. "
                 + "Paths relative to the output repo. No prose after.";
         String inputs = promptComposer.data("TEMPLATE", spec.body())
-                + promptComposer.data("ENDPOINTS", endpoints.toString());
+                + promptComposer.data("ENDPOINTS", endpoints.toString())
+                + promptComposer.data("DATA_MODELS", dataModels);
         String prompt = promptComposer.compose("[GENERATE-DATA]", "generate-test-data.prompt.md",
                 Set.of("1", "15"), inputs, contract);   // terminology + secrets-handling knowledge
         String model = modelSelector.resolveTier(ModelTier.STANDARD);   // data fixtures don't need the DEEP tier
@@ -138,6 +142,38 @@ public class CodegenService {
         JsonNode node = objectMapper.readTree(jsonExtractor.extract(raw));
         schemaValidator.validate(node, "implement-tests.schema.json");   // same {files,todos} shape
         return node;
+    }
+
+    /** The service's DTOs (name + fields + types) fed to the generator so it cites real response fields, not invented
+     *  ones — evidence-before-generation for codegen (the DTO surface that task #24 already extracts). */
+    private static String renderSchemas(ApiModel code) {
+        if (code.schemas() == null || code.schemas().isEmpty()) {
+            return "(no DTO models were extracted from the service)";
+        }
+        StringBuilder sb = new StringBuilder();
+        code.schemas().forEach((name, s) -> {
+            if (s.enumValues() != null && !s.enumValues().isEmpty()) {
+                sb.append("- ").append(s.name()).append(" = enum [").append(String.join(", ", s.enumValues())).append("]\n");
+                return;
+            }
+            sb.append("- ").append(s.name());
+            if (s.fields() != null && !s.fields().isEmpty()) {
+                List<String> parts = new ArrayList<>();
+                for (FieldModel f : s.fields()) {
+                    StringBuilder b = new StringBuilder(f.jsonName()).append(":").append(f.type() == null ? "?" : f.type());
+                    if (f.required()) {
+                        b.append(" required");
+                    }
+                    if (f.refSchema() != null && !f.refSchema().isBlank()) {
+                        b.append(" →").append(f.refSchema());
+                    }
+                    parts.add(b.toString());
+                }
+                sb.append(": ").append(String.join("; ", parts));
+            }
+            sb.append("\n");
+        });
+        return sb.toString();
     }
 
     /** Default codegen template = the bundled BNC autotests template; copied to a temp file for TemplateLearner. */
@@ -201,18 +237,21 @@ public class CodegenService {
         ApiModel code = javaSpringExtractor.extract(serviceRepo);
         List<String> endpoints = new ArrayList<>();
         code.endpoints().forEach(e -> endpoints.add(e.signature()));
+        String dataModels = renderSchemas(code);   // the real DTOs — so the test code doesn't invent response fields
 
         try {
             // Step 4 (L): generate the data artifacts first, in the template's format, so tests can reference them.
-            JsonNode dataNode = generateData(spec, endpoints, owner);
+            JsonNode dataNode = generateData(spec, endpoints, dataModels, owner);
 
             String outputContract = "Generate automated tests that EXACTLY follow the template (framework: "
                     + spec.frameworkName() + ", language: " + spec.language() + "). Mirror its conventions; "
-                    + "introduce no pattern absent from it. One fenced ```json block last: "
+                    + "introduce no pattern absent from it. Response-model field names MUST come from DATA_MODELS — "
+                    + "never invent a response field that the DTOs don't declare. One fenced ```json block last: "
                     + "{\"files\":[{\"path\":string,\"content\":string}],\"todos\":[string]}. "
                     + "Paths relative to the output repo. No prose after.";
             String inputs = promptComposer.data("TEMPLATE", spec.body())
-                    + promptComposer.data("ENDPOINTS", endpoints.toString());
+                    + promptComposer.data("ENDPOINTS", endpoints.toString())
+                    + promptComposer.data("DATA_MODELS", dataModels);
             String prompt = promptComposer.compose("[IMPLEMENT-TESTS]", "implement-api-tests.prompt.md",
                     Set.of("1", "12"), inputs, outputContract);   // terminology, API heuristics
             String model = modelSelector.resolveTier(ModelTier.DEEP);

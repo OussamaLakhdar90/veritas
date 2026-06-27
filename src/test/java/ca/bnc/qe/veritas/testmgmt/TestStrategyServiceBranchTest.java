@@ -65,7 +65,7 @@ class TestStrategyServiceBranchTest {
         preflight = mock(Preflight.class);
 
         service = new TestStrategyService(llm, jsonExtractor, schemaValidator, modelSelector, costRecorder,
-                promptComposer, repository, objectMapper, preflight);
+                promptComposer, repository, objectMapper, preflight, new ca.bnc.qe.veritas.report.CitationSanitizer());
     }
 
     // ---- shared mock wiring helpers -------------------------------------------------------------------
