@@ -9,6 +9,7 @@ import ca.bnc.qe.veritas.cost.CostRecorder;
 import ca.bnc.qe.veritas.cost.CostResult;
 import ca.bnc.qe.veritas.cost.ModelSelector;
 import ca.bnc.qe.veritas.cost.ModelTier;
+import ca.bnc.qe.veritas.codegen.plan.EndpointScope;
 import ca.bnc.qe.veritas.engine.extract.java.JavaSpringExtractor;
 import ca.bnc.qe.veritas.engine.model.ApiModel;
 import ca.bnc.qe.veritas.engine.model.Endpoint;
@@ -248,11 +249,21 @@ public class CodegenService {
     }
 
     public CodegenRun generate(String serviceName, Path serviceRepo, Path templatePath, Path outputDir, String owner) {
+        return generate(serviceName, serviceRepo, templatePath, outputDir, owner, Set.of());
+    }
+
+    /**
+     * As {@link #generate(String, Path, Path, Path, String)}, but {@code scope} narrows generation to the endpoints
+     * the user selected in the wizard (by {@code "METHOD /path"} signature). An empty scope generates for the whole
+     * service. Scoping the model here also scopes the ENDPOINTS list, DATA_MODELS, and the .http emit consistently.
+     */
+    public CodegenRun generate(String serviceName, Path serviceRepo, Path templatePath, Path outputDir, String owner,
+                               Set<String> scope) {
         Path effectiveTemplate = resolveTemplate(templatePath);   // null → bundled BNC autotests template
         preflight.implementTests(serviceName, serviceRepo, effectiveTemplate, outputDir);
         preflight.requireLlm(llm, "implement-tests");
         TemplateSpec spec = templateLearner.learn(effectiveTemplate);   // fails fast if template missing/invalid
-        ApiModel code = javaSpringExtractor.extract(serviceRepo);
+        ApiModel code = EndpointScope.filter(javaSpringExtractor.extract(serviceRepo), scope);
         List<String> endpoints = new ArrayList<>();
         code.endpoints().forEach(e -> endpoints.add(e.signature()));
         String dataModels = renderSchemas(code);   // the real DTOs — so the test code doesn't invent response fields

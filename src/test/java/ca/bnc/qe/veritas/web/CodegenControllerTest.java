@@ -2,6 +2,7 @@ package ca.bnc.qe.veritas.web;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -29,7 +30,7 @@ class CodegenControllerTest {
         CodegenRun run = new CodegenRun();
         run.setServiceName("ciam-policies");
         run.setBuildStatus("PASS");
-        when(codegen.generate(eq("ciam-policies"), any(), any(), any(), any())).thenReturn(run);
+        when(codegen.generate(eq("ciam-policies"), any(), any(), any(), any(), any())).thenReturn(run);
 
         mvc.perform(post("/api/v1/services/ciam-policies/implement-tests")
                         .contentType("application/json")
@@ -37,5 +38,23 @@ class CodegenControllerTest {
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.serviceName").value("ciam-policies"))
                 .andExpect(jsonPath("$.buildStatus").value("PASS"));
+
+        // No endpoints in the body → an empty scope (generate for the whole service).
+        verify(codegen).generate(eq("ciam-policies"), any(), any(), any(), any(), eq(java.util.Set.of()));
+    }
+
+    @Test
+    void selectedEndpointsAreForwardedAsTheGenerationScope() throws Exception {
+        when(codegen.generate(eq("ciam-policies"), any(), any(), any(), any(), any())).thenReturn(new CodegenRun());
+
+        mvc.perform(post("/api/v1/services/ciam-policies/implement-tests")
+                        .contentType("application/json")
+                        .content("""
+                                {"serviceRepo":"/repo","outputDir":"/out",
+                                 "endpoints":["POST /policies","GET /policies/{id}"]}"""))
+                .andExpect(status().isAccepted());
+
+        verify(codegen).generate(eq("ciam-policies"), any(), any(), any(), any(),
+                eq(new java.util.LinkedHashSet<>(java.util.List.of("POST /policies", "GET /policies/{id}"))));
     }
 }

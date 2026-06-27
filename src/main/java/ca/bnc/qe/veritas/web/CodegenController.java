@@ -43,8 +43,12 @@ public class CodegenController {
     public CodegenRun implementTests(@PathVariable String service, @RequestBody ImplementRequest req) {
         // templatePath is optional — null/blank uses the bundled BNC autotests template.
         Path template = req.templatePath() == null || req.templatePath().isBlank() ? null : Path.of(req.templatePath());
+        // endpoints is optional — when present, generation is scoped to just those "METHOD /path" signatures
+        // (the wizard's selected gaps); empty/absent generates for the whole service.
+        java.util.Set<String> scope = req.endpoints() == null ? java.util.Set.of()
+                : new java.util.LinkedHashSet<>(req.endpoints());
         return codegen.generate(service, Path.of(req.serviceRepo()), template,
-                Path.of(req.outputDir()), req.owner() == null ? "api" : req.owner());
+                Path.of(req.outputDir()), req.owner() == null ? "api" : req.owner(), scope);
     }
 
     @GetMapping("/codegen-runs/{id}")
@@ -62,5 +66,7 @@ public class CodegenController {
         return codegen.publish(id, repoSlug, targetBranch, owner, allowFailedBuild);
     }
 
-    public record ImplementRequest(String serviceRepo, String templatePath, String outputDir, String owner) {}
+    /** {@code endpoints} (optional): scope generation to these {@code "METHOD /path"} signatures; omit = whole service. */
+    public record ImplementRequest(String serviceRepo, String templatePath, String outputDir, String owner,
+                                   List<String> endpoints) {}
 }

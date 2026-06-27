@@ -395,7 +395,8 @@ export const api = {
   publishCodegen: (id: string, repoSlug: string, targetBranch = 'main', allowFailedBuild = false) =>
     post<CodegenRun>(`/codegen-runs/${id}/publish?repoSlug=${encodeURIComponent(repoSlug)}&targetBranch=${encodeURIComponent(targetBranch)}&allowFailedBuild=${allowFailedBuild}`, {}),
   // Kick off template-driven test generation for a service (202 → a CodegenRun to inspect/publish).
-  implementTests: (service: string, body: { serviceRepo: string; templatePath?: string; outputDir: string; owner?: string }) =>
+  // endpoints (optional): scope generation to these "METHOD /path" signatures (the wizard's selected gaps).
+  implementTests: (service: string, body: { serviceRepo: string; templatePath?: string; outputDir: string; owner?: string; endpoints?: string[] }) =>
     send<CodegenRun>('POST', `/services/${encodeURIComponent(service)}/implement-tests`, body),
   // Preflight for the test-gen wizard: reconcile the API against the existing tests (no LLM, no writes).
   // Omit testRepoSlug for a from-scratch plan. Both repos share appId; *RepoPath are local-dev overrides.
