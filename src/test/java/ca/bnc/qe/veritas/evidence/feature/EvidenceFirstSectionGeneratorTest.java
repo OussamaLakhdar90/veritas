@@ -109,14 +109,17 @@ class EvidenceFirstSectionGeneratorTest {
     }
 
     @Test
-    void theSectionSchemaRequiresAtLeastOneEvidenceEntry() throws Exception {
+    void theSectionSchemaRequiresAtLeastOneEvidenceEntryWithAQuote() throws Exception {
         ResponseSchemaValidator real = new ResponseSchemaValidator(new DefaultResourceLoader());
         ObjectMapper om = new ObjectMapper();
-        real.validate(om.readTree("{\"feature\":\"x\",\"evidence\":[{\"unitId\":\"a\"}],\"content\":{}}"),
+        real.validate(om.readTree("{\"feature\":\"x\",\"evidence\":[{\"unitId\":\"a\",\"quote\":\"q\"}],\"content\":{}}"),
                 "test-strategy-section.schema.json");   // valid
         assertThatThrownBy(() -> real.validate(om.readTree("{\"feature\":\"x\",\"evidence\":[],\"content\":{}}"),
                 "test-strategy-section.schema.json")).isInstanceOf(IllegalStateException.class);   // minItems 1
         assertThatThrownBy(() -> real.validate(om.readTree("{\"feature\":\"x\",\"content\":{}}"),
                 "test-strategy-section.schema.json")).isInstanceOf(IllegalStateException.class);   // evidence required
+        // quote is now mandatory on every citation — a bare {unitId} no longer schema-validates (bypass closed).
+        assertThatThrownBy(() -> real.validate(om.readTree("{\"feature\":\"x\",\"evidence\":[{\"unitId\":\"a\"}],\"content\":{}}"),
+                "test-strategy-section.schema.json")).isInstanceOf(IllegalStateException.class);   // quote required
     }
 }

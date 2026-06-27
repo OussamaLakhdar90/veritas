@@ -63,9 +63,12 @@ class CitationValidatorTest {
     }
 
     @Test
-    void allowsAnIdWithNoQuote() {
-        // quote is optional — a bare allowed-and-resolvable id is valid (the existence check still applies).
-        assertThat(validator.validate(json("[{\"unitId\":\"CODE-1\"}]"), byId, allowed).valid()).isTrue();
+    void rejectsAnAllowedIdWithNoQuote() {
+        // Closed-world id alone proves nothing about the claim it backs: every citation must carry a grounded quote,
+        // else a section could cite a real id while fabricating the content (the bypass this check now closes).
+        CitationValidator.Result r = validator.validate(json("[{\"unitId\":\"CODE-1\"}]"), byId, allowed);
+        assertThat(r.valid()).isFalse();
+        assertThat(r.problems()).anyMatch(p -> p.contains("no quote"));
     }
 
     @Test

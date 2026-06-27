@@ -32,10 +32,13 @@ public class MockLlmGateway implements LlmGateway {
             return "Feature tags (mock).\n```json\n{\"features\":[]}\n```\n";
         }
         if (prompt != null && prompt.contains("[EVIDENCE-SECTION:")) {
-            // Mock can't synthesize grounded content; cite the first allowed unit id (bare id = grounded enough for
-            // the CitationValidator) so the evidence-first section is valid in mock mode, with placeholder content.
-            return "Section (mock).\n```json\n{\"feature\":\"(mock)\",\"evidence\":[{\"unitId\":\""
-                    + firstAllowedId(prompt) + "\"}],\"content\":\"(mock section — a real run uses Copilot)\"}\n```\n";
+            // Mock can't synthesize grounded content; cite the first allowed unit id AND copy a verbatim quote from
+            // that unit's evidence line in the prompt, so the section passes the (now mandatory) CitationValidator
+            // quote-grounding check in mock mode. Placeholder content otherwise.
+            String fid = firstAllowedId(prompt);
+            String quote = groundedQuote(prompt, fid);
+            return "Section (mock).\n```json\n{\"feature\":\"(mock)\",\"evidence\":[{\"unitId\":\"" + fid
+                    + "\",\"quote\":\"" + jsonEscape(quote) + "\"}],\"content\":\"(mock section — a real run uses Copilot)\"}\n```\n";
         }
         if (prompt != null && prompt.contains("[TEST-STRATEGY-SECTION:")) {
             int i = prompt.indexOf("[TEST-STRATEGY-SECTION:") + "[TEST-STRATEGY-SECTION:".length();
@@ -158,6 +161,32 @@ public class MockLlmGateway implements LlmGateway {
     // stay in sync with EvidenceFirstSectionGenerator's contract (guarded end-to-end by the SpringBootTest
     // EvidenceFirstSectionGeneratorMockModeTest). Assumes evidence ids contain no ',' or ']' (true for the
     // JIRA / CONF / CODE:Class#method / POLICY id shapes).
+    // Copy a verbatim slice of the cited unit's text from its evidence line in the prompt. EvidenceRetriever.forFeature
+    // renders each unit as "[id] (source/type) title: text", so we anchor on "[id] (" (NOT the cite list "[id, ...]")
+    // and take the text after the first ": ". Returns "" when there's no evidence line (e.g. the marker-only branch
+    // tests) — the section then has no quote, which is the correct outcome to surface.
+    private static String groundedQuote(String prompt, String id) {
+        if (prompt == null || id == null || id.isBlank()) {
+            return "";
+        }
+        int at = prompt.indexOf("[" + id + "] (");
+        if (at < 0) {
+            return "";
+        }
+        int eol = prompt.indexOf('\n', at);
+        String line = eol < 0 ? prompt.substring(at) : prompt.substring(at, eol);
+        int colon = line.indexOf(": ");
+        if (colon < 0) {
+            return "";
+        }
+        String text = line.substring(colon + 2).strip();
+        return text.length() <= 40 ? text : text.substring(0, 40);
+    }
+
+    private static String jsonEscape(String s) {
+        return s == null ? "" : s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ");
+    }
+
     private static String firstAllowedId(String prompt) {
         String marker = "Cite ONLY these unit ids: [";
         int start = prompt.indexOf(marker);
