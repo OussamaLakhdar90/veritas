@@ -116,6 +116,28 @@ class ReviewServiceMockitoTest {
     }
 
     @Test
+    void reviewByJql_withOnlyKeys_reviewsOnlyTheSelectedSubset() {
+        when(xray.getTestsByJql("jql")).thenReturn(List.of(test("CIAM-1"), test("CIAM-2"), test("CIAM-3")));
+        stubReviewPipeline(FULL_JSON, 0.02);
+
+        List<ReviewResult> results = service.reviewByJql("jql", "tester", false, java.util.Set.of("CIAM-2"));
+
+        assertThat(results).hasSize(1);
+        assertThat(results.get(0).getTargetKey()).isEqualTo("CIAM-2");   // only the selected key was reviewed
+        verify(repository, times(1)).save(any(ReviewResult.class));
+    }
+
+    @Test
+    void candidates_listsTestsWithoutReviewing() {
+        when(xray.getTestsByJql("jql")).thenReturn(List.of(test("CIAM-1"), test("CIAM-2")));
+
+        assertThat(service.candidates("jql")).extracting(XrayTest::key).containsExactly("CIAM-1", "CIAM-2");
+
+        verify(preflight).reviewTestCases("jql");
+        verifyNoInteractions(llm, costRecorder, repository, gateService);   // listing does not review or call the LLM
+    }
+
+    @Test
     void reviewByJql_reviewsEveryReturnedTest() {
         when(xray.getTestsByJql("jql")).thenReturn(List.of(test("CIAM-1"), test("CIAM-2"), test("CIAM-3")));
         stubReviewPipeline(FULL_JSON, 0.02);

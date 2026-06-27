@@ -165,6 +165,46 @@ describe('Reviews page', () => {
     expect(screen.getByText('Concurrency not assessed')).toBeInTheDocument()
   })
 
+  it('loads candidates by JQL, lets the user deselect one, and reviews only the selected subset', async () => {
+    let body: { testKeys?: string[] } = {}
+    server.use(
+      http.get('*/api/v1/reviews/candidates', () => HttpResponse.json([
+        { key: 'CIAM-101', summary: 'Create policy', testType: 'Manual', steps: 3 },
+        { key: 'CIAM-102', summary: 'Get policy', testType: 'Manual', steps: 2 },
+      ])),
+      http.post('*/api/v1/reviews', async ({ request }) => {
+        body = (await request.json()) as { testKeys?: string[] }
+        return HttpResponse.json([result()])
+      }),
+    )
+    const user = userEvent.setup()
+    renderReviews()
+
+    await user.type(screen.getByPlaceholderText('project = CIAM AND issuetype = Test'), 'project = CIAM')
+    await user.click(screen.getByRole('button', { name: /Load tests/ }))
+
+    // both candidates listed, all selected by default
+    expect(await screen.findByText('Create policy')).toBeInTheDocument()
+    expect(screen.getByText('2 of 2 selected')).toBeInTheDocument()
+
+    // deselect CIAM-102 → review only CIAM-101
+    await user.click(screen.getByLabelText('Select CIAM-102'))
+    expect(screen.getByText('1 of 2 selected')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Review selected \(1\)/ }))
+
+    expect(await screen.findByText('Reviewed 1 test.')).toBeInTheDocument()
+    expect(body.testKeys).toEqual(['CIAM-101'])
+  })
+
+  it('shows an error toast when loading candidates returns none', async () => {
+    server.use(http.get('*/api/v1/reviews/candidates', () => HttpResponse.json([])))
+    const user = userEvent.setup()
+    renderReviews()
+    await user.type(screen.getByPlaceholderText('project = CIAM AND issuetype = Test'), 'project = NOPE')
+    await user.click(screen.getByRole('button', { name: /Load tests/ }))
+    expect(await screen.findByText('The JQL returned no Xray tests.')).toBeInTheDocument()
+  })
+
   it('renders em-dashes for missing verdict/score/confidence fields', async () => {
     server.use(
       http.post('*/api/v1/reviews', () =>

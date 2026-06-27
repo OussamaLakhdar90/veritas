@@ -34,10 +34,32 @@ class ReviewControllerTest {
 
     @Test
     void runReviewReturns202AndDelegates() throws Exception {
-        when(service.reviewByJql(eq("project = CIAM"), any(), eq(false))).thenReturn(List.of());
+        when(service.reviewByJql(eq("project = CIAM"), any(), eq(false), any())).thenReturn(List.of());
         mvc.perform(post("/api/v1/reviews").contentType("application/json")
                         .content("{\"jql\":\"project = CIAM\",\"apply\":false}"))
                 .andExpect(status().isAccepted());
-        verify(service).reviewByJql(eq("project = CIAM"), any(), eq(false));
+        // no testKeys in the body → empty set passed → review every match
+        verify(service).reviewByJql(eq("project = CIAM"), any(), eq(false), eq(java.util.Set.of()));
+    }
+
+    @Test
+    void runReviewWithSelectedKeysDelegatesThatSubset() throws Exception {
+        when(service.reviewByJql(eq("project = CIAM"), any(), eq(false), any())).thenReturn(List.of());
+        mvc.perform(post("/api/v1/reviews").contentType("application/json")
+                        .content("{\"jql\":\"project = CIAM\",\"apply\":false,\"testKeys\":[\"CIAM-2\",\"CIAM-5\"]}"))
+                .andExpect(status().isAccepted());
+        verify(service).reviewByJql(eq("project = CIAM"), any(), eq(false),
+                eq(new java.util.LinkedHashSet<>(List.of("CIAM-2", "CIAM-5"))));
+    }
+
+    @Test
+    void candidatesListsTestsForAJql() throws Exception {
+        when(service.candidates("project = CIAM")).thenReturn(List.of(
+                new ca.bnc.qe.veritas.integration.xray.XrayTest("CIAM-1", "1", "Create policy", "Manual", List.of())));
+        mvc.perform(get("/api/v1/reviews/candidates").param("jql", "project = CIAM"))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                        .jsonPath("$[0].key").value("CIAM-1"));
+        verify(service).candidates("project = CIAM");
     }
 }

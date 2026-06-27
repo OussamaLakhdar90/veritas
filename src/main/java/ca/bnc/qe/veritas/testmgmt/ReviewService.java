@@ -65,13 +65,31 @@ public class ReviewService {
     }
 
     public List<ReviewResult> reviewByJql(String jql, String owner, boolean apply) {
+        return reviewByJql(jql, owner, apply, Set.of());
+    }
+
+    /**
+     * Review the Xray tests selected by {@code jql}. When {@code onlyKeys} is non-empty, only those test keys are
+     * reviewed (the rest of the JQL match is skipped) — so the UI can list the candidates and let the user pick a
+     * subset rather than reviewing the whole folder.
+     */
+    public List<ReviewResult> reviewByJql(String jql, String owner, boolean apply, Set<String> onlyKeys) {
         preflight.reviewTestCases(jql);
         preflight.requireLlm(llm, "review-test-cases");
         List<ReviewResult> results = new ArrayList<>();
         for (XrayTest test : xray.getTestsByJql(jql)) {
+            if (!onlyKeys.isEmpty() && (test.key() == null || !onlyKeys.contains(test.key()))) {
+                continue;   // a subset was selected — review only those
+            }
             results.add(reviewOne(test, owner, apply));
         }
         return results;
+    }
+
+    /** List the Xray tests a JQL selects, WITHOUT reviewing them — backs the "pick which to review" UI. No LLM. */
+    public List<XrayTest> candidates(String jql) {
+        preflight.reviewTestCases(jql);
+        return xray.getTestsByJql(jql);
     }
 
     private ReviewResult reviewOne(XrayTest test, String owner, boolean apply) {

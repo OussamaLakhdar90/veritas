@@ -289,6 +289,14 @@ export interface StrategyAccepted {
   status: string
 }
 
+/** An Xray test a JQL selects — shown for selection before reviewing. */
+export interface ReviewCandidate {
+  key: string
+  summary?: string
+  testType?: string
+  steps: number
+}
+
 export interface ReviewResult {
   id: string
   targetKey?: string
@@ -422,7 +430,12 @@ export const api = {
   getStrategySnapshot: (snapshotId: string) =>
     get<StrategyPreview>(`/multi-source-strategy/snapshots/${encodeURIComponent(snapshotId)}`),
   reviews: (targetKey: string) => get<ReviewResult[]>(`/reviews?targetKey=${encodeURIComponent(targetKey)}`),
-  runReview: (body: { jql: string; apply: boolean; owner?: string }) => send<ReviewResult[]>('POST', '/reviews', body),
+  // List the Xray tests a JQL selects (no review yet) so the user can pick which to review.
+  reviewCandidates: (jql: string) =>
+    get<ReviewCandidate[]>(`/reviews/candidates?jql=${encodeURIComponent(jql)}`),
+  // testKeys (optional): review only the selected subset; omit to review every JQL match.
+  runReview: (body: { jql: string; apply: boolean; owner?: string; testKeys?: string[] }) =>
+    send<ReviewResult[]>('POST', '/reviews', body),
   generateTestCases: (service: string, body: { basis: string; owner?: string }) =>
     send<TestCase[]>('POST', `/services/${encodeURIComponent(service)}/test-cases`, body),
 

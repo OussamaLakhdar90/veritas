@@ -31,11 +31,25 @@ public class ReviewController {
         return repository.findByTargetKeyOrderByCreatedAtDesc(targetKey);
     }
 
+    /** The Xray tests a JQL selects (no review yet) — so the UI can show them and let the user pick a subset. */
+    @GetMapping("/reviews/candidates")
+    public List<TestSummary> candidates(@RequestParam String jql) {
+        return service.candidates(jql).stream()
+                .map(t -> new TestSummary(t.key(), t.summary(), t.testType(),
+                        t.steps() == null ? 0 : t.steps().size()))
+                .toList();
+    }
+
     @PostMapping("/reviews")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public List<ReviewResult> review(@RequestBody ReviewRequest req) {
-        return service.reviewByJql(req.jql(), req.owner() == null ? "api" : req.owner(), req.apply());
+        java.util.Set<String> keys = req.testKeys() == null ? java.util.Set.of()
+                : new java.util.LinkedHashSet<>(req.testKeys());
+        return service.reviewByJql(req.jql(), req.owner() == null ? "api" : req.owner(), req.apply(), keys);
     }
 
-    public record ReviewRequest(String jql, boolean apply, String owner) {}
+    /** Optional {@code testKeys}: when present, only those tests are reviewed (a user-selected subset of the JQL). */
+    public record ReviewRequest(String jql, boolean apply, String owner, List<String> testKeys) {}
+
+    public record TestSummary(String key, String summary, String testType, int steps) {}
 }
