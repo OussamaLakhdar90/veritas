@@ -19,6 +19,18 @@
         }
       }
     },
-    "content": {}
+    "content": {},
+    "claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["text", "citationRef"],
+        "properties": {
+          "text": { "type": "string" },
+          "citationRef": { "type": "string" }
+        }
+      }
+    }
   }
 }

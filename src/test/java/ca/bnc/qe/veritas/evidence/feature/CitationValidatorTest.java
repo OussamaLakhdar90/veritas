@@ -80,6 +80,40 @@ class CitationValidatorTest {
     }
 
     @Test
+    void claimsAreNoOpWhenAbsent() {
+        // backward compatible: no claims[] → nothing to bind, valid.
+        assertThat(validator.validateClaims(json("[]"), json("[{\"unitId\":\"JIRA-1\"}]"), byId).valid()).isTrue();
+        assertThat(validator.validateClaims(null, json("[{\"unitId\":\"JIRA-1\"}]"), byId).valid()).isTrue();
+    }
+
+    @Test
+    void validWhenAClaimCitesACitedUnitAndSharesAGroundingTerm() {
+        CitationValidator.Result r = validator.validateClaims(
+                json("[{\"text\":\"The account locks after five failures\",\"citationRef\":\"JIRA-1\"}]"),
+                json("[{\"unitId\":\"JIRA-1\",\"quote\":\"locks after 5\"}]"), byId);
+        assertThat(r.valid()).isTrue();   // "locks" (>=4 chars) appears in the cited unit's text
+    }
+
+    @Test
+    void invalidWhenAClaimCitesAnIdNotInTheEvidenceList() {
+        CitationValidator.Result r = validator.validateClaims(
+                json("[{\"text\":\"x\",\"citationRef\":\"CODE-1\"}]"),
+                json("[{\"unitId\":\"JIRA-1\",\"quote\":\"locks after 5\"}]"), byId);   // CODE-1 not cited
+        assertThat(r.valid()).isFalse();
+        assertThat(r.problems()).anyMatch(p -> p.contains("CODE-1"));
+    }
+
+    @Test
+    void invalidWhenAClaimSharesNoTermWithItsCitedEvidence() {
+        // cites a real, cited unit but the claim text is unrelated to that unit's content → ungrounded claim.
+        CitationValidator.Result r = validator.validateClaims(
+                json("[{\"text\":\"unlimited retries permitted forever\",\"citationRef\":\"JIRA-1\"}]"),
+                json("[{\"unitId\":\"JIRA-1\",\"quote\":\"locks after 5\"}]"), byId);
+        assertThat(r.valid()).isFalse();
+        assertThat(r.problems()).anyMatch(p -> p.contains("JIRA-1"));
+    }
+
+    @Test
     void invalidWhenAnAllowedIdHasNoResolvableUnit() {
         // 'GONE' is allowed but absent from unitsById → reject even with no quote (no silent ungrounded citation).
         CitationValidator.Result r = validator.validate(json("[{\"unitId\":\"GONE\"}]"), byId, Set.of("JIRA-1", "GONE"));
