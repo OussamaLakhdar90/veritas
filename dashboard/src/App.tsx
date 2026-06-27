@@ -1,7 +1,7 @@
 import { HashRouter, Routes, Route, NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, ShieldCheck, Bug, ClipboardList, ListChecks, Code2, GitPullRequestArrow,
-  Coins, Settings, Moon, Sun, Target, ClipboardCheck, Rocket, BookOpen, Layers,
+  Coins, Settings, Moon, Sun, Target, ClipboardCheck, Rocket, BookOpen, Layers, Sparkles,
 } from 'lucide-react';
 import { Dashboard } from './pages/Dashboard';
 import { Onboarding } from './pages/Onboarding';
@@ -16,6 +16,7 @@ import { TestPlanDetail } from './pages/TestPlanDetail';
 import { TestCases } from './pages/TestCases';
 import { Reviews } from './pages/Reviews';
 import { Codegen } from './pages/Codegen';
+import { GenerateApiTests } from './pages/GenerateApiTests';
 import { Costs } from './pages/Costs';
 import { Defects } from './pages/Defects';
 import { Gates } from './pages/Gates';
@@ -37,6 +38,7 @@ const NAV = [
   { to: '/test-cases', label: 'Test Cases', icon: ListChecks },
   { to: '/review-test-cases', label: 'Reviews', icon: ClipboardCheck },
   { to: '/generate-tests', label: 'Generate Tests', icon: Code2 },
+  { to: '/generate-api-tests', label: 'Generate API Tests', icon: Sparkles },
   { to: '/gates', label: 'Gates', icon: GitPullRequestArrow },
   { to: '/costs', label: 'Cost', icon: Coins },
   { to: '/glossary', label: 'Glossary', icon: BookOpen },
@@ -102,6 +104,7 @@ export function App() {
               <Route path="/test-cases" element={<TestCases />} />
               <Route path="/review-test-cases" element={<Reviews />} />
               <Route path="/generate-tests" element={<Codegen />} />
+              <Route path="/generate-api-tests" element={<GenerateApiTests />} />
               <Route path="/gates" element={<Gates />} />
               <Route path="/costs" element={<Costs />} />
               <Route path="/glossary" element={<Glossary />} />
