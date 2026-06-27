@@ -55,7 +55,8 @@ class ReviewServiceGapSuppressionTest {
     @BeforeEach
     void setUp() {
         service = new ReviewService(llm, jsonExtractor, schemaValidator, modelSelector, costRecorder,
-                promptComposer, repository, xray, gateService, objectMapper, preflight);
+                promptComposer, repository, xray, gateService, objectMapper, preflight,
+                new ca.bnc.qe.veritas.report.CitationSanitizer());
     }
 
     @Test

@@ -63,6 +63,7 @@ public class ReleaseTestPlanService {
     private final CoverageReportRenderer coverageReportRenderer;
     private final Preflight preflight;
     private final ca.bnc.qe.veritas.persistence.TestStrategyRepository strategyRepository;
+    private final ca.bnc.qe.veritas.report.CitationSanitizer citationSanitizer;
 
     /** Per-batch token budget for the release-issues list. Large releases are synthesized in batches then merged
      *  (so no requirement is silently elided to fit one prompt). 0 = never batch (single call). */
@@ -78,7 +79,8 @@ public class ReleaseTestPlanService {
                                   ObjectMapper objectMapper, JiraClient jira, XrayClient xray, GateService gateService,
                                   TestPlanRepository planRepository, CoverageItemRepository coverageRepository,
                                   CoverageMatcher matcher, CoverageReportRenderer coverageReportRenderer, Preflight preflight,
-                                  ca.bnc.qe.veritas.persistence.TestStrategyRepository strategyRepository) {
+                                  ca.bnc.qe.veritas.persistence.TestStrategyRepository strategyRepository,
+                                  ca.bnc.qe.veritas.report.CitationSanitizer citationSanitizer) {
         this.llm = llm;
         this.jsonExtractor = jsonExtractor;
         this.schemaValidator = schemaValidator;
@@ -95,6 +97,7 @@ public class ReleaseTestPlanService {
         this.coverageReportRenderer = coverageReportRenderer;
         this.preflight = preflight;
         this.strategyRepository = strategyRepository;
+        this.citationSanitizer = citationSanitizer;
     }
 
     public CoverageSummary generate(String serviceName, String fixVersion, String issuesJql, String testsJql,
@@ -186,6 +189,7 @@ public class ReleaseTestPlanService {
             // never auto-creates gap tests (the outward write is held back until a human has looked).
             ObjectNode root = (ObjectNode) node;
             TraceCheck trace = enforceTraceability(root, issues, minConfidence);
+            citationSanitizer.sanitizeDeliverable(root);   // enforce §0.1: named concept, never a §-number
             node = root;
             // NEEDS_REVIEW (and the outward write held back) when a fabricated key was dropped or confidence is below
             // the floor. Under-coverage of a HIGH risk is surfaced as a blind spot but does NOT block on its own —

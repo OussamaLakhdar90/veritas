@@ -32,10 +32,12 @@ public class TestStrategyService {
     private final TestStrategyRepository repository;
     private final ObjectMapper objectMapper;
     private final Preflight preflight;
+    private final ca.bnc.qe.veritas.report.CitationSanitizer citationSanitizer;
 
     public TestStrategyService(LlmGateway llm, JsonBlockExtractor jsonExtractor, ResponseSchemaValidator schemaValidator,
                                ModelSelector modelSelector, CostRecorder costRecorder, PromptComposer promptComposer,
-                               TestStrategyRepository repository, ObjectMapper objectMapper, Preflight preflight) {
+                               TestStrategyRepository repository, ObjectMapper objectMapper, Preflight preflight,
+                               ca.bnc.qe.veritas.report.CitationSanitizer citationSanitizer) {
         this.llm = llm;
         this.jsonExtractor = jsonExtractor;
         this.schemaValidator = schemaValidator;
@@ -45,6 +47,7 @@ public class TestStrategyService {
         this.repository = repository;
         this.objectMapper = objectMapper;
         this.preflight = preflight;
+        this.citationSanitizer = citationSanitizer;
     }
 
     /** One strategy section: its key, the model tier (cost-routed), the named ISTQB concept, and the ask. */
@@ -93,6 +96,7 @@ public class TestStrategyService {
             // Closed-world cross-ref: a technique citing a riskId absent from the assembled risk register is a dangling
             // reference the model invented — drop it so the strategy never shows traceability that resolves to nothing.
             pruneDanglingRiskRefs(deliverable);
+            citationSanitizer.sanitizeDeliverable(deliverable);   // enforce §0.1: named concept, never a §-number
             deliverable.put("markdown", renderStrategyMarkdown(serviceName, deliverable));
             schemaValidator.validate(deliverable, "test-strategy.schema.json");
 
