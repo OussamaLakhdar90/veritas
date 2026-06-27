@@ -48,6 +48,23 @@ class CodegenPublishTest {
     }
 
     @Test
+    void skippedBuildPrDescriptionWarnsItWasNotCompiled() {
+        when(prPublisher.publish(any())).thenReturn(new PrPublisher.PrResult("b", "https://pr/1"));
+        CodegenRun run = new CodegenRun();
+        run.setServiceName("ciam-policies");
+        run.setOutputRepo(System.getProperty("java.io.tmpdir"));
+        run.setBuildStatus("SKIPPED");
+        run = runs.save(run);
+
+        codegen.publish(run.getId(), "ciam-policies-tests", "main", "tester");
+
+        org.mockito.ArgumentCaptor<PrPublisher.PrRequest> cap =
+                org.mockito.ArgumentCaptor.forClass(PrPublisher.PrRequest.class);
+        verify(prPublisher).publish(cap.capture());
+        assertThat(cap.getValue().description()).contains("NOT compiled").contains("rely on CI");
+    }
+
+    @Test
     void refusesToPublishAFailingBuildUnlessOverridden() {
         CodegenRun run = new CodegenRun();
         run.setServiceName("ciam-policies");

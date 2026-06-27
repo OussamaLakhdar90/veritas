@@ -391,7 +391,7 @@ class CodegenServiceBranchTest {
         assertThat(req.targetBranch()).isEqualTo("main");                    // blank → "main"
         assertThat(req.branch()).isEqualTo("veritas/ciam-policies-tests");   // "ciam policies" sanitized
         assertThat(req.title()).isEqualTo("Veritas: generated tests for ciam policies");
-        assertThat(req.description()).contains("build: PASS");
+        assertThat(req.description()).contains("Build verified locally (PASS)");
         verify(repository).save(any(CodegenRun.class));
     }
 
