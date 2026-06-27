@@ -210,6 +210,17 @@ export interface CodegenRun {
   createdAt?: string
 }
 
+/** One service the platform holds work for, with per-stage counts — backs the service picker / recent-work. */
+export interface ServiceSummary {
+  name: string
+  strategies: number
+  conditions: number
+  cases: number
+  plans: number
+  scans: number
+  codegenRuns: number
+}
+
 /** A Jira issue surfaced by the ticket picker. */
 export interface JiraIssueRef {
   key: string
@@ -376,6 +387,8 @@ export const api = {
     const q = qs.toString()
     return get<Finding[]>(`/scans/${scanId}/findings${q ? `?${q}` : ''}`)
   },
+  // Every service the platform holds work for, with per-stage counts — backs the service picker / recent-work.
+  services: () => get<ServiceSummary[]>('/services'),
   repos: (appId: string) => get<Repo[]>(`/repos?appId=${encodeURIComponent(appId)}`),
   branches: (appId: string, slug: string) =>
     get<string[]>(`/repos/${encodeURIComponent(slug)}/branches?appId=${encodeURIComponent(appId)}`),

@@ -4,6 +4,7 @@ import { ListChecks, Search, Check, X, Upload, Sparkles } from 'lucide-react';
 import { api, TestCase } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, PageHeader, Spinner, Table, Td, Th, Row, Textarea } from '../components/ui';
 import { useToast } from '../components/Toast';
+import { ServiceField } from '../components/ServiceField';
 import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
 
@@ -46,7 +47,7 @@ export function TestCases() {
       <Card className="mb-6">
         <CardBody>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-            <div className="flex-1"><Field label="Service"><Input placeholder="ciam-policies" value={svc}
+            <div className="flex-1"><Field label="Service"><ServiceField value={svc}
               onChange={(e) => setSvc(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && svc && setQuery(svc)} /></Field></div>
             <div className="flex-1"><Field label="Project key" hint="needed to push to Xray"><Input placeholder="CIAM" value={projectKey}
               onChange={(e) => setProjectKey(e.target.value.toUpperCase())} /></Field></div>

@@ -5,6 +5,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface TestConditionRepository extends JpaRepository<TestCondition, String> {
 
+    /** serviceName → condition count, for the service catalog (browse/recent-work). */
+    @org.springframework.data.jpa.repository.Query("select e.serviceName as name, count(e) as count from TestCondition e where e.serviceName is not null group by e.serviceName")
+    List<ServiceCount> countByServiceName();
+
     /** All conditions for a service, newest first (backs the service-scoped list view). */
     List<TestCondition> findByServiceNameOrderByCreatedAtDesc(String serviceName);
 
