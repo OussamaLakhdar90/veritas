@@ -427,8 +427,9 @@ export const api = {
 
   // Test cases (RTM per-row actions + create-approved)
   testCases: (service: string) => get<TestCase[]>(`/services/${encodeURIComponent(service)}/test-cases`),
+  // Routes through send() so a 4xx/5xx surfaces a real error instead of silently parsing the error body as a TestCase.
   patchTestCase: (id: string, body: { status?: string; title?: string; actor?: string }) =>
-    fetch(`${BASE}/test-cases/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json() as Promise<TestCase>),
+    send<TestCase>('PATCH', `/test-cases/${id}`, body),
   pushTestCase: (id: string, projectKey: string) => post<TestCase>(`/test-cases/${id}/push`, { projectKey }),
 
   // Findings disposition (accept/reject/triage) — server records who/when (+ optional why note).

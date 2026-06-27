@@ -415,6 +415,20 @@ class CodegenServiceBranchTest {
     }
 
     @Test
+    void publishFailsClearlyWhenTheGeneratedWorkspaceIsGone() {
+        CodegenRun run = savedRun("rgone", "PASS");
+        run.setOutputRepo(outputDir.resolve("vanished").toString());   // a temp clone that was reaped / lost on restart
+        when(gateService.await("rgone", "OPEN_PR", "tester"))
+                .thenReturn(new GateService.Decision(true, "g1", "APPROVED"));
+
+        assertThatThrownBy(() -> service.publish("rgone", "slug", "main", "tester"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no longer available")
+                .hasMessageContaining("re-generate");
+        verify(prPublisher, never()).publish(any());   // never reaches the push with a missing workspace
+    }
+
+    @Test
     void publishHonoursExplicitTargetBranch() {
         savedRun("r2", "SKIPPED");
         when(gateService.await(anyString(), anyString(), anyString()))

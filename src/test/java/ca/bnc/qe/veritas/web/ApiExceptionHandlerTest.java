@@ -35,4 +35,18 @@ class ApiExceptionHandlerTest {
         ProblemDetail pd = handler.onBadArgument(new IllegalArgumentException("Unknown finding x"));
         assertThat(pd.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST.value());
     }
+
+    @Test
+    void the500DetailRedactsAuthTokensSoSecretsDoNotLeakToTheClient() {
+        ProblemDetail pd = handler.onUnexpected(
+                new RuntimeException("git push failed: https call with Authorization: Bearer ghp_supersecret123"));
+        assertThat(pd.getStatus()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR.value());
+        assertThat(pd.getDetail()).contains("Bearer ***").doesNotContain("ghp_supersecret123");
+    }
+
+    @Test
+    void the500DetailFallsBackWhenTheMessageIsNull() {
+        ProblemDetail pd = handler.onUnexpected(new RuntimeException());
+        assertThat(pd.getDetail()).isEqualTo("Internal error");
+    }
 }

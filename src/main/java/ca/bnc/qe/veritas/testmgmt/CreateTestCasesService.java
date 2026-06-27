@@ -96,7 +96,9 @@ public class CreateTestCasesService {
             // Indexes for linking a case back to its condition: by explicit ref, and by basis item (fallback).
             Map<String, String> idByRef = new LinkedHashMap<>();
             Map<String, String> idBySource = new LinkedHashMap<>();
+            Map<String, TestCondition> conditionById = new LinkedHashMap<>();
             for (TestCondition tcd : conditions) {
+                conditionById.put(tcd.getId(), tcd);
                 if (tcd.getConditionRef() != null) {
                     idByRef.putIfAbsent(tcd.getConditionRef().toUpperCase(Locale.ROOT), tcd.getId());
                 }
@@ -126,6 +128,14 @@ public class CreateTestCasesService {
                 }
                 tc.setLinkedRequirement(requirementKey);
                 tc.setTestConditionId(linkedConditionId);
+                // Carry the automation decision condition → case so AUTOMATED/MANUAL/CANDIDATE candidacy survives the
+                // design step (it can then drive which cases feed the Generate-API-Tests wizard vs manual execution).
+                if (linkedConditionId != null) {
+                    TestCondition src = conditionById.get(linkedConditionId);
+                    if (src != null) {
+                        tc.setAutomation(src.getAutomation());
+                    }
+                }
                 tc.setConfidence(confidence);
                 tc.setStepsJson(c.path("steps").toString());
                 tc.setStatus("PROPOSED");
