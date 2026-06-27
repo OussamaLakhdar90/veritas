@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { server } from './msw/server'
@@ -126,6 +126,19 @@ describe('TestStrategy page', () => {
     expect(screen.getByText('No strategy yet')).toBeInTheDocument()
   })
 
+  it('offers existing services in the picker datalist (find-your-work)', async () => {
+    server.use(http.get('*/api/v1/services', () => HttpResponse.json([
+      { name: 'ciam-policies', strategies: 1, conditions: 9, cases: 12, plans: 0, scans: 5, codegenRuns: 4 },
+      { name: 'auth-svc', strategies: 0, conditions: 0, cases: 0, plans: 0, scans: 2, codegenRuns: 0 },
+    ])))
+    renderPage(<TestStrategy />)
+    // The datalist behind the Service field is populated from GET /services so users browse instead of guessing.
+    await waitFor(() => {
+      expect(document.querySelector('datalist#veritas-services option[value="ciam-policies"]')).toBeTruthy()
+      expect(document.querySelector('datalist#veritas-services option[value="auth-svc"]')).toBeTruthy()
+    })
+  })
+
   it('lets you pick a non-default basis source before generating', async () => {
     let receivedSource: unknown = null
     server.use(
@@ -139,7 +152,7 @@ describe('TestStrategy page', () => {
     renderPage(<TestStrategy />)
 
     await user.type(screen.getByPlaceholderText('ciam-policies'), 'ciam-policies')
-    await user.selectOptions(screen.getByRole('combobox'), 'JIRA')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Basis source' }), 'JIRA')
     await user.type(screen.getByPlaceholderText(/POST \/policies/), 'As a user I can create a policy')
     await user.click(screen.getByRole('button', { name: /Generate strategy/ }))
 

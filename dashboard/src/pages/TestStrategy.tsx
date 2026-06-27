@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ClipboardList, Play, FileText, ExternalLink, ScrollText, ArrowRight } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, PageHeader, Select, Spinner, Table, Td, Th, Row, Textarea } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, PageHeader, Select, Spinner, Table, Td, Th, Row, Textarea } from '../components/ui';
 import { useToast } from '../components/Toast';
+import { ServiceField } from '../components/ServiceField';
 import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
 
@@ -39,9 +40,9 @@ export function TestStrategy() {
         <CardHeader title="New strategy" subtitle="Risk register, approach, exit criteria + a self-review — synthesized in one cost-routed call." />
         <CardBody className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Field label="Service"><Input placeholder="ciam-policies" value={service} onChange={(e) => setService(e.target.value)} /></Field>
+            <Field label="Service" hint="Pick an existing service or type a new one."><ServiceField value={service} onChange={(e) => setService(e.target.value)} /></Field>
             <Field label="Basis source">
-              <Select value={source} onChange={(e) => setSource(e.target.value)}>
+              <Select aria-label="Basis source" value={source} onChange={(e) => setSource(e.target.value)}>
                 <option value="CODE">Codebase</option>
                 <option value="JIRA">Jira stories</option>
                 <option value="CONFLUENCE">Confluence</option>

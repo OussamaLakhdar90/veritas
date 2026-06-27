@@ -8,4 +8,7 @@ export const handlers = [
     HttpResponse.json({ active: 'mock', desired: 'mock', simulated: true, model: 'mock' })),
   http.get('*/api/v1/settings/copilot/status', () =>
     HttpResponse.json({ authenticated: true, connected: true })),
+  // The service-picker datalist fetches this on any page that uses ServiceField; default to empty so unrelated
+  // page tests don't see an unhandled request. Tests that exercise the picker override it via server.use(...).
+  http.get('*/api/v1/services', () => HttpResponse.json([])),
 ]

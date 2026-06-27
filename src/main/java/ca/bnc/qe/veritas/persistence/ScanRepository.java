@@ -7,6 +7,11 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.transaction.annotation.Transactional;
 
 public interface ScanRepository extends JpaRepository<Scan, String> {
+
+    /** serviceName → scan count, for the service catalog (browse/recent-work). */
+    @Query("select e.serviceName as name, count(e) as count from Scan e where e.serviceName is not null group by e.serviceName")
+    List<ServiceCount> countByServiceName();
+
     List<Scan> findAllByOrderByStartedAtDesc();
     List<Scan> findByServiceNameOrderByStartedAtDesc(String serviceName);
     List<Scan> findByStatus(RunStatus status);
