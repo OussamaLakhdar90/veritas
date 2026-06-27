@@ -64,7 +64,8 @@ public class TestConditionController {
     @PostMapping("/services/{service}/test-conditions")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public List<TestCondition> generate(@PathVariable("service") String svc, @RequestBody GenerateRequest req) {
-        return service.analyze(svc, req.basis(), req.owner() == null ? "api" : req.owner());
+        return service.analyze(svc, req.basis(), req.source() == null ? "CODE" : req.source(),
+                req.owner() == null ? "api" : req.owner());
     }
 
     /** Per-condition edit — the auto/manual decision lives here (plus status / priority overrides). */
@@ -96,6 +97,27 @@ public class TestConditionController {
         return ResponseEntity.ok(repository.save(tc));
     }
 
+    /**
+     * Tag-driven routing for a strategy's conditions: which feed automation (implement-tests) vs manual design
+     * (create-test-cases). Makes the per-condition automation candidacy actionable as two work-lists.
+     */
+    @GetMapping("/strategies/{id}/test-conditions/routing")
+    public AutomationRouting routing(@PathVariable String id) {
+        List<TestCondition> conds = repository.findByTestStrategyIdOrderByConditionRefAsc(id);
+        List<String> automated = new java.util.ArrayList<>();
+        List<String> manual = new java.util.ArrayList<>();
+        List<String> candidate = new java.util.ArrayList<>();
+        for (TestCondition c : conds) {
+            String a = c.getAutomation() == null ? "CANDIDATE" : c.getAutomation().toUpperCase(Locale.ROOT);
+            switch (a) {
+                case "AUTOMATED" -> automated.add(c.getConditionRef());
+                case "MANUAL" -> manual.add(c.getConditionRef());
+                default -> candidate.add(c.getConditionRef());
+            }
+        }
+        return new AutomationRouting(automated, manual, candidate);
+    }
+
     /** The auditable Test Condition List document for a strategy's conditions. */
     @GetMapping(value = "/strategies/{id}/test-conditions/report", produces = MediaType.TEXT_HTML_VALUE)
     public ResponseEntity<String> report(@PathVariable String id) {
@@ -105,7 +127,9 @@ public class TestConditionController {
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    public record GenerateRequest(String basis, String owner) {}
+    public record GenerateRequest(String basis, String source, String owner) {}
+
+    public record AutomationRouting(List<String> automated, List<String> manual, List<String> candidate) {}
 
     public record ConditionPatch(String automation, String status, String priority) {}
 }
