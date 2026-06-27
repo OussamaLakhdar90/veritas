@@ -16,21 +16,26 @@ const scratchPlan = {
   ],
 }
 
+const jira = { key: 'CIAM-1842', summary: 'Automate policy API regression tests' }
+
 function mock(plan: Record<string, unknown> = scratchPlan) {
   server.use(
     http.get('*/api/v1/repos', () => HttpResponse.json([repo])),
     http.get('*/api/v1/repos/:slug/branches', () => HttpResponse.json(['develop', 'main'])),
+    http.get('*/api/v1/jira/search', () => HttpResponse.json([jira])),
     http.post('*/api/v1/services/:service/test-gen/plan', () => HttpResponse.json(plan)),
   )
 }
 
-/** Drive the wizard to the plan step: app → find repos → pick service → next → see the plan. */
+/** Drive the wizard to the plan step: app → find repos → pick service → next → pick a Jira → see the plan. */
 async function toPlan(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByPlaceholderText('APP7571'), 'APP7571')
   await user.click(screen.getByRole('button', { name: /Find repos/ }))
   await user.selectOptions(await screen.findByRole('combobox'), 'ciam-policies')
   await user.click(screen.getByRole('button', { name: /Next/ }))
-  await user.click(await screen.findByRole('button', { name: /See the plan/ }))
+  await user.type(screen.getByPlaceholderText(/Search Jira/), 'policy')
+  await user.click(await screen.findByText('CIAM-1842'))
+  await user.click(screen.getByRole('button', { name: /See the plan/ }))
 }
 
 describe('Generate API Tests wizard', () => {
@@ -88,9 +93,13 @@ describe('Generate API Tests wizard', () => {
       todos: JSON.stringify(['A valid policy id must exist before these run']),
     }
     let published = false
+    let genBody: { jiraKey?: string; endpoints?: string[] } = {}
     mock()
     server.use(
-      http.post('*/api/v1/services/:service/test-gen/generate', () => HttpResponse.json(genRun)),
+      http.post('*/api/v1/services/:service/test-gen/generate', async ({ request }) => {
+        genBody = (await request.json()) as { jiraKey?: string; endpoints?: string[] }
+        return HttpResponse.json(genRun)
+      }),
       http.post('*/api/v1/codegen-runs/:id/publish', () => {
         published = true
         return HttpResponse.json({ ...genRun, branch: 'veritas/ciam-policies-tests', prUrl: 'https://bitbucket.example/pr/42' })
@@ -108,6 +117,9 @@ describe('Generate API Tests wizard', () => {
     expect(screen.getByText(/weren't compiled here/)).toBeInTheDocument()
     expect(screen.getByText(/A valid policy id must exist/)).toBeInTheDocument()
 
+    // The selected ticket was forwarded so the commit/branch/PR reference it.
+    expect(genBody.jiraKey).toBe('CIAM-1842')
+
     // No PR yet — pushing is a separate, explicit click.
     expect(published).toBe(false)
     await user.click(screen.getByRole('button', { name: /Open pull request/ }))
@@ -119,10 +131,28 @@ describe('Generate API Tests wizard', () => {
     expect(screen.getByText(/git checkout veritas\/ciam-policies-tests/)).toBeInTheDocument()
   })
 
+  it('requires a Jira ticket before the plan can be seen', async () => {
+    mock()
+    const user = userEvent.setup()
+    renderPage(<GenerateApiTests />, { path: '/generate-api-tests', route: '/generate-api-tests' })
+
+    await user.type(screen.getByPlaceholderText('APP7571'), 'APP7571')
+    await user.click(screen.getByRole('button', { name: /Find repos/ }))
+    await user.selectOptions(await screen.findByRole('combobox'), 'ciam-policies')
+    await user.click(screen.getByRole('button', { name: /Next/ }))
+
+    // No ticket yet → can't proceed.
+    expect(screen.getByRole('button', { name: /See the plan/ })).toBeDisabled()
+    await user.type(screen.getByPlaceholderText(/Search Jira/), 'policy')
+    await user.click(await screen.findByText('CIAM-1842'))
+    expect(screen.getByRole('button', { name: /See the plan/ })).toBeEnabled()
+  })
+
   it('surfaces an error toast when the plan request fails', async () => {
     server.use(
       http.get('*/api/v1/repos', () => HttpResponse.json([repo])),
       http.get('*/api/v1/repos/:slug/branches', () => HttpResponse.json(['develop'])),
+      http.get('*/api/v1/jira/search', () => HttpResponse.json([jira])),
       http.post('*/api/v1/services/:service/test-gen/plan', () =>
         HttpResponse.json({ detail: 'Could not clone the repo', status: 500 }, { status: 500 })),
     )

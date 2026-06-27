@@ -396,6 +396,25 @@ class CodegenServiceBranchTest {
     }
 
     @Test
+    void publishPrefixesTheBranchCommitAndTitleWithTheJiraKey() {
+        savedRun("rj", "PASS").setJiraKey("CIAM-1842");   // run recorded a work item at generation time
+        when(gateService.await("rj", "OPEN_PR", "tester"))
+                .thenReturn(new GateService.Decision(true, "g1", "APPROVED"));
+        when(prPublisher.publish(any())).thenReturn(new PrPublisher.PrResult("CIAM-1842-veritas-ciam-policies-tests", "https://pr/9"));
+
+        service.publish("rj", "ciam-policies-tests", "main", "tester");
+
+        org.mockito.ArgumentCaptor<PrPublisher.PrRequest> cap =
+                org.mockito.ArgumentCaptor.forClass(PrPublisher.PrRequest.class);
+        verify(prPublisher).publish(cap.capture());
+        PrPublisher.PrRequest req = cap.getValue();
+        assertThat(req.branch()).isEqualTo("CIAM-1842-veritas-ciam-policies-tests");          // key in the branch
+        assertThat(req.title()).isEqualTo("CIAM-1842: Veritas: generated tests for ciam policies");  // key in PR title
+        assertThat(req.commitMessage()).startsWith("CIAM-1842:");                             // key in the commit
+        assertThat(req.description()).contains("Work item: CIAM-1842.");
+    }
+
+    @Test
     void publishHonoursExplicitTargetBranch() {
         savedRun("r2", "SKIPPED");
         when(gateService.await(anyString(), anyString(), anyString()))

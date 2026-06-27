@@ -17,6 +17,7 @@ public class CodegenRun extends AuditableEntity {
     private String serviceName;
     private String templateSource;
     private String outputRepo;
+    private String jiraKey;          // work item this run commits under — prefixes the branch/commit/PR so Jira links it
     private String branch;
     private String prUrl;
     private String buildStatus;     // PASS | FAIL | REPAIRED | SKIPPED

@@ -67,19 +67,20 @@ class TestGenControllerTest {
         when(testGen.generate(eq("ciam"),
                 eq(new RepoRef("APP1", "ciam", "develop", null)),
                 eq(new RepoRef("APP1", "ciam-tests", "develop", null)),
-                eq(new java.util.LinkedHashSet<>(List.of("POST /policies"))), eq("alice"))).thenReturn(run);
+                eq(new java.util.LinkedHashSet<>(List.of("POST /policies"))), eq("alice"), eq("CIAM-1842")))
+                .thenReturn(run);
 
         mvc.perform(post("/api/v1/services/ciam/test-gen/generate").contentType("application/json").content("""
                         {"appId":"APP1","serviceRepoSlug":"ciam","serviceBranch":"develop",
                          "outputRepoSlug":"ciam-tests","outputBranch":"develop",
-                         "endpoints":["POST /policies"],"owner":"alice"}"""))
+                         "endpoints":["POST /policies"],"owner":"alice","jiraKey":"CIAM-1842"}"""))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.serviceName").value("ciam"))
                 .andExpect(jsonPath("$.buildStatus").value("SKIPPED"));
 
-        // Returns the run for review — the push/PR is a separate, user-clicked publish step.
+        // Returns the run for review — the push/PR is a separate, user-clicked publish step. Jira key is forwarded.
         verify(testGen).generate(eq("ciam"), eq(new RepoRef("APP1", "ciam", "develop", null)),
                 eq(new RepoRef("APP1", "ciam-tests", "develop", null)),
-                eq(new java.util.LinkedHashSet<>(List.of("POST /policies"))), eq("alice"));
+                eq(new java.util.LinkedHashSet<>(List.of("POST /policies"))), eq("alice"), eq("CIAM-1842"));
     }
 }

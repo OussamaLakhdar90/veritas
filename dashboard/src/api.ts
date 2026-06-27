@@ -199,6 +199,7 @@ export interface CodegenRun {
   serviceName: string
   templateSource?: string
   outputRepo?: string
+  jiraKey?: string
   branch?: string
   prUrl?: string
   buildStatus?: string
@@ -207,6 +208,12 @@ export interface CodegenRun {
   approvedBy?: string
   estCostUsd?: number
   createdAt?: string
+}
+
+/** A Jira issue surfaced by the ticket picker. */
+export interface JiraIssueRef {
+  key: string
+  summary?: string
 }
 
 /** One line of the test-generation reconciliation plan (GAP | CURRENT | ORPHAN). */
@@ -405,10 +412,13 @@ export const api = {
     send<TestGenPlan>('POST', `/services/${encodeURIComponent(service)}/test-gen/plan`, body),
   // Generate the selected tests into a clone of the output repo (202 → a CodegenRun). Does NOT push — opening the PR
   // is the separate, user-clicked publishCodegen step. endpoints scopes generation; omit for the whole service.
+  // jiraKey is required: the branch/commit/PR reference it so the PR links to the work item.
   testGenGenerate: (service: string, body: { appId?: string; serviceRepoSlug?: string; serviceBranch?: string;
     serviceRepoPath?: string; outputRepoSlug?: string; outputBranch?: string; outputRepoPath?: string;
-    endpoints?: string[]; owner?: string }) =>
+    endpoints?: string[]; owner?: string; jiraKey?: string }) =>
     send<CodegenRun>('POST', `/services/${encodeURIComponent(service)}/test-gen/generate`, body),
+  // Search Jira for the ticket picker: a text query → summary search; a pasted key/URL → exact lookup.
+  jiraSearch: (q: string) => get<JiraIssueRef[]>(`/jira/search?q=${encodeURIComponent(q)}`),
 
   // Release test plan trigger + RTM workspace
   triggerReleasePlan: (service: string, body: { fixVersion: string; issuesJql?: string; testsJql?: string; projectKey?: string; createGaps?: boolean }) =>
