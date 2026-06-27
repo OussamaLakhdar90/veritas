@@ -93,7 +93,7 @@ describe('Generate API Tests wizard', () => {
       http.post('*/api/v1/services/:service/test-gen/generate', () => HttpResponse.json(genRun)),
       http.post('*/api/v1/codegen-runs/:id/publish', () => {
         published = true
-        return HttpResponse.json({ ...genRun, prUrl: 'https://bitbucket.example/pr/42' })
+        return HttpResponse.json({ ...genRun, branch: 'veritas/ciam-policies-tests', prUrl: 'https://bitbucket.example/pr/42' })
       }),
     )
     const user = userEvent.setup()
@@ -113,6 +113,10 @@ describe('Generate API Tests wizard', () => {
     await user.click(screen.getByRole('button', { name: /Open pull request/ }))
     expect(await screen.findByText('https://bitbucket.example/pr/42')).toBeInTheDocument()
     expect(published).toBe(true)
+
+    // The hand-off: tell the user to clone the branch and test it locally (the EC2 model).
+    expect(screen.getByText('Next: test it locally')).toBeInTheDocument()
+    expect(screen.getByText(/git checkout veritas\/ciam-policies-tests/)).toBeInTheDocument()
   })
 
   it('surfaces an error toast when the plan request fails', async () => {
