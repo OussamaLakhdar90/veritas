@@ -20,6 +20,9 @@ Non-negotiable rules from the template:
 - **Placeholder legend** — substitute consistently: `{serviceName}` (camelCase package), `{ServiceName}`
   (PascalCase prefix), `{Action}` (PascalCase verb+entity), `{entity}` (lowerCamel), `{baseUrlKey}`/`{endpointKey}`
   (serverConfig keys), `{tN}`/`{tN+1}` (sequential method-number prefix for `@DependentStep` ordering).
+- **Never emit a placeholder token literally** — `{serviceName}`, `{Action}`, `{entity}`, `entity001`,
+  `http://host:port`, and `TODO-FILL` (except where these rules explicitly mandate it) must each be substituted from
+  the evidence or moved to `todos`; a literal placeholder surviving into output is a defect.
 - **Two-tier separation (CRITICAL):** `test/base/` classes are **setup-only — MUST NOT** have `@Factory`,
   `@DataProvider`, `TEST_ID`, or `@Xray`; they execute the call and `pushToTheWorld`. Only `test/happyPath/` and
   `test/errorCase/` **Validation** classes carry `@Factory(dataProvider)`, `TEST_ID`, `@Xray`, extend the base, and
@@ -30,6 +33,11 @@ Non-negotiable rules from the template:
 - **Endpoint conformance:** every request the tests make MUST target one of the `ENDPOINTS` provided (exact HTTP
   method + path template). Never invent, rename, or modify an endpoint — an endpoint not in `ENDPOINTS` does not
   exist on the service under test, and a test that calls one is wrong.
+- **Evidence-grounded values (no fabrication):** every generated endpoint, `TEST_ID`, `{baseUrlKey}`/`{endpointKey}`,
+  and `@Xray(requirement=...)` MUST come from the supplied evidence — `ENDPOINTS`, `data-manager.json`,
+  `serverConfig.json`, and `config.yml` (`@Xray` ← `service_auth.{group}.xray_requirement`) — never from the
+  illustrative reference file names above. If the evidence is silent on a value, emit `"TODO-FILL"` and add a
+  `todos` entry naming it; never derive or invent it.
 - **Secrets:** every credential is a `$sensitive:ENV_VAR_NAME` reference — never a literal. (Veritas rejects any
   generated file containing a literal secret before it is written.)
 - **Prohibited tools:** **never** use or reference **Postman / Newman** (bank-prohibited). The approved automated
@@ -278,14 +286,9 @@ public class Validate{Action}Test extends {Action}Test {
 
 ## Output
 
-Emit your result per the AUTHORITATIVE output contract appended below; any output shape shown in this template is illustrative only, and if it conflicts with the appended contract, the appended contract wins.
+Emit your result per the AUTHORITATIVE output contract appended below — do NOT restate an output shape here. The
+runtime parses your output, compiles, and lists the files for you; do **not** run a build, open a terminal, or ask
+the user anything.
 
-Return your result as a fenced ```json block (the runtime parses this — it compiles and lists the
-files for you; do **not** run a build, open a terminal, or ask the user anything). The shape below is illustrative:
-
-```json
-{"files": [{"path": "<path relative to the output repo>", "content": "<file content>"}], "todos": ["<anything a human must fill in: Xray ids, real data values, token config>"]}
-```
-
-Anything you would have asked the user, or any value that must already exist in the target environment, goes in
-`todos` — never invent it inline.
+Anything you would have asked the user, or any value that must already exist in the target environment, goes in the
+contract's `todos` — never invent it inline.
