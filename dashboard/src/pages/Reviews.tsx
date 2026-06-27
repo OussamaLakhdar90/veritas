@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { ListChecks, Play, ChevronRight, ChevronDown } from 'lucide-react';
-import { api, ReviewResult, ReviewDeliverable } from '../api';
+import { ListChecks, Play, ChevronRight, ChevronDown, Search } from 'lucide-react';
+import { api, ReviewResult, ReviewDeliverable, ReviewCandidate } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, PageHeader, Table, Td, Th, Row } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { useCopilotGate } from '../lib/copilotAuth';
@@ -71,26 +71,78 @@ export function Reviews() {
   const { blocked, notice } = useCopilotGate();
   const [jql, setJql] = useState('');
   const [apply, setApply] = useState(false);
+  const [candidates, setCandidates] = useState<ReviewCandidate[] | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [results, setResults] = useState<ReviewResult[] | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
 
+  // Optional pre-step: list the tests the JQL selects so the user can pick a subset (defaults to all selected).
+  const load = useMutation({
+    mutationFn: () => api.reviewCandidates(jql),
+    onSuccess: (c) => {
+      setCandidates(c);
+      setSelected(new Set(c.map((t) => t.key)));
+      setResults(null);
+      if (c.length === 0) toast.push('error', 'The JQL returned no Xray tests.');
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+
   const run = useMutation({
-    mutationFn: () => api.runReview({ jql, apply }),
+    // With candidates loaded, review only the ticked subset; otherwise review every JQL match (the original flow).
+    mutationFn: () => api.runReview({ jql, apply, testKeys: candidates ? [...selected] : undefined }),
     onSuccess: (r) => { setResults(r); toast.push('success', `Reviewed ${r.length} test${r.length === 1 ? '' : 's'}.`); },
     onError: (e: Error) => toast.push('error', e.message),
   });
+
+  const toggle = (key: string) => setSelected((s) => {
+    const n = new Set(s); if (n.has(key)) { n.delete(key); } else { n.add(key); } return n;
+  });
+  const allSelected = candidates != null && candidates.length > 0 && selected.size === candidates.length;
+  const toggleAll = () => setSelected(allSelected ? new Set() : new Set((candidates ?? []).map((t) => t.key)));
 
   return (
     <div>
       <PageHeader title="Review test cases" subtitle="Score existing Xray tests against the ISTQB Test-Analyst rubric (C1–C6)." />
 
       <Card className="mb-6">
-        <CardHeader title="New review" subtitle="Select the tests to review by JQL; optionally write the verdict back to Jira." />
+        <CardHeader title="New review" subtitle="Find tests by JQL, pick which to review, optionally write the verdict back to Jira." />
         <CardBody className="space-y-4">
-          <Field label="JQL" hint='Which Xray tests to review, e.g. project = CIAM AND issuetype = Test'>
-            <Input placeholder="project = CIAM AND issuetype = Test" value={jql} onChange={(e) => setJql(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && jql.trim() && !blocked && run.mutate()} />
+          <Field label="JQL" hint='Which Xray tests, e.g. project = CIAM AND issuetype = Test — load to pick a subset, or review all'>
+            <div className="flex gap-2">
+              <Input placeholder="project = CIAM AND issuetype = Test" value={jql}
+                onChange={(e) => { setJql(e.target.value); setCandidates(null); }}
+                onKeyDown={(e) => e.key === 'Enter' && jql.trim() && !blocked && run.mutate()} />
+              <Button variant="secondary" loading={load.isPending}
+                onClick={() => jql.trim() ? load.mutate() : toast.push('error', 'Enter a JQL query.')}>
+                <Search className="h-4 w-4" /> Load tests
+              </Button>
+            </div>
           </Field>
+
+          {candidates != null && candidates.length > 0 && (
+            <div className="rounded-lg border border-border">
+              <label className="flex items-center gap-2 px-3 py-2 text-[13px] text-ink-700">
+                <input type="checkbox" className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
+                  checked={allSelected} onChange={toggleAll} aria-label="Select all" />
+                {selected.size} of {candidates.length} selected
+              </label>
+              <Table head={<><Th /><Th>Key</Th><Th>Summary</Th><Th>Type</Th><Th className="text-right">Steps</Th></>}>
+                {candidates.map((t) => (
+                  <Row key={t.key}>
+                    <Td><input type="checkbox" aria-label={`Select ${t.key}`}
+                      className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
+                      checked={selected.has(t.key)} onChange={() => toggle(t.key)} /></Td>
+                    <Td className="font-mono text-[12.5px] text-ink-900">{t.key}</Td>
+                    <Td className="text-ink-900">{t.summary ?? '—'}</Td>
+                    <Td className="text-muted">{t.testType ?? '—'}</Td>
+                    <Td className="text-right tabular-nums text-muted">{t.steps}</Td>
+                  </Row>
+                ))}
+              </Table>
+            </div>
+          )}
+
           <div className="flex items-center justify-between">
             <label className="inline-flex items-center gap-2 text-[13px] text-ink-700">
               <input type="checkbox" className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
@@ -99,9 +151,9 @@ export function Reviews() {
             </label>
             <span className="flex items-center gap-3">
               {notice}
-              <Button loading={run.isPending} disabled={blocked}
+              <Button loading={run.isPending} disabled={blocked || (candidates != null && selected.size === 0)}
                 onClick={() => jql.trim() ? run.mutate() : toast.push('error', 'Enter a JQL query.')}>
-                <Play className="h-4 w-4" /> Run review
+                <Play className="h-4 w-4" /> {candidates != null ? `Review selected (${selected.size})` : 'Run review'}
               </Button>
             </span>
           </div>
