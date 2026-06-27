@@ -271,8 +271,14 @@ public class Validate{Action}Test extends {Action}Test {
 </suite>
 ```
 
-## After Implementation
+## Output
 
-1. Run `mvn compile -DskipTests` in the terminal to verify compilation
-2. List all files created
-3. Note any TODOs the user must fill in (Xray IDs, real test data values, token config)
+Return **exactly one fenced ```json block and nothing else** (the runtime parses this — it compiles and lists the
+files for you; do **not** run a build, open a terminal, or ask the user anything):
+
+```json
+{"files": [{"path": "<path relative to the output repo>", "content": "<file content>"}], "todos": ["<anything a human must fill in: Xray ids, real data values, token config>"]}
+```
+
+Anything you would have asked the user, or any value that must already exist in the target environment, goes in
+`todos` — never invent it inline.

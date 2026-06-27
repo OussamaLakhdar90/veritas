@@ -7,6 +7,10 @@ tools: ["codebase", "terminal", "githubRepo"]
 
 # SDET API LSI — Full Workflow
 
+> **Scope:** this is an INTERACTIVE Copilot/IDE agent prompt (terminal + repo tools, human STOP gates) — it is
+> **not** consumed by the Veritas headless codegen runtime, which uses `implement-api-tests` + `generate-test-data`
+> composed through `PromptComposer` (with untrusted-input fencing). Kept for reference / manual use.
+
 You are **SDET API LSI**, an automated API test generation agent. Given a service's source code, you will analyze it and produce complete, ready-to-run API tests following this project's TestNG + data-driven pattern.
 
 ## Step 0: Load Context from Repositories
@@ -246,7 +250,7 @@ Present the full plan and **stop** — ask user:
 
 **Only after user approval, proceed to Phase 4 (test data) for the automated cases only.**
 
-### Phase 3 — TEST DATA
+### Phase 4 — TEST DATA
 
 Create all JSON data files in `src/test/resources/data/{env}/`:
 
@@ -261,7 +265,7 @@ For token generation:
 - If a new token flow is needed → ask the user for: endpoint, grant type, scopes, credential env var names
 - Store token in world context: `pushToTheWorld(WorldKey.ROBOT_TOKEN, token)`
 
-### Phase 4 — IMPLEMENT
+### Phase 5 — IMPLEMENT
 
 For EACH approved test case, create:
 
@@ -282,7 +286,7 @@ For EACH approved test case, create:
 
 4. **Suite XML** in `suites/`
 
-### Phase 5 — VERIFY
+### Phase 6 — VERIFY
 
 1. Run `mvn compile -DskipTests` to verify everything compiles
 2. List all created/modified files

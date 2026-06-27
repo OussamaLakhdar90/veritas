@@ -139,7 +139,7 @@ Title:              <action + expected outcome>
 Test Basis Item:    <req / story / risk ID>
 Test Condition:     <TC-ID from 3.1>
 Technique:          <EP | BVA-2 | BVA-3 | Decision Table | State Transition (0-switch | all-transitions | round-trip) | Scenario | CRUD | Domain | Pairwise | Statement | Branch | Error guessing | Exploratory | Checklist | Metamorphic>
-Technique rationale:<why it fits — cite CTFL §4.x or CTAL-TA §3.x>
+Technique rationale:<why it fits — cite the ISTQB technique by NAMED concept (e.g. "CTFL — Boundary Value Analysis"), never a § number>
 Coverage item(s):   <partition / boundary / rule col / transition / path>
 Priority:           <P1-P4, aligned to risk>
 Quality char.:      <ISO 25010>
@@ -169,7 +169,7 @@ For APIs, apply the API heuristics catalog in **knowledge pack §12**.
 - [ ] Every H2 heading above is present verbatim.
 - [ ] Every requirement has ≥1 test case.
 - [ ] Every HIGH/VERY HIGH product risk has ≥2 test cases.
-- [ ] Every test case has a non-empty `Technique rationale` with a syllabus §.
+- [ ] Every test case has a non-empty `Technique rationale` citing a NAMED ISTQB concept (no § numbers in output).
 - [ ] Every bounded primitive has ≥1 BVA case.
 - [ ] Every ISO 25010 characteristic claimed in §1.4 has ≥1 test case.
 - [ ] Every exit criterion in §1.7 is S.M.A.R.T.

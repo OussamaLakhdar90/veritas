@@ -17,3 +17,22 @@ Rules:
 - Name features for the capability, not the mechanism: prefer "Policy retrieval" over "GET /policies".
 - Be conservative: only merge when you are confident two buckets are genuinely the same capability. When in
   doubt, leave them separate (a human reviews the result before any cost is spent downstream).
+
+## Output
+
+Reply with **exactly one fenced ```json block and nothing else** — no prose before or after:
+
+```json
+{"features": [{"name": "<concise business name>", "refs": ["<seed ref id>", "…"]}]}
+```
+
+- Use **only** the `ref` ids you were given; each ref appears in **at most one** group.
+- Return the groups you merged (or wish to rename); a bucket you omit is kept unchanged.
+
+### Example
+
+Seed buckets `JIRA-12` ("login"), `CONF-3` ("sign-in page"), `CODE-ab12cd` ("POST /auth/login") are one capability:
+
+```json
+{"features": [{"name": "User authentication", "refs": ["JIRA-12", "CONF-3", "CODE-ab12cd"]}]}
+```

@@ -35,7 +35,7 @@ Read `src/test/resources/data/staging-ta/data-manager.json` and related files to
 - Derive field names and types from the service DTOs or models
 - For simple types (String, int, boolean): generate reasonable values
 - For enums: pick valid values from the source code
-- For IDs that must exist in the target environment: ASK the user
+- For IDs that must exist in the target environment: add a `todos` entry (do NOT invent the value, and do NOT ask — this runs headless)
 - For sensitive data (passwords, tokens, secrets): use `$sensitive:ENV_VAR_NAME` pattern
 
 ### For expected response data:
@@ -74,14 +74,15 @@ pushToTheWorld(WorldKey.ROBOT_TOKEN, token);
 }
 ```
 
-## Step 4: Create/Update Files
+## Step 4: Emit the data files
 
-For each environment that needs data (ask user which ones):
-- Update `data-manager.json` with new test entries
-- Update or create `serverConfig.json` entries
-- Create entity data JSON files
-- Create expected response JSON files
-- Create auth data JSON files if needed
+Emit every data file in the JSON output contract below — the runtime writes them (do not open a terminal or ask the
+user). Produce, as needed:
+- `data-manager.json` entries
+- `serverConfig.json` entries
+- entity data JSON files
+- expected response JSON files
+- auth data JSON files (if needed)
 
 ## Data File Naming Convention
 - `serverConfig.json` — always this name, shared across tests
