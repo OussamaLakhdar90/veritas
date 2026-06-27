@@ -77,8 +77,10 @@ public class EvidenceFirstSectionGenerator {
         String contract = "Generate ONLY the \"" + sectionKey + "\" section. " + instruction
                 + " Cite ONLY these unit ids: [" + String.join(", ", allowed) + "]."
                 + " Reply with one fenced json block:"
-                + " {\"feature\":\"...\",\"evidence\":[{\"unitId\":\"...\",\"quote\":\"...\",\"gloss\":\"...\"}],\"content\": ...}."
-                + " No prose after.";
+                + " {\"feature\":\"...\",\"evidence\":[{\"unitId\":\"...\",\"quote\":\"...\",\"gloss\":\"...\"}],\"content\": ...,"
+                + "\"claims\":[{\"text\":\"<a material claim from content>\",\"citationRef\":\"<one of the cited unitIds>\"}]}."
+                + " Bind each material claim to the evidence that supports it — every claims[].citationRef MUST be a cited"
+                + " unitId and the claim must restate that unit's content. No prose after.";
 
         String feedback = "";
         double cost = 0;
@@ -96,11 +98,21 @@ public class EvidenceFirstSectionGenerator {
                 schemaValidator.validate(node, "test-strategy-section.schema.json");
                 CitationValidator.Result cv = citationValidator.validate(node.path("evidence"), index.unitsById(), allowed);
                 if (cv.valid()) {
-                    return new SectionResult(Optional.of(node), cost);
+                    // Envelope is grounded; if the section also bound individual claims to citations, those must be
+                    // grounded too (no-op when there are no claims) — bind the claim, not just the citation list.
+                    CitationValidator.Result claims = citationValidator.validateClaims(
+                            node.path("claims"), node.path("evidence"), index.unitsById());
+                    if (claims.valid()) {
+                        return new SectionResult(Optional.of(node), cost);
+                    }
+                    feedback = "Your claims aren't grounded: " + String.join("; ", claims.problems())
+                            + ". Each claim's citationRef must be one of the cited unitIds, and the claim must restate "
+                            + "that unit's content (use its wording).";
+                } else {
+                    feedback = "Your previous reply cited invalid evidence: " + String.join("; ", cv.problems())
+                            + ". Cite ONLY: " + String.join(", ", allowed)
+                            + ", and use a short verbatim quote copied from the cited unit's text.";
                 }
-                feedback = "Your previous reply cited invalid evidence: " + String.join("; ", cv.problems())
-                        + ". Cite ONLY: " + String.join(", ", allowed)
-                        + ", and use a short verbatim quote copied from the cited unit's text.";
             } catch (Exception e) {
                 feedback = "Your previous reply was unusable (" + e.getMessage()
                         + "). Reply with exactly one fenced json block matching the contract.";

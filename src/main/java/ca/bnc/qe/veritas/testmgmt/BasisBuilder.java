@@ -11,6 +11,7 @@ import ca.bnc.qe.veritas.engine.model.FieldModel;
 import ca.bnc.qe.veritas.engine.model.ParamModel;
 import ca.bnc.qe.veritas.engine.model.ResponseModel;
 import ca.bnc.qe.veritas.engine.model.SchemaModel;
+import ca.bnc.qe.veritas.evidence.EvidenceId;
 import ca.bnc.qe.veritas.ingest.IngestService;
 import ca.bnc.qe.veritas.ingest.TestBasis;
 import ca.bnc.qe.veritas.ingest.TestBasisItem;
@@ -38,7 +39,9 @@ public class BasisBuilder {
         ApiModel model = javaSpringExtractor.extract(repoPath);
         StringBuilder sb = new StringBuilder("API surface (from code):\n");
         for (Endpoint e : model.endpoints()) {
-            sb.append("- ").append(e.signature());
+            // Mint a stable, non-guessable content-hash id per basis item so downstream conditions/cases can cite a
+            // real basis id (closed-world), not free text — the model can only copy an id it was shown.
+            sb.append("- [").append(basisId("CODE", e.signature())).append("] ").append(e.signature());
             if (e.security() != null && !e.security().isEmpty()) {
                 sb.append("  [secured: ").append(String.join(", ", e.security())).append("]");
             }
@@ -56,9 +59,15 @@ public class BasisBuilder {
         }
         if (model.schemas() != null && !model.schemas().isEmpty()) {
             sb.append("\nData models (from code):\n");
-            model.schemas().forEach((name, s) -> sb.append("- ").append(renderSchema(s)).append("\n"));
+            model.schemas().forEach((name, s) ->
+                    sb.append("- [").append(basisId("DTO", name)).append("] ").append(renderSchema(s)).append("\n"));
         }
         return sb.toString();
+    }
+
+    /** A stable, non-guessable basis-item id: {@code CODE-<hash8>} / {@code DTO-<hash8>} over the item's own text. */
+    private static String basisId(String prefix, String text) {
+        return prefix + "-" + EvidenceId.hash8(text == null ? "" : text);
     }
 
     private String renderParams(List<ParamModel> params) {

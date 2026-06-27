@@ -72,4 +72,51 @@ public class CitationValidator {
     private static String norm(String s) {
         return s == null ? "" : s.strip().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
     }
+
+    /**
+     * Bind the CLAIM, not just the citation envelope (design §4c, step 2). When a section provides a {@code claims[]}
+     * array (each {@code {text, citationRef}}), every claim's {@code citationRef} must be one of the section's cited
+     * {@code unitId}s, AND the claim must share a significant term (≥4 chars) with that unit's text — so the claim is
+     * grounded in what it cites, not merely sitting next to a valid citation. <b>No-op when there are no claims</b>
+     * (backward compatible: the existing envelope check still stands). Token-overlap is a cheap proxy for entailment;
+     * a full check would use an LLM judge.
+     */
+    public Result validateClaims(JsonNode claims, JsonNode evidence, Map<String, EvidenceUnit> unitsById) {
+        if (claims == null || !claims.isArray() || claims.isEmpty()) {
+            return new Result(true, List.of());
+        }
+        Set<String> citedIds = new java.util.HashSet<>();
+        if (evidence != null && evidence.isArray()) {
+            for (JsonNode e : evidence) {
+                String id = e.path("unitId").asText("");
+                if (!id.isBlank()) {
+                    citedIds.add(id);
+                }
+            }
+        }
+        List<String> problems = new ArrayList<>();
+        for (JsonNode claim : claims) {
+            String ref = claim.path("citationRef").asText("");
+            if (ref.isBlank() || !citedIds.contains(ref)) {
+                problems.add("a claim cites '" + ref + "' which is not one of the section's cited evidence ids");
+                continue;
+            }
+            EvidenceUnit u = unitsById.get(ref);
+            if (u != null && !sharesSignificantTerm(norm(claim.path("text").asText("")), norm(u.text()))) {
+                problems.add("a claim shares no term with its cited evidence '" + ref
+                        + "' — bind the claim to a unit that actually supports it");
+            }
+        }
+        return new Result(problems.isEmpty(), problems);
+    }
+
+    /** True when {@code claimText} and {@code unitText} share at least one ≥4-char token (cheap grounding proxy). */
+    private static boolean sharesSignificantTerm(String claimText, String unitText) {
+        for (String t : claimText.split("\\s+")) {
+            if (t.length() >= 4 && unitText.contains(t)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

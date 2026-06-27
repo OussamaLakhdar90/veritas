@@ -69,6 +69,24 @@ class TestAnalysisServiceTest {
     }
 
     @Test
+    void dropsAnUngroundedSourceBasisItemNotPresentInTheBasis() {
+        // The mock conditions cite POST /policies & GET /policies/{id}; this basis lists neither → fabricated traces.
+        TestStrategy s = new TestStrategy();
+        s.setServiceName("src-drop-svc");
+        s.setStatus("APPROVED");
+        s.setDeliverableJson("{\"riskRegister\":[{\"id\":\"R1\",\"level\":\"HIGH\"}],\"selfReview\":{\"confidence\":90}}");
+        strategyRepository.save(s);
+
+        List<TestCondition> conditions = analysisService.analyze("src-drop-svc",
+                "API surface (from code):\n- [CODE-zzzz] DELETE /unrelated\n", "CODE", "tester");
+
+        assertThat(conditions).isNotEmpty();
+        assertThat(conditions).allMatch(c -> c.getSourceBasisItem() == null);          // ungrounded → dropped
+        assertThat(conditions).anyMatch(c -> "R1".equals(c.getRiskRef()));             // R1 is in the register → kept
+        assertThat(conditions).allMatch(c -> c.getConfidence() != null && c.getConfidence() <= 50.0);  // capped
+    }
+
+    @Test
     void autoGeneratesADraftStrategyWhenNoneExistsSoTheCodeFirstPathWorks() {
         // No strategy seeded → analysis auto-creates a DRAFT from the basis and still produces conditions (code-first).
         List<TestCondition> conditions = analysisService.analyze("svc-codefirst", BASIS, "CODE", "tester");

@@ -103,6 +103,8 @@ public class TestAnalysisService {
             String riskRule = allowedRiskIds.isEmpty() ? ""
                     : " riskRef MUST be one of these risk-register ids (use none if a condition maps to no listed risk): "
                     + String.join(", ", allowedRiskIds) + ".";
+            String sourceRule = " sourceBasisItem MUST reference a real basis item — cite its [bracketed id] or a "
+                    + "verbatim phrase copied from a TEST_BASIS line; never an endpoint or model the basis doesn't list.";
             String outputContract = "Perform ISTQB TEST ANALYSIS: identify and prioritize the TEST CONDITIONS "
                     + "(\"what to test\") from the test basis — a test condition is a single testable aspect, NOT a test "
                     + "case (do not write steps). Trace each condition to a basis item (sourceBasisItem) AND align it to "
@@ -114,7 +116,7 @@ public class TestAnalysisService {
                     + "fenced ```json block: {\"conditions\":[{\"ref\":string,\"description\":string,"
                     + "\"sourceBasisItem\":string,\"priority\":string,\"riskRef\":string,\"qualityCharacteristic\":"
                     + "string,\"technique\":string,\"automation\":string,\"automationRationale\":string}],"
-                    + "\"selfReview\":{\"confidence\":number,\"blindSpots\":[string]}}. No prose after." + riskRule;
+                    + "\"selfReview\":{\"confidence\":number,\"blindSpots\":[string]}}. No prose after." + riskRule + sourceRule;
             String inputs = promptComposer.data("TEST_BASIS", basisText)
                     + promptComposer.data("TEST_STRATEGY", strategyBasis == null ? "" : strategyBasis);
             String prompt = promptComposer.compose("[TEST-ANALYSIS]", "generate-test-artifacts.prompt.md",
@@ -143,10 +145,24 @@ public class TestAnalysisService {
                     }
                 }
             }
+            // sourceBasisItem closed-world: a condition tracing to a basis item not present in the basis is fabricated.
+            // Accept a minted [id] OR any verbatim basis-line phrase (normalized substring); drop otherwise — robust
+            // and mock-compatible (the literal endpoint signature is a substring of its own minted line).
+            String basisNorm = norm(basisText);
+            int droppedSource = 0;
+            for (JsonNode c : conditions) {
+                if (c instanceof ObjectNode co && co.hasNonNull("sourceBasisItem")) {
+                    String sbi = co.path("sourceBasisItem").asText("");
+                    if (!sbi.isBlank() && !basisNorm.contains(norm(sbi))) {
+                        co.remove("sourceBasisItem");
+                        droppedSource++;
+                    }
+                }
+            }
             double confidence = node.path("selfReview").path("confidence").asDouble(0);
-            if (droppedRisk > 0) {
-                log.warn("analyze-test-conditions for '{}': dropped {} fabricated riskRef(s) not in the strategy's "
-                        + "risk register; capping confidence.", serviceName, droppedRisk);
+            if (droppedRisk > 0 || droppedSource > 0) {
+                log.warn("analyze-test-conditions for '{}': dropped {} fabricated riskRef(s) + {} ungrounded "
+                        + "sourceBasisItem(s); capping confidence.", serviceName, droppedRisk, droppedSource);
                 confidence = Math.min(confidence, 50);
             }
             double perCondition = conditions.size() > 0 ? cost.estCostUsd() / conditions.size() : cost.estCostUsd();
@@ -243,5 +259,10 @@ public class TestAnalysisService {
 
     private static String text(JsonNode n, String field) {
         return n.hasNonNull(field) ? n.path(field).asText() : null;
+    }
+
+    /** Normalize for grounded-substring matching: strip, collapse whitespace, lowercase. */
+    private static String norm(String s) {
+        return s == null ? "" : s.strip().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
     }
 }
