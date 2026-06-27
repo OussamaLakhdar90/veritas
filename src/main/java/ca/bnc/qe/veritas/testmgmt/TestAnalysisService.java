@@ -1,6 +1,7 @@
 package ca.bnc.qe.veritas.testmgmt;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -20,6 +21,7 @@ import ca.bnc.qe.veritas.preflight.Preflight;
 import ca.bnc.qe.veritas.preflight.PreconditionException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -81,7 +83,15 @@ public class TestAnalysisService {
         String strategyBasis = strategy.getDeliverableJson() != null && !strategy.getDeliverableJson().isBlank()
                 ? strategy.getDeliverableJson() : strategy.getContentMarkdown();
 
+        // Closed-world risk ids: the only risk references a condition may legitimately carry are the ids in the
+        // strategy's own risk register. We inject them so the model is constrained BEFORE generation, then drop any
+        // fabricated riskRef AFTER (evidence-first, not just "please cite a risk").
+        Set<String> allowedRiskIds = riskIdsOf(strategy);
+
         try {
+            String riskRule = allowedRiskIds.isEmpty() ? ""
+                    : " riskRef MUST be one of these risk-register ids (use none if a condition maps to no listed risk): "
+                    + String.join(", ", allowedRiskIds) + ".";
             String outputContract = "Perform ISTQB TEST ANALYSIS: identify and prioritize the TEST CONDITIONS "
                     + "(\"what to test\") from the test basis — a test condition is a single testable aspect, NOT a test "
                     + "case (do not write steps). Trace each condition to a basis item (sourceBasisItem) AND align it to "
@@ -93,7 +103,7 @@ public class TestAnalysisService {
                     + "fenced ```json block: {\"conditions\":[{\"ref\":string,\"description\":string,"
                     + "\"sourceBasisItem\":string,\"priority\":string,\"riskRef\":string,\"qualityCharacteristic\":"
                     + "string,\"technique\":string,\"automation\":string,\"automationRationale\":string}],"
-                    + "\"selfReview\":{\"confidence\":number,\"blindSpots\":[string]}}. No prose after.";
+                    + "\"selfReview\":{\"confidence\":number,\"blindSpots\":[string]}}. No prose after." + riskRule;
             String inputs = promptComposer.data("TEST_BASIS", basisText)
                     + promptComposer.data("TEST_STRATEGY", strategyBasis == null ? "" : strategyBasis);
             String prompt = promptComposer.compose("[TEST-ANALYSIS]", "generate-test-artifacts.prompt.md",
@@ -106,7 +116,28 @@ public class TestAnalysisService {
             schemaValidator.validate(node, "test-conditions.schema.json");
 
             JsonNode conditions = node.path("conditions");
+
+            // Drop any riskRef the model invented (not in the strategy's risk register) so a fabricated trace is never
+            // persisted on the auditable condition. Cap confidence when we had to, so a fabrication-laden batch can't
+            // present itself as high-confidence.
+            int droppedRisk = 0;
+            if (!allowedRiskIds.isEmpty()) {
+                for (JsonNode c : conditions) {
+                    if (c instanceof ObjectNode co && co.hasNonNull("riskRef")) {
+                        String rr = co.path("riskRef").asText("");
+                        if (!rr.isBlank() && !allowedRiskIds.contains(rr.toUpperCase(Locale.ROOT))) {
+                            co.remove("riskRef");
+                            droppedRisk++;
+                        }
+                    }
+                }
+            }
             double confidence = node.path("selfReview").path("confidence").asDouble(0);
+            if (droppedRisk > 0) {
+                log.warn("analyze-test-conditions for '{}': dropped {} fabricated riskRef(s) not in the strategy's "
+                        + "risk register; capping confidence.", serviceName, droppedRisk);
+                confidence = Math.min(confidence, 50);
+            }
             double perCondition = conditions.size() > 0 ? cost.estCostUsd() / conditions.size() : cost.estCostUsd();
 
             // Supersede the prior batch for this (service, strategy) — the list is a living artifact pinned to its strategy.
@@ -163,6 +194,27 @@ public class TestAnalysisService {
         log.info("Test analysis for '{}' uses strategy {} (v{}, status={}).",
                 serviceName, strategy.getId(), strategy.getVersion(), strategy.getStatus());
         return strategy;
+    }
+
+    /** The risk-register ids of a strategy's deliverable (upper-cased) — the closed-world set a condition may cite. */
+    private Set<String> riskIdsOf(TestStrategy strategy) {
+        Set<String> ids = new LinkedHashSet<>();
+        String json = strategy.getDeliverableJson();
+        if (json == null || json.isBlank()) {
+            return ids;   // no structured register to check against — can't verify, so we won't drop
+        }
+        try {
+            JsonNode d = objectMapper.readTree(json);
+            for (JsonNode r : d.path("riskRegister")) {
+                String id = r.path("id").asText("");
+                if (!id.isBlank()) {
+                    ids.add(id.toUpperCase(Locale.ROOT));
+                }
+            }
+        } catch (Exception ignored) {
+            // unparseable deliverable → treat as no verifiable risk ids
+        }
+        return ids;
     }
 
     /** Map an LLM-supplied automation tag to the canonical set; unknown/blank defaults to CANDIDATE (review later). */

@@ -39,4 +39,23 @@ class CreateTestCasesConditionLinkTest {
         // the mock case requirementKey=CIAM-1 → linked to the condition via its sourceBasisItem
         assertThat(cases).anyMatch(tc -> saved.getId().equals(tc.getTestConditionId()));
     }
+
+    @Test
+    void dropsAnUnverifiableRequirementKeyWhenConditionsExistButNoneMatch() {
+        // A condition exists for the service, but its basis item does not match the mock case's requirementKey (CIAM-1),
+        // so the key is an unverifiable trace → rejected (not persisted), rather than null-and-keep.
+        TestCondition c = new TestCondition();
+        c.setServiceName("cases-reject-svc");
+        c.setConditionRef("TCD-X");
+        c.setSourceBasisItem("OTHER-9");
+        c.setTestStrategyId("strat-y");
+        c.setStatus("PROPOSED");
+        conditionRepository.save(c);
+
+        List<TestCase> cases = casesService.generate("cases-reject-svc", "Endpoints:\n- POST /policies\n", "tester");
+
+        assertThat(cases).isNotEmpty();
+        assertThat(cases).allMatch(tc -> tc.getTestConditionId() == null);     // nothing linked
+        assertThat(cases).allMatch(tc -> tc.getLinkedRequirement() == null);   // fabricated key dropped
+    }
 }
