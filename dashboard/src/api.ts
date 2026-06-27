@@ -403,6 +403,12 @@ export const api = {
   testGenPlan: (service: string, body: { appId?: string; serviceRepoSlug?: string; serviceBranch?: string;
     serviceRepoPath?: string; testRepoSlug?: string; testBranch?: string; testRepoPath?: string }) =>
     send<TestGenPlan>('POST', `/services/${encodeURIComponent(service)}/test-gen/plan`, body),
+  // Generate the selected tests into a clone of the output repo (202 → a CodegenRun). Does NOT push — opening the PR
+  // is the separate, user-clicked publishCodegen step. endpoints scopes generation; omit for the whole service.
+  testGenGenerate: (service: string, body: { appId?: string; serviceRepoSlug?: string; serviceBranch?: string;
+    serviceRepoPath?: string; outputRepoSlug?: string; outputBranch?: string; outputRepoPath?: string;
+    endpoints?: string[]; owner?: string }) =>
+    send<CodegenRun>('POST', `/services/${encodeURIComponent(service)}/test-gen/generate`, body),
 
   // Release test plan trigger + RTM workspace
   triggerReleasePlan: (service: string, body: { fixVersion: string; issuesJql?: string; testsJql?: string; projectKey?: string; createGaps?: boolean }) =>

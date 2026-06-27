@@ -8,22 +8,25 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
+import ca.bnc.qe.veritas.codegen.plan.TestGenService;
 import ca.bnc.qe.veritas.codegen.plan.TestPlan;
 import ca.bnc.qe.veritas.codegen.plan.TestPlanItem;
 import ca.bnc.qe.veritas.codegen.plan.TestPlanService;
 import ca.bnc.qe.veritas.codegen.plan.TestPlanService.RepoRef;
+import ca.bnc.qe.veritas.persistence.CodegenRun;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-/** The test-gen preflight endpoint: maps the request to two RepoRefs and returns the reconciliation plan. */
+/** The test-gen endpoints: the preflight plan, and the (no-push) generate that scopes to the selected endpoints. */
 @WebMvcTest(TestGenController.class)
 class TestGenControllerTest {
 
     @Autowired private MockMvc mvc;
     @MockBean private TestPlanService service;
+    @MockBean private TestGenService testGen;
 
     @Test
     void planDelegatesBothReposAndReturnsThePlan() throws Exception {
@@ -54,5 +57,29 @@ class TestGenControllerTest {
                         .content("{\"appId\":\"APP1\",\"serviceRepoSlug\":\"ciam\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.mode").value("SCRATCH"));
+    }
+
+    @Test
+    void generateScopesToTheSelectedEndpointsAndReturns202WithoutPushing() throws Exception {
+        CodegenRun run = new CodegenRun();
+        run.setServiceName("ciam");
+        run.setBuildStatus("SKIPPED");
+        when(testGen.generate(eq("ciam"),
+                eq(new RepoRef("APP1", "ciam", "develop", null)),
+                eq(new RepoRef("APP1", "ciam-tests", "develop", null)),
+                eq(new java.util.LinkedHashSet<>(List.of("POST /policies"))), eq("alice"))).thenReturn(run);
+
+        mvc.perform(post("/api/v1/services/ciam/test-gen/generate").contentType("application/json").content("""
+                        {"appId":"APP1","serviceRepoSlug":"ciam","serviceBranch":"develop",
+                         "outputRepoSlug":"ciam-tests","outputBranch":"develop",
+                         "endpoints":["POST /policies"],"owner":"alice"}"""))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.serviceName").value("ciam"))
+                .andExpect(jsonPath("$.buildStatus").value("SKIPPED"));
+
+        // Returns the run for review — the push/PR is a separate, user-clicked publish step.
+        verify(testGen).generate(eq("ciam"), eq(new RepoRef("APP1", "ciam", "develop", null)),
+                eq(new RepoRef("APP1", "ciam-tests", "develop", null)),
+                eq(new java.util.LinkedHashSet<>(List.of("POST /policies"))), eq("alice"));
     }
 }

@@ -1,13 +1,20 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Search, ArrowRight, ArrowLeft, Plus, Check, AlertTriangle, Sparkles, GitPullRequest } from 'lucide-react';
-import { api, Repo, TestGenPlan, TestGenPlanItem } from '../api';
+import { Search, ArrowRight, ArrowLeft, Plus, Check, AlertTriangle, Sparkles, GitPullRequest, FileCode, GitPullRequestArrow, ExternalLink } from 'lucide-react';
+import { api, Repo, TestGenPlan, TestGenPlanItem, CodegenRun } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, Field, Input, PageHeader, Select, Spinner, Table, Td, Th, Row } from '../components/ui';
 import { useToast } from '../components/Toast';
+import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
 
-const STEPS = ['Service', 'Destination', 'Plan'];
+const STEPS = ['Service', 'Destination', 'Plan', 'Review'];
+
+function parseList(json?: string): string[] {
+  if (!json) return [];
+  try { const v = JSON.parse(json); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+const buildTone = (s?: string) => ({ PASS: TONE.ok, REPAIRED: TONE.warn, FAIL: TONE.danger, SKIPPED: TONE.muted }[s ?? ''] ?? TONE.muted);
 
 /** Plain-language badge + tone for each reconciliation status. */
 const STATUS: Record<string, { label: string; tone: string; icon: typeof Plus }> = {
@@ -40,6 +47,7 @@ function Stepper({ step }: { step: number }) {
 /** The git-native, non-technical wizard: pick a service repo → say where the tests live → see the plan. */
 export function GenerateApiTests() {
   const toast = useToast();
+  const { blocked, notice } = useCopilotGate();
   const [step, setStep] = useState(1);
   const [appId, setAppId] = useState('');
   const [repos, setRepos] = useState<Repo[]>([]);
@@ -49,6 +57,12 @@ export function GenerateApiTests() {
   const [testBranch, setTestBranch] = useState('');
   const [plan, setPlan] = useState<TestGenPlan | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [run, setRun] = useState<CodegenRun | null>(null);
+  const [prBranch, setPrBranch] = useState('main');
+
+  // Where the generated tests are written and the PR is later opened: the chosen test repo, or the service repo itself
+  // when starting from scratch with no separate test repo.
+  const outputRepo = testRepo || serviceRepo;
 
   const loadRepos = useMutation({
     mutationFn: () => api.repos(appId),
@@ -83,6 +97,31 @@ export function GenerateApiTests() {
       // Default-select the actionable gaps; covered/orphaned rows are informational.
       setSelected(new Set(p.items.filter((i) => i.status === 'GAP' && i.signature).map((i) => i.signature!)));
       setStep(3);
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+
+  // Generate the selected tests into a clone of the output repo. Does NOT push — that's the explicit publish click.
+  const generateM = useMutation({
+    mutationFn: () => api.testGenGenerate(serviceRepo, {
+      appId,
+      serviceRepoSlug: serviceRepo,
+      serviceBranch: serviceBranch || undefined,
+      outputRepoSlug: outputRepo,
+      outputBranch: testBranch || serviceBranch || undefined,
+      endpoints: [...selected],
+    }),
+    onSuccess: (r) => { setRun(r); setStep(4); toast.push('success', 'Tests generated — review them, then open a PR.'); },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+
+  // Explicit, user-clicked push: opens a PR for review. Never automatic; never merges.
+  const publishM = useMutation({
+    mutationFn: ({ allowFailedBuild }: { allowFailedBuild: boolean }) =>
+      api.publishCodegen(run!.id, outputRepo, prBranch || 'main', allowFailedBuild),
+    onSuccess: (updated) => {
+      setRun(updated);
+      toast.push('success', updated.prUrl ? 'Pull request opened.' : 'Submitted for approval — approve it on the Gates page to open the PR.');
     },
     onError: (e: Error) => toast.push('error', e.message),
   });
@@ -202,16 +241,85 @@ export function GenerateApiTests() {
 
                 <div className="flex items-center justify-between border-t border-border pt-4">
                   <Button variant="secondary" onClick={() => setStep(2)}><ArrowLeft className="h-4 w-4" /> Back</Button>
-                  <Button disabled={selected.size === 0}
-                    onClick={() => toast.push('info', `${selected.size} endpoint(s) selected — generating the tests and opening a pull request is the next step.`)}>
-                    <Sparkles className="h-4 w-4" /> Generate selected ({selected.size})
-                  </Button>
+                  <span className="flex items-center gap-3">
+                    {notice}
+                    <Button disabled={selected.size === 0 || blocked} loading={generateM.isPending}
+                      onClick={() => generateM.mutate()}>
+                      <Sparkles className="h-4 w-4" /> Generate selected ({selected.size})
+                    </Button>
+                  </span>
                 </div>
                 <p className="flex items-center gap-1.5 text-[12px] text-muted">
-                  <GitPullRequest className="h-3.5 w-3.5" /> Generation runs on a branch and opens a pull request for your review — nothing is pushed until you approve.
+                  <GitPullRequest className="h-3.5 w-3.5" /> Tests are written to <span className="font-mono">{outputRepo || '—'}</span> on a branch — nothing is pushed until you click “Open pull request”.
                 </p>
               </>
             )}
+          </CardBody>
+        </Card>
+      )}
+
+      {step === 4 && run && (
+        <Card>
+          <CardHeader
+            title={<span className="inline-flex items-center gap-2">Review &amp; open a pull request
+              <Badge className={buildTone(run.buildStatus)}>build {run.buildStatus ?? '—'}</Badge></span>}
+            subtitle={`Generated tests for ${run.serviceName} — review, then open a PR when you're ready.`} />
+          <CardBody className="space-y-5">
+            {run.buildStatus === 'SKIPPED' && (
+              <div className="rounded-lg border-l-4 border-l-warning bg-warning/5 p-3 text-[13px] text-ink-700">
+                These tests weren't compiled here (build skipped) — don't assume they compile; CI will verify before merge.
+              </div>
+            )}
+
+            <div>
+              <p className="mb-1.5 text-[13px] font-semibold text-ink-900">Generated files</p>
+              <ul className="space-y-1">
+                {parseList(run.filesWritten).map((f) => (
+                  <li key={f} className="flex items-center gap-2 font-mono text-[12.5px] text-muted"><FileCode className="h-3.5 w-3.5 shrink-0" /> {f}</li>
+                ))}
+                {parseList(run.filesWritten).length === 0 && <li className="text-[13px] text-muted">—</li>}
+              </ul>
+            </div>
+
+            {parseList(run.todos).length > 0 && (
+              <div className="rounded-lg border-l-4 border-l-warning bg-warning/5 p-3">
+                <p className="mb-1 text-[13px] font-semibold text-ink-900">Before these run, you'll need</p>
+                <ul className="list-disc space-y-0.5 pl-5 text-[13px] text-ink-700">
+                  {parseList(run.todos).map((t, i) => <li key={i}>{t}</li>)}
+                </ul>
+              </div>
+            )}
+
+            {run.prUrl ? (
+              <p className="text-sm">Pull request opened: <a href={run.prUrl} target="_blank" rel="noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-gold hover:underline">{run.prUrl} <ExternalLink className="h-3.5 w-3.5" /></a></p>
+            ) : (
+              <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-end">
+                <div className="flex-1">
+                  <Field label="Open the PR against" hint={`Base branch in ${outputRepo}.`}>
+                    <Input value={prBranch} onChange={(e) => setPrBranch(e.target.value)} placeholder="main" />
+                  </Field>
+                </div>
+                <Button loading={publishM.isPending && !publishM.variables?.allowFailedBuild}
+                  onClick={() => publishM.mutate({ allowFailedBuild: false })}>
+                  <GitPullRequestArrow className="h-4 w-4" /> Open pull request
+                </Button>
+                {run.buildStatus === 'FAIL' && (
+                  <Button variant="secondary" loading={publishM.isPending && publishM.variables?.allowFailedBuild}
+                    title="Build failed — open the PR anyway (override)"
+                    onClick={() => publishM.mutate({ allowFailedBuild: true })}>
+                    Open anyway (build failed)
+                  </Button>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-between border-t border-border pt-4">
+              <Button variant="secondary" onClick={() => setStep(3)}><ArrowLeft className="h-4 w-4" /> Back to plan</Button>
+              <p className="flex items-center gap-1.5 text-[12px] text-muted">
+                <GitPullRequest className="h-3.5 w-3.5" /> Opening a PR pushes a branch for review — it never merges on its own.
+              </p>
+            </div>
           </CardBody>
         </Card>
       )}

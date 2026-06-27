@@ -1,12 +1,18 @@
 package ca.bnc.qe.veritas.web;
 
+import java.util.List;
+import java.util.Set;
+import ca.bnc.qe.veritas.codegen.plan.TestGenService;
 import ca.bnc.qe.veritas.codegen.plan.TestPlan;
 import ca.bnc.qe.veritas.codegen.plan.TestPlanService;
 import ca.bnc.qe.veritas.codegen.plan.TestPlanService.RepoRef;
+import ca.bnc.qe.veritas.persistence.CodegenRun;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -21,9 +27,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class TestGenController {
 
     private final TestPlanService service;
+    private final TestGenService testGen;
 
-    public TestGenController(TestPlanService service) {
+    public TestGenController(TestPlanService service, TestGenService testGen) {
         this.service = service;
+        this.testGen = testGen;
     }
 
     @PostMapping("/services/{service}/test-gen/plan")
@@ -31,6 +39,22 @@ public class TestGenController {
         return this.service.plan(service,
                 new RepoRef(req.appId(), req.serviceRepoSlug(), req.serviceBranch(), req.serviceRepoPath()),
                 new RepoRef(req.appId(), req.testRepoSlug(), req.testBranch(), req.testRepoPath()));
+    }
+
+    /**
+     * Generate the selected tests into a clone of the output repo and build-verify — returns the run (202). This does
+     * NOT push: opening the PR is the separate, explicitly user-triggered {@code /codegen-runs/{id}/publish} step
+     * (gated by an OPEN_PR approval + a git-write-scope check). {@code endpoints} scopes generation; empty = whole
+     * service. {@code outputRepoSlug} is where the tests are written and the PR will later be opened.
+     */
+    @PostMapping("/services/{service}/test-gen/generate")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public CodegenRun generate(@PathVariable String service, @RequestBody GenerateRequest req) {
+        Set<String> scope = req.endpoints() == null ? Set.of() : new java.util.LinkedHashSet<>(req.endpoints());
+        return testGen.generate(service,
+                new RepoRef(req.appId(), req.serviceRepoSlug(), req.serviceBranch(), req.serviceRepoPath()),
+                new RepoRef(req.appId(), req.outputRepoSlug(), req.outputBranch(), req.outputRepoPath()),
+                scope, req.owner() == null ? "api" : req.owner());
     }
 
     /**
@@ -44,4 +68,14 @@ public class TestGenController {
      */
     public record PlanRequest(String appId, String serviceRepoSlug, String serviceBranch, String serviceRepoPath,
                               String testRepoSlug, String testBranch, String testRepoPath) {}
+
+    /**
+     * @param outputRepoSlug where the generated tests are written and the PR will later be opened (required)
+     * @param outputBranch   base branch in the output repo (null = default)
+     * @param outputRepoPath local path override for the output repo (dev)
+     * @param endpoints      selected {@code "METHOD /path"} signatures to generate (empty = whole service)
+     */
+    public record GenerateRequest(String appId, String serviceRepoSlug, String serviceBranch, String serviceRepoPath,
+                                  String outputRepoSlug, String outputBranch, String outputRepoPath,
+                                  List<String> endpoints, String owner) {}
 }
