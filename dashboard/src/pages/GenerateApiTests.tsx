@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Search, ArrowRight, ArrowLeft, Plus, Check, AlertTriangle, Sparkles, GitPullRequest, FileCode, GitPullRequestArrow, ExternalLink } from 'lucide-react';
+import { Search, ArrowRight, ArrowLeft, Plus, Check, AlertTriangle, Sparkles, GitPullRequest, FileCode, GitPullRequestArrow, ExternalLink, Ticket, X } from 'lucide-react';
 import { api, Repo, TestGenPlan, TestGenPlanItem, CodegenRun } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, Field, Input, PageHeader, Select, Spinner, Table, Td, Th, Row } from '../components/ui';
 import { useToast } from '../components/Toast';
@@ -55,6 +55,9 @@ export function GenerateApiTests() {
   const [serviceBranch, setServiceBranch] = useState('');
   const [testRepo, setTestRepo] = useState('');   // '' = no existing tests (from scratch)
   const [testBranch, setTestBranch] = useState('');
+  const [jiraKey, setJiraKey] = useState('');
+  const [jiraSummary, setJiraSummary] = useState('');
+  const [jiraQuery, setJiraQuery] = useState('');
   const [plan, setPlan] = useState<TestGenPlan | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [run, setRun] = useState<CodegenRun | null>(null);
@@ -83,6 +86,12 @@ export function GenerateApiTests() {
     queryFn: () => api.branches(appId, testRepo),
     enabled: !!appId && !!testRepo,
   });
+  // Jira ticket search — runs once a ticket isn't already chosen and the query is long enough.
+  const jiraResults = useQuery({
+    queryKey: ['jira-search', jiraQuery],
+    queryFn: () => api.jiraSearch(jiraQuery),
+    enabled: jiraQuery.trim().length >= 2 && !jiraKey,
+  });
 
   const planM = useMutation({
     mutationFn: () => api.testGenPlan(serviceRepo, {
@@ -110,6 +119,7 @@ export function GenerateApiTests() {
       outputRepoSlug: outputRepo,
       outputBranch: testBranch || serviceBranch || undefined,
       endpoints: [...selected],
+      jiraKey,
     }),
     onSuccess: (r) => { setRun(r); setStep(4); toast.push('success', 'Tests generated — review them, then open a PR.'); },
     onError: (e: Error) => toast.push('error', e.message),
@@ -205,9 +215,53 @@ export function GenerateApiTests() {
                 </Select>
               </Field>
             )}
-            <div className="flex justify-between">
+
+            <Field label="Jira ticket *"
+              hint="The work item these tests commit under — its key goes in the branch, commit and PR so Jira links them.">
+              {jiraKey ? (
+                <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-ink-50 px-3 py-2">
+                  <span className="min-w-0 text-[13px]">
+                    <span className="font-mono font-medium text-ink-900">{jiraKey}</span>
+                    {jiraSummary && <span className="text-muted"> — {jiraSummary}</span>}
+                  </span>
+                  <button type="button" aria-label="Clear ticket" className="shrink-0 text-muted hover:text-ink-900"
+                    onClick={() => { setJiraKey(''); setJiraSummary(''); setJiraQuery(''); }}>
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <div className="relative">
+                  <Ticket className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+                  <Input className="pl-8" placeholder="Search Jira, or paste a key / URL (e.g. CIAM-1842)"
+                    value={jiraQuery} onChange={(e) => setJiraQuery(e.target.value)} />
+                  {jiraQuery.trim().length >= 2 && (
+                    <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border border-border bg-surface shadow-card">
+                      {jiraResults.isLoading ? (
+                        <p className="px-3 py-2 text-[13px] text-muted">Searching…</p>
+                      ) : (jiraResults.data ?? []).length === 0 ? (
+                        <p className="px-3 py-2 text-[13px] text-muted">No matching tickets.</p>
+                      ) : (
+                        (jiraResults.data ?? []).map((i) => (
+                          <button key={i.key} type="button"
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-ink-50"
+                            onClick={() => { setJiraKey(i.key); setJiraSummary(i.summary ?? ''); }}>
+                            <span className="font-mono font-medium text-ink-900">{i.key}</span>
+                            <span className="truncate text-muted">{i.summary}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </Field>
+
+            <div className="flex items-center justify-between">
               <Button variant="secondary" onClick={() => setStep(1)}><ArrowLeft className="h-4 w-4" /> Back</Button>
-              <Button loading={planM.isPending} onClick={() => planM.mutate()}>See the plan <ArrowRight className="h-4 w-4" /></Button>
+              <Button loading={planM.isPending} disabled={!jiraKey}
+                onClick={() => jiraKey ? planM.mutate() : toast.push('error', 'Pick a Jira ticket first.')}>
+                See the plan <ArrowRight className="h-4 w-4" />
+              </Button>
             </div>
           </CardBody>
         </Card>

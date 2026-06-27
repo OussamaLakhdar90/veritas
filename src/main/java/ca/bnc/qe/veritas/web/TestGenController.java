@@ -54,7 +54,7 @@ public class TestGenController {
         return testGen.generate(service,
                 new RepoRef(req.appId(), req.serviceRepoSlug(), req.serviceBranch(), req.serviceRepoPath()),
                 new RepoRef(req.appId(), req.outputRepoSlug(), req.outputBranch(), req.outputRepoPath()),
-                scope, req.owner() == null ? "api" : req.owner());
+                scope, req.owner() == null ? "api" : req.owner(), req.jiraKey());
     }
 
     /**
@@ -74,8 +74,9 @@ public class TestGenController {
      * @param outputBranch   base branch in the output repo (null = default)
      * @param outputRepoPath local path override for the output repo (dev)
      * @param endpoints      selected {@code "METHOD /path"} signatures to generate (empty = whole service)
+     * @param jiraKey        the work item the tests commit under (required) — prefixes the branch/commit/PR title
      */
     public record GenerateRequest(String appId, String serviceRepoSlug, String serviceBranch, String serviceRepoPath,
                                   String outputRepoSlug, String outputBranch, String outputRepoPath,
-                                  List<String> endpoints, String owner) {}
+                                  List<String> endpoints, String owner, String jiraKey) {}
 }
