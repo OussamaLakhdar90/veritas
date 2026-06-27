@@ -394,6 +394,10 @@ public class ContractValidationService {
         String codeEps = code.endpoints().stream().map(Endpoint::signature).toList().toString();
         List<String> specEps = new ArrayList<>();
         specs.forEach(s -> s.endpoints().forEach(e -> specEps.add(e.signature())));
+        // The real endpoint paths (code + spec) — an endpoint-scoped design finding about anything else is unverifiable.
+        java.util.Set<String> knownPaths = new HashSet<>();
+        code.endpoints().forEach(e -> knownPaths.add(e.pathTemplate().toLowerCase(java.util.Locale.ROOT)));
+        specs.forEach(s -> s.endpoints().forEach(e -> knownPaths.add(e.pathTemplate().toLowerCase(java.util.Locale.ROOT))));
         // What the extractor actually parsed/resolved — so the LLM never claims a source it has is "not supplied".
         String manifest = objectMapper.writeValueAsString(Map.of(
                 "parsedEndpoints", code.endpoints().size(),
@@ -483,7 +487,7 @@ public class ContractValidationService {
                     }
                 }
             }
-            for (Finding df : parseDesignFindings(node)) {
+            for (Finding df : parseDesignFindings(node, knownPaths)) {
                 // Suppress an AI absence claim the resolved spec contradicts (e.g. "no examples" when $ref examples
                 // exist). Only for SPEC-WIDE claims: a finding scoped to a specific endpoint can't be refuted by
                 // spec-global "any..." presence facts — that endpoint may genuinely lack the thing.
@@ -545,7 +549,7 @@ public class ContractValidationService {
     }
 
     /** L5/L6 LLM judgement findings (design quality + test-basis adequacy) from the reconcile reply. */
-    private List<Finding> parseDesignFindings(JsonNode node) {
+    private List<Finding> parseDesignFindings(JsonNode node, java.util.Set<String> knownPaths) {
         List<Finding> out = new ArrayList<>();
         for (JsonNode d : node.path("designFindings")) {
             String layer = d.path("layer").asText("L5");
@@ -553,38 +557,90 @@ public class ContractValidationService {
             FindingType type = l6 ? FindingType.TEST_BASIS_GAP : FindingType.DESIGN_QUALITY;
             String summary = d.path("summary").asText("");
             String endpoint = d.hasNonNull("endpoint") ? d.path("endpoint").asText() : null;
+            // An endpoint-scoped finding about an endpoint Veritas never parsed is unverifiable — keep it (for the
+            // record) but cap it to INFO and flag it, so a fabricated per-endpoint BLOCKER can't ship in the board PDF.
+            boolean phantom = endpoint != null && !endpoint.isBlank() && !isKnownEndpoint(endpoint, knownPaths);
+            Severity severity = phantom ? Severity.INFO : parseSeverity(d.path("severity").asText(null));
+            String explanation = d.hasNonNull("explanation") ? d.path("explanation").asText() : null;
+            if (phantom) {
+                explanation = "[unverified endpoint — '" + endpoint + "' is not a parsed API endpoint] "
+                        + (explanation == null ? "" : explanation);
+            }
             out.add(Finding.builder()
                     .findingId(Integer.toHexString(java.util.Objects.hash(type, summary, endpoint)))
                     .type(type)
                     .layer(l6 ? Layer.L6 : Layer.L5)
-                    .severity(parseSeverity(d.path("severity").asText(null)))
+                    .severity(severity)
                     .confidence(Confidence.MEDIUM)
                     .origin("LLM")
                     .endpoint(endpoint)
                     .specSource("code-vs-spec")
                     .summary(summary)
-                    .explanation(d.hasNonNull("explanation") ? d.path("explanation").asText() : null)
+                    .explanation(explanation)
                     .citation(d.hasNonNull("citation") ? d.path("citation").asText() : null)
                     .build());
         }
         return out;
     }
 
+    /** Whether a design finding's endpoint string references a real (parsed) endpoint path — lenient substring match. */
+    private static boolean isKnownEndpoint(String endpoint, java.util.Set<String> knownPaths) {
+        if (knownPaths.isEmpty()) {
+            return true;   // nothing to verify against → don't second-guess
+        }
+        String e = endpoint.toLowerCase(java.util.Locale.ROOT);
+        for (String p : knownPaths) {
+            if (!p.isBlank() && e.contains(p)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private Severity parseSeverity(String s) {
         try {
-            return s == null ? Severity.MAJOR : Severity.valueOf(s.toUpperCase(java.util.Locale.ROOT));
+            // Unknown/blank severity → INFO, never MAJOR: a fabricated finding with no severity must not read as a
+            // hard defect on the board report.
+            return s == null || s.isBlank() ? Severity.INFO : Severity.valueOf(s.toUpperCase(java.util.Locale.ROOT));
         } catch (IllegalArgumentException e) {
-            return Severity.MAJOR;
+            return Severity.INFO;
         }
     }
 
-    /** Prefer the LLM-reconciled corrected YAML when it re-parses; otherwise the deterministic code-wins spec. */
+    /** Prefer the LLM-reconciled corrected YAML when it re-parses AND preserves the code's endpoints; else the
+     *  deterministic code-wins spec. */
     private String chooseCorrectedYaml(String llmCorrected, ApiModel code, String title, String originalSpecYaml) {
-        if (llmCorrected != null && roundTrips(llmCorrected)) {
+        if (llmCorrected != null && roundTrips(llmCorrected) && preservesEndpoints(llmCorrected, code)) {
             return llmCorrected;
         }
         String deterministic = correctedSpecBuilder.build(code, title, originalSpecYaml);
         return roundTrips(deterministic) ? deterministic : null;
+    }
+
+    /**
+     * The LLM "corrected" spec must not silently DROP an endpoint the code declares (a well-formed spec that quietly
+     * removes a real route is worse than the deterministic fallback). When the corrected spec exposes no endpoints we
+     * can't verify it, so we don't second-guess it. A parse-only gate ({@link #roundTrips}) never caught this.
+     */
+    private boolean preservesEndpoints(String yaml, ApiModel code) {
+        try {
+            ApiModel corrected = openApiModelExtractor.extract("corrected-check", yaml).model();
+            if (corrected == null || corrected.endpoints().isEmpty()) {
+                return true;
+            }
+            java.util.Set<String> sigs = new HashSet<>();
+            corrected.endpoints().forEach(e -> sigs.add(e.signature().toUpperCase(java.util.Locale.ROOT)));
+            for (Endpoint e : code.endpoints()) {
+                if (!sigs.contains(e.signature().toUpperCase(java.util.Locale.ROOT))) {
+                    log.warn("Rejecting LLM corrected spec — it drops endpoint {} the code declares; "
+                            + "falling back to the deterministic code-wins spec.", e.signature());
+                    return false;
+                }
+            }
+            return true;
+        } catch (Exception ex) {
+            return false;
+        }
     }
 
     private boolean roundTrips(String yaml) {
