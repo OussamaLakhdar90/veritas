@@ -56,6 +56,7 @@ public class AnalyzeTestConditionsCommand implements Callable<Integer> {
     @Override
     public Integer call() {
         String basis;
+        String source;
         if (repo != null || (appId != null && repoSlug != null)) {
             Path repoPath = workspace.resolve(appId, repoSlug, branch, repo == null ? null : repo.toString());
             try {
@@ -63,11 +64,14 @@ public class AnalyzeTestConditionsCommand implements Callable<Integer> {
             } finally {
                 workspace.cleanup(repoPath);
             }
+            source = "CODE";
         } else {
             List<String> pages = confluencePages == null ? List.of() : Arrays.asList(confluencePages.split(","));
             basis = basisBuilder.fromIngest(jql, pages);
+            source = "JIRA_CONFLUENCE";
         }
-        List<TestCondition> conditions = analysisService.analyze(name, basis, "local");
+        // Code-first: if no strategy exists for this service, analyze() auto-generates a DRAFT from this basis.
+        List<TestCondition> conditions = analysisService.analyze(name, basis, source, "local");
         double cost = conditions.stream().mapToDouble(TestCondition::getEstCostUsd).sum();
         System.out.println("Identified " + conditions.size() + " test condition(s) for " + name);
         long automated = conditions.stream().filter(c -> "AUTOMATED".equals(c.getAutomation())).count();

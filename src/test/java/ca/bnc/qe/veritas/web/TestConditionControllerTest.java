@@ -61,7 +61,7 @@ class TestConditionControllerTest {
 
     @Test
     void generateReturns202() throws Exception {
-        when(service.analyze(eq("svc"), any(), any())).thenReturn(List.of(condition("c1")));
+        when(service.analyze(eq("svc"), any(), any(), any())).thenReturn(List.of(condition("c1")));
         mvc.perform(post("/api/v1/services/svc/test-conditions")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"basis\":\"some basis\",\"owner\":\"api\"}"))
@@ -102,6 +102,20 @@ class TestConditionControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.TEXT_HTML))
                 .andExpect(content().string(containsString("condition list")));
+    }
+
+    @Test
+    void routingSplitsConditionsByAutomationCandidacy() throws Exception {
+        TestCondition auto = condition("a"); auto.setConditionRef("TCD-001"); auto.setAutomation("AUTOMATED");
+        TestCondition man = condition("m"); man.setConditionRef("TCD-002"); man.setAutomation("MANUAL");
+        TestCondition cand = condition("c"); cand.setConditionRef("TCD-003"); cand.setAutomation(null);
+        when(repository.findByTestStrategyIdOrderByConditionRefAsc("s1"))
+                .thenReturn(List.of(auto, man, cand));
+        mvc.perform(get("/api/v1/strategies/s1/test-conditions/routing"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.automated[0]").value("TCD-001"))
+                .andExpect(jsonPath("$.manual[0]").value("TCD-002"))
+                .andExpect(jsonPath("$.candidate[0]").value("TCD-003"));
     }
 
     @Test

@@ -81,6 +81,10 @@ export function TestConditions() {
           <Badge className={TONE.danger}>{split.MANUAL} manual</Badge>
           <Badge className={TONE.warn}>{split.CANDIDATE} candidate</Badge>
           <span className="text-muted">— decided per condition by risk × repeatability × stability.</span>
+          <span className="w-full text-[12px] text-muted">
+            AUTOMATED conditions feed <span className="font-medium text-ink-700">implement-tests</span>;
+            MANUAL / CANDIDATE feed <span className="font-medium text-ink-700">create-test-cases</span>.
+          </span>
         </CardBody>
       </Card>
 

@@ -1,12 +1,10 @@
 package ca.bnc.qe.veritas.testmgmt;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
 import ca.bnc.qe.veritas.persistence.TestCondition;
 import ca.bnc.qe.veritas.persistence.TestStrategy;
-import ca.bnc.qe.veritas.preflight.PreconditionException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -71,9 +69,14 @@ class TestAnalysisServiceTest {
     }
 
     @Test
-    void failsClearlyWhenNoStrategyExistsForTheService() {
-        assertThatThrownBy(() -> analysisService.analyze("svc-with-no-strategy", BASIS, "tester"))
-                .isInstanceOf(PreconditionException.class)
-                .hasMessageContaining("No test strategy found");
+    void autoGeneratesADraftStrategyWhenNoneExistsSoTheCodeFirstPathWorks() {
+        // No strategy seeded → analysis auto-creates a DRAFT from the basis and still produces conditions (code-first).
+        List<TestCondition> conditions = analysisService.analyze("svc-codefirst", BASIS, "CODE", "tester");
+
+        assertThat(conditions).isNotEmpty();
+        List<TestStrategy> created = strategyRepository.findByServiceNameOrderByCreatedAtDesc("svc-codefirst");
+        assertThat(created).isNotEmpty();                                  // a DRAFT strategy now exists
+        assertThat(created.get(0).getStatus()).isEqualTo("DRAFT");
+        assertThat(conditions).allMatch(c -> created.get(0).getId().equals(c.getTestStrategyId()));   // traced to it
     }
 }

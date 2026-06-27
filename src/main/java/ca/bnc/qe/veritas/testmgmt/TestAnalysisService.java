@@ -18,7 +18,6 @@ import ca.bnc.qe.veritas.persistence.TestConditionRepository;
 import ca.bnc.qe.veritas.persistence.TestStrategy;
 import ca.bnc.qe.veritas.persistence.TestStrategyRepository;
 import ca.bnc.qe.veritas.preflight.Preflight;
-import ca.bnc.qe.veritas.preflight.PreconditionException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -49,11 +48,12 @@ public class TestAnalysisService {
     private final Preflight preflight;
     private final TestConditionRepository repository;
     private final TestStrategyRepository strategyRepository;
+    private final TestStrategyService strategyService;
 
     public TestAnalysisService(LlmGateway llm, JsonBlockExtractor jsonExtractor, ResponseSchemaValidator schemaValidator,
                                ModelSelector modelSelector, CostRecorder costRecorder, PromptComposer promptComposer,
                                ObjectMapper objectMapper, Preflight preflight, TestConditionRepository repository,
-                               TestStrategyRepository strategyRepository) {
+                               TestStrategyRepository strategyRepository, TestStrategyService strategyService) {
         this.llm = llm;
         this.jsonExtractor = jsonExtractor;
         this.schemaValidator = schemaValidator;
@@ -64,20 +64,31 @@ public class TestAnalysisService {
         this.preflight = preflight;
         this.repository = repository;
         this.strategyRepository = strategyRepository;
+        this.strategyService = strategyService;
     }
 
     public List<TestCondition> analyze(String serviceName, String basisText, String owner) {
+        return analyze(serviceName, basisText, "CODE", owner);
+    }
+
+    /**
+     * Run test analysis for a service. Code-first: if no strategy exists yet, a DRAFT one is auto-generated from the
+     * SAME basis so the whole chain runs from just the source in one step — the risk register it produces is
+     * unreviewed (DRAFT), which is fine for exploration; the hard "APPROVED strategy" gate still applies to the
+     * outward release-plan writes. {@code source} is CODE or JIRA_CONFLUENCE (recorded on any auto-created strategy).
+     */
+    public List<TestCondition> analyze(String serviceName, String basisText, String source, String owner) {
         preflight.testAnalysis(serviceName, basisText);
         preflight.requireLlm(llm, "analyze-test-conditions");
 
         // Conditions are identified during test analysis but PRIORITIZED against the strategy's risk register — the
-        // ISTQB spine (test analysis is risk-based). Hard dependency: fail clearly if no strategy exists, and feed it.
+        // ISTQB spine (test analysis is risk-based). If none exists, auto-generate a DRAFT so the code-first path works.
         List<TestStrategy> strategies = strategyRepository.findByServiceNameOrderByCreatedAtDesc(serviceName);
         if (strategies.isEmpty()) {
-            throw new PreconditionException("analyze-test-conditions", List.of(
-                    "No test strategy found for '" + serviceName + "'. Create a strategy first (test-strategy) — test "
-                            + "conditions are identified during test analysis and prioritized against the strategy's "
-                            + "risk register."));
+            log.info("No test strategy for '{}' — auto-generating a DRAFT from the basis so analysis can run "
+                    + "(code-first). Approve it to lock the risk baseline.", serviceName);
+            strategyService.generate(serviceName, basisText, source, owner);
+            strategies = strategyRepository.findByServiceNameOrderByCreatedAtDesc(serviceName);
         }
         TestStrategy strategy = selectStrategy(serviceName, strategies);
         String strategyBasis = strategy.getDeliverableJson() != null && !strategy.getDeliverableJson().isBlank()

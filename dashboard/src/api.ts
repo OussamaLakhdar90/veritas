@@ -429,11 +429,15 @@ export const api = {
   // Test conditions (ISTQB test analysis) — derived from the strategy; the auto/manual split is decided per condition.
   testConditions: (strategyId: string) =>
     get<TestCondition[]>(`/strategies/${encodeURIComponent(strategyId)}/test-conditions`),
-  analyzeConditions: (service: string, body: { basis: string; owner?: string }) =>
+  analyzeConditions: (service: string, body: { basis: string; source?: string; owner?: string }) =>
     send<TestCondition[]>('POST', `/services/${encodeURIComponent(service)}/test-conditions`, body),
   patchCondition: (id: string, body: { automation?: string; status?: string; priority?: string }) =>
     send<TestCondition>('PATCH', `/test-conditions/${encodeURIComponent(id)}`, body),
   testConditionsReportUrl: (strategyId: string) => `${BASE}/strategies/${strategyId}/test-conditions/report`,
+  // Tag-driven routing: which conditions feed automation (implement-tests) vs manual design (create-test-cases).
+  conditionRouting: (strategyId: string) =>
+    get<{ automated: string[]; manual: string[]; candidate: string[] }>(
+      `/strategies/${encodeURIComponent(strategyId)}/test-conditions/routing`),
 
   // ── Settings: secrets, connections, test-connection, Copilot sign-in ──
   secretsStatus: () => get<SecretStatus>('/settings/secrets'),
