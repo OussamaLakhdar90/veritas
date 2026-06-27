@@ -209,6 +209,24 @@ export interface CodegenRun {
   createdAt?: string
 }
 
+/** One line of the test-generation reconciliation plan (GAP | CURRENT | ORPHAN). */
+export interface TestGenPlanItem {
+  status: 'GAP' | 'CURRENT' | 'ORPHAN' | 'STALE'
+  method?: string
+  path?: string
+  signature?: string
+  existingRef?: string
+  reason?: string
+}
+
+/** What we'd do for a service before generating: add / leave / flag, plus scratch-vs-refactor mode. */
+export interface TestGenPlan {
+  serviceName: string
+  mode: 'SCRATCH' | 'REFACTOR'
+  items: TestGenPlanItem[]
+  filesScanned: number
+}
+
 export interface TestCase {
   id: string
   serviceName?: string
@@ -379,6 +397,11 @@ export const api = {
   // Kick off template-driven test generation for a service (202 → a CodegenRun to inspect/publish).
   implementTests: (service: string, body: { serviceRepo: string; templatePath?: string; outputDir: string; owner?: string }) =>
     send<CodegenRun>('POST', `/services/${encodeURIComponent(service)}/implement-tests`, body),
+  // Preflight for the test-gen wizard: reconcile the API against the existing tests (no LLM, no writes).
+  // Omit testRepoSlug for a from-scratch plan. Both repos share appId; *RepoPath are local-dev overrides.
+  testGenPlan: (service: string, body: { appId?: string; serviceRepoSlug?: string; serviceBranch?: string;
+    serviceRepoPath?: string; testRepoSlug?: string; testBranch?: string; testRepoPath?: string }) =>
+    send<TestGenPlan>('POST', `/services/${encodeURIComponent(service)}/test-gen/plan`, body),
 
   // Release test plan trigger + RTM workspace
   triggerReleasePlan: (service: string, body: { fixVersion: string; issuesJql?: string; testsJql?: string; projectKey?: string; createGaps?: boolean }) =>
