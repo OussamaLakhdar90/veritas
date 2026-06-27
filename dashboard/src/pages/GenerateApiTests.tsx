@@ -291,8 +291,15 @@ export function GenerateApiTests() {
             )}
 
             {run.prUrl ? (
-              <p className="text-sm">Pull request opened: <a href={run.prUrl} target="_blank" rel="noreferrer"
-                className="inline-flex items-center gap-1 font-medium text-gold hover:underline">{run.prUrl} <ExternalLink className="h-3.5 w-3.5" /></a></p>
+              <div className="space-y-3">
+                <p className="text-sm">Pull request opened: <a href={run.prUrl} target="_blank" rel="noreferrer"
+                  className="inline-flex items-center gap-1 font-medium text-gold hover:underline">{run.prUrl} <ExternalLink className="h-3.5 w-3.5" /></a></p>
+                <div className="rounded-lg bg-ink-50 p-3 text-[13px] text-ink-700">
+                  <p className="mb-1 font-semibold text-ink-900">Next: test it locally</p>
+                  <p>Veritas generated the tests and opened the PR. Running them against the live API is done from your machine (or CI) — pull the branch and run your suite:</p>
+                  <pre className="mt-2 overflow-x-auto rounded bg-ink-900/90 px-3 py-2 font-mono text-[12px] text-white">git fetch origin{'\n'}git checkout {run.branch ?? 'the PR branch'}</pre>
+                </div>
+              </div>
             ) : (
               <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-end">
                 <div className="flex-1">
