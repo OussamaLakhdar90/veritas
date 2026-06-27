@@ -81,6 +81,40 @@ describe('Generate API Tests wizard', () => {
     expect(screen.getByRole('button', { name: /Generate selected \(1\)/ })).toBeInTheDocument()
   })
 
+  it('generates the selected tests, then opens a PR only on an explicit click', async () => {
+    const genRun = {
+      id: 'cg-1', serviceName: 'ciam-policies', buildStatus: 'SKIPPED',
+      filesWritten: JSON.stringify(['src/test/java/PolicyTest.java']),
+      todos: JSON.stringify(['A valid policy id must exist before these run']),
+    }
+    let published = false
+    mock()
+    server.use(
+      http.post('*/api/v1/services/:service/test-gen/generate', () => HttpResponse.json(genRun)),
+      http.post('*/api/v1/codegen-runs/:id/publish', () => {
+        published = true
+        return HttpResponse.json({ ...genRun, prUrl: 'https://bitbucket.example/pr/42' })
+      }),
+    )
+    const user = userEvent.setup()
+    renderPage(<GenerateApiTests />, { path: '/generate-api-tests', route: '/generate-api-tests' })
+    await toPlan(user)
+    await screen.findByText("Here's what we'd do")
+
+    // Generate the two gaps → lands on the review step with the files + the not-compiled note.
+    await user.click(screen.getByRole('button', { name: /Generate selected \(2\)/ }))
+    expect(await screen.findByText('Review & open a pull request')).toBeInTheDocument()
+    expect(screen.getByText('src/test/java/PolicyTest.java')).toBeInTheDocument()
+    expect(screen.getByText(/weren't compiled here/)).toBeInTheDocument()
+    expect(screen.getByText(/A valid policy id must exist/)).toBeInTheDocument()
+
+    // No PR yet — pushing is a separate, explicit click.
+    expect(published).toBe(false)
+    await user.click(screen.getByRole('button', { name: /Open pull request/ }))
+    expect(await screen.findByText('https://bitbucket.example/pr/42')).toBeInTheDocument()
+    expect(published).toBe(true)
+  })
+
   it('surfaces an error toast when the plan request fails', async () => {
     server.use(
       http.get('*/api/v1/repos', () => HttpResponse.json([repo])),
