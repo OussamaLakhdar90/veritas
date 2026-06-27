@@ -17,6 +17,7 @@ class TestAnalysisServiceTest {
 
     @Autowired private TestStrategyService strategyService;
     @Autowired private TestAnalysisService analysisService;
+    @Autowired private ca.bnc.qe.veritas.persistence.TestStrategyRepository strategyRepository;
 
     private static final String BASIS = "API surface (from code):\n- POST /policies\n- GET /policies/{id}\n";
 
@@ -51,6 +52,22 @@ class TestAnalysisServiceTest {
         assertThat(second).hasSameSizeAs(first);
         assertThat(second).extracting(TestCondition::getId).doesNotContainAnyElementsOf(
                 first.stream().map(TestCondition::getId).toList());
+    }
+
+    @Test
+    void dropsAFabricatedRiskRefNotInTheStrategyRegisterAndCapsConfidence() {
+        // Strategy's register only contains RX; the mock conditions cite R1 → R1 is not a real risk for this strategy.
+        ca.bnc.qe.veritas.persistence.TestStrategy s = new ca.bnc.qe.veritas.persistence.TestStrategy();
+        s.setServiceName("analysis-riskdrop-svc");
+        s.setStatus("APPROVED");
+        s.setDeliverableJson("{\"riskRegister\":[{\"id\":\"RX\",\"level\":\"HIGH\"}],\"selfReview\":{\"confidence\":90}}");
+        strategyRepository.save(s);
+
+        List<TestCondition> conditions = analysisService.analyze("analysis-riskdrop-svc", BASIS, "tester");
+
+        assertThat(conditions).isNotEmpty();
+        assertThat(conditions).allMatch(c -> c.getRiskRef() == null);                 // fabricated R1 dropped
+        assertThat(conditions).allMatch(c -> c.getConfidence() != null && c.getConfidence() <= 50.0);  // confidence capped
     }
 
     @Test

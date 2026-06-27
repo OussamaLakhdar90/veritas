@@ -117,8 +117,15 @@ public class CreateTestCasesService {
                 tc.setPriority(c.path("priority").asText(null));
                 tc.setType(c.path("type").asText(null));
                 tc.setRationale(c.hasNonNull("rationale") ? c.path("rationale").asText() : null);
-                tc.setLinkedRequirement(c.hasNonNull("requirementKey") ? c.path("requirementKey").asText() : null);
-                tc.setTestConditionId(linkCondition(c, idByRef, idBySource));
+                String requirementKey = c.hasNonNull("requirementKey") ? c.path("requirementKey").asText() : null;
+                String linkedConditionId = linkCondition(c, idByRef, idBySource);
+                // Reject, don't null-and-keep: when there ARE conditions to design from, a requirementKey that links to
+                // none of them is an unverifiable trace — drop it rather than persist a fabricated link.
+                if (!conditions.isEmpty() && linkedConditionId == null) {
+                    requirementKey = null;
+                }
+                tc.setLinkedRequirement(requirementKey);
+                tc.setTestConditionId(linkedConditionId);
                 tc.setConfidence(confidence);
                 tc.setStepsJson(c.path("steps").toString());
                 tc.setStatus("PROPOSED");

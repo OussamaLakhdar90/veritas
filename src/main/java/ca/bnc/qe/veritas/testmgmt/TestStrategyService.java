@@ -90,6 +90,9 @@ public class TestStrategyService {
                 }
                 cost += sectionCost;
             }
+            // Closed-world cross-ref: a technique citing a riskId absent from the assembled risk register is a dangling
+            // reference the model invented — drop it so the strategy never shows traceability that resolves to nothing.
+            pruneDanglingRiskRefs(deliverable);
             deliverable.put("markdown", renderStrategyMarkdown(serviceName, deliverable));
             schemaValidator.validate(deliverable, "test-strategy.schema.json");
 
@@ -234,5 +237,31 @@ public class TestStrategyService {
 
     private String nz(String s) {
         return s == null ? "" : s;
+    }
+
+    /** Remove any {@code testApproach.techniques[].riskId} that isn't an id in the assembled risk register. */
+    private void pruneDanglingRiskRefs(com.fasterxml.jackson.databind.node.ObjectNode deliverable) {
+        java.util.Set<String> riskIds = new java.util.HashSet<>();
+        for (JsonNode r : deliverable.path("riskRegister")) {
+            String id = r.path("id").asText("");
+            if (!id.isBlank()) {
+                riskIds.add(id.toUpperCase(java.util.Locale.ROOT));
+            }
+        }
+        if (riskIds.isEmpty()) {
+            return;   // no register to check against — leave cross-refs untouched
+        }
+        JsonNode techs = deliverable.path("testApproach").path("techniques");
+        if (!techs.isArray()) {
+            return;
+        }
+        for (JsonNode t : techs) {
+            if (t instanceof com.fasterxml.jackson.databind.node.ObjectNode to && to.hasNonNull("riskId")) {
+                String ri = to.path("riskId").asText("");
+                if (!ri.isBlank() && !riskIds.contains(ri.toUpperCase(java.util.Locale.ROOT))) {
+                    to.remove("riskId");
+                }
+            }
+        }
     }
 }
