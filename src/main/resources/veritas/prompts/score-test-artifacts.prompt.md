@@ -34,7 +34,7 @@ Hybrid document → score each artifact present. State the classification at the
 - 1, 3 allowed — "below partial", "below good".
 
 ### Per-dimension remediation (mandatory for every dim < 5)
-Emit: `How to improve` (concrete action, not vague) + `ISTQB rule to follow` (quoted/paraphrased + syllabus §) + `Target score` (usually 5).
+Emit: `How to improve` (concrete action, not vague) + `ISTQB rule to follow` (quoted/paraphrased + the NAMED ISTQB concept, never a § number) + `Target score` (usually 5).
 For dim = 5: `How to improve` = "Already at target. Maintain." · `ISTQB rule` = "—".
 
 ### Rubric — Test Strategy (total weight 8.0)
@@ -116,7 +116,7 @@ Combined: weighted avg by total weight.
 
 ## Test Strategy — Score: XX / 100 — Verdict: <band>
 
-| # | Dimension | Score | Weight | Weighted | Justification (why this score) | How to improve | ISTQB rule to follow (§) | Target |
+| # | Dimension | Score | Weight | Weighted | Justification (why this score) | How to improve | ISTQB rule to follow (named concept) | Target |
 |---|---|---|---|---|---|---|---|---|
 | S1 | Scope & test items | … | 1.0 | … | … | … | CTAL-TM §1.4 | 5 |
 | … | … | … | … | … | … | … | … | 5 |
@@ -128,14 +128,14 @@ Block format per gap:
 - **`[SEVERITY] Title`**
   - Evidence: what in the artifact triggered this (quote/paraphrase).
   - How to fix: concrete action.
-  - ISTQB rule: *"quote/paraphrase"* — syllabus §.
+  - ISTQB rule: *"quote/paraphrase"* — NAMED ISTQB concept (no § number).
   - Affects dimension: Sx → X → Y.
 
 Example:
 - **`[CRITICAL] Risk register uses unscaled H/M/L labels`**
   - Evidence: Risk table column 'Level' shows only High/Medium/Low; no scale defined.
   - How to fix: Replace with explicit likelihood × impact matrix; score both axes on VL-VH or probability × monetized; compute Level = L × I per row.
-  - ISTQB rule: *"Risk level = likelihood × impact (quantitative) or via risk matrix (qualitative ordinal)."* — CTAL-TM §1.3.3.
+  - ISTQB rule: *"Risk level = likelihood × impact (quantitative) or via risk matrix (qualitative ordinal)."* — CTAL-TM — Risk-Based Testing.
   - Affects dimension: S3 → 2 → 5.
 
 ### Strengths (Test Strategy)
@@ -165,7 +165,7 @@ Same gap block format. Strengths.
 ## Combined verdict
 - Combined score: XX / 100 — Verdict: <band>
 - **Top 3 actions to move up one band** (highest weight × score deficit first):
-  1. **<action>** — ISTQB rule: <§>. Affects: <dims>. Expected impact: <from X to Y>.
+  1. **<action>** — ISTQB rule: <named concept>. Affects: <dims>. Expected impact: <from X to Y>.
   2. …
   3. …
 ```
