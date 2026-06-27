@@ -47,8 +47,8 @@ export function Codegen() {
 
   return (
     <div>
-      <PageHeader title="Generate tests"
-        subtitle="Template-driven test generation — inspect the files, build status and TODOs, then approve & open a PR." />
+      <PageHeader title="Generate tests (local paths)"
+        subtitle="Advanced: template-driven generation from local filesystem paths. For the guided, git-native flow with a coverage plan and a Jira-linked PR, use Generate API Tests." />
 
       <Card className="mb-6">
         <CardHeader title="New generation" subtitle="Learn the template → analyze the service (AST) → generate tests → build-verify. The push & PR stay gated." />

@@ -38,10 +38,11 @@ function stubDashboard(): void {
   )
 }
 
-// The fourteen sidebar items, exactly as the NAV array in App.tsx renders them.
+// The sidebar items, exactly as the NAV array in App.tsx renders them.
 const NAV_LABELS = [
   "Dashboard", "Get started", "Validate", "Defects", "Test Strategy", "Multi-source",
-  "Test Plans", "Test Cases", "Reviews", "Generate Tests", "Gates", "Cost", "Glossary", "Settings",
+  "Test Plans", "Test Cases", "Reviews", "Generate API Tests", "Generate Tests (local)",
+  "Gates", "Cost", "Glossary", "Settings",
 ]
 
 afterEach(() => {

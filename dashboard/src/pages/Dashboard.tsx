@@ -30,6 +30,8 @@ export function Dashboard() {
   const preflightQ = useQuery({ queryKey: ['preflight'], queryFn: api.preflight });
   const costQ = useQuery({ queryKey: ['costs'], queryFn: api.costSummary });
   const defectsQ = useQuery({ queryKey: ['defects'], queryFn: api.defects });
+  const servicesQ = useQuery({ queryKey: ['services'], queryFn: api.services });
+  const services = servicesQ.data ?? [];
 
   const scans = scansQ.data ?? [];
   const missing = (preflightQ.data ?? []).filter((c) => c.status === 'MISSING');
@@ -100,6 +102,51 @@ export function Dashboard() {
           </>
         )}
       </div>
+
+      {/* Pipeline by service — everything the platform holds work for, browsable (find-your-work). */}
+      {services.length > 0 && (
+        <Card className="mb-6">
+          <CardHeader title="Pipeline by service"
+            subtitle="What exists at each stage, per service — strategy through codegen." />
+          <CardBody className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left text-[12px] uppercase tracking-wide text-muted">
+                    <th className="px-5 py-3 font-medium">Service</th>
+                    <th className="px-5 py-3 font-medium text-right">Strategies</th>
+                    <th className="px-5 py-3 font-medium text-right">Conditions</th>
+                    <th className="px-5 py-3 font-medium text-right">Cases</th>
+                    <th className="px-5 py-3 font-medium text-right">Release plans</th>
+                    <th className="px-5 py-3 font-medium text-right">Codegen</th>
+                    <th className="px-5 py-3 font-medium text-right">Scans</th>
+                    <th className="px-5 py-3" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {services.map((s) => (
+                    <tr key={s.name} className="border-b border-border/60 last:border-0 hover:bg-ink-50/60">
+                      <td className="px-5 py-3 font-medium text-ink-900">{s.name}</td>
+                      <td className="px-5 py-3 text-right tabular-nums text-muted">{s.strategies || '—'}</td>
+                      <td className="px-5 py-3 text-right tabular-nums text-muted">{s.conditions || '—'}</td>
+                      <td className="px-5 py-3 text-right tabular-nums text-muted">{s.cases || '—'}</td>
+                      <td className="px-5 py-3 text-right tabular-nums text-muted">{s.plans || '—'}</td>
+                      <td className="px-5 py-3 text-right tabular-nums text-muted">{s.codegenRuns || '—'}</td>
+                      <td className="px-5 py-3 text-right tabular-nums text-muted">{s.scans || '—'}</td>
+                      <td className="px-5 py-3 text-right whitespace-nowrap">
+                        <Link to="/test-strategy"
+                          className="inline-flex items-center gap-1 text-[13px] font-medium text-gold hover:underline">
+                          Open <ArrowRight className="h-3.5 w-3.5" />
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardBody>
+        </Card>
+      )}
 
       {/* Recent activity */}
       <Card>
