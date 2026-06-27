@@ -54,13 +54,16 @@ public class CitationValidator {
                 problems.add("cited id '" + id + "' has no resolvable evidence unit");
                 continue;
             }
+            // Every citation MUST carry a grounded quote — a bare id proves nothing about the claim it backs.
+            // (The old `if (!quote.isBlank())` skip let a section cite a real id while fabricating the content.)
             String quote = norm(item.path("quote").asText(""));
-            if (!quote.isBlank()) {
-                if (quote.length() < MIN_QUOTE_CHARS) {
-                    problems.add("quote for '" + id + "' is too short to ground a claim — cite a verbatim phrase");
-                } else if (!norm(u.text()).contains(quote)) {
-                    problems.add("quote for '" + id + "' is not found in that unit's text");
-                }
+            if (quote.isBlank()) {
+                problems.add("evidence for '" + id + "' has no quote — cite a verbatim phrase from the unit's text "
+                        + "so the claim is grounded, not just the id");
+            } else if (quote.length() < MIN_QUOTE_CHARS) {
+                problems.add("quote for '" + id + "' is too short to ground a claim — cite a verbatim phrase");
+            } else if (!norm(u.text()).contains(quote)) {
+                problems.add("quote for '" + id + "' is not found in that unit's text");
             }
         }
         return new Result(problems.isEmpty(), problems);

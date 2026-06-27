@@ -69,6 +69,10 @@ public class ReleaseTestPlanService {
     @Value("${veritas.llm.batch-input-tokens:24000}")
     private int batchInputTokens;
 
+    /** Below this self-review confidence the plan is marked NEEDS_REVIEW and will not auto-create gap tests. */
+    @Value("${veritas.release-plan.min-confidence:60}")
+    private int minConfidence;
+
     public ReleaseTestPlanService(LlmGateway llm, JsonBlockExtractor jsonExtractor, ResponseSchemaValidator schemaValidator,
                                   ModelSelector modelSelector, CostRecorder costRecorder, PromptComposer promptComposer,
                                   ObjectMapper objectMapper, JiraClient jira, XrayClient xray, GateService gateService,
@@ -175,6 +179,23 @@ public class ReleaseTestPlanService {
             }
             JsonNode node = parts.size() == 1 ? parts.get(0) : mergePlanNodes(parts, issueLines.size());
 
+            // Evidence-first traceability gate (anti-hallucination): drop any requirementKey that is NOT one of the
+            // release issues we actually fetched, and any riskId NOT in the plan's own risk register — so a fabricated
+            // key is never persisted, scored, OR written outward as a real Xray coverage link. Flag HIGH/VERY-HIGH
+            // risks with <2 traced cases. A plan with dropped traces or low confidence is marked NEEDS_REVIEW and
+            // never auto-creates gap tests (the outward write is held back until a human has looked).
+            ObjectNode root = (ObjectNode) node;
+            TraceCheck trace = enforceTraceability(root, issues, minConfidence);
+            node = root;
+            // NEEDS_REVIEW (and the outward write held back) when a fabricated key was dropped or confidence is below
+            // the floor. Under-coverage of a HIGH risk is surfaced as a blind spot but does NOT block on its own —
+            // creating the gap tests is exactly what would raise that coverage.
+            boolean needsReview = trace.droppedReqKeys() > 0 || trace.confidence() < minConfidence;
+            if (trace.droppedReqKeys() > 0 || trace.droppedRiskIds() > 0) {
+                log.warn("Release {} plan: dropped {} unverifiable requirementKey(s) and {} riskId(s) before persist/"
+                        + "outward-write.", fixVersion, trace.droppedReqKeys(), trace.droppedRiskIds());
+            }
+
             TestPlan plan = new TestPlan();
             plan.setServiceName(serviceName);
             plan.setKind("RELEASE");
@@ -184,7 +205,7 @@ public class ReleaseTestPlanService {
             plan.setDeliverableJson(node.toString());   // full structured deliverable for the dashboard
             plan.setConfidence(node.path("selfReview").path("confidence").asDouble(0));
             plan.setRiskCount(node.path("riskRegister").size());
-            plan.setStatus("DRAFT");
+            plan.setStatus(needsReview ? "NEEDS_REVIEW" : "DRAFT");
             plan.setOwner(owner);
             plan.setEstCostUsd(Math.round(estCostUsd * 10_000.0) / 10_000.0);
             plan = planRepository.save(plan);
@@ -217,8 +238,14 @@ public class ReleaseTestPlanService {
                     keyByFingerprint.putIfAbsent(CoverageMatcher.fingerprint(t.summary()), t.key());
                 }
             }
-            // Creating gap tests in Xray is an outward write — gate it once for the batch.
-            boolean createApproved = createGaps && projectKey != null
+            // Creating gap tests in Xray is an outward write — gate it once for the batch. Held back entirely when the
+            // traceability gate dropped fabricated keys or confidence is below the floor (don't write a shaky plan out).
+            if (createGaps && projectKey != null && needsReview) {
+                log.warn("Release {} plan: skipping gap-test creation — plan is NEEDS_REVIEW "
+                        + "(dropped {} requirementKey(s), confidence {}).", fixVersion, trace.droppedReqKeys(),
+                        Math.round(trace.confidence()));
+            }
+            boolean createApproved = createGaps && projectKey != null && !needsReview
                     && gateService.await(plan.getId(), "XRAY_CREATE_GAP_TESTS", owner).approved();
             if (createApproved) {
                 // Outward writes ahead (Xray gap tests + the release Test Plan) — fail fast on a missing token.
@@ -360,6 +387,88 @@ public class ReleaseTestPlanService {
         log.info("Release plan for '{}' uses strategy {} (v{}, status={}).",
                 serviceName, strategy.getId(), strategy.getVersion(), strategy.getStatus());
         return strategy;
+    }
+
+    /** Outcome of the traceability gate: how many fabricated traces were dropped, the self-review confidence, notes. */
+    private record TraceCheck(int droppedReqKeys, int droppedRiskIds, int underCoveredRisks, double confidence,
+                              List<String> notes) {}
+
+    /**
+     * Closed-world traceability enforcement on the parsed plan (anti-hallucination). Mutates {@code root} in place:
+     * removes any {@code requirementKey} that isn't one of the fetched release issues, and any {@code riskId} not in
+     * the plan's own risk register — so a fabricated trace is never persisted, scored, or link-created outward. Also
+     * records a note for every HIGH/VERY-HIGH risk with fewer than two traced cases. Every drop/shortfall is appended
+     * to {@code selfReview.blindSpots} so the deliverable + report show exactly what was unverifiable.
+     */
+    private TraceCheck enforceTraceability(ObjectNode root, List<JiraIssue> issues, int minConf) {
+        java.util.Set<String> issueKeys = new HashSet<>();
+        for (JiraIssue i : issues) {
+            if (i.key() != null && !i.key().isBlank()) {
+                issueKeys.add(i.key().toUpperCase(java.util.Locale.ROOT));
+            }
+        }
+        java.util.Set<String> riskIds = new HashSet<>();
+        for (JsonNode r : root.path("riskRegister")) {
+            String id = r.path("id").asText("");
+            if (!id.isBlank()) {
+                riskIds.add(id.toUpperCase(java.util.Locale.ROOT));
+            }
+        }
+        List<String> notes = new ArrayList<>();
+        int droppedReq = 0;
+        int droppedRisk = 0;
+        java.util.Map<String, Integer> casesPerRisk = new java.util.HashMap<>();
+        for (JsonNode c : root.path("requiredCases")) {
+            if (!(c instanceof ObjectNode co)) {
+                continue;
+            }
+            String title = co.path("title").asText("");
+            if (co.hasNonNull("requirementKey")) {
+                String rk = co.path("requirementKey").asText("");
+                // Only enforce when we actually fetched a release issue set to check against (else we can't verify).
+                if (!issueKeys.isEmpty() && !issueKeys.contains(rk.toUpperCase(java.util.Locale.ROOT))) {
+                    notes.add("Dropped requirementKey '" + rk + "' on case \"" + title
+                            + "\" — not a release issue; no fabricated traceability is recorded or linked.");
+                    co.remove("requirementKey");
+                    droppedReq++;
+                }
+            }
+            if (co.hasNonNull("riskId")) {
+                String ri = co.path("riskId").asText("");
+                if (!ri.isBlank() && !riskIds.contains(ri.toUpperCase(java.util.Locale.ROOT))) {
+                    notes.add("Dropped riskId '" + ri + "' on case \"" + title + "\" — not in the risk register.");
+                    co.remove("riskId");
+                    droppedRisk++;
+                } else if (!ri.isBlank()) {
+                    casesPerRisk.merge(ri.toUpperCase(java.util.Locale.ROOT), 1, Integer::sum);
+                }
+            }
+        }
+        int underCovered = 0;
+        for (JsonNode r : root.path("riskRegister")) {
+            if (isHighRisk(r.path("level").asText(""))) {
+                int n = casesPerRisk.getOrDefault(r.path("id").asText("").toUpperCase(java.util.Locale.ROOT), 0);
+                if (n < 2) {
+                    underCovered++;
+                    notes.add("HIGH/VERY-HIGH risk '" + r.path("id").asText("") + "' has " + n
+                            + " traced case(s); ISTQB risk-based testing expects at least 2.");
+                }
+            }
+        }
+        double confidence = root.path("selfReview").path("confidence").asDouble(0);
+        if (!notes.isEmpty()) {
+            ObjectNode self = root.path("selfReview").isObject()
+                    ? (ObjectNode) root.get("selfReview") : root.putObject("selfReview");
+            ArrayNode bs = self.path("blindSpots").isArray()
+                    ? (ArrayNode) self.get("blindSpots") : self.putArray("blindSpots");
+            notes.forEach(bs::add);
+        }
+        return new TraceCheck(droppedReq, droppedRisk, underCovered, confidence, notes);
+    }
+
+    private static boolean isHighRisk(String level) {
+        String v = level == null ? "" : level.trim().toUpperCase(java.util.Locale.ROOT);
+        return v.contains("HIGH") || v.equals("VH") || v.equals("H");
     }
 
     /** Heuristic: issues that aren't worth test cases (spikes, research, infra, docs, chores). */

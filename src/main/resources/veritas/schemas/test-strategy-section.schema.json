@@ -11,7 +11,7 @@
       "items": {
         "type": "object",
         "additionalProperties": true,
-        "required": ["unitId"],
+        "required": ["unitId", "quote"],
         "properties": {
           "unitId": { "type": "string" },
           "quote": { "type": "string" },

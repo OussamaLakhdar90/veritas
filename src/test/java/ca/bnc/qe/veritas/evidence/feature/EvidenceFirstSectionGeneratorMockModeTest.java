@@ -38,6 +38,11 @@ class EvidenceFirstSectionGeneratorMockModeTest {
                 Set.of("1"), ModelTier.DEEP, index, "feat-1", "tester");
 
         assertThat(section.node()).isPresent();   // mock parsed the allowed id from the real contract → valid citation
-        assertThat(section.node().get().path("evidence").get(0).path("unitId").asText()).isEqualTo("JIRA-1");
+        var evidence = section.node().get().path("evidence").get(0);
+        assertThat(evidence.path("unitId").asText()).isEqualTo("JIRA-1");
+        // quote is now mandatory + grounded: a verbatim slice of the unit's text (proves the bypass is closed end-to-end).
+        String quote = evidence.path("quote").asText("");
+        assertThat(quote).isNotBlank();
+        assertThat("Account locks after 5 failed attempts").contains(quote);
     }
 }
