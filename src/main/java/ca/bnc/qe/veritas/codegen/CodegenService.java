@@ -234,6 +234,12 @@ public class CodegenService {
             throw new IllegalStateException("PR for codegen run " + runId
                     + " awaiting approval (gate " + gate.gateId() + ")");
         }
+        // The generated files live in a temp working copy that the orphan-clone reaper sweeps and a server restart
+        // loses. Fail with a clear, actionable message instead of an opaque git error if it is gone.
+        if (run.getOutputRepo() == null || !java.nio.file.Files.exists(Path.of(run.getOutputRepo()))) {
+            throw new IllegalStateException("Generated workspace for run " + runId + " is no longer available "
+                    + "(" + run.getOutputRepo() + ") — re-generate the tests before opening a PR.");
+        }
         preflight.requireGitWriteScope();   // fail fast on a missing/insufficient git token, not mid-push
         // When a Jira key is recorded for the run, put it in the branch, commit, and PR title so Bitbucket↔Jira links
         // the PR to the ticket (and bank commit hooks that require a key are satisfied). No key → the original naming.

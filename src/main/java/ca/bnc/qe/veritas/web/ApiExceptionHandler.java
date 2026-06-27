@@ -63,8 +63,12 @@ public class ApiExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ProblemDetail onUnexpected(Exception e) {
         log.error("Unhandled API error", e);
-        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR,
-                e.getMessage() == null ? "Internal error" : e.getMessage());
+        // Redact known secret values + Bearer/Basic tokens from the detail, exactly as the log masker does — an
+        // exception message can carry a token (a URL with credentials, an auth header) that must not reach the client.
+        String detail = ca.bnc.qe.veritas.secret.LogMasker.mask(
+                e.getMessage() == null ? "Internal error" : e.getMessage(),
+                ca.bnc.qe.veritas.secret.SecretRegistry.snapshot());
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, detail);
         pd.setTitle("Internal error");
         return pd;
     }

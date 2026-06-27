@@ -134,6 +134,27 @@ class CreateTestCasesServiceBranchTest {
     }
 
     @Test
+    void automationDecisionPropagatesFromConditionToCase() {
+        ca.bnc.qe.veritas.persistence.TestCondition cond = new ca.bnc.qe.veritas.persistence.TestCondition();
+        cond.setId("cond-1");
+        cond.setServiceName("ciam-policies");
+        cond.setConditionRef("TCD-001");
+        cond.setAutomation("AUTOMATED");
+        when(conditionRepository.findByServiceNameOrderByCreatedAtDesc("ciam-policies")).thenReturn(List.of(cond));
+
+        String json = "{\"cases\":[{\"title\":\"t\",\"technique\":\"EP\",\"type\":\"Functional\","
+                + "\"conditionRef\":\"TCD-001\",\"steps\":[]}],\"selfReview\":{\"confidence\":80}}";
+        stubGeneratePath(json, 0.10);
+
+        List<TestCase> out = service.generate("ciam-policies", "Endpoints", OWNER);
+
+        assertThat(out).singleElement().satisfies(c -> {
+            assertThat(c.getTestConditionId()).isEqualTo("cond-1");
+            assertThat(c.getAutomation()).isEqualTo("AUTOMATED");   // candidacy carried condition → case
+        });
+    }
+
+    @Test
     void missingRationaleAndRequirementKeyLeaveNullFields() {
         // hasNonNull(...) == false on both → linkedRequirement & rationale must stay null (the else branch).
         String json = "{\"cases\":["
