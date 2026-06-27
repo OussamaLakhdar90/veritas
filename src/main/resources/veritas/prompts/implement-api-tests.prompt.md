@@ -27,6 +27,9 @@ Non-negotiable rules from the template:
 - **Imports:** framework utilities come from `ca.bnc.lsist.api.*` / `ca.bnc.lsist.core.*`; the **generated
   service-specific** code (response models, base/validation classes) lives in **local packages** (`models`,
   `{serviceName}Api.test.*`). Never invent framework classes.
+- **Endpoint conformance:** every request the tests make MUST target one of the `ENDPOINTS` provided (exact HTTP
+  method + path template). Never invent, rename, or modify an endpoint — an endpoint not in `ENDPOINTS` does not
+  exist on the service under test, and a test that calls one is wrong.
 - **Secrets:** every credential is a `$sensitive:ENV_VAR_NAME` reference — never a literal. (Veritas rejects any
   generated file containing a literal secret before it is written.)
 - **Prohibited tools:** **never** use or reference **Postman / Newman** (bank-prohibited). The approved automated

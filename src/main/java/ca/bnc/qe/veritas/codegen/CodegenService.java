@@ -128,6 +128,7 @@ public class CodegenService {
         String contract = "Generate the test DATA artifacts in the TEMPLATE's exact format (framework: "
                 + spec.frameworkName() + "). Secrets MUST be \"$sensitive:ENV_NAME\" references — never literal values. "
                 + "Any record/ID that must already exist in the system goes in todos (do not invent it). "
+                + "Any endpoint path you reference MUST be one of the ENDPOINTS listed — never invent or modify a path. "
                 + "Fixture fields MUST come from DATA_MODELS — never invent a field the DTOs don't declare. "
                 + "One fenced ```json block last: {\"files\":[{\"path\":string,\"content\":string}],\"todos\":[string]}. "
                 + "Paths relative to the output repo. No prose after.";
@@ -262,8 +263,11 @@ public class CodegenService {
 
             String outputContract = "Generate automated tests that EXACTLY follow the template (framework: "
                     + spec.frameworkName() + ", language: " + spec.language() + "). Mirror its conventions; "
-                    + "introduce no pattern absent from it. Response-model field names MUST come from DATA_MODELS — "
-                    + "never invent a response field that the DTOs don't declare. One fenced ```json block last: "
+                    + "introduce no pattern absent from it. ENDPOINT CONFORMANCE: every request your tests make MUST "
+                    + "target one of the ENDPOINTS listed (exact HTTP method + path template) — never invent, rename, "
+                    + "or modify an endpoint; an endpoint not in ENDPOINTS does not exist on this service. "
+                    + "Response-model field names MUST come from DATA_MODELS — never invent a response field that the "
+                    + "DTOs don't declare. One fenced ```json block last: "
                     + "{\"files\":[{\"path\":string,\"content\":string}],\"todos\":[string]}. "
                     + "Paths relative to the output repo. No prose after.";
             String inputs = promptComposer.data("TEMPLATE", spec.body())
