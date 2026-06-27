@@ -397,6 +397,32 @@ class ContractValidationServiceBranch2Test {
     }
 
     @Test
+    void rejectsCorrectedYamlThatDropsACodeEndpointAndFallsBackToDeterministic() throws Exception {
+        // One deterministic finding so reconcile runs. Code declares GET /x (the @BeforeEach extractor).
+        when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(new ArrayList<>(List.of(
+                Finding.builder().findingId("f0").type(FindingType.STATUS_CODE_MISSING).layer(Layer.L4)
+                        .severity(Severity.MAJOR).confidence(Confidence.HIGH).origin("DETERMINISTIC")
+                        .endpoint("GET /x").specSource("repo-spec").summary("finding").build())));
+        armRepoSpecParses();
+
+        when(llm.isAvailable()).thenReturn(true);
+        String reply = "{\"correctedYaml\":\"DROPPED-yaml\",\"findings\":[],\"designFindings\":[]}";
+        when(llm.complete(anyString(), anyString())).thenReturn(reply);
+        when(jsonExtractor.extract(reply)).thenReturn(reply);
+        when(costRecorder.record(anyString(), anyString(), anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(cost());
+        // The LLM's "corrected" spec re-parses but exposes only GET /z — it silently dropped the code's GET /x.
+        when(openApi.extract(eq("corrected-check"), eq("DROPPED-yaml")))
+                .thenReturn(new SpecParse(specModel("corrected-check", endpoint("GET", "/z")), List.of(), true));
+
+        svc.validate(req(true, new SpecInput("repo-spec", "spec-yaml")));
+
+        // A parse-only gate would have shipped the dropping spec; the endpoint-preservation check rejects it and the
+        // deterministic code-wins builder is used instead.
+        verify(correctedSpecBuilder).build(any(), any(), any());
+    }
+
+    @Test
     void zeroBudget_neverBatches_singleLlmCallForManyFindings() throws Exception {
         setField(svc, "batchInputTokens", 0);
         List<Finding> many = new ArrayList<>();

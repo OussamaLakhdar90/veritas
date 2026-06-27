@@ -587,7 +587,8 @@ class ContractValidationServiceBranchTest {
         when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(new ArrayList<>(List.of(deterministic("gap"))));
         when(openApi.extract(eq("repo-spec"), anyString()))
                 .thenReturn(new SpecParse(specModel("repo-spec"), List.of(), true));
-        // severity "WAT" is not a valid Severity → parseSeverity falls back to MAJOR.
+        // severity "WAT" is invalid → INFO (never MAJOR); and "GET /y" is not a parsed endpoint (code has GET /x) →
+        // capped to INFO as an unverifiable endpoint-scoped finding. Both guards converge: a junk finding can't ship hot.
         String reply = "{\"correctedYaml\":\"openapi: 3.0.3\",\"findings\":[],"
                 + "\"designFindings\":[{\"layer\":\"L5\",\"severity\":\"WAT\",\"endpoint\":\"GET /y\",\"summary\":\"odd one\"}]}";
         armLlm(reply);
@@ -600,7 +601,8 @@ class ContractValidationServiceBranchTest {
 
         Finding design = findCap.getValue().stream()
                 .filter(f -> f.getType() == FindingType.DESIGN_QUALITY).findFirst().orElseThrow();
-        assertThat(design.getSeverity()).isEqualTo(Severity.MAJOR);
+        assertThat(design.getSeverity()).isEqualTo(Severity.INFO);
+        assertThat(design.getExplanation()).contains("unverified endpoint");
     }
 
     @Test
