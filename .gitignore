@@ -8,6 +8,7 @@ out/
 .vscode/
 dashboard/node_modules/
 dashboard/dist/
+dashboard/tsconfig.tsbuildinfo
 .env
 .veritas/
 *.original
