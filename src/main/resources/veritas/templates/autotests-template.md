@@ -89,6 +89,11 @@ public enum {ServiceName}Scope {
 ```
 > The private key is read from `oktaCredentials.json` (a `$sensitive:` field — never a literal). Request the WRITE
 > scope for create/update, READ for get/list, DELETE for delete.
+>
+> **Multiple token groups (per `SERVICE_AUTH_SPEC`):** a project that calls more than one API group declares one group
+> per token. Generate a `{Name}TokenHelper` + `{Name}Scope` enum + `WorldKey.{NAME}_TOKEN` **per group** (e.g.
+> `TppsTokenHelper`/`WorldKey.TPPS_TOKEN`, `AppsTokenHelper`/`WorldKey.APPS_TOKEN`), each with its own Okta token URL /
+> client id / private-key field / scopes, and use the group whose `pathPrefix` matches the endpoint.
 
 ### Test data — `TestData` + `ApiEnvironment` (data-driven)
 - `@DataProvider` returns `ca.bnc.lsist.api.environment.ApiEnvironment.buildTestEnvironment(TEST_ID)` → `Iterator<Object[]>`.

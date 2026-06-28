@@ -277,17 +277,23 @@ export interface Scope {
 }
 
 /**
- * A service's auth declaration for the BNC lsist framework: an Okta access token via private-key JWT assertion.
- * `authenticated: false` = public (no token). Stores only the token URL, client id, the private-key FIELD name, and
- * the scope strings — never the private key itself (that stays in oktaCredentials.json as a $sensitive value).
+ * One token group / API group — its own Okta token source (BNC lsist framework: token via private-key JWT). Becomes a
+ * {Name}TokenHelper + WorldKey.{NAME}_TOKEN; endpoints under its pathPrefixes use its token. Stores only the token URL,
+ * client id, the private-key FIELD name, scope strings and path prefixes — never the private key itself.
  */
-export interface ServiceAuthSpec {
-  authenticated: boolean
+export interface ServiceAuthGroup {
+  name: string
   tokenUrl?: string
   clientId?: string
   privateKeyField?: string
   credentialsFile?: string
   scopes: Scope[]
+  pathPrefixes: string[]
+}
+
+/** A service's auth declaration: 0 groups = public (no token), N groups = one Okta token per API group. */
+export interface ServiceAuthSpec {
+  groups: ServiceAuthGroup[]
 }
 
 export interface TestCase {

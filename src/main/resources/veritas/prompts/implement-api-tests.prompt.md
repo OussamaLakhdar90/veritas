@@ -40,15 +40,16 @@ Non-negotiable rules from the template:
   `todos` entry naming it; never derive or invent it.
 - **Secrets:** every credential is a `$sensitive:ENV_VAR_NAME` reference — never a literal. (Veritas rejects any
   generated file containing a literal secret before it is written.)
-- **Authentication (`SERVICE_AUTH_SPEC`):** the supplied `SERVICE_AUTH_SPEC` block is authoritative. When the service
-  is authenticated, this framework uses Okta **private-key JWT**: generate a `{ServiceName}TokenHelper` (static
-  `getToken(testData, scope)` → `RobotToken.getOktaTokenWithPrivateKey`) and a `{ServiceName}Scope` enum from the
-  block's Okta values (token URL, client id, private-key field, scopes), mint one token, store it as
-  `WorldKey.ROBOT_TOKEN`, and pass it (with a data-loaded `context`) into **every** `rest()` call —
-  `rest().get(endpoint, jwt, context)`. Read the private key from `oktaCredentials.json` as a `$sensitive:` field
-  (never a literal). Request WRITE for create/update, READ for get/list, DELETE for delete. If the block says the
-  service is PUBLIC, call every endpoint without a token (`rest().get(endpoint, context)`) and generate no
-  TokenHelper/Scope/oktaCredentials.
+- **Authentication (`SERVICE_AUTH_SPEC`):** the supplied `SERVICE_AUTH_SPEC` block is authoritative. It lists 0..N
+  **token groups** (one per API group). Each authenticates via Okta **private-key JWT** and gets its own
+  `{Name}TokenHelper` (static `getToken(testData, scope)` → `RobotToken.getOktaTokenWithPrivateKey`), `{Name}Scope`
+  enum, and `WorldKey.{NAME}_TOKEN`, built from that group's Okta values (token URL, client id, private-key field,
+  scopes). For each endpoint, select the group whose `pathPrefix` matches its path (longest match wins) and use that
+  group's token; an endpoint matching **no** group is called without a token. Read each private key from
+  `oktaCredentials.json` as a `$sensitive:` field (never a literal). Pass the token (with a data-loaded `context`) into
+  **every** `rest()` call — `rest().get(endpoint, jwt, context)`. Request WRITE for create/update, READ for get/list,
+  DELETE for delete. If the block says PUBLIC, call every endpoint without a token (`rest().get(endpoint, context)`)
+  and generate no TokenHelper/Scope/oktaCredentials.
 - **Prohibited tools:** **never** use or reference **Postman / Newman** (bank-prohibited). The approved automated
   framework is TestNG + Rest-Assured over `ca.bnc.lsist.api`. If an ad-hoc / exploratory API artifact is useful,
   use **Bruno** or the **IntelliJ HTTP Client** (`.http` files) — the approved Postman replacements. (Veritas
@@ -154,13 +155,13 @@ public class {Action}Test extends AbstractDataDrivenTest {
 - Pass body to `getRestClient().put(endpoint, body.toString())` or `post(endpoint, jwt, body.toString())`
 
 **For authenticated endpoints** (driven by `SERVICE_AUTH_SPEC`):
-- Setup step (e.g. `t000`): `String robotToken = getToken(testData, {ServiceName}Scope.WRITE);
-  pushToTheWorld(WorldKey.ROBOT_TOKEN, robotToken);` — generate the token once, store it in the World.
-- In each step: `String jwt = pullFromTheWorld(WorldKey.ROBOT_TOKEN, String.class);`
+- Resolve the endpoint's group by `pathPrefix` (longest match). Setup step per group (e.g. `t000`):
+  `String token = {Name}TokenHelper.getToken(testData, {Name}Scope.WRITE); pushToTheWorld(WorldKey.{NAME}_TOKEN, token);`
+- In each step: `String jwt = pullFromTheWorld(WorldKey.{NAME}_TOKEN, String.class);`
 - Authed call variant (positional `jwt` + trailing `context`): `rest().post(endpoint, jwt, body, context)` /
   `rest().get(endpoint, jwt, context)` / `rest().delete(endpoint, jwt, context)`; pick the scope by verb (WRITE for
   create/update, READ for get/list, DELETE for delete).
-- PUBLIC service: call without a token (`rest().get(endpoint, context)`).
+- Endpoints in no group, or a PUBLIC service: call without a token (`rest().get(endpoint, context)`).
 
 ### 3. Happy Path Test (`src/test/java/{serviceName}Api/test/happyPath/Validate{Action}Test.java`)
 

@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
 import ca.bnc.qe.veritas.codegen.ServiceAuthSpec.Scope;
+import ca.bnc.qe.veritas.codegen.ServiceAuthSpec.ServiceAuthGroup;
 import ca.bnc.qe.veritas.llm.LlmGateway;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -49,9 +50,11 @@ class CodegenServiceAuthTest {
         Path serviceRepo = Path.of(getClass().getClassLoader().getResource("fixtures/policies").toURI());
         Path outputDir = Files.createTempDirectory("veritas-auth-out-");
 
-        ServiceAuthSpec spec = new ServiceAuthSpec(true,
-                "https://okta.example/oauth2/default/v1/token", "0oaTEST", "CIAM_PRIVATE_KEY", "oktaCredentials.json",
-                List.of(new Scope("WRITE", "ciam:policy:write")));
+        ServiceAuthSpec spec = new ServiceAuthSpec(List.of(
+                new ServiceAuthGroup("tpps", "https://okta/tpps/v1/token", "0oaTPPS", "TPPS_PRIVATE_KEY",
+                        "oktaCredentials.json", List.of(new Scope("WRITE", "tpps:write")), List.of("/tpps")),
+                new ServiceAuthGroup("apps", "https://okta/apps/v1/token", "0oaAPPS", "APPS_PRIVATE_KEY",
+                        "oktaCredentials.json", List.of(new Scope("READ", "apps:read")), List.of("/apps"))));
 
         codegenService.generate("ciam-policies", serviceRepo, template, outputDir, "tester", Set.of(), spec);
 
@@ -62,7 +65,7 @@ class CodegenServiceAuthTest {
                 .findFirst().orElseThrow(() -> new AssertionError("no [IMPLEMENT-TESTS] prompt was sent"));
 
         assertThat(implementPrompt)
-                .contains("SERVICE_AUTH_SPEC").contains("WorldKey.ROBOT_TOKEN").contains("RobotToken")
-                .contains("0oaTEST").contains("ciam:policy:write").contains("oktaCredentials.json");
+                .contains("SERVICE_AUTH_SPEC").contains("WorldKey.TPPS_TOKEN").contains("WorldKey.APPS_TOKEN")
+                .contains("RobotToken").contains("0oaTPPS").contains("apps:read").contains("/tpps").contains("/apps");
     }
 }
