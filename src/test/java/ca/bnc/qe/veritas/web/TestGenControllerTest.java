@@ -1,5 +1,6 @@
 package ca.bnc.qe.veritas.web;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -28,6 +29,7 @@ class TestGenControllerTest {
     @Autowired private MockMvc mvc;
     @MockBean private TestPlanService service;
     @MockBean private TestGenService testGen;
+    @MockBean private ca.bnc.qe.veritas.codegen.ServiceAuthProfileService authProfiles;
 
     @Test
     void planDelegatesBothReposAndReturnsThePlan() throws Exception {
@@ -85,5 +87,44 @@ class TestGenControllerTest {
                 eq(new RepoRef("APP1", "ciam-tests", "develop", null)),
                 eq(new java.util.LinkedHashSet<>(List.of("POST /policies"))), eq("alice"), eq("CIAM-1842"),
                 eq(ServiceAuthSpec.none()));
+        // The declared token setup is persisted per service for next-run pre-fill (here: public ⇒ none()).
+        verify(authProfiles).save(eq("APP1"), eq("ciam"), eq(ServiceAuthSpec.none()));
+    }
+
+    @Test
+    void generatePersistsAndForwardsDeclaredTokenGroups() throws Exception {
+        CodegenRun run = new CodegenRun();
+        run.setServiceName("ciam");
+        run.setBuildStatus("SKIPPED");
+        when(testGen.generate(eq("ciam"), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), eq("alice"), eq("CIAM-1842"),
+                org.mockito.ArgumentMatchers.any())).thenReturn(run);
+
+        mvc.perform(post("/api/v1/services/ciam/test-gen/generate").contentType("application/json").content("""
+                        {"appId":"APP1","serviceRepoSlug":"ciam","outputRepoSlug":"ciam-tests",
+                         "endpoints":["GET /tpps/x"],"owner":"alice","jiraKey":"CIAM-1842",
+                         "serviceAuth":{"groups":[{"name":"tpps","mechanism":"PRIVATE_KEY",
+                           "envVars":{"privateKey":"CIAM_TPPS_PRIVATE_KEY"},"pathPrefixes":["/tpps"]}]}}"""))
+                .andExpect(status().isAccepted());
+
+        org.mockito.ArgumentCaptor<ServiceAuthSpec> saved = org.mockito.ArgumentCaptor.forClass(ServiceAuthSpec.class);
+        verify(authProfiles).save(eq("APP1"), eq("ciam"), saved.capture());
+        assertThat(saved.getValue().groups()).hasSize(1);
+        assertThat(saved.getValue().groups().get(0).name()).isEqualTo("tpps");
+        assertThat(saved.getValue().groups().get(0).envVars()).containsEntry("privateKey", "CIAM_TPPS_PRIVATE_KEY");
+    }
+
+    @Test
+    void authProfileEndpointReturnsTheSavedSpec() throws Exception {
+        when(authProfiles.find("APP1", "ciam")).thenReturn(new ServiceAuthSpec(List.of(
+                new ServiceAuthSpec.ServiceAuthGroup("apps", ServiceAuthSpec.Mechanism.BASIC_AUTH,
+                        java.util.Map.of("basicAuth", "CIAM_APPS_BASIC_AUTH"), List.of("/apps"), null))));
+
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .get("/api/v1/services/ciam/test-gen/auth-profile?appId=APP1&serviceRepoSlug=ciam"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.groups[0].name").value("apps"))
+                .andExpect(jsonPath("$.groups[0].mechanism").value("BASIC_AUTH"))
+                .andExpect(jsonPath("$.groups[0].envVars.basicAuth").value("CIAM_APPS_BASIC_AUTH"));
     }
 }

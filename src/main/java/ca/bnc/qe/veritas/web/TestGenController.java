@@ -2,6 +2,7 @@ package ca.bnc.qe.veritas.web;
 
 import java.util.List;
 import java.util.Set;
+import ca.bnc.qe.veritas.codegen.ServiceAuthProfileService;
 import ca.bnc.qe.veritas.codegen.ServiceAuthSpec;
 import ca.bnc.qe.veritas.codegen.plan.TestGenService;
 import ca.bnc.qe.veritas.codegen.plan.TestPlan;
@@ -9,10 +10,12 @@ import ca.bnc.qe.veritas.codegen.plan.TestPlanService;
 import ca.bnc.qe.veritas.codegen.plan.TestPlanService.RepoRef;
 import ca.bnc.qe.veritas.persistence.CodegenRun;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -29,10 +32,12 @@ public class TestGenController {
 
     private final TestPlanService service;
     private final TestGenService testGen;
+    private final ServiceAuthProfileService authProfiles;
 
-    public TestGenController(TestPlanService service, TestGenService testGen) {
+    public TestGenController(TestPlanService service, TestGenService testGen, ServiceAuthProfileService authProfiles) {
         this.service = service;
         this.testGen = testGen;
+        this.authProfiles = authProfiles;
     }
 
     @PostMapping("/services/{service}/test-gen/plan")
@@ -53,10 +58,23 @@ public class TestGenController {
     public CodegenRun generate(@PathVariable String service, @RequestBody GenerateRequest req) {
         Set<String> scope = req.endpoints() == null ? Set.of() : new java.util.LinkedHashSet<>(req.endpoints());
         ServiceAuthSpec auth = req.serviceAuth() == null ? ServiceAuthSpec.none() : req.serviceAuth();
+        // Remember the declared token setup for this service so the wizard pre-fills it next run (names only, no secrets).
+        authProfiles.save(req.appId(), req.serviceRepoSlug(), auth);
         return testGen.generate(service,
                 new RepoRef(req.appId(), req.serviceRepoSlug(), req.serviceBranch(), req.serviceRepoPath()),
                 new RepoRef(req.appId(), req.outputRepoSlug(), req.outputBranch(), req.outputRepoPath()),
                 scope, req.owner() == null ? "api" : req.owner(), req.jiraKey(), auth);
+    }
+
+    /**
+     * The service's saved auth-token profile (declared token groups), for the wizard's Auth-step pre-fill. Keyed by
+     * {@code appId + serviceRepoSlug}; returns an empty (public) spec when none was ever declared. Names only — never
+     * a secret value.
+     */
+    @GetMapping("/services/{service}/test-gen/auth-profile")
+    public ServiceAuthSpec authProfile(@PathVariable String service, @RequestParam(required = false) String appId,
+                                       @RequestParam(required = false) String serviceRepoSlug) {
+        return authProfiles.find(appId, serviceRepoSlug);
     }
 
     /**
