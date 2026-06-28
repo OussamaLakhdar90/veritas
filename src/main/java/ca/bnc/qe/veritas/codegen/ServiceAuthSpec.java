@@ -63,16 +63,20 @@ public record ServiceAuthSpec(List<ServiceAuthGroup> groups) {
             return "This service is PUBLIC — no token is required. Call every endpoint without a token "
                     + "(rest().get(endpoint, context)). Do not generate a TokenHelper, a Scope enum, or oktaCredentials.json.";
         }
+        boolean single = groups.size() == 1;
         StringBuilder sb = new StringBuilder();
         sb.append("This service needs ").append(groups.size()).append(" token group(s). Each authenticates via Okta ")
                 .append("PRIVATE-KEY JWT assertion (RobotToken) and gets its own {Name}TokenHelper + {Name}Scope enum + ")
-                .append("WorldKey.{NAME}_TOKEN. For each endpoint, pick the group whose pathPrefix matches its path ")
-                .append("(longest match wins); an endpoint matching no group is called WITHOUT a token. Pass the group's ")
-                .append("token (+ a data-loaded context) into every rest() call: rest().post(endpoint, jwt, body, context).\n");
+                .append("token WorldKey (a SINGLE token uses WorldKey.ROBOT_TOKEN; with MULTIPLE tokens each group uses ")
+                .append("WorldKey.ROBOT_TOKEN_{NAME}, e.g. WorldKey.ROBOT_TOKEN_TPPS). For each endpoint, pick the group ")
+                .append("whose pathPrefix matches its path (longest match wins); an endpoint matching no group is called ")
+                .append("WITHOUT a token. Pass the group's token (+ a data-loaded context) into every rest() call: ")
+                .append("rest().post(endpoint, jwt, body, context).\n");
         for (ServiceAuthGroup g : groups) {
             String key = key(g.name());
-            sb.append("\n- group \"").append(key.toLowerCase(Locale.ROOT)).append("\": WorldKey.").append(key)
-                    .append("_TOKEN via ").append(capitalize(key)).append("TokenHelper.getToken(testData, scope) -> ")
+            String worldKey = single ? "ROBOT_TOKEN" : "ROBOT_TOKEN_" + key;
+            sb.append("\n- group \"").append(key.toLowerCase(Locale.ROOT)).append("\": WorldKey.").append(worldKey)
+                    .append(" via ").append(capitalize(key)).append("TokenHelper.getToken(testData, scope) -> ")
                     .append("RobotToken.getOktaTokenWithPrivateKey(privateKey, Set.of(scope.getValue()), tokenUrl, clientId)\n")
                     .append("    AUTH_SERVER_TOKEN_URL: ").append(orTodo(g.tokenUrl())).append("\n")
                     .append("    CLIENT_ID: ").append(orTodo(g.clientId())).append("\n")

@@ -91,9 +91,10 @@ public enum {ServiceName}Scope {
 > scope for create/update, READ for get/list, DELETE for delete.
 >
 > **Multiple token groups (per `SERVICE_AUTH_SPEC`):** a project that calls more than one API group declares one group
-> per token. Generate a `{Name}TokenHelper` + `{Name}Scope` enum + `WorldKey.{NAME}_TOKEN` **per group** (e.g.
-> `TppsTokenHelper`/`WorldKey.TPPS_TOKEN`, `AppsTokenHelper`/`WorldKey.APPS_TOKEN`), each with its own Okta token URL /
-> client id / private-key field / scopes, and use the group whose `pathPrefix` matches the endpoint.
+> per token. A single token uses `WorldKey.ROBOT_TOKEN`; with multiple tokens each group gets its own
+> `{Name}TokenHelper` + `{Name}Scope` enum + **`WorldKey.ROBOT_TOKEN_{NAME}`** (e.g.
+> `TppsTokenHelper`/`WorldKey.ROBOT_TOKEN_TPPS`, `AppsTokenHelper`/`WorldKey.ROBOT_TOKEN_APPS`), each with its own Okta
+> token URL / client id / private-key field / scopes, and use the group whose `pathPrefix` matches the endpoint.
 
 ### Test data — `TestData` + `ApiEnvironment` (data-driven)
 - `@DataProvider` returns `ca.bnc.lsist.api.environment.ApiEnvironment.buildTestEnvironment(TEST_ID)` → `Iterator<Object[]>`.

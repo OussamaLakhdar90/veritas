@@ -65,7 +65,7 @@ class CodegenServiceAuthTest {
                 .findFirst().orElseThrow(() -> new AssertionError("no [IMPLEMENT-TESTS] prompt was sent"));
 
         assertThat(implementPrompt)
-                .contains("SERVICE_AUTH_SPEC").contains("WorldKey.TPPS_TOKEN").contains("WorldKey.APPS_TOKEN")
+                .contains("SERVICE_AUTH_SPEC").contains("WorldKey.ROBOT_TOKEN_TPPS").contains("WorldKey.ROBOT_TOKEN_APPS")
                 .contains("RobotToken").contains("0oaTPPS").contains("apps:read").contains("/tpps").contains("/apps");
     }
 }
