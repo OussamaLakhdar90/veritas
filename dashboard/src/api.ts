@@ -185,6 +185,19 @@ export interface DefectLink {
   createdAt?: string
 }
 
+/** Test-completion summary: designed vs executed (read back from Xray), with deviations to explain. */
+export interface ExecutionSummary {
+  serviceName?: string
+  jql: string
+  total: number
+  passed: number
+  failed: number
+  blocked: number
+  notRun: number
+  deviations: { testKey: string; rawStatus?: string; outcome: string }[]
+  verdict: string
+}
+
 /** Aggregate defect metrics: totals, open/closed, and distributions by severity / status / service. */
 export interface DefectMetrics {
   total: number
@@ -417,6 +430,9 @@ export const api = {
   preflight: () => get<PreflightCheck[]>('/preflight'),
   defects: () => get<DefectLink[]>('/defects'),
   defectMetrics: () => get<DefectMetrics>('/defects/metrics'),
+  // Read-only test-completion: latest execution status of a JQL's tests, read back from Xray.
+  executionCompletion: (jql: string, service?: string) =>
+    get<ExecutionSummary>(`/execution/completion?jql=${encodeURIComponent(jql)}${service ? `&service=${encodeURIComponent(service)}` : ''}`),
   syncDefects: () => post<{ updated: number }>('/defects/sync', {}),
   gates: (status = 'PENDING') => get<GateDecision[]>(`/gates?status=${encodeURIComponent(status)}`),
   approveGate: (id: string, approver = 'dashboard') => post<GateDecision>(`/gates/${id}/approve`, { approver }),
