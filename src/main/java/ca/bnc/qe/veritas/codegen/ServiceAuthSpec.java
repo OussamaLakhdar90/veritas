@@ -1,96 +1,74 @@
 package ca.bnc.qe.veritas.codegen;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 
 /**
- * A service's declared auth-token requirements for test generation — the user's answer to "does this service need a
- * token, and how is it generated?". A service needs 0..N <em>token groups</em> (the BNC autotests framework's
- * {@code service_auth.{group}}); each group authenticates one API "type" and yields its own {@code WorldKey.{NAME}_TOKEN}.
+ * A service's declared authentication for test generation — modeled on the BNC <strong>lsist</strong> framework's real
+ * flow: an OAuth access token minted via <strong>Okta private-key JWT assertion</strong> ({@code RobotToken}). The user
+ * declares the Okta token endpoint, the client id, the private-key field (read from {@code oktaCredentials.json}), and
+ * the API's OAuth scopes; the generated tests then call
+ * {@code {ServiceName}TokenHelper.getToken(testData, Scope)} and pass one {@code WorldKey.ROBOT_TOKEN} into every
+ * {@code rest()} call.
  *
- * <p>Veritas stores only the <em>shape</em> — env-var <strong>names</strong>, mechanisms, path mappings — and NEVER a
- * secret value. Credentials reach the generated {@code config.yml} as {@code $sensitive:ENV_VAR} references; the secret
- * itself stays in the user's environment. {@link #toPromptBlock()} renders the deterministic {@code SERVICE_AUTH_SPEC}
- * the codegen prompt consumes, so the LLM only WIRES the token-creation code that already lives in the template.
+ * <p>Veritas stores only URLs, the client id, the private-key <em>field name</em>, and scope strings — <strong>never the
+ * private key itself</strong> (that stays in {@code oktaCredentials.json} as a {@code $sensitive:} value).
+ * {@link #toPromptBlock()} renders the deterministic {@code SERVICE_AUTH_SPEC} the codegen prompt consumes.
  */
-public record ServiceAuthSpec(List<ServiceAuthGroup> groups) {
+public record ServiceAuthSpec(boolean authenticated, String tokenUrl, String clientId, String privateKeyField,
+                              String credentialsFile, List<Scope> scopes) {
 
-    /** How a group's token is generated — each reads its credential from a Windows environment variable. */
-    public enum Mechanism { PRIVATE_KEY, BASIC_AUTH, OAUTH2_CLIENT_CREDENTIALS }
-
-    /**
-     * One token group.
-     *
-     * @param name           group key → {@code service_auth.{name}} and {@code WorldKey.{NAME}_TOKEN} (e.g. {@code tpps})
-     * @param mechanism      how the token is generated
-     * @param envVars        role → env-var <strong>name</strong> (e.g. {@code privateKey→CIAM_TPPS_PRIVATE_KEY},
-     *                       or {@code clientId}/{@code clientSecret}); values are NEVER stored, only the names
-     * @param pathPrefixes   URL path prefixes whose endpoints use this token; empty ⇒ all endpoints
-     * @param xrayRequirement optional Xray requirement key for {@code service_auth.{group}.xray_requirement}
-     */
-    public record ServiceAuthGroup(String name, Mechanism mechanism, Map<String, String> envVars,
-                                   List<String> pathPrefixes, String xrayRequirement) {}
+    /** One OAuth scope: enum-constant name (e.g. {@code READ}/{@code WRITE}/{@code DELETE}) → the Okta scope string. */
+    public record Scope(String name, String value) {}
 
     /** A public service — no token. */
     public static ServiceAuthSpec none() {
-        return new ServiceAuthSpec(List.of());
+        return new ServiceAuthSpec(false, null, null, null, null, List.of());
     }
 
     public boolean isEmpty() {
-        return groups == null || groups.isEmpty();
+        return !authenticated;
     }
 
-    /** Normalized, uppercase group key used for {@code WorldKey.{KEY}_TOKEN} (e.g. {@code TPPS}). */
-    private static String key(String name) {
-        String n = (name == null || name.isBlank()) ? "primary" : name.trim();
-        return n.replaceAll("[^A-Za-z0-9]+", "_").toUpperCase(Locale.ROOT);
+    /** The credentials file the private key is read from, defaulting to {@code oktaCredentials.json}. */
+    public String credentialsFileOrDefault() {
+        return credentialsFile == null || credentialsFile.isBlank() ? "oktaCredentials.json" : credentialsFile.trim();
     }
 
     /**
-     * Renders the {@code SERVICE_AUTH_SPEC} block the codegen prompt consumes — deterministic facts (group →
-     * {@code WorldKey}, mechanism, {@code $sensitive:} env refs, path prefixes) plus the wiring instruction. The
-     * token-creation code already exists in the template; the LLM only maps tokens to endpoints and wires them.
+     * Renders the {@code SERVICE_AUTH_SPEC} block the codegen prompt consumes — the Okta private-key-JWT facts (token
+     * URL, client id, private-key field, scopes) plus the wiring instruction. {@code RobotToken}/{@code TokenHelper}
+     * are framework/template code; the LLM only fills the per-service values and wires the calls.
      */
     public String toPromptBlock() {
-        if (isEmpty()) {
-            return "This service is PUBLIC — no token is required. Call every endpoint WITHOUT an Authorization header "
-                    + "(use the no-auth call variant). Do not emit a service_auth section in config.yml.";
+        if (!authenticated) {
+            return "This service is PUBLIC — no token is required. Call every endpoint without a token "
+                    + "(rest().get(endpoint, context)). Do not generate a TokenHelper, a Scope enum, or oktaCredentials.json.";
         }
         StringBuilder sb = new StringBuilder();
-        sb.append("This service needs ").append(groups.size()).append(" token group(s). For each endpoint, pick the ")
-                .append("group whose pathPrefix matches its path (longest match wins); an endpoint matching no group is ")
-                .append("called WITHOUT a token. The token-creation code already exists in the framework/template — only ")
-                .append("WIRE it (do not invent crypto).\n");
-        for (ServiceAuthGroup g : groups) {
-            String key = key(g.name());
-            sb.append("\n- group \"").append(key.toLowerCase(Locale.ROOT)).append("\": pull WorldKey.").append(key)
-                    .append("_TOKEN; mechanism=").append(g.mechanism() == null ? "(unspecified)" : g.mechanism())
-                    .append("; credentials=").append(renderEnvRefs(g.envVars()))
-                    .append("; appliesToPaths=").append(g.pathPrefixes() == null || g.pathPrefixes().isEmpty()
-                            ? "[all endpoints]" : g.pathPrefixes().toString());
-            if (g.xrayRequirement() != null && !g.xrayRequirement().isBlank()) {
-                sb.append("; xrayRequirement=").append(g.xrayRequirement().trim());
+        sb.append("This service authenticates via Okta PRIVATE-KEY JWT assertion (RobotToken). Generate a ")
+                .append("{ServiceName}TokenHelper (static getToken(testData, scope) -> ")
+                .append("new RobotToken().getOktaTokenWithPrivateKey(privateKey, Set.of(scope.getValue()), tokenUrl, clientId)) ")
+                .append("and a {ServiceName}Scope enum, store one WorldKey.ROBOT_TOKEN, and pass it (+ a data-loaded ")
+                .append("context) into every rest() call: rest().post(endpoint, jwt, body, context).\n")
+                .append("- AUTH_SERVER_TOKEN_URL: ").append(orTodo(tokenUrl)).append("\n")
+                .append("- CLIENT_ID: ").append(orTodo(clientId)).append("\n")
+                .append("- private key: read from ").append(credentialsFileOrDefault()).append(" field ")
+                .append(orTodo(privateKeyField)).append(" as a $sensitive: value (NEVER a literal)\n")
+                .append("- scopes (enum constant -> Okta scope string):");
+        if (scopes == null || scopes.isEmpty()) {
+            sb.append(" (none declared — emit READ/WRITE/DELETE as TODO-FILL)");
+        } else {
+            for (Scope s : scopes) {
+                if (s != null && s.name() != null) {
+                    sb.append("\n    ").append(s.name()).append(" = \"").append(s.value() == null ? "TODO-FILL" : s.value()).append("\"");
+                }
             }
         }
-        sb.append("\n\nFor each group, emit/patch config.yml service_auth.{group} using the $sensitive: env refs above ")
-                .append("(NEVER a literal secret). In each base test, generate the group's token per the template and ")
-                .append("pull WorldKey.{GROUP}_TOKEN, then use the authed call variant (e.g. rest().get(endpoint, jwt)) ")
-                .append("for that group's endpoints.");
+        sb.append("\nRequest WRITE for create/update (POST/PUT/PATCH), READ for get/list (GET), DELETE for delete.");
         return sb.toString();
     }
 
-    private static String renderEnvRefs(Map<String, String> envVars) {
-        if (envVars == null || envVars.isEmpty()) {
-            return "(none declared — emit TODO-FILL and add a todos entry)";
-        }
-        List<String> refs = new ArrayList<>();
-        envVars.forEach((role, var) -> {
-            if (var != null && !var.isBlank()) {
-                refs.add(role + "=$sensitive:" + var.trim());
-            }
-        });
-        return refs.isEmpty() ? "(none declared — emit TODO-FILL and add a todos entry)" : String.join(", ", refs);
+    private static String orTodo(String s) {
+        return s == null || s.isBlank() ? "TODO-FILL" : s.trim();
     }
 }

@@ -3,14 +3,12 @@ package ca.bnc.qe.veritas.codegen;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
-import java.util.Map;
-import ca.bnc.qe.veritas.codegen.ServiceAuthSpec.Mechanism;
-import ca.bnc.qe.veritas.codegen.ServiceAuthSpec.ServiceAuthGroup;
+import ca.bnc.qe.veritas.codegen.ServiceAuthSpec.Scope;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 
-/** The per-service auth profile round-trips by appId+slug, stores names only, and upserts in place. */
+/** The per-service auth profile round-trips by appId+slug, stores the Okta spec (no private key), and upserts. */
 @SpringBootTest
 class ServiceAuthProfileServiceTest {
 
@@ -18,19 +16,19 @@ class ServiceAuthProfileServiceTest {
     private ServiceAuthProfileService profiles;
 
     @Test
-    void roundTripsTheDeclaredGroupsByAppAndRepo() {
-        ServiceAuthSpec spec = new ServiceAuthSpec(List.of(
-                new ServiceAuthGroup("tpps", Mechanism.PRIVATE_KEY,
-                        Map.of("privateKey", "CIAM_TPPS_PRIVATE_KEY"), List.of("/tpps"), null)));
+    void roundTripsTheOktaSpecByAppAndRepo() {
+        ServiceAuthSpec spec = new ServiceAuthSpec(true,
+                "https://okta.example/oauth2/auth/v1/token", "0oaX", "CIAM_PRIVATE_KEY", "oktaCredentials.json",
+                List.of(new Scope("READ", "ciam:read"), new Scope("WRITE", "ciam:write")));
 
         profiles.save("APP7", "ciam-svc", spec);
         ServiceAuthSpec got = profiles.find("APP7", "ciam-svc");
 
-        assertThat(got.groups()).hasSize(1);
-        assertThat(got.groups().get(0).name()).isEqualTo("tpps");
-        assertThat(got.groups().get(0).mechanism()).isEqualTo(Mechanism.PRIVATE_KEY);
-        assertThat(got.groups().get(0).envVars()).containsEntry("privateKey", "CIAM_TPPS_PRIVATE_KEY");
-        assertThat(got.groups().get(0).pathPrefixes()).containsExactly("/tpps");
+        assertThat(got.authenticated()).isTrue();
+        assertThat(got.clientId()).isEqualTo("0oaX");
+        assertThat(got.privateKeyField()).isEqualTo("CIAM_PRIVATE_KEY");
+        assertThat(got.scopes()).hasSize(2);
+        assertThat(got.scopes().get(0).name()).isEqualTo("READ");
     }
 
     @Test
@@ -42,11 +40,11 @@ class ServiceAuthProfileServiceTest {
     @Test
     void resaveUpdatesInPlace() {
         profiles.save("APP8", "svc", ServiceAuthSpec.none());
-        profiles.save("APP8", "svc", new ServiceAuthSpec(List.of(
-                new ServiceAuthGroup("apps", Mechanism.BASIC_AUTH, Map.of("basicAuth", "X"), List.of(), null))));
+        profiles.save("APP8", "svc", new ServiceAuthSpec(true, "u", "0oaY", "PK", "oktaCredentials.json",
+                List.of(new Scope("WRITE", "w"))));
 
         ServiceAuthSpec got = profiles.find("APP8", "svc");
-        assertThat(got.groups()).hasSize(1);
-        assertThat(got.groups().get(0).name()).isEqualTo("apps");
+        assertThat(got.authenticated()).isTrue();
+        assertThat(got.clientId()).isEqualTo("0oaY");
     }
 }

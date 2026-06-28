@@ -3,51 +3,43 @@ package ca.bnc.qe.veritas.codegen;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
-import java.util.Map;
-import ca.bnc.qe.veritas.codegen.ServiceAuthSpec.Mechanism;
-import ca.bnc.qe.veritas.codegen.ServiceAuthSpec.ServiceAuthGroup;
+import ca.bnc.qe.veritas.codegen.ServiceAuthSpec.Scope;
 import org.junit.jupiter.api.Test;
 
-/** The deterministic SERVICE_AUTH_SPEC the codegen prompt consumes — group→WorldKey, $sensitive env refs, path map. */
+/** The deterministic SERVICE_AUTH_SPEC the codegen prompt consumes — Okta private-key-JWT facts (lsist framework). */
 class ServiceAuthSpecTest {
 
     @Test
-    void twoGroupSpecRendersWorldKeysEnvRefsAndPathPrefixes() {
-        ServiceAuthSpec spec = new ServiceAuthSpec(List.of(
-                new ServiceAuthGroup("tpps", Mechanism.PRIVATE_KEY,
-                        Map.of("privateKey", "CIAM_TPPS_PRIVATE_KEY"), List.of("/tpps"), "CIAM-100"),
-                new ServiceAuthGroup("apps", Mechanism.BASIC_AUTH,
-                        Map.of("basicAuth", "CIAM_APPS_BASIC_AUTH"), List.of("/apps"), null)));
+    void authenticatedSpecRendersOktaFactsAndRobotToken() {
+        ServiceAuthSpec spec = new ServiceAuthSpec(true,
+                "https://okta.example/oauth2/auth-server/v1/token", "0oaABC123", "MY_API_PRIVATE_KEY",
+                "oktaCredentials.json",
+                List.of(new Scope("READ", "myapi:resource:read"), new Scope("WRITE", "myapi:resource:write")));
 
         String block = spec.toPromptBlock();
 
         assertThat(spec.isEmpty()).isFalse();
         assertThat(block)
-                .contains("WorldKey.TPPS_TOKEN").contains("WorldKey.APPS_TOKEN")
-                .contains("$sensitive:CIAM_TPPS_PRIVATE_KEY").contains("$sensitive:CIAM_APPS_BASIC_AUTH")
-                .contains("PRIVATE_KEY").contains("BASIC_AUTH")
-                .contains("/tpps").contains("/apps")
-                .contains("CIAM-100")
-                // never leak a raw secret — only env-var NAMES as $sensitive refs
-                .doesNotContain("password");
+                .contains("WorldKey.ROBOT_TOKEN").contains("RobotToken").contains("PRIVATE-KEY JWT")
+                .contains("https://okta.example/oauth2/auth-server/v1/token").contains("0oaABC123")
+                .contains("oktaCredentials.json").contains("MY_API_PRIVATE_KEY")
+                .contains("READ").contains("myapi:resource:read").contains("WRITE")
+                // never the old (wrong-framework) model
+                .doesNotContain("service_auth").doesNotContain("client_secret").doesNotContain("pathPrefix");
     }
 
     @Test
-    void emptyPathPrefixesMeanAllEndpoints() {
-        ServiceAuthSpec spec = new ServiceAuthSpec(List.of(
-                new ServiceAuthGroup(null, Mechanism.PRIVATE_KEY,
-                        Map.of("privateKey", "SVC_KEY"), List.of(), null)));
-
-        String block = spec.toPromptBlock();
-
-        assertThat(block).contains("WorldKey.PRIMARY_TOKEN").contains("[all endpoints]");
+    void defaultsCredentialsFileAndTodosMissingScopes() {
+        ServiceAuthSpec spec = new ServiceAuthSpec(true, "u", "c", "K", null, List.of());
+        assertThat(spec.credentialsFileOrDefault()).isEqualTo("oktaCredentials.json");
+        assertThat(spec.toPromptBlock()).contains("oktaCredentials.json").contains("TODO-FILL");
     }
 
     @Test
-    void publicServiceDeclaresNoTokenAndNoServiceAuth() {
+    void publicServiceDeclaresNoToken() {
         assertThat(ServiceAuthSpec.none().isEmpty()).isTrue();
         assertThat(ServiceAuthSpec.none().toPromptBlock())
                 .contains("PUBLIC").contains("no token")
-                .doesNotContain("WorldKey").doesNotContain("service_auth.{group}");
+                .doesNotContain("WorldKey").doesNotContain("RobotToken");
     }
 }

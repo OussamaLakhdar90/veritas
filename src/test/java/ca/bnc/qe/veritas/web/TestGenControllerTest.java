@@ -92,7 +92,7 @@ class TestGenControllerTest {
     }
 
     @Test
-    void generatePersistsAndForwardsDeclaredTokenGroups() throws Exception {
+    void generatePersistsAndForwardsTheDeclaredOktaAuth() throws Exception {
         CodegenRun run = new CodegenRun();
         run.setServiceName("ciam");
         run.setBuildStatus("SKIPPED");
@@ -102,29 +102,31 @@ class TestGenControllerTest {
 
         mvc.perform(post("/api/v1/services/ciam/test-gen/generate").contentType("application/json").content("""
                         {"appId":"APP1","serviceRepoSlug":"ciam","outputRepoSlug":"ciam-tests",
-                         "endpoints":["GET /tpps/x"],"owner":"alice","jiraKey":"CIAM-1842",
-                         "serviceAuth":{"groups":[{"name":"tpps","mechanism":"PRIVATE_KEY",
-                           "envVars":{"privateKey":"CIAM_TPPS_PRIVATE_KEY"},"pathPrefixes":["/tpps"]}]}}"""))
+                         "endpoints":["GET /policies/x"],"owner":"alice","jiraKey":"CIAM-1842",
+                         "serviceAuth":{"authenticated":true,"tokenUrl":"https://okta/v1/token","clientId":"0oaX",
+                           "privateKeyField":"CIAM_PRIVATE_KEY","credentialsFile":"oktaCredentials.json",
+                           "scopes":[{"name":"WRITE","value":"ciam:policy:write"}]}}"""))
                 .andExpect(status().isAccepted());
 
         org.mockito.ArgumentCaptor<ServiceAuthSpec> saved = org.mockito.ArgumentCaptor.forClass(ServiceAuthSpec.class);
         verify(authProfiles).save(eq("APP1"), eq("ciam"), saved.capture());
-        assertThat(saved.getValue().groups()).hasSize(1);
-        assertThat(saved.getValue().groups().get(0).name()).isEqualTo("tpps");
-        assertThat(saved.getValue().groups().get(0).envVars()).containsEntry("privateKey", "CIAM_TPPS_PRIVATE_KEY");
+        assertThat(saved.getValue().authenticated()).isTrue();
+        assertThat(saved.getValue().clientId()).isEqualTo("0oaX");
+        assertThat(saved.getValue().scopes()).hasSize(1);
+        assertThat(saved.getValue().scopes().get(0).name()).isEqualTo("WRITE");
     }
 
     @Test
     void authProfileEndpointReturnsTheSavedSpec() throws Exception {
-        when(authProfiles.find("APP1", "ciam")).thenReturn(new ServiceAuthSpec(List.of(
-                new ServiceAuthSpec.ServiceAuthGroup("apps", ServiceAuthSpec.Mechanism.BASIC_AUTH,
-                        java.util.Map.of("basicAuth", "CIAM_APPS_BASIC_AUTH"), List.of("/apps"), null))));
+        when(authProfiles.find("APP1", "ciam")).thenReturn(new ServiceAuthSpec(true,
+                "https://okta/v1/token", "0oaX", "CIAM_PRIVATE_KEY", "oktaCredentials.json",
+                List.of(new ServiceAuthSpec.Scope("READ", "ciam:policy:read"))));
 
         mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
                         .get("/api/v1/services/ciam/test-gen/auth-profile?appId=APP1&serviceRepoSlug=ciam"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.groups[0].name").value("apps"))
-                .andExpect(jsonPath("$.groups[0].mechanism").value("BASIC_AUTH"))
-                .andExpect(jsonPath("$.groups[0].envVars.basicAuth").value("CIAM_APPS_BASIC_AUTH"));
+                .andExpect(jsonPath("$.authenticated").value(true))
+                .andExpect(jsonPath("$.clientId").value("0oaX"))
+                .andExpect(jsonPath("$.scopes[0].name").value("READ"));
     }
 }
