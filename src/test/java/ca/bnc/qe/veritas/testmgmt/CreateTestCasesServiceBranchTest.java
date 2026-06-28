@@ -155,6 +155,23 @@ class CreateTestCasesServiceBranchTest {
     }
 
     @Test
+    void nonFunctionalConditionAugmentsTheCaseDesignContract() {
+        ca.bnc.qe.veritas.persistence.TestCondition cond = new ca.bnc.qe.veritas.persistence.TestCondition();
+        cond.setId("c1");
+        cond.setServiceName("ciam-policies");
+        cond.setConditionRef("TCD-1");
+        cond.setQualityCharacteristic("Security");   // a non-functional ISO 25010 characteristic
+        when(conditionRepository.findByServiceNameOrderByCreatedAtDesc("ciam-policies")).thenReturn(List.of(cond));
+        stubGeneratePath("{\"cases\":[],\"selfReview\":{\"confidence\":50}}", 0.10);
+
+        service.generate("ciam-policies", "basis", OWNER);
+
+        // The case-design contract now tells the model not to default to black-box functional cases for it.
+        verify(promptComposer).compose(eq("[TEST-CASES]"), anyString(), any(), anyString(),
+                org.mockito.ArgumentMatchers.contains("NON-FUNCTIONAL"));
+    }
+
+    @Test
     void missingRationaleAndRequirementKeyLeaveNullFields() {
         // hasNonNull(...) == false on both → linkedRequirement & rationale must stay null (the else branch).
         String json = "{\"cases\":["
