@@ -70,6 +70,11 @@ public class CreateTestCasesService {
             // With conditions present, we feed them in and ask each case to cite the condition it satisfies — closing
             // the basis ↔ condition ↔ case traceability. With none, behaviour is unchanged (cases straight from basis).
             List<TestCondition> conditions = currentConditions(serviceName);
+            // When any test condition targets a NON-functional ISO 25010 characteristic, the black-box-functional-only
+            // contract under-serves it — augment the contract to design characteristic-appropriate cases for those.
+            boolean hasNonFunctional = conditions.stream()
+                    .map(TestCondition::getQualityCharacteristic)
+                    .anyMatch(qc -> qc != null && !qc.isBlank() && !qc.toLowerCase(Locale.ROOT).contains("functional"));
             String outputContract = "Generate test cases applying black-box techniques (EP, BVA, decision "
                     + "tables, state transition). Each case: title, technique, priority, type, a one-line rationale "
                     + "(why this technique, ISTQB cite), the covered requirementKey, and steps. Add a SELF-REVIEW "
@@ -81,7 +86,13 @@ public class CreateTestCasesService {
                     + "\"selfReview\":{\"confidence\":number,\"blindSpots\":[string]}}. No prose after."
                     + (conditions.isEmpty() ? ""
                     : " Design cases to cover the TEST_CONDITIONS provided; set conditionRef to the id of the test "
-                    + "condition each case satisfies.");
+                    + "condition each case satisfies.")
+                    + (hasNonFunctional ? " Some TEST_CONDITIONS target NON-FUNCTIONAL quality characteristics "
+                    + "(ISO 25010 — e.g. Security, Performance efficiency, Reliability). For those, do NOT default to "
+                    + "black-box functional cases — design characteristic-appropriate cases: Security → an "
+                    + "authorization/authentication matrix with negative-access cases; Performance efficiency → "
+                    + "measurable latency/throughput thresholds; Reliability → idempotency, retry and failure-recovery. "
+                    + "Set type to the quality characteristic and cite the ISO 25010 characteristic." : "");
             String inputs = promptComposer.data("TEST_BASIS", basisText)
                     + (conditions.isEmpty() ? "" : promptComposer.data("TEST_CONDITIONS", renderConditions(conditions)));
             String prompt = promptComposer.compose("[TEST-CASES]", "generate-test-artifacts.prompt.md",
