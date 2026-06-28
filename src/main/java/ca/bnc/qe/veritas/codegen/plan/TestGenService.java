@@ -3,6 +3,7 @@ package ca.bnc.qe.veritas.codegen.plan;
 import java.nio.file.Path;
 import java.util.Set;
 import ca.bnc.qe.veritas.codegen.CodegenService;
+import ca.bnc.qe.veritas.codegen.ServiceAuthSpec;
 import ca.bnc.qe.veritas.codegen.plan.TestPlanService.RepoRef;
 import ca.bnc.qe.veritas.persistence.CodegenRun;
 import ca.bnc.qe.veritas.persistence.CodegenRunRepository;
@@ -38,6 +39,16 @@ public class TestGenService {
      */
     public CodegenRun generate(String serviceName, RepoRef service, RepoRef output, Set<String> scope, String owner,
                                String jiraKey) {
+        return generate(serviceName, service, output, scope, owner, jiraKey, ServiceAuthSpec.none());
+    }
+
+    /**
+     * As {@link #generate(String, RepoRef, RepoRef, Set, String, String)}, but {@code serviceAuth} declares the
+     * service's token groups (0..N) so the generated suite authenticates correctly — only env-var names flow through,
+     * never secret values.
+     */
+    public CodegenRun generate(String serviceName, RepoRef service, RepoRef output, Set<String> scope, String owner,
+                               String jiraKey, ServiceAuthSpec serviceAuth) {
         if (jiraKey == null || jiraKey.isBlank()) {
             throw new IllegalArgumentException("A Jira ticket is required to generate tests — the branch and commit "
                     + "reference it so the PR links to the work item.");
@@ -48,7 +59,7 @@ public class TestGenService {
             // Clone the output/test repo into its own working copy and generate into it. It is intentionally NOT
             // cleaned up here: the gated publish step pushes from this exact directory (run.outputRepo points to it).
             Path outputCopy = workspace.resolve(output.appId(), output.repoSlug(), output.branch(), output.localPath());
-            CodegenRun run = codegen.generate(serviceName, serviceCopy, null, outputCopy, owner, scope);
+            CodegenRun run = codegen.generate(serviceName, serviceCopy, null, outputCopy, owner, scope, serviceAuth);
             run.setJiraKey(jiraKey.trim());   // remembered for the gated publish → prefixes the branch/commit/PR title
             return runs.save(run);
         } finally {

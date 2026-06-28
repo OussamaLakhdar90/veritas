@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
+import ca.bnc.qe.veritas.codegen.ServiceAuthSpec;
 import ca.bnc.qe.veritas.codegen.plan.TestGenService;
 import ca.bnc.qe.veritas.codegen.plan.TestPlan;
 import ca.bnc.qe.veritas.codegen.plan.TestPlanItem;
@@ -67,7 +68,8 @@ class TestGenControllerTest {
         when(testGen.generate(eq("ciam"),
                 eq(new RepoRef("APP1", "ciam", "develop", null)),
                 eq(new RepoRef("APP1", "ciam-tests", "develop", null)),
-                eq(new java.util.LinkedHashSet<>(List.of("POST /policies"))), eq("alice"), eq("CIAM-1842")))
+                eq(new java.util.LinkedHashSet<>(List.of("POST /policies"))), eq("alice"), eq("CIAM-1842"),
+                eq(ServiceAuthSpec.none())))
                 .thenReturn(run);
 
         mvc.perform(post("/api/v1/services/ciam/test-gen/generate").contentType("application/json").content("""
@@ -81,6 +83,7 @@ class TestGenControllerTest {
         // Returns the run for review — the push/PR is a separate, user-clicked publish step. Jira key is forwarded.
         verify(testGen).generate(eq("ciam"), eq(new RepoRef("APP1", "ciam", "develop", null)),
                 eq(new RepoRef("APP1", "ciam-tests", "develop", null)),
-                eq(new java.util.LinkedHashSet<>(List.of("POST /policies"))), eq("alice"), eq("CIAM-1842"));
+                eq(new java.util.LinkedHashSet<>(List.of("POST /policies"))), eq("alice"), eq("CIAM-1842"),
+                eq(ServiceAuthSpec.none()));
     }
 }

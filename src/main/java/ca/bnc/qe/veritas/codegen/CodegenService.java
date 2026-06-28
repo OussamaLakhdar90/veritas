@@ -124,18 +124,21 @@ public class CodegenService {
      * literal secrets); IDs that must pre-exist come back as TODOs, never invented. Returns the parsed reply
      * (files + todos) so the caller writes the files and merges the TODOs with the implement step's.
      */
-    private JsonNode generateData(TemplateSpec spec, List<String> endpoints, String dataModels, String owner)
-            throws Exception {
+    private JsonNode generateData(TemplateSpec spec, List<String> endpoints, String dataModels, String owner,
+                                  ServiceAuthSpec serviceAuth) throws Exception {
         String contract = "Generate the test DATA artifacts in the TEMPLATE's exact format (framework: "
                 + spec.frameworkName() + "). Secrets MUST be \"$sensitive:ENV_NAME\" references — never literal values. "
                 + "Any record/ID that must already exist in the system goes in todos (do not invent it). "
                 + "Any endpoint path you reference MUST be one of the ENDPOINTS listed — never invent or modify a path. "
                 + "Fixture fields MUST come from DATA_MODELS — never invent a field the DTOs don't declare. "
+                + "If SERVICE_AUTH_SPEC declares token groups, emit config.yml service_auth.{group} with the "
+                + "$sensitive: env refs it lists (never a literal secret). "
                 + "One fenced ```json block last: {\"files\":[{\"path\":string,\"content\":string}],\"todos\":[string]}. "
                 + "Paths relative to the output repo. No prose after.";
         String inputs = promptComposer.data("TEMPLATE", spec.body())
                 + promptComposer.data("ENDPOINTS", endpoints.toString())
-                + promptComposer.data("DATA_MODELS", dataModels);
+                + promptComposer.data("DATA_MODELS", dataModels)
+                + promptComposer.data("SERVICE_AUTH_SPEC", serviceAuth.toPromptBlock());
         String prompt = promptComposer.compose("[GENERATE-DATA]", "generate-test-data.prompt.md",
                 Set.of("1", "15"), inputs, contract);   // terminology + secrets-handling knowledge
         String model = modelSelector.resolveTier(ModelTier.STANDARD);   // data fixtures don't need the DEEP tier
@@ -264,13 +267,22 @@ public class CodegenService {
         return generate(serviceName, serviceRepo, templatePath, outputDir, owner, Set.of());
     }
 
+    public CodegenRun generate(String serviceName, Path serviceRepo, Path templatePath, Path outputDir, String owner,
+                               Set<String> scope) {
+        return generate(serviceName, serviceRepo, templatePath, outputDir, owner, scope, ServiceAuthSpec.none());
+    }
+
     /**
      * As {@link #generate(String, Path, Path, Path, String)}, but {@code scope} narrows generation to the endpoints
      * the user selected in the wizard (by {@code "METHOD /path"} signature). An empty scope generates for the whole
      * service. Scoping the model here also scopes the ENDPOINTS list, DATA_MODELS, and the .http emit consistently.
+     * {@code serviceAuth} declares the service's token groups (0..N) so the generator emits the right
+     * {@code config.yml service_auth} and wires {@code WorldKey.{GROUP}_TOKEN} per endpoint; {@link ServiceAuthSpec#none()}
+     * for a public service. Only env-var <em>names</em> flow here — never secret values.
      */
     public CodegenRun generate(String serviceName, Path serviceRepo, Path templatePath, Path outputDir, String owner,
-                               Set<String> scope) {
+                               Set<String> scope, ServiceAuthSpec serviceAuth) {
+        ServiceAuthSpec auth = serviceAuth == null ? ServiceAuthSpec.none() : serviceAuth;
         Path effectiveTemplate = resolveTemplate(templatePath);   // null → bundled BNC autotests template
         preflight.implementTests(serviceName, serviceRepo, effectiveTemplate, outputDir);
         preflight.requireLlm(llm, "implement-tests");
@@ -282,7 +294,7 @@ public class CodegenService {
 
         try {
             // Step 4 (L): generate the data artifacts first, in the template's format, so tests can reference them.
-            JsonNode dataNode = generateData(spec, endpoints, dataModels, owner);
+            JsonNode dataNode = generateData(spec, endpoints, dataModels, owner, auth);
 
             String outputContract = "Generate automated tests that EXACTLY follow the template (framework: "
                     + spec.frameworkName() + ", language: " + spec.language() + "). Mirror its conventions; "
@@ -290,12 +302,15 @@ public class CodegenService {
                     + "target one of the ENDPOINTS listed (exact HTTP method + path template) — never invent, rename, "
                     + "or modify an endpoint; an endpoint not in ENDPOINTS does not exist on this service. "
                     + "Response-model field names MUST come from DATA_MODELS — never invent a response field that the "
-                    + "DTOs don't declare. One fenced ```json block last: "
+                    + "DTOs don't declare. AUTH: wire tokens per SERVICE_AUTH_SPEC — map each endpoint to its group by "
+                    + "path prefix, pull that group's WorldKey token and use the authed call variant; endpoints in no "
+                    + "group are called without a token. One fenced ```json block last: "
                     + "{\"files\":[{\"path\":string,\"content\":string}],\"todos\":[string]}. "
                     + "Paths relative to the output repo. No prose after.";
             String inputs = promptComposer.data("TEMPLATE", spec.body())
                     + promptComposer.data("ENDPOINTS", endpoints.toString())
-                    + promptComposer.data("DATA_MODELS", dataModels);
+                    + promptComposer.data("DATA_MODELS", dataModels)
+                    + promptComposer.data("SERVICE_AUTH_SPEC", auth.toPromptBlock());
             String prompt = promptComposer.compose("[IMPLEMENT-TESTS]", "implement-api-tests.prompt.md",
                     Set.of("1", "12"), inputs, outputContract);   // terminology, API heuristics
             String model = modelSelector.resolveTier(ModelTier.DEEP);

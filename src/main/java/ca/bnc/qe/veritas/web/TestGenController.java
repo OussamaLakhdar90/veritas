@@ -2,6 +2,7 @@ package ca.bnc.qe.veritas.web;
 
 import java.util.List;
 import java.util.Set;
+import ca.bnc.qe.veritas.codegen.ServiceAuthSpec;
 import ca.bnc.qe.veritas.codegen.plan.TestGenService;
 import ca.bnc.qe.veritas.codegen.plan.TestPlan;
 import ca.bnc.qe.veritas.codegen.plan.TestPlanService;
@@ -51,10 +52,11 @@ public class TestGenController {
     @ResponseStatus(HttpStatus.ACCEPTED)
     public CodegenRun generate(@PathVariable String service, @RequestBody GenerateRequest req) {
         Set<String> scope = req.endpoints() == null ? Set.of() : new java.util.LinkedHashSet<>(req.endpoints());
+        ServiceAuthSpec auth = req.serviceAuth() == null ? ServiceAuthSpec.none() : req.serviceAuth();
         return testGen.generate(service,
                 new RepoRef(req.appId(), req.serviceRepoSlug(), req.serviceBranch(), req.serviceRepoPath()),
                 new RepoRef(req.appId(), req.outputRepoSlug(), req.outputBranch(), req.outputRepoPath()),
-                scope, req.owner() == null ? "api" : req.owner(), req.jiraKey());
+                scope, req.owner() == null ? "api" : req.owner(), req.jiraKey(), auth);
     }
 
     /**
@@ -75,8 +77,10 @@ public class TestGenController {
      * @param outputRepoPath local path override for the output repo (dev)
      * @param endpoints      selected {@code "METHOD /path"} signatures to generate (empty = whole service)
      * @param jiraKey        the work item the tests commit under (required) — prefixes the branch/commit/PR title
+     * @param serviceAuth    the service's declared token groups (0..N); null/absent ⇒ public service, no token. Only
+     *                       env-var names flow through — never secret values.
      */
     public record GenerateRequest(String appId, String serviceRepoSlug, String serviceBranch, String serviceRepoPath,
                                   String outputRepoSlug, String outputBranch, String outputRepoPath,
-                                  List<String> endpoints, String owner, String jiraKey) {}
+                                  List<String> endpoints, String owner, String jiraKey, ServiceAuthSpec serviceAuth) {}
 }
