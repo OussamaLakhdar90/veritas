@@ -96,6 +96,10 @@ public class JavaSpringExtractor {
             blindSpots.add("Source walk failed for " + sourceRoot + ": " + e.getMessage());
         }
 
+        // Coverage honesty: declare web-API code this annotation-based Java analysis cannot cover (Kotlin sources,
+        // functional RouterFunction routing) so an empty/partial model is never mistaken for "this service has no API".
+        addCoverageBlindSpots(sourceRoot, units, blindSpots);
+
         Map<String, String> constants = collectStringConstants(units);   // for resolving constant path refs
 
         // One-hop inter-procedural reachability: which error statuses a (non-controller) service method can throw, so a
@@ -113,10 +117,15 @@ public class JavaSpringExtractor {
                         List<String> bases = classPaths(ctrl, types, constants, blindSpots);
                         List<String> classSecurity = securityOf(ctrl, types);
                         int before = endpoints.size();
+                        // For a plain @Controller, only @ResponseBody methods are REST endpoints; the rest return views.
+                        boolean bodyByDefault = producesBodyByDefault(ctrl, types);
                         Set<String> seenSignatures = new java.util.HashSet<>();
                         for (Object mo : ctrl.getMethods()) {
                             MethodDeclaration method = (MethodDeclaration) mo;
                             seenSignatures.add(signatureKey(method));
+                            if (!bodyByDefault && !has(method, "ResponseBody")) {
+                                continue;   // @Controller handler without @ResponseBody → returns a view, not an API response
+                            }
                             endpoints.addAll(toEndpoints(file, ctrl.getNameAsString(), bases, method, types, referenced,
                                     classSecurity, blindSpots, constants, serviceStatuses));
                         }
@@ -125,6 +134,9 @@ public class JavaSpringExtractor {
                         if (ctrl instanceof ClassOrInterfaceDeclaration coid) {
                             for (MethodDeclaration inherited :
                                     inheritedMappedMethods(coid, types, seenSignatures, new java.util.HashSet<>())) {
+                                if (!bodyByDefault && !has(inherited, "ResponseBody")) {
+                                    continue;   // inherited view handler on a plain @Controller — not an API endpoint
+                                }
                                 endpoints.addAll(toEndpoints(file, ctrl.getNameAsString(), bases, inherited, types,
                                         referenced, classSecurity, blindSpots, constants, serviceStatuses));
                             }
@@ -570,6 +582,44 @@ public class JavaSpringExtractor {
         }
     }
 
+    /**
+     * Records honest coverage blind spots for web-API code outside this extractor's reach: Kotlin controllers (it
+     * parses Java only) and functional {@code RouterFunction} routing (it extracts annotation-based mappings only).
+     * Without these, an all-Kotlin or functional-routing service yields an empty model with no signal of why.
+     */
+    private void addCoverageBlindSpots(Path sourceRoot, List<CompilationUnit> units, List<String> blindSpots) {
+        // (a) Kotlin sources declaring Spring web stereotypes / functional routing — not analysed (Java parser only).
+        try (Stream<Path> files = Files.walk(sourceRoot)) {
+            long ktWeb = files.filter(p -> p.toString().endsWith(".kt"))
+                    .filter(p -> !p.toString().contains(File.separator + "test" + File.separator))
+                    .filter(p -> {
+                        try {
+                            String s = Files.readString(p);
+                            return s.contains("@RestController") || s.contains("@Controller")
+                                    || s.contains("Mapping") || s.contains("RouterFunction") || s.contains("coRouter");
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    })
+                    .count();
+            if (ktWeb > 0) {
+                blindSpots.add(ktWeb + " Kotlin source file(s) declare Spring web routing but were not analysed (this "
+                        + "extractor parses Java only); any endpoints they declare are not covered.");
+            }
+        } catch (Exception ignore) {
+            // best-effort coverage probe — never fail extraction over it
+        }
+        // (b) Functional WebFlux/Web routing (RouterFunction) in Java — not annotation-based, not analysed.
+        boolean functional = units.stream().anyMatch(cu -> {
+            String s = cu.toString();
+            return s.contains("RouterFunctions.route") || s.contains("RouterFunction<");
+        });
+        if (functional) {
+            blindSpots.add("Functional routing (RouterFunction / RouterFunctions.route) was detected but is not analysed "
+                    + "(only annotation-based @RequestMapping endpoints are extracted); those routes are not covered.");
+        }
+    }
+
     private boolean isController(TypeDeclaration<?> td, Map<String, TypeDeclaration<?>> types) {
         if (isControllerAnnotated(td)) {
             return true;
@@ -580,11 +630,39 @@ public class JavaSpringExtractor {
                 return true;
             }
         }
+        // Classic Spring MVC REST style: a plain @Controller whose REST-ness is declared PER-METHOD via @ResponseBody
+        // (very common — e.g. @Controller class + @RequestMapping(method=...) + @ResponseBody on each handler). Only the
+        // @ResponseBody methods are API endpoints; the per-method gate in the extraction loop excludes view handlers.
+        if (has(td, "Controller")) {
+            for (Object mo : td.getMethods()) {
+                if (has((MethodDeclaration) mo, "ResponseBody")) {
+                    return true;
+                }
+            }
+        }
         return false;
     }
 
     private boolean isControllerAnnotated(NodeWithAnnotations<?> n) {
         return has(n, "RestController") || (has(n, "Controller") && has(n, "ResponseBody"));
+    }
+
+    /**
+     * True when every mapped method of this controller implicitly returns a response body — {@code @RestController},
+     * a class-level {@code @ResponseBody}, or a custom stereotype meta-annotated with either. A plain {@code @Controller}
+     * does NOT: there, {@code @ResponseBody} on the individual method is what makes a handler a REST endpoint (vs a view).
+     */
+    private boolean producesBodyByDefault(TypeDeclaration<?> td, Map<String, TypeDeclaration<?>> types) {
+        if (has(td, "RestController") || has(td, "ResponseBody")) {
+            return true;
+        }
+        for (AnnotationExpr a : td.getAnnotations()) {
+            if (types.get(a.getNameAsString()) instanceof AnnotationDeclaration decl
+                    && (has(decl, "RestController") || has(decl, "ResponseBody"))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private List<String> classPaths(TypeDeclaration<?> ctrl, Map<String, TypeDeclaration<?>> types,
