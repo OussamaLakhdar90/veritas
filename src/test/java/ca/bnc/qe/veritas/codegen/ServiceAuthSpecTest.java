@@ -23,7 +23,7 @@ class ServiceAuthSpecTest {
         assertThat(spec.isEmpty()).isFalse();
         assertThat(block)
                 .contains("2 token group").contains("RobotToken").contains("PRIVATE-KEY JWT")
-                .contains("WorldKey.TPPS_TOKEN").contains("WorldKey.APPS_TOKEN")
+                .contains("WorldKey.ROBOT_TOKEN_TPPS").contains("WorldKey.ROBOT_TOKEN_APPS")
                 .contains("TppsTokenHelper").contains("AppsTokenHelper")
                 .contains("0oaTPPS").contains("0oaAPPS").contains("TPPS_PRIVATE_KEY")
                 .contains("tpps:read").contains("apps:write").contains("/tpps").contains("/apps")

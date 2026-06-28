@@ -43,7 +43,9 @@ Non-negotiable rules from the template:
 - **Authentication (`SERVICE_AUTH_SPEC`):** the supplied `SERVICE_AUTH_SPEC` block is authoritative. It lists 0..N
   **token groups** (one per API group). Each authenticates via Okta **private-key JWT** and gets its own
   `{Name}TokenHelper` (static `getToken(testData, scope)` → `RobotToken.getOktaTokenWithPrivateKey`), `{Name}Scope`
-  enum, and `WorldKey.{NAME}_TOKEN`, built from that group's Okta values (token URL, client id, private-key field,
+  enum, and its own token `WorldKey` — a **single** token uses `WorldKey.ROBOT_TOKEN`; with **multiple** tokens each
+  group uses `WorldKey.ROBOT_TOKEN_{NAME}` (e.g. `WorldKey.ROBOT_TOKEN_TPPS`, `WorldKey.ROBOT_TOKEN_APPS`) — built from
+  that group's Okta values (token URL, client id, private-key field,
   scopes). For each endpoint, select the group whose `pathPrefix` matches its path (longest match wins) and use that
   group's token; an endpoint matching **no** group is called without a token. Read each private key from
   `oktaCredentials.json` as a `$sensitive:` field (never a literal). Pass the token (with a data-loaded `context`) into
@@ -155,9 +157,10 @@ public class {Action}Test extends AbstractDataDrivenTest {
 - Pass body to `getRestClient().put(endpoint, body.toString())` or `post(endpoint, jwt, body.toString())`
 
 **For authenticated endpoints** (driven by `SERVICE_AUTH_SPEC`):
-- Resolve the endpoint's group by `pathPrefix` (longest match). Setup step per group (e.g. `t000`):
-  `String token = {Name}TokenHelper.getToken(testData, {Name}Scope.WRITE); pushToTheWorld(WorldKey.{NAME}_TOKEN, token);`
-- In each step: `String jwt = pullFromTheWorld(WorldKey.{NAME}_TOKEN, String.class);`
+- Resolve the endpoint's group by `pathPrefix` (longest match). Setup step per group (e.g. `t000`) — the WorldKey is
+  `WorldKey.ROBOT_TOKEN` for a single token, else `WorldKey.ROBOT_TOKEN_{NAME}`:
+  `String token = {Name}TokenHelper.getToken(testData, {Name}Scope.WRITE); pushToTheWorld(WorldKey.ROBOT_TOKEN_{NAME}, token);`
+- In each step: `String jwt = pullFromTheWorld(WorldKey.ROBOT_TOKEN_{NAME}, String.class);`
 - Authed call variant (positional `jwt` + trailing `context`): `rest().post(endpoint, jwt, body, context)` /
   `rest().get(endpoint, jwt, context)` / `rest().delete(endpoint, jwt, context)`; pick the scope by verb (WRITE for
   create/update, READ for get/list, DELETE for delete).
