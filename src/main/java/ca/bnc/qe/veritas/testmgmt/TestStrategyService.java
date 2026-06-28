@@ -66,6 +66,19 @@ public class TestStrategyService {
                     "An object: levels[], types[], techniques[{name, rationale, riskId, citation}].", Set.of("1", "6")),
             new SectionSpec("exitCriteria", ModelTier.ECONOMY, "CTAL-TM — Exit Criteria",
                     "An array of S.M.A.R.T. exit criteria: criterion, metric, citation.", Set.of("1")),
+            new SectionSpec("entryCriteria", ModelTier.ECONOMY, "CTAL-TM — Entry Criteria",
+                    "An array of S.M.A.R.T. entry criteria gating the start of test execution: criterion, metric, citation.",
+                    Set.of("1")),
+            new SectionSpec("suspensionResumptionCriteria", ModelTier.ECONOMY,
+                    "CTAL-TM — Suspension and Resumption Criteria",
+                    "An object: suspension[] (conditions that halt testing) and resumption[] (conditions to restart), "
+                            + "each a string.", Set.of("1")),
+            new SectionSpec("environmentsAndData", ModelTier.ECONOMY, "CTAL-TM — Test Environment and Test Data",
+                    "An object: environments[] (named test environments needed), testData[] (data sets / approach), "
+                            + "dependencies[] (stubs, services, accounts the testing depends on).", Set.of("1")),
+            new SectionSpec("rolesRaci", ModelTier.ECONOMY, "CTAL-TM — Roles and Responsibilities",
+                    "An array of RACI rows for the key test activities: activity, responsible, accountable, consulted, "
+                            + "informed.", Set.of("1")),
             // selfReview is the adversarial self-critique step: on the cost floor (ECONOMY) small models rubber-stamp
             // the assembled strategy with inflated confidence + shallow blind spots, defeating its purpose. STANDARD
             // (Sonnet 4.6) buys sharper self-criticism for a few cents — the one tier the model-fitness audit flagged.
@@ -156,8 +169,20 @@ public class TestStrategyService {
         if (d.path("testApproach").isObject()) {
             md.append("## Test approach\nLevels & types per the structured deliverable.\n\n");
         }
+        if (d.path("entryCriteria").isArray()) {
+            md.append("## Entry criteria\n").append(d.path("entryCriteria").size()).append(" criteria.\n\n");
+        }
         if (d.path("exitCriteria").isArray()) {
             md.append("## Exit criteria\n").append(d.path("exitCriteria").size()).append(" S.M.A.R.T. criteria.\n\n");
+        }
+        if (d.path("suspensionResumptionCriteria").isObject()) {
+            md.append("## Suspension & resumption criteria\nPer the structured deliverable.\n\n");
+        }
+        if (d.path("environmentsAndData").isObject()) {
+            md.append("## Test environment & data\nEnvironments, data and dependencies per the structured deliverable.\n\n");
+        }
+        if (d.path("rolesRaci").isArray()) {
+            md.append("## Roles (RACI)\n").append(d.path("rolesRaci").size()).append(" activity row(s).\n\n");
         }
         return md.toString();
     }
