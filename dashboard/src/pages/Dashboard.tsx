@@ -6,6 +6,7 @@ import { ShieldCheck, AlertTriangle, Activity, FileText, ArrowRight, Settings as
 import { api, Scan } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, KpiTile, PageHeader, Skeleton } from '../components/ui';
 import type { KpiTrend } from '../components/ui';
+import { Donut, Gauge, Sparkline, severitySlices, SEV_SWATCH } from '../components/charts';
 import { TONE } from '../theme/tokens';
 
 /** Map a validation status to a status-pill tone. */
@@ -36,6 +37,7 @@ export function Dashboard() {
   const defectsQ = useQuery({ queryKey: ['defects'], queryFn: api.defects });
   const servicesQ = useQuery({ queryKey: ['services'], queryFn: api.services });
   const services = servicesQ.data ?? [];
+  const metricsQ = useQuery({ queryKey: ['defect-metrics'], queryFn: api.defectMetrics });
 
   const scans = scansQ.data ?? [];
   const missing = (preflightQ.data ?? []).filter((c) => c.status === 'MISSING');
@@ -84,6 +86,15 @@ export function Dashboard() {
   const recent: Scan[] = [...scans]
     .sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))
     .slice(0, 8);
+
+  // Chart data — the defect-severity donut + resolution gauge come from the metrics endpoint; the sparkline is the
+  // per-validation findings count over the most recent scans (oldest→newest so the line reads left to right).
+  const sevSlices = useMemo(() => severitySlices(metricsQ.data?.bySeverity ?? {}), [metricsQ.data]);
+  const sevTotal = sevSlices.reduce((n, s) => n + s.value, 0);
+  const sparkValues = useMemo(
+    () => [...scans].sort((a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? '')).map((s) => s.totalFindings ?? 0).slice(-8),
+    [scans],
+  );
 
   // Don't render misleading zeros when the core data couldn't load — show a real error instead.
   const loadError = (scansQ.isError && scansQ.error) || (costQ.isError && costQ.error) || (defectsQ.isError && defectsQ.error);
@@ -165,6 +176,45 @@ export function Dashboard() {
           </>
         )}
       </div>
+
+      {/* Charts row — a manager-readable picture of severity mix, resolution, and the findings trend */}
+      {showBanner && (
+        <div className="mb-6 grid gap-4 lg:grid-cols-3">
+          <Card>
+            <CardHeader title={t('overview.chartDefectsSeverity')} subtitle={t('overview.chartDefectsSeveritySub')} />
+            <CardBody className="flex items-center gap-5">
+              <Donut slices={sevSlices} ariaLabel={t('overview.chartDefectsSeverity')}
+                centerValue={sevTotal} centerLabel={t('overview.chartDefectsCenter')} />
+              <div className="min-w-0 flex-1 space-y-1.5 text-[13px]">
+                {sevSlices.length === 0 ? (
+                  <span className="text-muted">—</span>
+                ) : sevSlices.map((s) => (
+                  <div key={s.label} className="flex items-center gap-2">
+                    <span className={`h-2.5 w-2.5 shrink-0 rounded-sm ${SEV_SWATCH[s.label] ?? 'bg-sev-info'}`} />
+                    <span className="text-ink-700">{t(`severity.${s.label}`)}</span>
+                    <span className="ml-auto font-semibold tabular-nums text-ink-900">{s.value}</span>
+                  </div>
+                ))}
+              </div>
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader title={t('overview.chartResolution')} subtitle={t('overview.chartResolutionSub')} />
+            <CardBody className="flex justify-center">
+              <Gauge value={metricsQ.data?.closed ?? 0} max={metricsQ.data?.total ?? 0}
+                ariaLabel={t('overview.chartResolution')} centerLabel={t('overview.chartResolved')} />
+            </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader title={t('overview.chartTrend')} subtitle={t('overview.chartTrendSub')} />
+            <CardBody>
+              <Sparkline values={sparkValues} ariaLabel={t('overview.chartTrend')} />
+            </CardBody>
+          </Card>
+        </div>
+      )}
 
       {/* Pipeline by service — everything the platform holds work for, browsable (find-your-work). */}
       {services.length > 0 && (

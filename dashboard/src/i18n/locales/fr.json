@@ -92,7 +92,22 @@
     "colCost": "Coût est.",
     "colStarted": "Démarré",
     "view": "Voir",
-    "report": "Rapport"
+    "report": "Rapport",
+    "chartDefectsSeverity": "Anomalies par sévérité",
+    "chartDefectsSeveritySub": "pour toutes les anomalies suivies",
+    "chartDefectsCenter": "anomalies",
+    "chartResolution": "Résolution des anomalies",
+    "chartResolutionSub": "fermées sur le total dans Jira",
+    "chartResolved": "résolues",
+    "chartTrend": "Constats par validation",
+    "chartTrendSub": "analyses les plus récentes"
+  },
+  "severity": {
+    "BLOCKER": "Bloquant",
+    "CRITICAL": "Critique",
+    "MAJOR": "Majeur",
+    "MINOR": "Mineur",
+    "INFO": "Info"
   },
   "wizard": {
     "stepService": "Service",
