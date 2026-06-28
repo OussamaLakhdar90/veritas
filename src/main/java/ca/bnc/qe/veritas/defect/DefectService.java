@@ -72,6 +72,8 @@ public class DefectService {
         if (existing.isEmpty()) {
             link.setFindingId(findingId);
             link.setScanId(finding.getScanId());
+            link.setServiceName(serviceName);          // for per-service defect density
+            link.setSeverity(finding.getSeverity());   // for the severity distribution
             link.setCreatedInJira(false);
             link.setCreatedBy(owner);
             try {

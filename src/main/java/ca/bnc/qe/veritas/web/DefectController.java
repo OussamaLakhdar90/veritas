@@ -37,6 +37,12 @@ public class DefectController {
         return defectLinks.findAllByOrderByCreatedAtDesc();
     }
 
+    /** Aggregate defect metrics: totals, open/closed, and distributions by severity, status, and service. */
+    @GetMapping("/defects/metrics")
+    public ca.bnc.qe.veritas.defect.DefectMetrics metrics() {
+        return ca.bnc.qe.veritas.defect.DefectMetrics.of(defectLinks.findAllByOrderByCreatedAtDesc());
+    }
+
     @PostMapping("/findings/{id}/defect")
     @ResponseStatus(HttpStatus.ACCEPTED)   // gated Jira write (pending approval) — matches the other gated triggers
     public DefectLink createDefect(@PathVariable String id, @RequestBody DefectRequest req) {
