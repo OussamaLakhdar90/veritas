@@ -51,6 +51,11 @@ public class CodegenService {
     private final GeneratedFileWriter generatedFileWriter;
     private final HttpRequestsEmitter httpRequestsEmitter;
     private final SuiteXmlEmitter suiteXmlEmitter;
+    private final FrameworkApiExtractor frameworkApiExtractor;
+
+    /** Path to the lsist-test-framework sources; when set, the real WorldKey/method API is injected as evidence. */
+    @org.springframework.beans.factory.annotation.Value("${veritas.codegen.framework-source-dir:}")
+    private String frameworkSourceDir;
 
     public CodegenService(LlmGateway llm, JsonBlockExtractor jsonExtractor, ResponseSchemaValidator schemaValidator,
                           ModelSelector modelSelector, CostRecorder costRecorder, PromptComposer promptComposer,
@@ -59,7 +64,7 @@ public class CodegenService {
                           BuildVerifier buildVerifier, ca.bnc.qe.veritas.preflight.Preflight preflight,
                           PrPublisher prPublisher, ca.bnc.qe.veritas.skill.GateService gateService,
                           GeneratedFileWriter generatedFileWriter, HttpRequestsEmitter httpRequestsEmitter,
-                          SuiteXmlEmitter suiteXmlEmitter) {
+                          SuiteXmlEmitter suiteXmlEmitter, FrameworkApiExtractor frameworkApiExtractor) {
         this.llm = llm;
         this.jsonExtractor = jsonExtractor;
         this.schemaValidator = schemaValidator;
@@ -77,6 +82,16 @@ public class CodegenService {
         this.generatedFileWriter = generatedFileWriter;
         this.httpRequestsEmitter = httpRequestsEmitter;
         this.suiteXmlEmitter = suiteXmlEmitter;
+        this.frameworkApiExtractor = frameworkApiExtractor;
+    }
+
+    /** The deterministic FRAMEWORK_API evidence block (real WorldKey + method signatures), or "" when not configured. */
+    private String resolveFrameworkApi() {
+        if (frameworkSourceDir == null || frameworkSourceDir.isBlank()) {
+            log.debug("FRAMEWORK_API: veritas.codegen.framework-source-dir not set — no framework evidence block injected");
+            return "";
+        }
+        return frameworkApiExtractor.extract(java.nio.file.Path.of(frameworkSourceDir)).orElse("");
     }
 
     /**
@@ -125,7 +140,7 @@ public class CodegenService {
      * (files + todos) so the caller writes the files and merges the TODOs with the implement step's.
      */
     private JsonNode generateData(TemplateSpec spec, List<String> endpoints, String dataModels, String owner,
-                                  ServiceAuthSpec serviceAuth) throws Exception {
+                                  ServiceAuthSpec serviceAuth, String frameworkApi) throws Exception {
         String contract = "Generate the test DATA artifacts in the TEMPLATE's exact format (framework: "
                 + spec.frameworkName() + "). Secrets MUST be \"$sensitive:ENV_NAME\" references — never literal values. "
                 + "Any record/ID that must already exist in the system goes in todos (do not invent it). "
@@ -138,7 +153,8 @@ public class CodegenService {
         String inputs = promptComposer.data("TEMPLATE", spec.body())
                 + promptComposer.data("ENDPOINTS", endpoints.toString())
                 + promptComposer.data("DATA_MODELS", dataModels)
-                + promptComposer.data("SERVICE_AUTH_SPEC", serviceAuth.toPromptBlock());
+                + promptComposer.data("SERVICE_AUTH_SPEC", serviceAuth.toPromptBlock())
+                + (frameworkApi == null || frameworkApi.isBlank() ? "" : promptComposer.data("FRAMEWORK_API", frameworkApi));
         String prompt = promptComposer.compose("[GENERATE-DATA]", "generate-test-data.prompt.md",
                 Set.of("1", "15"), inputs, contract);   // terminology + secrets-handling knowledge
         String model = modelSelector.resolveTier(ModelTier.STANDARD);   // data fixtures don't need the DEEP tier
@@ -291,10 +307,11 @@ public class CodegenService {
         List<String> endpoints = new ArrayList<>();
         code.endpoints().forEach(e -> endpoints.add(e.signature()));
         String dataModels = renderSchemas(code);   // the real DTOs — so the test code doesn't invent response fields
+        String frameworkApi = resolveFrameworkApi();   // the real lsist WorldKey/method API as evidence ("" if not configured)
 
         try {
             // Step 4 (L): generate the data artifacts first, in the template's format, so tests can reference them.
-            JsonNode dataNode = generateData(spec, endpoints, dataModels, owner, auth);
+            JsonNode dataNode = generateData(spec, endpoints, dataModels, owner, auth, frameworkApi);
 
             String outputContract = "Generate automated tests that EXACTLY follow the template (framework: "
                     + spec.frameworkName() + ", language: " + spec.language() + "). Mirror its conventions; "
@@ -310,7 +327,8 @@ public class CodegenService {
             String inputs = promptComposer.data("TEMPLATE", spec.body())
                     + promptComposer.data("ENDPOINTS", endpoints.toString())
                     + promptComposer.data("DATA_MODELS", dataModels)
-                    + promptComposer.data("SERVICE_AUTH_SPEC", auth.toPromptBlock());
+                    + promptComposer.data("SERVICE_AUTH_SPEC", auth.toPromptBlock())
+                    + (frameworkApi.isBlank() ? "" : promptComposer.data("FRAMEWORK_API", frameworkApi));
             String prompt = promptComposer.compose("[IMPLEMENT-TESTS]", "implement-api-tests.prompt.md",
                     Set.of("1", "12"), inputs, outputContract);   // terminology, API heuristics
             String model = modelSelector.resolveTier(ModelTier.DEEP);
