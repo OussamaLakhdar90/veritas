@@ -1,8 +1,30 @@
 import React from 'react';
 import { Loader2, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { cn } from './cn';
 import { TONE } from '../theme/tokens';
+import { isTestEnv } from '../lib/motion';
+
+/** Animate 0 → target on mount; resolves instantly under reduced-motion or in tests (no rAF flicker / flake). */
+function useCountUp(target: number): number {
+  const reduce = useReducedMotion();
+  const [val, setVal] = React.useState<number>(() => (reduce || isTestEnv ? target : 0));
+  React.useEffect(() => {
+    if (reduce || isTestEnv) { setVal(target); return; }
+    let raf = 0;
+    const start = performance.now();
+    const dur = 700;
+    const tick = (now: number) => {
+      const p = Math.min((now - start) / dur, 1);
+      setVal(Math.round(target * (1 - Math.pow(1 - p, 3))));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, reduce]);
+  return val;
+}
 
 /* ── Button ─────────────────────────────────────────────────────────────── */
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -30,7 +52,7 @@ export function Button({ variant = 'primary', size = 'md', loading, className, c
 
 /* ── Card ───────────────────────────────────────────────────────────────── */
 export function Card({ className, children }: { className?: string; children: React.ReactNode }) {
-  return <div className={cn('rounded-xl bg-surface ring-1 ring-border shadow-card', className)}>{children}</div>;
+  return <div className={cn('rounded-xl bg-surface ring-1 ring-border shadow-card transition-shadow duration-200 hover:shadow-pop', className)}>{children}</div>;
 }
 export function CardBody({ className, children }: { className?: string; children: React.ReactNode }) {
   return <div className={cn('p-5', className)}>{children}</div>;
@@ -127,11 +149,14 @@ export function KpiTile({ label, value, sub, tone = 'ink', trend }:
   const toneCls = { ink: 'text-ink-900', brand: 'text-brand', success: 'text-success', warning: 'text-warning', danger: 'text-danger' }[tone];
   const trendTone = trend?.good === undefined ? TONE.muted : trend.good ? TONE.ok : TONE.danger;
   const arrow = trend?.dir === 'up' ? '▲' : trend?.dir === 'down' ? '▼' : '•';
+  const numeric = typeof value === 'number';
+  const counted = useCountUp(numeric ? (value as number) : 0);
+  const shown = numeric ? counted : value;
   return (
-    <Card className="flex-1">
+    <Card className="flex-1 transition-transform duration-200 hover:-translate-y-0.5">
       <CardBody>
         <p className="text-[12px] font-medium uppercase tracking-wide text-muted">{label}</p>
-        <p className={cn('mt-1 text-3xl font-semibold tabular-nums', toneCls)}>{value}</p>
+        <p className={cn('mt-1 text-3xl font-semibold tabular-nums', toneCls)}>{shown}</p>
         {sub && <p className="mt-1 text-[13px] text-muted">{sub}</p>}
         {trend && (
           <span className={cn('mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold', trendTone)}>

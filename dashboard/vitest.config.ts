@@ -11,6 +11,8 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     css: false,
     restoreMocks: true,
+    // framer-motion's ESM touches `window` at module init — inline it so it's transformed in the jsdom context.
+    server: { deps: { inline: ['framer-motion'] } },
     // Keep vitest's defaults (node_modules, dist, …) and also never glob Stryker's mutated sandbox copies.
     exclude: [...configDefaults.exclude, '.stryker-tmp/**'],
     coverage: {

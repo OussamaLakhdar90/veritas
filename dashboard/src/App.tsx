@@ -1,4 +1,5 @@
-import { HashRouter, Routes, Route, NavLink } from 'react-router-dom';
+import { HashRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
+import { motion, MotionConfig } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import {
   LayoutDashboard, ShieldCheck, Bug, ClipboardList, ListChecks, Code2, GitPullRequestArrow,
@@ -26,6 +27,7 @@ import { Gates } from './pages/Gates';
 import { Glossary } from './pages/Glossary';
 import { Settings as SettingsPage } from './pages/Settings';
 import { useDarkMode } from './lib/theme';
+import { pageTransition, navSpring, isTestEnv } from './lib/motion';
 import { setLanguage, type Lang } from './i18n';
 import { CopilotAuthProvider } from './lib/copilotAuth';
 import { BackgroundScansProvider } from './lib/backgroundScans';
@@ -83,10 +85,48 @@ function LanguageToggle() {
   );
 }
 
+/** The routed content area — each route enters with a short fade + settle (skipped in tests for determinism). */
+function RoutedMain() {
+  const location = useLocation();
+  const routes = (
+    <Routes location={location}>
+      <Route path="/" element={<Dashboard />} />
+      <Route path="/onboarding" element={<Onboarding />} />
+      <Route path="/repos" element={<RepoPicker />} />
+      <Route path="/findings/:scanId" element={<Findings />} />
+      <Route path="/defects" element={<Defects />} />
+      <Route path="/test-strategy" element={<TestStrategy />} />
+      <Route path="/test-strategy/:id" element={<StrategyDetail />} />
+      <Route path="/test-conditions/:id" element={<TestConditions />} />
+      <Route path="/multi-source-strategy" element={<MultiSourceStrategy />} />
+      <Route path="/test-plans" element={<TestPlans />} />
+      <Route path="/test-plans/:id" element={<TestPlanDetail />} />
+      <Route path="/test-cases" element={<TestCases />} />
+      <Route path="/review-test-cases" element={<Reviews />} />
+      <Route path="/generate-tests" element={<Codegen />} />
+      <Route path="/generate-api-tests" element={<GenerateApiTests />} />
+      <Route path="/gates" element={<Gates />} />
+      <Route path="/costs" element={<Costs />} />
+      <Route path="/glossary" element={<Glossary />} />
+      <Route path="/settings" element={<SettingsPage />} />
+    </Routes>
+  );
+  return (
+    <main className="min-w-0 flex-1 overflow-auto p-6">
+      {isTestEnv ? routes : (
+        <motion.div key={location.pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageTransition}>
+          {routes}
+        </motion.div>
+      )}
+    </main>
+  );
+}
+
 export function App() {
   const [dark, toggleDark] = useDarkMode();
   const { t } = useTranslation();
   return (
+    <MotionConfig reducedMotion="user">
     <HashRouter>
       <BackgroundScansProvider>
       <div className="flex min-h-screen">
@@ -108,17 +148,23 @@ export function App() {
                 {group.items.map(({ to, key, icon: Icon, end, adv }) => (
                   <NavLink key={to} to={to} end={end}
                     className={({ isActive }) => cn(
-                      'flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors',
-                      isActive ? 'bg-white/10 text-white' : 'text-white/70 hover:bg-white/5 hover:text-white')}>
+                      'relative flex items-center rounded-lg px-3 py-2 text-sm transition-colors',
+                      isActive ? 'text-white' : 'text-white/70 hover:bg-white/5 hover:text-white')}>
                     {({ isActive }) => (<>
-                      <span className={cn('h-4 w-0.5 rounded-full', isActive ? 'bg-brand' : 'bg-transparent')} />
-                      <Icon className="h-[18px] w-[18px]" /> {t(`nav.${key}`)}
-                      {adv && (
-                        <span aria-hidden="true"
-                          className="ml-auto rounded border border-white/20 px-1.5 text-[9px] text-white/45">
-                          {t('nav.adv')}
-                        </span>
+                      {isActive && (
+                        <motion.span layoutId="navActive" transition={navSpring} aria-hidden="true"
+                          className="absolute inset-0 rounded-lg bg-white/10" />
                       )}
+                      <span className="relative z-10 flex flex-1 items-center gap-3">
+                        <span className={cn('h-4 w-0.5 rounded-full', isActive ? 'bg-brand' : 'bg-transparent')} />
+                        <Icon className="h-[18px] w-[18px]" /> {t(`nav.${key}`)}
+                        {adv && (
+                          <span aria-hidden="true"
+                            className="ml-auto rounded border border-white/20 px-1.5 text-[9px] text-white/45">
+                            {t('nav.adv')}
+                          </span>
+                        )}
+                      </span>
                     </>)}
                   </NavLink>
                 ))}
@@ -146,33 +192,12 @@ export function App() {
               </button>
             </span>
           </header>
-          <main className="min-w-0 flex-1 overflow-auto p-6">
-            <Routes>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/onboarding" element={<Onboarding />} />
-              <Route path="/repos" element={<RepoPicker />} />
-              <Route path="/findings/:scanId" element={<Findings />} />
-              <Route path="/defects" element={<Defects />} />
-              <Route path="/test-strategy" element={<TestStrategy />} />
-              <Route path="/test-strategy/:id" element={<StrategyDetail />} />
-              <Route path="/test-conditions/:id" element={<TestConditions />} />
-              <Route path="/multi-source-strategy" element={<MultiSourceStrategy />} />
-              <Route path="/test-plans" element={<TestPlans />} />
-              <Route path="/test-plans/:id" element={<TestPlanDetail />} />
-              <Route path="/test-cases" element={<TestCases />} />
-              <Route path="/review-test-cases" element={<Reviews />} />
-              <Route path="/generate-tests" element={<Codegen />} />
-              <Route path="/generate-api-tests" element={<GenerateApiTests />} />
-              <Route path="/gates" element={<Gates />} />
-              <Route path="/costs" element={<Costs />} />
-              <Route path="/glossary" element={<Glossary />} />
-              <Route path="/settings" element={<SettingsPage />} />
-            </Routes>
-          </main>
+          <RoutedMain />
         </CopilotAuthProvider>
         </div>
       </div>
       </BackgroundScansProvider>
     </HashRouter>
+    </MotionConfig>
   );
 }
