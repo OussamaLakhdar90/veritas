@@ -25,5 +25,12 @@ class TestStrategyServiceTest {
         // structured deliverable: risk register + self-review confidence persisted
         assertThat(strategy.getConfidence()).isEqualTo(80.0);
         assertThat(strategy.getDeliverableJson()).contains("riskRegister").contains("selfReview");
+        // Plan-grade ISTQB sections now generated too (entry/suspension/resumption, environments+data, RACI).
+        assertThat(strategy.getDeliverableJson())
+                .contains("entryCriteria")
+                .contains("suspensionResumptionCriteria")
+                .contains("environmentsAndData")
+                .contains("rolesRaci");
+        assertThat(strategy.getContentMarkdown()).contains("Entry criteria").contains("Roles (RACI)");
     }
 }

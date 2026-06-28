@@ -56,6 +56,16 @@ public class MockLlmGateway implements LlmGateway {
                         + "\"rationale\":\"Bounded fields on create\",\"riskId\":\"R1\",\"citation\":\"CTFL — Boundary Value Analysis\"}]}}";
                 case "exitCriteria" -> "{\"exitCriteria\":[{\"criterion\":\"Every HIGH risk has >=2 executed cases\","
                         + "\"metric\":\"risk coverage %\",\"citation\":\"CTAL-TM — Exit Criteria\"}]}";
+                case "entryCriteria" -> "{\"entryCriteria\":[{\"criterion\":\"Smoke tests pass and test data is "
+                        + "provisioned\",\"metric\":\"smoke pass = 100%\",\"citation\":\"CTAL-TM — Entry Criteria\"}]}";
+                case "suspensionResumptionCriteria" -> "{\"suspensionResumptionCriteria\":{\"suspension\":[\"A blocking "
+                        + "CRITICAL defect halts the affected area\"],\"resumption\":[\"The blocking defect is fixed and "
+                        + "re-tested\"]}}";
+                case "environmentsAndData" -> "{\"environmentsAndData\":{\"environments\":[\"staging-ta\"],"
+                        + "\"testData\":[\"Seeded policy + user data via data-manager\"],\"dependencies\":[\"Auth token "
+                        + "service\"]}}";
+                case "rolesRaci" -> "{\"rolesRaci\":[{\"activity\":\"Test execution\",\"responsible\":\"SDET\","
+                        + "\"accountable\":\"Test lead\",\"consulted\":\"Dev\",\"informed\":\"PO\"}]}";
                 case "selfReview" -> "{\"selfReview\":{\"confidence\":80,\"blindSpots\":[\"No performance NFRs supplied\"]}}";
                 default -> "{\"" + key + "\":\"(mock section)\"}";
             };

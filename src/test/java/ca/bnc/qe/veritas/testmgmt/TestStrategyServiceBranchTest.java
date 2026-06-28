@@ -115,8 +115,8 @@ class TestStrategyServiceBranchTest {
         assertThat(result.getVersion()).isEqualTo(1);
         assertThat(result.getId()).isEqualTo("strat-1");
         assertThat(result.getLineageId()).isEqualTo("strat-1");   // v1 seeds lineage to its own id
-        // 6 section records each at 0.25 -> 1.5 total cost
-        assertThat(result.getEstCostUsd()).isEqualTo(1.5);
+        // 10 section records each at 0.25 -> 2.5 total cost
+        assertThat(result.getEstCostUsd()).isEqualTo(2.5);
         assertThat(result.getConfidence()).isEqualTo(73.0);
         assertThat(result.getDeliverableJson())
                 .contains("summary").contains("scope").contains("riskRegister")
@@ -134,7 +134,7 @@ class TestStrategyServiceBranchTest {
         verify(preflight).requireLlm(llm, "test-strategy");
         verify(schemaValidator).validate(any(), eq("test-strategy.schema.json"));
         verify(repository, times(2)).save(any(TestStrategy.class));   // initial save + lineage re-save
-        verify(llm, times(6)).complete(anyString(), anyString());     // one call per section
+        verify(llm, times(10)).complete(anyString(), anyString());    // one call per section (10 ISTQB sections)
     }
 
     @Test
@@ -146,8 +146,8 @@ class TestStrategyServiceBranchTest {
 
         // selfReview is the ONLY section that passes the assembled-so-far into the prompt as STRATEGY_SO_FAR.
         verify(promptComposer, times(1)).data(eq("STRATEGY_SO_FAR"), anyString());
-        // TEST_BASIS is composed once per section (6 times).
-        verify(promptComposer, times(6)).data(eq("TEST_BASIS"), eq("the basis"));
+        // TEST_BASIS is composed once per section (10 times).
+        verify(promptComposer, times(10)).data(eq("TEST_BASIS"), eq("the basis"));
     }
 
     @Test
