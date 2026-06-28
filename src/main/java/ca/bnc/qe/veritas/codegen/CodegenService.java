@@ -52,10 +52,7 @@ public class CodegenService {
     private final HttpRequestsEmitter httpRequestsEmitter;
     private final SuiteXmlEmitter suiteXmlEmitter;
     private final FrameworkApiExtractor frameworkApiExtractor;
-
-    /** Path to the lsist-test-framework sources; when set, the real WorldKey/method API is injected as evidence. */
-    @org.springframework.beans.factory.annotation.Value("${veritas.codegen.framework-source-dir:}")
-    private String frameworkSourceDir;
+    private final FrameworkSourceLocator frameworkSourceLocator;
 
     public CodegenService(LlmGateway llm, JsonBlockExtractor jsonExtractor, ResponseSchemaValidator schemaValidator,
                           ModelSelector modelSelector, CostRecorder costRecorder, PromptComposer promptComposer,
@@ -64,7 +61,8 @@ public class CodegenService {
                           BuildVerifier buildVerifier, ca.bnc.qe.veritas.preflight.Preflight preflight,
                           PrPublisher prPublisher, ca.bnc.qe.veritas.skill.GateService gateService,
                           GeneratedFileWriter generatedFileWriter, HttpRequestsEmitter httpRequestsEmitter,
-                          SuiteXmlEmitter suiteXmlEmitter, FrameworkApiExtractor frameworkApiExtractor) {
+                          SuiteXmlEmitter suiteXmlEmitter, FrameworkApiExtractor frameworkApiExtractor,
+                          FrameworkSourceLocator frameworkSourceLocator) {
         this.llm = llm;
         this.jsonExtractor = jsonExtractor;
         this.schemaValidator = schemaValidator;
@@ -83,15 +81,41 @@ public class CodegenService {
         this.httpRequestsEmitter = httpRequestsEmitter;
         this.suiteXmlEmitter = suiteXmlEmitter;
         this.frameworkApiExtractor = frameworkApiExtractor;
+        this.frameworkSourceLocator = frameworkSourceLocator;
     }
 
-    /** The deterministic FRAMEWORK_API evidence block (real WorldKey + method signatures), or "" when not configured. */
-    private String resolveFrameworkApi() {
-        if (frameworkSourceDir == null || frameworkSourceDir.isBlank()) {
-            log.debug("FRAMEWORK_API: veritas.codegen.framework-source-dir not set — no framework evidence block injected");
+    /**
+     * The deterministic FRAMEWORK_API evidence block (the real WorldKey constants + method signatures), or "" when the
+     * framework sources can't be auto-detected for {@code outputDir} (the test-repo clone that depends on the lsist
+     * framework). Auto-detected — no user configuration required.
+     */
+    private String resolveFrameworkApi(Path outputDir) {
+        java.util.Optional<FrameworkSourceLocator.LocatedSources> located = frameworkSourceLocator.locate(outputDir);
+        if (located.isEmpty()) {
             return "";
         }
-        return frameworkApiExtractor.extract(java.nio.file.Path.of(frameworkSourceDir)).orElse("");
+        FrameworkSourceLocator.LocatedSources src = located.get();
+        try {
+            return frameworkApiExtractor.extract(src.dir()).orElse("");
+        } finally {
+            if (src.temporary()) {
+                deleteRecursivelyQuietly(src.dir());
+            }
+        }
+    }
+
+    private void deleteRecursivelyQuietly(Path dir) {
+        try (var paths = java.nio.file.Files.walk(dir)) {
+            paths.sorted(java.util.Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    java.nio.file.Files.deleteIfExists(p);
+                } catch (java.io.IOException ignored) {
+                    // best-effort cleanup of the unzipped sources temp dir
+                }
+            });
+        } catch (java.io.IOException e) {
+            log.debug("FRAMEWORK_API: could not clean temp sources dir [{}]: {}", dir, e.getMessage());
+        }
     }
 
     /**
@@ -307,7 +331,7 @@ public class CodegenService {
         List<String> endpoints = new ArrayList<>();
         code.endpoints().forEach(e -> endpoints.add(e.signature()));
         String dataModels = renderSchemas(code);   // the real DTOs — so the test code doesn't invent response fields
-        String frameworkApi = resolveFrameworkApi();   // the real lsist WorldKey/method API as evidence ("" if not configured)
+        String frameworkApi = resolveFrameworkApi(outputDir);   // auto-detected lsist WorldKey/method API ("" if not found)
 
         try {
             // Step 4 (L): generate the data artifacts first, in the template's format, so tests can reference them.
