@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { Bug, RefreshCw, ExternalLink } from 'lucide-react';
 import { api } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, KpiTile, PageHeader, Spinner, Table, Td, Row, SortableTh, useSort } from '../components/ui';
@@ -31,14 +32,15 @@ function severityTone(severity?: string): string {
 }
 
 export function Defects() {
+  const { t } = useTranslation();
   const toast = useToast();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['defects'], queryFn: api.defects });
   const metricsQ = useQuery({ queryKey: ['defect-metrics'], queryFn: api.defectMetrics });
   const sync = useMutation({
     mutationFn: api.syncDefects,
-    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ['defects'] }); qc.invalidateQueries({ queryKey: ['defect-metrics'] }); toast.push('success', `Synced — ${r.updated} updated.`); },
-    onError: (e: Error) => toast.push('error', `Sync failed: ${e.message}`),
+    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ['defects'] }); qc.invalidateQueries({ queryKey: ['defect-metrics'] }); toast.push('success', t('defects.syncSuccess', { count: r.updated })); },
+    onError: (e: Error) => toast.push('error', t('defects.syncFailed', { message: e.message })),
   });
   const m = metricsQ.data;
 
@@ -46,23 +48,23 @@ export function Defects() {
   const rows = sort.sorted;
   return (
     <div>
-      <PageHeader title="Defects" subtitle="Jira defects raised from contract findings, with live status."
+      <PageHeader title={t('defects.title')} subtitle={t('defects.subtitle')}
         actions={<Button variant="secondary" loading={sync.isPending} onClick={() => sync.mutate()}>
-          <RefreshCw className="h-4 w-4" /> Refresh statuses</Button>} />
+          <RefreshCw className="h-4 w-4" /> {t('defects.refreshStatuses')}</Button>} />
 
       {m && m.total > 0 && (
         <div className="mb-6 space-y-4">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <KpiTile label="Total defects" value={m.total} />
-            <KpiTile label="Open" value={m.open} tone={m.open > 0 ? 'warning' : 'success'} />
-            <KpiTile label="Closed" value={m.closed} tone="success" />
+            <KpiTile label={t('defects.totalDefects')} value={m.total} />
+            <KpiTile label={t('defects.open')} value={m.open} tone={m.open > 0 ? 'warning' : 'success'} />
+            <KpiTile label={t('defects.closed')} value={m.closed} tone="success" />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <Card>
-              <CardHeader title="By severity" />
+              <CardHeader title={t('defects.bySeverity')} />
               <CardBody className="flex items-center gap-5">
-                <Donut slices={severitySlices(m.bySeverity)} ariaLabel="Defects by severity"
-                  centerValue={m.total} centerLabel="defects" />
+                <Donut slices={severitySlices(m.bySeverity)} ariaLabel={t('defects.bySeverityAria')}
+                  centerValue={m.total} centerLabel={t('defects.defectsCenterLabel')} />
                 <div className="min-w-0 flex-1 space-y-1.5 text-[13px]">
                   {Object.entries(m.bySeverity).map(([sev, n]) => (
                     <div key={sev} className="flex items-center gap-2">
@@ -74,9 +76,9 @@ export function Defects() {
               </CardBody>
             </Card>
             <Card>
-              <CardHeader title="Resolution" />
+              <CardHeader title={t('defects.resolution')} />
               <CardBody className="flex justify-center">
-                <Gauge value={m.closed} max={m.total} ariaLabel="Defect resolution" centerLabel="resolved" />
+                <Gauge value={m.closed} max={m.total} ariaLabel={t('defects.resolutionAria')} centerLabel={t('defects.resolvedCenterLabel')} />
               </CardBody>
             </Card>
           </div>
@@ -84,20 +86,20 @@ export function Defects() {
       )}
 
       {q.isLoading ? (
-        <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> Loading…</CardBody></Card>
+        <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('defects.loading')}</CardBody></Card>
       ) : q.isError ? (
-        <Card><CardBody className="text-sm text-danger">Could not load defects: {(q.error as Error).message}</CardBody></Card>
+        <Card><CardBody className="text-sm text-danger">{t('defects.loadError', { message: (q.error as Error).message })}</CardBody></Card>
       ) : rows.length === 0 ? (
-        <EmptyState icon={Bug} title="No defects yet"
-          body="Defects you raise from findings will appear here, and Veritas will keep their Jira status in sync." />
+        <EmptyState icon={Bug} title={t('defects.emptyTitle')}
+          body={t('defects.emptyBody')} />
       ) : (
         <Card>
           <CardBody className="p-0">
             <Table head={<>
-              <SortableTh label="Jira" sortKey="jiraKey" sort={sort} />
-              <SortableTh label="Status" sortKey="status" sort={sort} />
-              <SortableTh label="Created by" sortKey="createdBy" sort={sort} />
-              <SortableTh label="Last synced" sortKey="lastSyncedAt" sort={sort} />
+              <SortableTh label={t('defects.colJira')} sortKey="jiraKey" sort={sort} />
+              <SortableTh label={t('defects.colStatus')} sortKey="status" sort={sort} />
+              <SortableTh label={t('defects.colCreatedBy')} sortKey="createdBy" sort={sort} />
+              <SortableTh label={t('defects.colLastSynced')} sortKey="lastSyncedAt" sort={sort} />
             </>}>
               {rows.map((d) => (
                 <Row key={d.id}>
@@ -106,7 +108,7 @@ export function Defects() {
                       ? <a href={d.jiraUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-gold hover:underline">{d.jiraKey} <ExternalLink className="h-3.5 w-3.5" /></a>
                       : (d.jiraKey ?? '—')}
                   </Td>
-                  <Td><Badge className={statusTone(d.jiraStatusCategory)}>{d.jiraStatus ?? (d.createdInJira ? 'Open' : 'Not created')}</Badge></Td>
+                  <Td><Badge className={statusTone(d.jiraStatusCategory)}>{d.jiraStatus ?? (d.createdInJira ? t('defects.statusOpen') : t('defects.statusNotCreated'))}</Badge></Td>
                   <Td className="text-muted">{d.createdBy ?? '—'}</Td>
                   <Td className="text-muted">{d.lastSyncedAt ? new Date(d.lastSyncedAt).toLocaleString() : '—'}</Td>
                 </Row>
