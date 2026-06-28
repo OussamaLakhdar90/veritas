@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import java.nio.file.Path;
 import java.util.Set;
 import ca.bnc.qe.veritas.codegen.CodegenService;
+import ca.bnc.qe.veritas.codegen.ServiceAuthSpec;
 import ca.bnc.qe.veritas.codegen.plan.TestPlanService.RepoRef;
 import ca.bnc.qe.veritas.persistence.CodegenRun;
 import ca.bnc.qe.veritas.persistence.CodegenRunRepository;
@@ -44,7 +45,7 @@ class TestGenServiceTest {
         when(workspace.resolve(eq("APP1"), eq("ciam-tests"), any(), any())).thenReturn(out);
         CodegenRun run = new CodegenRun();
         Set<String> scope = Set.of("POST /policies");
-        when(codegen.generate("ciam", svc, null, out, "alice", scope)).thenReturn(run);
+        when(codegen.generate("ciam", svc, null, out, "alice", scope, ServiceAuthSpec.none())).thenReturn(run);
         when(runs.save(run)).thenReturn(run);
 
         CodegenRun result = service.generate("ciam",
@@ -53,7 +54,7 @@ class TestGenServiceTest {
 
         assertThat(result).isSameAs(run);
         assertThat(run.getJiraKey()).isEqualTo("CIAM-1842");               // recorded for the gated publish
-        verify(codegen).generate("ciam", svc, null, out, "alice", scope);  // tests written into the output copy
+        verify(codegen).generate("ciam", svc, null, out, "alice", scope, ServiceAuthSpec.none());  // written into the output copy
         verify(workspace).cleanup(svc);                                    // read-only service clone dropped
         verify(workspace, never()).cleanup(out);                           // output copy kept alive for publish
     }
@@ -75,7 +76,7 @@ class TestGenServiceTest {
         Path out = Path.of("out");
         when(workspace.resolve(eq("APP1"), eq("ciam"), any(), any())).thenReturn(svc);
         when(workspace.resolve(eq("APP1"), eq("ciam-tests"), any(), any())).thenReturn(out);
-        when(codegen.generate(any(), any(), any(), any(), any(), any())).thenThrow(new RuntimeException("llm down"));
+        when(codegen.generate(any(), any(), any(), any(), any(), any(), any())).thenThrow(new RuntimeException("llm down"));
 
         assertThatThrownBy(() -> service.generate("ciam",
                 new RepoRef("APP1", "ciam", null, null),
