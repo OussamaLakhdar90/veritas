@@ -110,7 +110,7 @@ class CodegenServiceBranchTest {
         service = new CodegenService(llm, jsonExtractor, schemaValidator, modelSelector, costRecorder,
                 promptComposer, objectMapper, templateLearner, javaSpringExtractor, repository, buildVerifier,
                 preflight, prPublisher, gateService, generatedFileWriter, httpRequestsEmitter, suiteXmlEmitter,
-                new FrameworkApiExtractor());
+                new FrameworkApiExtractor(), new FrameworkSourceLocator("", ""));
 
         // Reasonable shared defaults; individual tests tighten what they assert on.
         lenient().when(llm.isAvailable()).thenReturn(true);
