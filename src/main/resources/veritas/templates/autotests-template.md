@@ -37,10 +37,12 @@ layout:
 - `rest()` → the shared `ca.bnc.lsist.core.rest.RestClient` (auto pretty-print logging + sensitive-data redaction)
 - `logStep(String)` · `logResponseStatusCode(int)` · `log` (protected SLF4J)
 - inherited: `pushToTheWorld(WorldKey, Object)` / `pullFromTheWorld(WorldKey, Class<T>)` — share state across `@DependentStep`
-- `WorldKey` is the framework enum (do NOT invent a member). Its keys: `RAW_RESPONSE`, `ACTUAL_RESPONSE`,
-  `EXPECTED_RESPONSE`, `ROBOT_TOKEN`, `TEST_DATA`, `CLIENT_ID`, `CONTEXT`. **There is no dedicated "created-id" key** —
-  carry a created resource's id by keeping its `Response` in `WorldKey.RAW_RESPONSE` and re-reading the id from it in
-  the next step.
+- `WorldKey` is the enum on the framework base class in the **`lsist-test-framework-core`** dependency
+  (`ca.bnc.lsist.core.base.AbstractTestBase` — the same class your `base.Base` extends). **READ that class first to see
+  the available keys and use ONLY those — never invent or assume a member.** (It commonly includes `RAW_RESPONSE`,
+  `ROBOT_TOKEN`, `CONTEXT`, …, but the library is the source of truth — confirm there.) There is no dedicated
+  "created-id" key — carry a created resource's id by keeping its `Response` in `WorldKey.RAW_RESPONSE` and re-reading
+  the id from it in the next step.
 
 ### HTTP — `rest()` (every verb takes a positional `jwt` AND a trailing `context`)
 - `rest().get(endpoint, jwt, context)` · `rest().post(endpoint, jwt, body, context)` ·
