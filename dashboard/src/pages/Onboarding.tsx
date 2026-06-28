@@ -1,11 +1,13 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { CheckCircle2, Circle, AlertTriangle, Settings as SettingsIcon, ShieldCheck, Github } from 'lucide-react';
 import { api } from '../api';
 import { Button, Card, CardBody, CardHeader, PageHeader, Spinner } from '../components/ui';
 
 /** First-run guided setup — a friendlier, step-by-step companion to the Settings page. */
 export function Onboarding() {
+  const { t } = useTranslation();
   const preflight = useQuery({ queryKey: ['preflight'], queryFn: api.preflight });
   const copilot = useQuery({ queryKey: ['copilot'], queryFn: api.copilotStatus });
 
@@ -14,26 +16,26 @@ export function Onboarding() {
 
   return (
     <div className="mx-auto max-w-3xl">
-      <PageHeader title="Welcome to Veritas"
-        subtitle="Three quick steps and you can validate a contract, manage tests and generate automation — all from here." />
+      <PageHeader title={t('onboarding.pageTitle')}
+        subtitle={t('onboarding.pageSubtitle')} />
 
       <Card className="mb-6">
-        <CardHeader title="Get set up" subtitle="Everything is configured in the app — no terminal, no env vars." />
+        <CardHeader title={t('onboarding.getSetUpTitle')} subtitle={t('onboarding.getSetUpSubtitle')} />
         <CardBody className="space-y-4">
           <Step n={1} done={!!copilot.data?.authenticated} loading={copilot.isLoading}
-            icon={Github} title="Sign in to GitHub Copilot"
-            body="Veritas uses Copilot as its reasoning engine. Sign in once on the Settings page."
-            action={<Link to="/settings"><Button size="sm" variant="secondary">Open Settings</Button></Link>} />
+            icon={Github} title={t('onboarding.step1Title')}
+            body={t('onboarding.step1Body')}
+            action={<Link to="/settings"><Button size="sm" variant="secondary">{t('onboarding.openSettings')}</Button></Link>} />
 
           <Step n={2} done={checks.some((c) => c.name.toLowerCase().includes('bitbucket') && c.status === 'OK')}
-            loading={preflight.isLoading} icon={SettingsIcon} title="Connect Bitbucket"
-            body="Add your Bitbucket base URL + token so Veritas can discover and clone your repos."
-            action={<Link to="/settings"><Button size="sm" variant="secondary">Configure</Button></Link>} />
+            loading={preflight.isLoading} icon={SettingsIcon} title={t('onboarding.step2Title')}
+            body={t('onboarding.step2Body')}
+            action={<Link to="/settings"><Button size="sm" variant="secondary">{t('onboarding.configure')}</Button></Link>} />
 
           <Step n={3} done={checks.filter((c) => c.status !== 'OK').length === 0 && checks.length > 0}
-            loading={preflight.isLoading} icon={SettingsIcon} title="Connect Jira / Xray / Confluence"
-            body="Optional, but needed for defects, test management and coverage. Test each connection live in Settings."
-            action={<Link to="/settings"><Button size="sm" variant="secondary">Configure</Button></Link>} />
+            loading={preflight.isLoading} icon={SettingsIcon} title={t('onboarding.step3Title')}
+            body={t('onboarding.step3Body')}
+            action={<Link to="/settings"><Button size="sm" variant="secondary">{t('onboarding.configure')}</Button></Link>} />
         </CardBody>
       </Card>
 
@@ -42,14 +44,14 @@ export function Onboarding() {
           <div className="flex items-start gap-3">
             {ready ? <CheckCircle2 className="mt-0.5 h-5 w-5 text-success" /> : <AlertTriangle className="mt-0.5 h-5 w-5 text-warning" />}
             <div>
-              <p className="text-sm font-semibold text-ink-900">{ready ? "You're ready" : 'Almost there'}</p>
+              <p className="text-sm font-semibold text-ink-900">{ready ? t('onboarding.readyTitle') : t('onboarding.notReadyTitle')}</p>
               <p className="mt-0.5 text-[13px] text-muted">
-                {ready ? 'Run your first contract validation to see findings and an executive report.'
-                  : 'Finish the steps above, then run your first validation.'}
+                {ready ? t('onboarding.readyBody')
+                  : t('onboarding.notReadyBody')}
               </p>
             </div>
           </div>
-          <Link to="/repos"><Button><ShieldCheck className="h-4 w-4" /> Validate a contract</Button></Link>
+          <Link to="/repos"><Button><ShieldCheck className="h-4 w-4" /> {t('onboarding.validateContract')}</Button></Link>
         </CardBody>
       </Card>
 

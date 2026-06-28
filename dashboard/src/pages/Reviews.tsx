@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ListChecks, Play, ChevronRight, ChevronDown, Search } from 'lucide-react';
 import { api, ReviewResult, ReviewDeliverable, ReviewCandidate } from '../api';
@@ -22,14 +23,15 @@ function parseDeliverable(json?: string): ReviewDeliverable | null {
 
 /** The expanded detail for one review: C1–C6 rubric, gaps, corrected steps, self-review. */
 function ReviewDetail({ r }: { r: ReviewResult }) {
+  const { t } = useTranslation();
   const d = parseDeliverable(r.deliverableJson);
-  if (!d) return <p className="text-[13px] text-muted">No detail captured for this review.</p>;
+  if (!d) return <p className="text-[13px] text-muted">{t('reviews.noDetail')}</p>;
   return (
     <div className="space-y-5">
       {d.rubric?.length ? (
         <div>
-          <p className="mb-1.5 text-[13px] font-semibold text-ink-900">Rubric (C1–C6)</p>
-          <Table head={<><Th>Criterion</Th><Th className="text-right">Score</Th><Th>Note</Th></>}>
+          <p className="mb-1.5 text-[13px] font-semibold text-ink-900">{t('reviews.rubricHeading')}</p>
+          <Table head={<><Th>{t('reviews.thCriterion')}</Th><Th className="text-right">{t('reviews.thScore')}</Th><Th>{t('reviews.thNote')}</Th></>}>
             {d.rubric.map((c, i) => (
               <Row key={i}><Td className="font-medium text-ink-900">{c.criterion}</Td>
                 <Td className="text-right tabular-nums text-ink-900">{c.score ?? '—'}</Td>
@@ -40,7 +42,7 @@ function ReviewDetail({ r }: { r: ReviewResult }) {
       ) : null}
       {d.gaps?.length ? (
         <div>
-          <p className="mb-1.5 text-[13px] font-semibold text-ink-900">Gaps ({d.gaps.length})</p>
+          <p className="mb-1.5 text-[13px] font-semibold text-ink-900">{t('reviews.gapsHeading', { count: d.gaps.length })}</p>
           <ul className="list-disc space-y-0.5 pl-5 text-[13px] text-ink-700">
             {d.gaps.map((g, i) => <li key={i}>{g.criterion ? <span className="font-medium">{g.criterion}: </span> : null}{g.issue}{g.citation ? <span className="text-muted"> — {g.citation}</span> : null}</li>)}
           </ul>
@@ -48,8 +50,8 @@ function ReviewDetail({ r }: { r: ReviewResult }) {
       ) : null}
       {d.correctedSteps?.length ? (
         <div>
-          <p className="mb-1.5 text-[13px] font-semibold text-ink-900">Corrected steps</p>
-          <Table head={<><Th>Action</Th><Th>Data</Th><Th>Expected</Th></>}>
+          <p className="mb-1.5 text-[13px] font-semibold text-ink-900">{t('reviews.correctedStepsHeading')}</p>
+          <Table head={<><Th>{t('reviews.thAction')}</Th><Th>{t('reviews.thData')}</Th><Th>{t('reviews.thExpected')}</Th></>}>
             {d.correctedSteps.map((s, i) => (
               <Row key={i}><Td className="text-ink-900">{s.action ?? '—'}</Td><Td className="text-muted">{s.data ?? '—'}</Td><Td className="text-muted">{s.expected ?? '—'}</Td></Row>
             ))}
@@ -58,7 +60,7 @@ function ReviewDetail({ r }: { r: ReviewResult }) {
       ) : null}
       {d.selfReview?.blindSpots?.length ? (
         <div>
-          <p className="mb-1 text-[13px] font-semibold text-ink-900">Blind spots{d.selfReview.confidence != null ? ` · ${Math.round(d.selfReview.confidence)}% confidence` : ''}</p>
+          <p className="mb-1 text-[13px] font-semibold text-ink-900">{t('reviews.blindSpots')}{d.selfReview.confidence != null ? t('reviews.blindSpotsConfidence', { confidence: Math.round(d.selfReview.confidence) }) : ''}</p>
           <ul className="list-disc space-y-0.5 pl-5 text-[13px] text-warning">{d.selfReview.blindSpots.map((b, i) => <li key={i}>{b}</li>)}</ul>
         </div>
       ) : null}
@@ -67,6 +69,7 @@ function ReviewDetail({ r }: { r: ReviewResult }) {
 }
 
 export function Reviews() {
+  const { t } = useTranslation();
   const toast = useToast();
   const { blocked, notice } = useCopilotGate();
   const [jql, setJql] = useState('');
@@ -86,7 +89,7 @@ export function Reviews() {
       setCandidates(c);
       setSelected(new Set(c.map((t) => t.key)));
       setResults(null);
-      if (c.length === 0) toast.push('error', 'The JQL returned no Xray tests.');
+      if (c.length === 0) toast.push('error', t('reviews.toastNoCandidates'));
     },
     onError: (e: Error) => toast.push('error', e.message),
   });
@@ -94,7 +97,7 @@ export function Reviews() {
   const run = useMutation({
     // With candidates loaded, review only the ticked subset; otherwise review every JQL match (the original flow).
     mutationFn: () => api.runReview({ jql, apply, testKeys: candidates ? [...selected] : undefined }),
-    onSuccess: (r) => { setResults(r); qc.invalidateQueries({ queryKey: ['reviews-recent'] }); toast.push('success', `Reviewed ${r.length} test${r.length === 1 ? '' : 's'}.`); },
+    onSuccess: (r) => { setResults(r); qc.invalidateQueries({ queryKey: ['reviews-recent'] }); toast.push('success', t('reviews.toastReviewed', { count: r.length })); },
     onError: (e: Error) => toast.push('error', e.message),
   });
 
@@ -106,19 +109,19 @@ export function Reviews() {
 
   return (
     <div>
-      <PageHeader title="Review test cases" subtitle="Score existing Xray tests against the ISTQB Test-Analyst rubric (C1–C6)." />
+      <PageHeader title={t('reviews.pageTitle')} subtitle={t('reviews.pageSubtitle')} />
 
       <Card className="mb-6">
-        <CardHeader title="New review" subtitle="Find tests by JQL, pick which to review, optionally write the verdict back to Jira." />
+        <CardHeader title={t('reviews.newReviewTitle')} subtitle={t('reviews.newReviewSubtitle')} />
         <CardBody className="space-y-4">
-          <Field label="JQL" hint='Which Xray tests, e.g. project = CIAM AND issuetype = Test — load to pick a subset, or review all'>
+          <Field label={t('reviews.jqlLabel')} hint={t('reviews.jqlHint')}>
             <div className="flex gap-2">
-              <Input placeholder="project = CIAM AND issuetype = Test" value={jql}
+              <Input placeholder={t('reviews.jqlPlaceholder')} value={jql}
                 onChange={(e) => { setJql(e.target.value); setCandidates(null); }}
                 onKeyDown={(e) => e.key === 'Enter' && jql.trim() && !blocked && run.mutate()} />
               <Button variant="secondary" loading={load.isPending}
-                onClick={() => jql.trim() ? load.mutate() : toast.push('error', 'Enter a JQL query.')}>
-                <Search className="h-4 w-4" /> Load tests
+                onClick={() => jql.trim() ? load.mutate() : toast.push('error', t('reviews.toastEnterJql'))}>
+                <Search className="h-4 w-4" /> {t('reviews.loadTests')}
               </Button>
             </div>
           </Field>
@@ -127,19 +130,19 @@ export function Reviews() {
             <div className="rounded-lg border border-border">
               <label className="flex items-center gap-2 px-3 py-2 text-[13px] text-ink-700">
                 <input type="checkbox" className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
-                  checked={allSelected} onChange={toggleAll} aria-label="Select all" />
-                {selected.size} of {candidates.length} selected
+                  checked={allSelected} onChange={toggleAll} aria-label={t('reviews.selectAll')} />
+                {t('reviews.selectedCount', { selected: selected.size, total: candidates.length })}
               </label>
-              <Table head={<><Th /><Th>Key</Th><Th>Summary</Th><Th>Type</Th><Th className="text-right">Steps</Th></>}>
-                {candidates.map((t) => (
-                  <Row key={t.key}>
-                    <Td><input type="checkbox" aria-label={`Select ${t.key}`}
+              <Table head={<><Th /><Th>{t('reviews.thKey')}</Th><Th>{t('reviews.thSummary')}</Th><Th>{t('reviews.thType')}</Th><Th className="text-right">{t('reviews.thSteps')}</Th></>}>
+                {candidates.map((c) => (
+                  <Row key={c.key}>
+                    <Td><input type="checkbox" aria-label={t('reviews.selectKey', { key: c.key })}
                       className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
-                      checked={selected.has(t.key)} onChange={() => toggle(t.key)} /></Td>
-                    <Td className="font-mono text-[12.5px] text-ink-900">{t.key}</Td>
-                    <Td className="text-ink-900">{t.summary ?? '—'}</Td>
-                    <Td className="text-muted">{t.testType ?? '—'}</Td>
-                    <Td className="text-right tabular-nums text-muted">{t.steps}</Td>
+                      checked={selected.has(c.key)} onChange={() => toggle(c.key)} /></Td>
+                    <Td className="font-mono text-[12.5px] text-ink-900">{c.key}</Td>
+                    <Td className="text-ink-900">{c.summary ?? '—'}</Td>
+                    <Td className="text-muted">{c.testType ?? '—'}</Td>
+                    <Td className="text-right tabular-nums text-muted">{c.steps}</Td>
                   </Row>
                 ))}
               </Table>
@@ -150,13 +153,13 @@ export function Reviews() {
             <label className="inline-flex items-center gap-2 text-[13px] text-ink-700">
               <input type="checkbox" className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
                 checked={apply} onChange={(e) => setApply(e.target.checked)} />
-              Apply the corrected steps back to Xray (gated write)
+              {t('reviews.applyLabel')}
             </label>
             <span className="flex items-center gap-3">
               {notice}
               <Button loading={run.isPending} disabled={blocked || (candidates != null && selected.size === 0)}
-                onClick={() => jql.trim() ? run.mutate() : toast.push('error', 'Enter a JQL query.')}>
-                <Play className="h-4 w-4" /> {candidates != null ? `Review selected (${selected.size})` : 'Run review'}
+                onClick={() => jql.trim() ? run.mutate() : toast.push('error', t('reviews.toastEnterJql'))}>
+                <Play className="h-4 w-4" /> {candidates != null ? t('reviews.reviewSelected', { count: selected.size }) : t('reviews.runReview')}
               </Button>
             </span>
           </div>
@@ -166,17 +169,17 @@ export function Reviews() {
       {results == null ? (
         recent.length > 0 ? (
           <Card>
-            <CardHeader title="Recent reviews" subtitle="Previously scored tests — reopen a verdict any time." />
+            <CardHeader title={t('reviews.recentTitle')} subtitle={t('reviews.recentSubtitle')} />
             <CardBody className="p-0"><ResultsTable results={recent} openId={openId} setOpenId={setOpenId} /></CardBody>
           </Card>
         ) : (
-          <EmptyState icon={ListChecks} title="No review yet" body="Run a review above to see per-test verdicts and scores." />
+          <EmptyState icon={ListChecks} title={t('reviews.emptyNoReviewTitle')} body={t('reviews.emptyNoReviewBody')} />
         )
       ) : results.length === 0 ? (
-        <EmptyState icon={ListChecks} title="No tests matched" body="The JQL returned no Xray tests to review." />
+        <EmptyState icon={ListChecks} title={t('reviews.emptyNoMatchTitle')} body={t('reviews.emptyNoMatchBody')} />
       ) : (
         <Card>
-          <CardHeader title={`Results (${results.length})`} />
+          <CardHeader title={t('reviews.resultsTitle', { count: results.length })} />
           <CardBody className="p-0"><ResultsTable results={results} openId={openId} setOpenId={setOpenId} /></CardBody>
         </Card>
       )}
@@ -187,8 +190,9 @@ export function Reviews() {
 /** The expandable per-test verdict table — shared by a fresh run's results and the recent-reviews history. */
 function ResultsTable({ results, openId, setOpenId }:
   { results: ReviewResult[]; openId: string | null; setOpenId: (id: string | null) => void }) {
+  const { t } = useTranslation();
   return (
-    <Table head={<><Th /><Th>Target</Th><Th>Verdict</Th><Th className="text-right">Score</Th><Th className="text-right">Confidence</Th></>}>
+    <Table head={<><Th /><Th>{t('reviews.thTarget')}</Th><Th>{t('reviews.thVerdict')}</Th><Th className="text-right">{t('reviews.thScore')}</Th><Th className="text-right">{t('reviews.thConfidence')}</Th></>}>
       {results.flatMap((r) => {
         const open = openId === r.id;
         const main = (

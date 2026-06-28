@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Search, ShieldCheck, GitBranch, FileCode, Star, Clock,
   Sparkles, Check, AlertTriangle, Loader2 } from 'lucide-react';
@@ -22,6 +23,7 @@ function writeList(key: string, list: string[]) {
 }
 
 export function RepoPicker() {
+  const { t } = useTranslation();
   const [appId, setAppId] = useState('');
   const [repos, setRepos] = useState<Repo[]>([]);
   const [err, setErr] = useState('');
@@ -71,14 +73,14 @@ export function RepoPicker() {
 
   return (
     <div>
-      <PageHeader title="Validate a service"
-        subtitle="Find a service by its app-id, then check whether its API spec matches the code." />
+      <PageHeader title={t('repos.pageTitle')}
+        subtitle={t('repos.pageSubtitle')} />
 
       <Card className="mb-6">
         <CardBody>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
             <div className="flex-1">
-              <Field label="App-id" hint="Your project key in Bitbucket (ask your admin if unsure), e.g. CIAM or APP7571. This is not the repository name.">
+              <Field label={t('repos.appIdLabel')} hint={t('repos.appIdHint')}>
                 <Input placeholder="APP7571" value={appId} autoFocus
                   onChange={(e) => setAppId(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && appId && search()} />
@@ -86,12 +88,12 @@ export function RepoPicker() {
             </div>
             <Button onClick={() => search()} disabled={!appId || loading} className="sm:mb-0.5">
               {loading ? <Spinner className="text-white" /> : <Search className="h-4 w-4" />}
-              {loading ? 'Searching…' : 'Find repos'}
+              {loading ? t('repos.searching') : t('repos.findRepos')}
             </Button>
           </div>
           {recents.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1 text-[12px] text-muted"><Clock className="h-3.5 w-3.5" /> Recent:</span>
+              <span className="inline-flex items-center gap-1 text-[12px] text-muted"><Clock className="h-3.5 w-3.5" /> {t('repos.recent')}</span>
               {recents.map((id) => (
                 <button key={id} onClick={() => search(id)}
                   className="rounded-full px-2.5 py-1 text-[12px] font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50">
@@ -110,8 +112,8 @@ export function RepoPicker() {
             <div className="border-b border-border p-3">
               <div className="relative max-w-xs">
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-                <Input className="pl-8" placeholder={`Filter ${repos.length} repos…`} value={filter}
-                  onChange={(e) => setFilter(e.target.value)} aria-label="Filter repositories" />
+                <Input className="pl-8" placeholder={t('repos.filterPlaceholder', { count: repos.length })} value={filter}
+                  onChange={(e) => setFilter(e.target.value)} aria-label={t('repos.filterAriaLabel')} />
               </div>
             </div>
             <div className="overflow-x-auto">
@@ -119,10 +121,10 @@ export function RepoPicker() {
                 <thead>
                   <tr className="border-b border-border text-left text-[12px] uppercase tracking-wide text-muted">
                     <th className="w-10 px-5 py-3" />
-                    <th className="px-5 py-3 font-medium">Repo</th>
-                    <th className="px-5 py-3 font-medium">Project</th>
-                    <th className="px-5 py-3 font-medium">Default branch</th>
-                    <th className="px-5 py-3 font-medium">Description</th>
+                    <th className="px-5 py-3 font-medium">{t('repos.colRepo')}</th>
+                    <th className="px-5 py-3 font-medium">{t('repos.colProject')}</th>
+                    <th className="px-5 py-3 font-medium">{t('repos.colDefaultBranch')}</th>
+                    <th className="px-5 py-3 font-medium">{t('repos.colDescription')}</th>
                     <th className="px-5 py-3" />
                   </tr>
                 </thead>
@@ -132,7 +134,7 @@ export function RepoPicker() {
                     return (
                       <tr key={r.slug} className="border-b border-border/60 last:border-0 hover:bg-ink-50/60">
                         <td className="px-5 py-3">
-                          <button onClick={() => toggleFav(r)} aria-label={pinned ? 'Unpin' : 'Pin'} title={pinned ? 'Unpin' : 'Pin to top'}>
+                          <button onClick={() => toggleFav(r)} aria-label={pinned ? t('repos.unpin') : t('repos.pin')} title={pinned ? t('repos.unpin') : t('repos.pinToTop')}>
                             <Star className={cn('h-4 w-4', pinned ? 'fill-gold text-gold' : 'text-muted/50 hover:text-muted')} />
                           </button>
                         </td>
@@ -142,14 +144,14 @@ export function RepoPicker() {
                         <td className="px-5 py-3 text-muted">{r.description}</td>
                         <td className="px-5 py-3 text-right">
                           <Button size="sm" variant="secondary" onClick={() => setTarget(r)}>
-                            <ShieldCheck className="h-4 w-4" /> Validate
+                            <ShieldCheck className="h-4 w-4" /> {t('repos.validate')}
                           </Button>
                         </td>
                       </tr>
                     );
                   })}
                   {shown.length === 0 && (
-                    <tr><td colSpan={6} className="px-5 py-6 text-center text-[13px] text-muted">No repos match “{filter}”.</td></tr>
+                    <tr><td colSpan={6} className="px-5 py-6 text-center text-[13px] text-muted">{t('repos.noReposMatch', { filter })}</td></tr>
                   )}
                 </tbody>
               </table>
@@ -158,10 +160,10 @@ export function RepoPicker() {
         </Card>
       ) : (!err && (
         <EmptyState icon={Search}
-          title={searched ? 'No accessible repos found' : 'Search by app-id'}
+          title={searched ? t('repos.emptyFoundTitle') : t('repos.emptySearchTitle')}
           body={searched
-            ? 'No repositories matched that app-id, or your token cannot access them. Check the app-id and your Bitbucket token in Settings.'
-            : 'Enter an app-id above to list the repositories your Bitbucket token can access.'} />
+            ? t('repos.emptyFoundBody')
+            : t('repos.emptySearchBody')} />
       ))}
 
       {target && (
@@ -173,6 +175,7 @@ export function RepoPicker() {
 
 /* ── Guided "Validate" form → live progress stepper (no window.prompt, full visibility) ── */
 function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; onClose: () => void }) {
+  const { t } = useTranslation();
   const toast = useToast();
   const navigate = useNavigate();
   const { track } = useBackgroundScans();
@@ -187,13 +190,13 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
   const [navigated, setNavigated] = useState(false);
 
   const SPEC = {
-    REPO_PATH: { label: 'File in the repo', field: 'Spec path', placeholder: 'openapi.yaml',
-      hint: 'Path to the OpenAPI/Swagger file, relative to the repo root.' },
-    LIVE_DOCS: { label: 'Live /v3/api-docs URL', field: 'API docs URL', placeholder: 'https://service.bnc.ca/v3/api-docs',
-      hint: 'A running endpoint that serves the OpenAPI JSON.' },
-    CONFLUENCE: { label: 'Confluence page', field: 'Confluence page (URL or ID)',
+    REPO_PATH: { label: t('repos.specRepoPathLabel'), field: t('repos.specPathField'), placeholder: 'openapi.yaml',
+      hint: t('repos.specRepoPathHint') },
+    LIVE_DOCS: { label: t('repos.specLiveDocsLabel'), field: t('repos.specLiveDocsField'), placeholder: 'https://service.bnc.ca/v3/api-docs',
+      hint: t('repos.specLiveDocsHint') },
+    CONFLUENCE: { label: t('repos.specConfluenceLabel'), field: t('repos.specConfluenceField'),
       placeholder: 'https://wiki.bnc.ca/spaces/IAMAS/pages/1725186990/… or 1725186990',
-      hint: 'Paste the page URL or just its numeric ID — the page must hold the OpenAPI/Swagger spec.' },
+      hint: t('repos.specConfluenceHint') },
   }[specKind];
 
   // Discover the repo's real branches so the user picks (e.g.) master, not a hardcoded "main".
@@ -225,14 +228,14 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
   useEffect(() => {
     if (done && scan && !navigated) {
       setNavigated(true);
-      toast.push('success', `Scan complete — ${scan.totalFindings} finding${scan.totalFindings === 1 ? '' : 's'}.`);
+      toast.push('success', t('repos.toastScanComplete', { count: scan.totalFindings }));
       onClose();
       navigate(`/findings/${scan.id}`);
     }
   }, [done, scan, navigated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const start = async () => {
-    if (!specRef.trim()) { toast.push('error', `Enter the ${SPEC.field.toLowerCase()}.`); return; }
+    if (!specRef.trim()) { toast.push('error', t('repos.toastEnterField', { field: SPEC.field.toLowerCase() })); return; }
     setStarting(true);
     try {
       const common = { serviceName: repo.slug, appId, repoSlug: repo.slug, branch: branch.trim() || undefined, thoroughness };
@@ -242,7 +245,7 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
       setScanId(res.scanId);
       setStartedAtMs(Date.now());
     } catch (e) {
-      toast.push('error', `Could not start the scan: ${(e as Error).message}`);
+      toast.push('error', t('repos.toastCouldNotStart', { message: (e as Error).message }));
     } finally {
       setStarting(false);
     }
@@ -256,21 +259,21 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
     onClose();
   };
 
-  const title = scanId ? `Validating ${repo.slug}` : `Validate ${repo.slug}`;
+  const title = scanId ? t('repos.modalTitleValidating', { slug: repo.slug }) : t('repos.modalTitleValidate', { slug: repo.slug });
 
   // Footer changes with the phase: form → starting; running → background; failed → retry.
   const footer = !scanId ? (
     <>
-      <Button variant="secondary" onClick={onClose}>Cancel</Button>
-      <Button onClick={start} loading={starting}><ShieldCheck className="h-4 w-4" /> Run validation</Button>
+      <Button variant="secondary" onClick={onClose}>{t('repos.cancel')}</Button>
+      <Button onClick={start} loading={starting}><ShieldCheck className="h-4 w-4" /> {t('repos.runValidation')}</Button>
     </>
   ) : failed ? (
     <>
-      <Button variant="secondary" onClick={onClose}>Close</Button>
-      <Button onClick={retry}><ShieldCheck className="h-4 w-4" /> Try again</Button>
+      <Button variant="secondary" onClick={onClose}>{t('repos.close')}</Button>
+      <Button onClick={retry}><ShieldCheck className="h-4 w-4" /> {t('repos.tryAgain')}</Button>
     </>
   ) : (
-    <Button variant="secondary" onClick={runInBackground}>Run in background</Button>
+    <Button variant="secondary" onClick={runInBackground}>{t('repos.runInBackground')}</Button>
   );
 
   return (
@@ -278,21 +281,20 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
       {!scanId ? (
         <>
           <p className="mb-4 text-[13px] text-muted">
-            Veritas reads the API endpoints and data types defined in <span className="font-medium text-ink-900">{repo.slug}</span>
-            {' '}and compares them to the spec below. Read-only — nothing in the repository is changed. This usually takes 2–5 minutes.
+            {t('repos.modalIntroPrefix')} <span className="font-medium text-ink-900">{repo.slug}</span>
+            {' '}{t('repos.modalIntroSuffix')}
           </p>
           {needsCopilot && !connected && (
             <div className="mb-4 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-[12px] text-ink-700">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-              <span>Not connected to GitHub Copilot — the <strong>AI review &amp; suggested fixes</strong> step will be skipped.
-                You'll still get the full deterministic contract findings and fidelity score.
-                <button type="button" onClick={signIn} className="ml-1 font-medium text-brand-600 hover:underline">Connect now</button>
+              <span>{t('repos.copilotWarnPrefix')} <strong>{t('repos.copilotWarnEmphasis')}</strong>{' '}{t('repos.copilotWarnSuffix')}
+                <button type="button" onClick={signIn} className="ml-1 font-medium text-brand-600 hover:underline">{t('repos.connectNow')}</button>
               </span>
             </div>
           )}
           <div className="space-y-4">
-            <Field label="Branch"
-              hint={branchesQ.isLoading ? 'Loading branches…' : branches.length > 0 ? 'Default branch listed first.' : 'Type the branch (branch list unavailable).'}>
+            <Field label={t('repos.branchLabel')}
+              hint={branchesQ.isLoading ? t('repos.branchHintLoading') : branches.length > 0 ? t('repos.branchHintDefault') : t('repos.branchHintManual')}>
               <div className="relative">
                 <GitBranch className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted z-10" />
                 {branches.length > 0 ? (
@@ -304,15 +306,15 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
                 )}
               </div>
             </Field>
-            <Field label="Spec source" hint="Where the OpenAPI/Swagger spec lives.">
+            <Field label={t('repos.specSourceLabel')} hint={t('repos.specSourceHint')}>
               <Select value={specKind} onChange={(e) => {
                 const k = e.target.value as 'REPO_PATH' | 'LIVE_DOCS' | 'CONFLUENCE';
                 setSpecKind(k);
                 setSpecRef(k === 'REPO_PATH' ? 'openapi.yaml' : '');   // reset the ref to a sensible default per kind
               }}>
-                <option value="REPO_PATH">File in the repo</option>
-                <option value="LIVE_DOCS">Live /v3/api-docs URL</option>
-                <option value="CONFLUENCE">Confluence page</option>
+                <option value="REPO_PATH">{t('repos.specRepoPathLabel')}</option>
+                <option value="LIVE_DOCS">{t('repos.specLiveDocsLabel')}</option>
+                <option value="CONFLUENCE">{t('repos.specConfluenceLabel')}</option>
               </Select>
             </Field>
             <Field label={SPEC.field} hint={SPEC.hint}>
@@ -323,11 +325,11 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
                   onKeyDown={(e) => e.key === 'Enter' && !starting && start()} />
               </div>
             </Field>
-            <Field label="Thoroughness" hint="How deeply the AI reviews the findings — trades cost for rigour.">
+            <Field label={t('repos.thoroughnessLabel')} hint={t('repos.thoroughnessHint')}>
               <Select value={thoroughness} onChange={(e) => setThoroughness(e.target.value as 'ECONOMY' | 'STANDARD' | 'DEEP')}>
-                <option value="ECONOMY">Quick — cheapest model</option>
-                <option value="STANDARD">Standard — balanced (default)</option>
-                <option value="DEEP">Deep — strongest model, for a release gate</option>
+                <option value="ECONOMY">{t('repos.thoroughnessEconomy')}</option>
+                <option value="STANDARD">{t('repos.thoroughnessStandard')}</option>
+                <option value="DEEP">{t('repos.thoroughnessDeep')}</option>
               </Select>
             </Field>
           </div>
@@ -347,6 +349,7 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
 function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDetail, model, failedStage }:
   { stage: string; failed: boolean; errorMessage?: string; onRetry: () => void; startMs: number | null;
     stageDetail?: string; model?: string; failedStage?: string }) {
+  const { t } = useTranslation();
   const total = SCAN_STEPS.length;
   const current = STAGE_ORDER[stage] ?? 0;
   // Which step actually failed comes from the backend's preserved `failedStage` (the live `stage` is overwritten
@@ -359,10 +362,10 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
   const stageElapsed = useStageElapsed(stage, !failed);  // current step's own timer
   // Time-aware reassurance for the slow AI step — escalates instead of insisting "a minute or two" at 8 minutes.
   const aiHint = stageElapsed < 90_000
-    ? 'The AI is reviewing the findings and generating a corrected spec — usually a minute or two.'
+    ? t('repos.aiHintShort')
     : stageElapsed < 240_000
-      ? 'Still generating the corrected spec — larger contracts take a few minutes.'
-      : `This is a large contract — the AI is still working (${formatElapsed(stageElapsed)}). You can keep waiting or run it in the background.`;
+      ? t('repos.aiHintMedium')
+      : t('repos.aiHintLong', { elapsed: formatElapsed(stageElapsed) });
 
   return (
     <div>
@@ -373,10 +376,10 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
           <div className="min-w-0">
             <p className={cn('text-[11px] font-semibold uppercase tracking-wide',
               failed ? 'text-danger' : 'text-gold')}>
-              {failed ? 'Stopped' : stepNo === 0 ? 'Starting…' : `Step ${stepNo} of ${total}`}
+              {failed ? t('repos.statusStopped') : stepNo === 0 ? t('repos.statusStarting') : t('repos.statusStep', { stepNo, total })}
             </p>
             <p className="mt-0.5 truncate text-[14px] font-semibold text-ink-900">
-              {failed ? 'Validation failed' : activeLabel ?? 'Queued…'}
+              {failed ? t('repos.validationFailed') : activeLabel ?? t('repos.queued')}
             </p>
           </div>
           <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-surface/80 px-2.5 py-1 text-[12px] font-medium tabular-nums text-ink-700 ring-1 ring-border">
@@ -392,8 +395,8 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
 
       <p className="mb-3 text-[13px] text-muted">
         {failed
-          ? 'The scan stopped before it finished. Nothing was written to the repo.'
-          : 'Veritas runs entirely from static analysis — your app is never started. Keep watching, or run it in the background.'}
+          ? t('repos.scanStoppedNote')
+          : t('repos.scanStaticNote')}
       </p>
       <ol className="space-y-1">
         {SCAN_STEPS.map((step, i) => {
@@ -428,7 +431,7 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
                   {status === 'active' && (
                     <span className="shrink-0 text-[11px] font-medium tabular-nums text-gold">{formatElapsed(stageElapsed)}</span>
                   )}
-                  {status === 'done' && <span className="shrink-0 text-[11px] font-medium text-success">done</span>}
+                  {status === 'done' && <span className="shrink-0 text-[11px] font-medium text-success">{t('repos.done')}</span>}
                 </div>
                 <p className="text-[12px] text-muted">
                   {isFailedHere && errorMessage ? errorMessage
@@ -441,7 +444,7 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
                       <Sparkles className="h-3 w-3 shrink-0" /> {aiHint}
                     </p>
                     {model && (
-                      <p className="text-[11px] text-muted">Model: <span className="font-medium text-ink-700">{model}</span> · Copilot</p>
+                      <p className="text-[11px] text-muted">{t('repos.modelLabel')} <span className="font-medium text-ink-700">{model}</span> {t('repos.modelSuffix')}</p>
                     )}
                   </div>
                 )}
@@ -453,11 +456,11 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
       {failed && (
         <div className="mt-4 rounded-lg border border-danger/30 bg-danger/5 p-3">
           <p className="flex items-center gap-1.5 text-[13px] font-semibold text-danger">
-            <AlertTriangle className="h-4 w-4" /> Validation failed
+            <AlertTriangle className="h-4 w-4" /> {t('repos.validationFailed')}
           </p>
           {errorMessage && <p className="mt-1 break-words text-[12px] text-ink-700">{errorMessage}</p>}
           <button onClick={onRetry} className="mt-2 text-[12px] font-medium text-brand-600 hover:underline">
-            Adjust the inputs and try again
+            {t('repos.adjustAndRetry')}
           </button>
         </div>
       )}
