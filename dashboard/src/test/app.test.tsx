@@ -60,6 +60,14 @@ describe("App shell — sidebar", () => {
     expect(screen.getByText("QE · National Bank of Canada")).toBeInTheDocument()
   })
 
+  it("shows the simulated-data badge when the active engine is the mock", async () => {
+    stubDashboard()
+    gotoHash("#/")
+    renderApp()
+    // The base handlers report the mock engine, so the header warns that results are simulated.
+    expect(await screen.findByText("Simulated data")).toBeInTheDocument()
+  })
+
   it("renders every nav link from the NAV array as a link role", async () => {
     stubDashboard()
     gotoHash("#/")
