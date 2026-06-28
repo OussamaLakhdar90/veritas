@@ -89,6 +89,54 @@ public class XrayServerClient implements XrayClient {
         }
     }
 
+    @Override
+    public List<XrayRunStatus> getTestRunStatuses(String jql) {
+        String testJql = jql == null || jql.isBlank() ? "issuetype = Test" : jql;
+        log.info("Xray getTestRunStatuses START jql='{}'", testJql);
+        List<XrayRunStatus> out = new ArrayList<>();
+        try {
+            String encoded = URLEncoder.encode(testJql, StandardCharsets.UTF_8);
+            int startAt = 0;
+            int total = 0;
+            int page = 0;
+            do {
+                String uri = base() + "/rest/api/2/search?jql=" + encoded
+                        + "&startAt=" + startAt + "&maxResults=" + PAGE_SIZE + "&fields=summary,status";
+                log.debug("Xray getTestRunStatuses GET {}", uri);
+                String resp = corp.get(uri, authHeaders());
+                JsonNode root = mapper.readTree(resp == null ? "{}" : resp);
+                JsonNode issues = root.path("issues");
+                for (JsonNode issue : issues) {
+                    String key = issue.path("key").asText("");
+                    // SCAFFOLDING: reads the Test issue's workflow status as the available execution signal. For true
+                    // per-run PASS/FAIL, repoint this at the Raven test-run endpoint during live testing — every
+                    // request/response is logged so the exact shape is easy to inspect then.
+                    String status = issue.path("fields").path("status").path("name").asText("");
+                    log.debug("Xray run-status: {} -> '{}'", key, status);
+                    out.add(new XrayRunStatus(key, status));
+                }
+                total = root.path("total").asInt(0);
+                int fetched = issues.size();
+                startAt += fetched;
+                if (fetched == 0) {
+                    break;
+                }
+                if (++page >= MAX_PAGES) {
+                    log.warn("Xray getTestRunStatuses hit the {}-page cap for jql '{}'; truncated at {}.",
+                            MAX_PAGES, testJql, out.size());
+                    break;
+                }
+            } while (startAt < total);
+            log.info("Xray getTestRunStatuses DONE jql='{}' -> {} statuses", testJql, out.size());
+            return out;
+        } catch (Exception e) {
+            // A read-only completion read must never crash the flow — log fully (for live debugging) and return
+            // whatever was gathered so far.
+            log.error("Xray getTestRunStatuses FAILED for jql='{}': {}", testJql, e.getMessage(), e);
+            return out;
+        }
+    }
+
     /** Per-test manual steps via the Raven endpoint; best-effort (a test may have none). */
     private List<XrayStep> fetchSteps(String testKey) {
         List<XrayStep> steps = new ArrayList<>();

@@ -13,6 +13,15 @@ public interface XrayClient {
     /** Find Xray Test issues by JQL, with their manual steps. */
     List<XrayTest> getTestsByJql(String jql);
 
+    /**
+     * Read-only: the latest execution status of the tests a JQL selects — so Veritas can reflect "verified" (not just
+     * "designed") in a completion report. Edition-specific; defaults to empty so an edition that doesn't implement it
+     * degrades gracefully rather than breaking the completion flow.
+     */
+    default List<XrayRunStatus> getTestRunStatuses(String jql) {
+        return List.of();
+    }
+
     /** Create an Xray Test; returns the new test issue key. */
     String createTest(XrayTestSpec spec);
 
