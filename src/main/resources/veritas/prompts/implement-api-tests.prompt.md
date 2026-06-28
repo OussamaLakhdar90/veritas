@@ -40,11 +40,12 @@ Non-negotiable rules from the template:
   `todos` entry naming it; never derive or invent it.
 - **Secrets:** every credential is a `$sensitive:ENV_VAR_NAME` reference — never a literal. (Veritas rejects any
   generated file containing a literal secret before it is written.)
-- **Read the framework before using it.** The test-framework API — `WorldKey`, `RestClient`, `RobotToken`,
-  `AssertionHelper`, `ApiEnvironment`, `Validate` — is defined in the **`lsist-test-framework-api`** /
-  **`lsist-test-framework-core`** dependencies. READ those classes (e.g. `ca.bnc.lsist.core.base.AbstractTestBase` for
-  `WorldKey`) to confirm the exact enum members and method signatures; use ONLY what they declare and never invent a
-  member or method.
+- **Use the real framework API, never assume it.** If a `FRAMEWORK_API` block is supplied below, it is the
+  **AUTHORITATIVE**, extracted list of the framework's real `WorldKey` constants and method signatures — use ONLY those
+  and the exact signatures shown; it **overrides** any example list in the template. If no `FRAMEWORK_API` block is
+  supplied, read the framework classes in the **`lsist-test-framework-api`** / **`lsist-test-framework-core`**
+  dependencies (e.g. `ca.bnc.lsist.core.base.AbstractTestBase` for `WorldKey`) to confirm the exact members/signatures.
+  Either way, never invent a `WorldKey` member or a framework method.
 - **`WorldKey`** specifically: read its enum on the framework base class and use only the keys it declares (commonly
   `RAW_RESPONSE`, `ROBOT_TOKEN`, `CONTEXT`, …; plus `ROBOT_TOKEN_{NAME}` per token for multi-token). There is no
   created-id key — carry a created resource's id by keeping its `Response` in `WorldKey.RAW_RESPONSE` and re-reading the
