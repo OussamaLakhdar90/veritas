@@ -270,6 +270,23 @@ export interface TestGenPlan {
   filesScanned: number
 }
 
+/** How a token group is generated — each reads its credential from a Windows env var the user names. */
+export type Mechanism = 'PRIVATE_KEY' | 'BASIC_AUTH' | 'OAUTH2_CLIENT_CREDENTIALS'
+
+/** One declared token group: a service_auth.{name} → WorldKey.{NAME}_TOKEN. envVars holds env-var NAMES only. */
+export interface ServiceAuthGroup {
+  name: string
+  mechanism: Mechanism
+  envVars: Record<string, string>
+  pathPrefixes: string[]
+  xrayRequirement?: string
+}
+
+/** A service's auth-token declaration: 0 groups = public (no token). Names only — never a secret value. */
+export interface ServiceAuthSpec {
+  groups: ServiceAuthGroup[]
+}
+
 export interface TestCase {
   id: string
   serviceName?: string
@@ -457,8 +474,12 @@ export const api = {
   // jiraKey is required: the branch/commit/PR reference it so the PR links to the work item.
   testGenGenerate: (service: string, body: { appId?: string; serviceRepoSlug?: string; serviceBranch?: string;
     serviceRepoPath?: string; outputRepoSlug?: string; outputBranch?: string; outputRepoPath?: string;
-    endpoints?: string[]; owner?: string; jiraKey?: string }) =>
+    endpoints?: string[]; owner?: string; jiraKey?: string; serviceAuth?: ServiceAuthSpec }) =>
     send<CodegenRun>('POST', `/services/${encodeURIComponent(service)}/test-gen/generate`, body),
+  // The service's saved auth-token profile (declared token groups), for the wizard's Auth-step pre-fill. Names only.
+  authProfile: (service: string, appId: string, serviceRepoSlug: string) =>
+    get<ServiceAuthSpec>(`/services/${encodeURIComponent(service)}/test-gen/auth-profile`
+      + `?appId=${encodeURIComponent(appId)}&serviceRepoSlug=${encodeURIComponent(serviceRepoSlug)}`),
   // Search Jira for the ticket picker: a text query → summary search; a pasted key/URL → exact lookup.
   jiraSearch: (q: string) => get<JiraIssueRef[]>(`/jira/search?q=${encodeURIComponent(q)}`),
 

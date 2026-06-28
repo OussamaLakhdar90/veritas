@@ -23,6 +23,7 @@ function mock(plan: Record<string, unknown> = scratchPlan) {
     http.get('*/api/v1/repos', () => HttpResponse.json([repo])),
     http.get('*/api/v1/repos/:slug/branches', () => HttpResponse.json(['develop', 'main'])),
     http.get('*/api/v1/jira/search', () => HttpResponse.json([jira])),
+    http.get('*/api/v1/services/:service/test-gen/auth-profile', () => HttpResponse.json({ groups: [] })),
     http.post('*/api/v1/services/:service/test-gen/plan', () => HttpResponse.json(plan)),
   )
 }
@@ -36,6 +37,14 @@ async function toPlan(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByPlaceholderText(/Search Jira/), 'policy')
   await user.click(await screen.findByText('CIAM-1842'))
   await user.click(screen.getByRole('button', { name: /See the plan/ }))
+}
+
+/** Continue from the plan step into the Auth step. */
+async function toAuth(user: ReturnType<typeof userEvent.setup>) {
+  await toPlan(user)
+  await screen.findByText("Here's what we'd do")
+  await user.click(screen.getByRole('button', { name: /Continue \(/ }))
+  await screen.findByText('How does this service authenticate?')
 }
 
 describe('Generate API Tests wizard', () => {
@@ -52,7 +61,7 @@ describe('Generate API Tests wizard', () => {
     expect(screen.getByText(/create a fresh set/)).toBeInTheDocument()
     expect(screen.getByText('POST /policies')).toBeInTheDocument()
     expect(screen.getByText('GET /policies/{id}')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Generate selected \(2\)/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Continue \(2\)/ })).toBeInTheDocument()
   })
 
   it('lets the user deselect a gap before generating', async () => {
@@ -63,7 +72,7 @@ describe('Generate API Tests wizard', () => {
     await screen.findByText("Here's what we'd do")
 
     await user.click(screen.getByLabelText('Select POST /policies'))
-    expect(screen.getByRole('button', { name: /Generate selected \(1\)/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Continue \(1\)/ })).toBeInTheDocument()
   })
 
   it('shows the refactor banner and a covered row when an existing test repo is scanned', async () => {
@@ -83,7 +92,7 @@ describe('Generate API Tests wizard', () => {
     expect(screen.getByText('covered')).toBeInTheDocument()
     expect(screen.getByText('flag')).toBeInTheDocument()
     // Only the single GAP is selectable/selected by default.
-    expect(screen.getByRole('button', { name: /Generate selected \(1\)/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Continue \(1\)/ })).toBeInTheDocument()
   })
 
   it('generates the selected tests, then opens a PR only on an explicit click', async () => {
@@ -93,11 +102,11 @@ describe('Generate API Tests wizard', () => {
       todos: JSON.stringify(['A valid policy id must exist before these run']),
     }
     let published = false
-    let genBody: { jiraKey?: string; endpoints?: string[] } = {}
+    let genBody: { jiraKey?: string; endpoints?: string[]; serviceAuth?: { groups: unknown[] } } = {}
     mock()
     server.use(
       http.post('*/api/v1/services/:service/test-gen/generate', async ({ request }) => {
-        genBody = (await request.json()) as { jiraKey?: string; endpoints?: string[] }
+        genBody = (await request.json()) as typeof genBody
         return HttpResponse.json(genRun)
       }),
       http.post('*/api/v1/codegen-runs/:id/publish', () => {
@@ -107,18 +116,18 @@ describe('Generate API Tests wizard', () => {
     )
     const user = userEvent.setup()
     renderPage(<GenerateApiTests />, { path: '/generate-api-tests', route: '/generate-api-tests' })
-    await toPlan(user)
-    await screen.findByText("Here's what we'd do")
+    await toAuth(user)
 
-    // Generate the two gaps → lands on the review step with the files + the not-compiled note.
+    // Public service (default no token) → generate the two gaps → lands on the review step.
     await user.click(screen.getByRole('button', { name: /Generate selected \(2\)/ }))
     expect(await screen.findByText('Review & open a pull request')).toBeInTheDocument()
     expect(screen.getByText('src/test/java/PolicyTest.java')).toBeInTheDocument()
     expect(screen.getByText(/weren't compiled here/)).toBeInTheDocument()
     expect(screen.getByText(/A valid policy id must exist/)).toBeInTheDocument()
 
-    // The selected ticket was forwarded so the commit/branch/PR reference it.
+    // The selected ticket was forwarded; serviceAuth (public ⇒ no groups) is included.
     expect(genBody.jiraKey).toBe('CIAM-1842')
+    expect(genBody.serviceAuth).toEqual({ groups: [] })
 
     // No PR yet — pushing is a separate, explicit click.
     expect(published).toBe(false)
@@ -129,6 +138,50 @@ describe('Generate API Tests wizard', () => {
     // The hand-off: tell the user to clone the branch and test it locally (the EC2 model).
     expect(screen.getByText('Next: test it locally')).toBeInTheDocument()
     expect(screen.getByText(/git checkout veritas\/ciam-policies-tests/)).toBeInTheDocument()
+  })
+
+  it('declares a token group with an env-var name and forwards it as serviceAuth', async () => {
+    const genRun = { id: 'cg-2', serviceName: 'ciam-policies', buildStatus: 'SKIPPED', filesWritten: '[]', todos: '[]' }
+    let genBody: { serviceAuth?: { groups: { name: string; mechanism: string; envVars: Record<string, string> }[] } } = {}
+    mock()
+    server.use(
+      http.post('*/api/v1/services/:service/test-gen/generate', async ({ request }) => {
+        genBody = (await request.json()) as typeof genBody
+        return HttpResponse.json(genRun)
+      }),
+    )
+    const user = userEvent.setup()
+    renderPage(<GenerateApiTests />, { path: '/generate-api-tests', route: '/generate-api-tests' })
+    await toAuth(user)
+
+    // Pick "One token", type the env-var name → the setx checklist shows it; default mechanism is a private key.
+    await user.click(screen.getByRole('button', { name: 'One token' }))
+    const envInput = await screen.findByLabelText(/private[Kk]ey env var/)
+    await user.type(envInput, 'CIAM_PRIMARY_PRIVATE_KEY')
+    expect(screen.getByText(/setx CIAM_PRIMARY_PRIVATE_KEY/)).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /Generate selected/ }))
+    await screen.findByText('Review & open a pull request')
+
+    expect(genBody.serviceAuth?.groups).toHaveLength(1)
+    expect(genBody.serviceAuth?.groups[0].mechanism).toBe('PRIVATE_KEY')
+    expect(genBody.serviceAuth?.groups[0].envVars.privateKey).toBe('CIAM_PRIMARY_PRIVATE_KEY')
+  })
+
+  it('encodes basic-auth base64 locally in the browser', async () => {
+    mock()
+    const user = userEvent.setup()
+    renderPage(<GenerateApiTests />, { path: '/generate-api-tests', route: '/generate-api-tests' })
+    await toAuth(user)
+
+    await user.click(screen.getByRole('button', { name: 'One token' }))
+    await user.selectOptions(screen.getByLabelText('How is it generated?'), 'BASIC_AUTH')
+    await user.type(screen.getByPlaceholderText('svc-account'), 'svc')
+    await user.type(screen.getByPlaceholderText('••••••••'), 'pw')
+    await user.click(screen.getByRole('button', { name: 'Encode' }))
+
+    // btoa('svc:pw') === 'c3ZjOnB3' — computed in-browser, no network call.
+    expect(await screen.findByText('c3ZjOnB3')).toBeInTheDocument()
   })
 
   it('requires a Jira ticket before the plan can be seen', async () => {
@@ -153,6 +206,7 @@ describe('Generate API Tests wizard', () => {
       http.get('*/api/v1/repos', () => HttpResponse.json([repo])),
       http.get('*/api/v1/repos/:slug/branches', () => HttpResponse.json(['develop'])),
       http.get('*/api/v1/jira/search', () => HttpResponse.json([jira])),
+      http.get('*/api/v1/services/:service/test-gen/auth-profile', () => HttpResponse.json({ groups: [] })),
       http.post('*/api/v1/services/:service/test-gen/plan', () =>
         HttpResponse.json({ detail: 'Could not clone the repo', status: 500 }, { status: 500 })),
     )
