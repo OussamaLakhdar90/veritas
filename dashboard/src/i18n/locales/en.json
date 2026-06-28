@@ -92,7 +92,22 @@
     "colCost": "Est. cost",
     "colStarted": "Started",
     "view": "View",
-    "report": "Report"
+    "report": "Report",
+    "chartDefectsSeverity": "Defects by severity",
+    "chartDefectsSeveritySub": "across all tracked defects",
+    "chartDefectsCenter": "defects",
+    "chartResolution": "Defect resolution",
+    "chartResolutionSub": "closed vs total in Jira",
+    "chartResolved": "resolved",
+    "chartTrend": "Findings per validation",
+    "chartTrendSub": "most recent scans"
+  },
+  "severity": {
+    "BLOCKER": "Blocker",
+    "CRITICAL": "Critical",
+    "MAJOR": "Major",
+    "MINOR": "Minor",
+    "INFO": "Info"
   },
   "wizard": {
     "stepService": "Service",

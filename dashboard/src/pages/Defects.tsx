@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bug, RefreshCw, ExternalLink } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, Card, CardBody, EmptyState, KpiTile, PageHeader, Spinner, Table, Td, Row, SortableTh, useSort } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, KpiTile, PageHeader, Spinner, Table, Td, Row, SortableTh, useSort } from '../components/ui';
+import { Donut, Gauge, severitySlices } from '../components/charts';
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
 import { DefectLink } from '../api';
@@ -56,16 +57,29 @@ export function Defects() {
             <KpiTile label="Open" value={m.open} tone={m.open > 0 ? 'warning' : 'success'} />
             <KpiTile label="Closed" value={m.closed} tone="success" />
           </div>
-          <Card>
-            <CardBody className="flex flex-wrap items-center gap-x-6 gap-y-2">
-              <span className="text-[13px] font-medium text-ink-900">By severity</span>
-              {Object.entries(m.bySeverity).map(([sev, n]) => (
-                <span key={sev} className="inline-flex items-center gap-1.5 text-[13px] text-muted">
-                  <Badge className={severityTone(sev)}>{sev}</Badge> {n}
-                </span>
-              ))}
-            </CardBody>
-          </Card>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Card>
+              <CardHeader title="By severity" />
+              <CardBody className="flex items-center gap-5">
+                <Donut slices={severitySlices(m.bySeverity)} ariaLabel="Defects by severity"
+                  centerValue={m.total} centerLabel="defects" />
+                <div className="min-w-0 flex-1 space-y-1.5 text-[13px]">
+                  {Object.entries(m.bySeverity).map(([sev, n]) => (
+                    <div key={sev} className="flex items-center gap-2">
+                      <Badge className={severityTone(sev)}>{sev}</Badge>
+                      <span className="ml-auto font-semibold tabular-nums text-ink-900">{n}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardBody>
+            </Card>
+            <Card>
+              <CardHeader title="Resolution" />
+              <CardBody className="flex justify-center">
+                <Gauge value={m.closed} max={m.total} ariaLabel="Defect resolution" centerLabel="resolved" />
+              </CardBody>
+            </Card>
+          </div>
         </div>
       )}
 
