@@ -31,6 +31,12 @@ public class ReviewController {
         return repository.findByTargetKeyOrderByCreatedAtDesc(targetKey);
     }
 
+    /** Recent reviews across all targets — so prior verdicts are reopenable from the Reviews page, not lost. */
+    @GetMapping("/reviews/recent")
+    public List<ReviewResult> recent() {
+        return repository.findTop50ByOrderByCreatedAtDesc();
+    }
+
     /** The Xray tests a JQL selects (no review yet) — so the UI can show them and let the user pick a subset. */
     @GetMapping("/reviews/candidates")
     public List<TestSummary> candidates(@RequestParam String jql) {

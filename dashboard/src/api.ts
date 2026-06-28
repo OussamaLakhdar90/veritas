@@ -484,6 +484,8 @@ export const api = {
   getStrategySnapshot: (snapshotId: string) =>
     get<StrategyPreview>(`/multi-source-strategy/snapshots/${encodeURIComponent(snapshotId)}`),
   reviews: (targetKey: string) => get<ReviewResult[]>(`/reviews?targetKey=${encodeURIComponent(targetKey)}`),
+  // Recent reviews across all targets — so prior verdicts are reopenable from the Reviews page, not lost.
+  recentReviews: () => get<ReviewResult[]>('/reviews/recent'),
   // List the Xray tests a JQL selects (no review yet) so the user can pick which to review.
   reviewCandidates: (jql: string) =>
     get<ReviewCandidate[]>(`/reviews/candidates?jql=${encodeURIComponent(jql)}`),

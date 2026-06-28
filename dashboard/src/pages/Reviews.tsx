@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ListChecks, Play, ChevronRight, ChevronDown, Search } from 'lucide-react';
 import { api, ReviewResult, ReviewDeliverable, ReviewCandidate } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, PageHeader, Table, Td, Th, Row } from '../components/ui';
@@ -75,6 +75,9 @@ export function Reviews() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [results, setResults] = useState<ReviewResult[] | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  const qc = useQueryClient();
+  const recentQ = useQuery({ queryKey: ['reviews-recent'], queryFn: api.recentReviews });
+  const recent = recentQ.data ?? [];
 
   // Optional pre-step: list the tests the JQL selects so the user can pick a subset (defaults to all selected).
   const load = useMutation({
@@ -91,7 +94,7 @@ export function Reviews() {
   const run = useMutation({
     // With candidates loaded, review only the ticked subset; otherwise review every JQL match (the original flow).
     mutationFn: () => api.runReview({ jql, apply, testKeys: candidates ? [...selected] : undefined }),
-    onSuccess: (r) => { setResults(r); toast.push('success', `Reviewed ${r.length} test${r.length === 1 ? '' : 's'}.`); },
+    onSuccess: (r) => { setResults(r); qc.invalidateQueries({ queryKey: ['reviews-recent'] }); toast.push('success', `Reviewed ${r.length} test${r.length === 1 ? '' : 's'}.`); },
     onError: (e: Error) => toast.push('error', e.message),
   });
 
@@ -161,33 +164,46 @@ export function Reviews() {
       </Card>
 
       {results == null ? (
-        <EmptyState icon={ListChecks} title="No review yet" body="Run a review above to see per-test verdicts and scores." />
+        recent.length > 0 ? (
+          <Card>
+            <CardHeader title="Recent reviews" subtitle="Previously scored tests — reopen a verdict any time." />
+            <CardBody className="p-0"><ResultsTable results={recent} openId={openId} setOpenId={setOpenId} /></CardBody>
+          </Card>
+        ) : (
+          <EmptyState icon={ListChecks} title="No review yet" body="Run a review above to see per-test verdicts and scores." />
+        )
       ) : results.length === 0 ? (
         <EmptyState icon={ListChecks} title="No tests matched" body="The JQL returned no Xray tests to review." />
       ) : (
         <Card>
           <CardHeader title={`Results (${results.length})`} />
-          <CardBody className="p-0">
-            <Table head={<><Th /><Th>Target</Th><Th>Verdict</Th><Th className="text-right">Score</Th><Th className="text-right">Confidence</Th></>}>
-              {results.flatMap((r) => {
-                const open = openId === r.id;
-                const main = (
-                  <Row key={r.id} className="cursor-pointer" onClick={() => setOpenId(open ? null : r.id)}>
-                    <Td className="text-muted">{open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</Td>
-                    <Td className="font-mono text-[12.5px] text-ink-900">{r.targetKey ?? '—'}</Td>
-                    <Td><Badge className={verdictTone(r.verdict)}>{r.verdict ?? '—'}</Badge></Td>
-                    <Td className="text-right tabular-nums text-ink-900">{r.score != null ? r.score : '—'}</Td>
-                    <Td className="text-right tabular-nums text-muted">{r.confidence != null ? `${Math.round(r.confidence)}%` : '—'}</Td>
-                  </Row>
-                );
-                return open
-                  ? [main, <Row key={`${r.id}-detail`}><Td colSpan={5} className="bg-ink-50/40"><ReviewDetail r={r} /></Td></Row>]
-                  : [main];
-              })}
-            </Table>
-          </CardBody>
+          <CardBody className="p-0"><ResultsTable results={results} openId={openId} setOpenId={setOpenId} /></CardBody>
         </Card>
       )}
     </div>
+  );
+}
+
+/** The expandable per-test verdict table — shared by a fresh run's results and the recent-reviews history. */
+function ResultsTable({ results, openId, setOpenId }:
+  { results: ReviewResult[]; openId: string | null; setOpenId: (id: string | null) => void }) {
+  return (
+    <Table head={<><Th /><Th>Target</Th><Th>Verdict</Th><Th className="text-right">Score</Th><Th className="text-right">Confidence</Th></>}>
+      {results.flatMap((r) => {
+        const open = openId === r.id;
+        const main = (
+          <Row key={r.id} className="cursor-pointer" onClick={() => setOpenId(open ? null : r.id)}>
+            <Td className="text-muted">{open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</Td>
+            <Td className="font-mono text-[12.5px] text-ink-900">{r.targetKey ?? '—'}</Td>
+            <Td><Badge className={verdictTone(r.verdict)}>{r.verdict ?? '—'}</Badge></Td>
+            <Td className="text-right tabular-nums text-ink-900">{r.score != null ? r.score : '—'}</Td>
+            <Td className="text-right tabular-nums text-muted">{r.confidence != null ? `${Math.round(r.confidence)}%` : '—'}</Td>
+          </Row>
+        );
+        return open
+          ? [main, <Row key={`${r.id}-detail`}><Td colSpan={5} className="bg-ink-50/40"><ReviewDetail r={r} /></Td></Row>]
+          : [main];
+      })}
+    </Table>
   );
 }

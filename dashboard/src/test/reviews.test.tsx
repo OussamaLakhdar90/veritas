@@ -20,6 +20,15 @@ function renderReviews() {
 }
 
 describe('Reviews page', () => {
+  it('shows recent reviews on load so prior verdicts are reopenable', async () => {
+    server.use(http.get('*/api/v1/reviews/recent', () => HttpResponse.json([
+      result({ id: 'rev-old', targetKey: 'CIAM-9', verdict: 'PASS', score: 90, confidence: 88 }),
+    ])))
+    renderReviews()
+    expect(await screen.findByText('Recent reviews')).toBeInTheDocument()
+    expect(screen.getByText('CIAM-9')).toBeInTheDocument()
+  })
+
   it('renders the form and the empty state before any review is run', () => {
     renderReviews()
 

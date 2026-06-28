@@ -33,6 +33,13 @@ class ReviewControllerTest {
     }
 
     @Test
+    void recentListsTheLatestReviewsAcrossTargets() throws Exception {
+        when(repository.findTop50ByOrderByCreatedAtDesc()).thenReturn(List.of(new ca.bnc.qe.veritas.persistence.ReviewResult()));
+        mvc.perform(get("/api/v1/reviews/recent")).andExpect(status().isOk());
+        verify(repository).findTop50ByOrderByCreatedAtDesc();
+    }
+
+    @Test
     void runReviewReturns202AndDelegates() throws Exception {
         when(service.reviewByJql(eq("project = CIAM"), any(), eq(false), any())).thenReturn(List.of());
         mvc.perform(post("/api/v1/reviews").contentType("application/json")

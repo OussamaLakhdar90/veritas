@@ -11,4 +11,6 @@ export const handlers = [
   // The service-picker datalist fetches this on any page that uses ServiceField; default to empty so unrelated
   // page tests don't see an unhandled request. Tests that exercise the picker override it via server.use(...).
   http.get('*/api/v1/services', () => HttpResponse.json([])),
+  // The Reviews page loads recent verdicts on mount; default empty so unrelated tests don't see an unhandled request.
+  http.get('*/api/v1/reviews/recent', () => HttpResponse.json([])),
 ]

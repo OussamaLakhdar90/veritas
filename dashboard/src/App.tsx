@@ -17,6 +17,7 @@ import { TestCases } from './pages/TestCases';
 import { Reviews } from './pages/Reviews';
 import { Codegen } from './pages/Codegen';
 import { GenerateApiTests } from './pages/GenerateApiTests';
+import { EngineBadge } from './components/EngineBadge';
 import { Costs } from './pages/Costs';
 import { Defects } from './pages/Defects';
 import { Gates } from './pages/Gates';
@@ -80,8 +81,11 @@ export function App() {
         <div className="flex min-w-0 flex-1 flex-col">
         <CopilotAuthProvider>
           <header className="flex h-14 items-center justify-between border-b border-border bg-surface px-6">
-            <span className="rounded-full bg-ink-50 px-2.5 py-1 text-[11px] font-medium text-muted ring-1 ring-border">
-              Local · 127.0.0.1
+            <span className="flex items-center gap-2">
+              <span className="rounded-full bg-ink-50 px-2.5 py-1 text-[11px] font-medium text-muted ring-1 ring-border">
+                Local · 127.0.0.1
+              </span>
+              <EngineBadge />
             </span>
             <button onClick={toggleDark} aria-label="Toggle theme"
               className="grid h-9 w-9 place-items-center rounded-md text-ink-600 hover:bg-ink-50">
