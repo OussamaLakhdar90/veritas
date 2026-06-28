@@ -1,130 +1,231 @@
 ---
 framework:
-  name: "TestNG + Rest-Assured (ca.bnc.lsist.api)"
+  name: "TestNG + REST Assured (ca.bnc.lsist)"
   language: java
 buildTool: maven
 verifyCommand: "mvn -q -DskipTests test-compile"
 packageRoot: "{serviceName}Api"
 layout:
   models: "src/main/java/models"
+  base: "src/main/java/base"
+  utils: "src/main/java/utils"
+  pretest: "src/test/java/{serviceName}Api/pretest"
   baseTests: "src/test/java/{serviceName}Api/test/base"
   happyPath: "src/test/java/{serviceName}Api/test/happyPath"
   errorCase: "src/test/java/{serviceName}Api/test/errorCase"
-  data: "src/test/resources/data"
+  data: "src/test/resources/data/{env}"
   suites: "suites"
 ---
 
-# Code Templates — Unified Reference
+# Code Templates — BNC `lsist` API test framework
 
-<!-- Reconstructed from the BNC contract-validator reference (templates.md v1.5) | vendored into Veritas as the
-     default `templateSource` for implement-tests. The LLM MUST mirror this template and introduce no pattern
-     absent from it. Framework: TestNG + Rest-Assured over ca.bnc.lsist.api (the BNC autotests framework). -->
+<!-- Verified against the real framework: project APP7488 / lsist-test-framework-api-template (the copy-and-rename
+     scaffold) which consumes the ca.bnc.lsist:lsist-test-framework-api library (lsist-api 1.0.1 / lsist-bom 1.0.6 ->
+     ca.bnc.lsist.core + ca.bnc.lsist.api), Java 21, TestNG + REST Assured. The LLM MUST mirror this template and
+     introduce no pattern absent from it. -->
 
-> **Single parameterized file** replacing `java-test-templates.md`, `data-file-templates.md`, and `suite-templates.md`.
-> Loaded **once** when the agent reaches the implementation phase. Covers all steps: Java classes, JSON data, suite XML.
-
----
-
-## Placeholder Legend
-
-| Placeholder | Meaning | Example |
-|-------------|---------|---------|
-| `{serviceName}` | camelCase package | `petStoreMockApi` |
-| `{ServiceName}` | PascalCase prefix | `PetStoreMock` |
-| `{Action}` | PascalCase verb+entity | `GetPet`, `CreateOrder` |
-| `{action_desc}` | snake_case method desc | `Get_Pet_By_Id` |
-| `{entity}` | entity name (lowerCamel) | `pet`, `order` |
-| `{baseUrlKey}` | serverConfig base URL key | `Pet Store Base Url` |
-| `{endpointKey}` | serverConfig endpoint key | `get_pet` |
-| `{tN}` / `{tN+1}` | method number prefix | sequential per `@DependentStep` ordering |
+> Framework utilities are imported from `ca.bnc.lsist.core.*` / `ca.bnc.lsist.api.*` (the library). The **generated,
+> service-specific** code (response models, base/token/scope/test classes) lives in **local packages** (`models`,
+> `base`, `utils`, `listener`, `{serviceName}Api.*`). Never invent framework classes.
 
 ---
 
-## 1. Response Model
+## 0. Framework building blocks (the real API)
 
-`src/main/java/models/{Name}Response.java`
+### Project base — `base/Base.java` (rename to `{ServiceName}ApiBase`)
+`extends ca.bnc.lsist.core.base.AbstractTestBase`. Holds one shared `RestClient` and exposes:
+- `rest()` → the shared `ca.bnc.lsist.core.rest.RestClient` (auto pretty-print logging + sensitive-data redaction)
+- `logStep(String)` · `logResponseStatusCode(int)` · `log` (protected SLF4J)
+- inherited: `pushToTheWorld(WorldKey, Object)` / `pullFromTheWorld(WorldKey, Class<T>)` — share state across `@DependentStep`
 
+### HTTP — `rest()` (every verb takes a positional `jwt` AND a trailing `context`)
+- `rest().get(endpoint, jwt, context)` · `rest().post(endpoint, jwt, body, context)` ·
+  `rest().put(endpoint, jwt, body, context)` · `rest().delete(endpoint, jwt, context)` → RestAssured `Response`
+- URL building: `String endpoint = rest().getApiUrl(endpointTemplate, Map.of("{BaseUrlKey}", baseUrl, "{pathVar}", id));`
+- `jwt = pullFromTheWorld(WorldKey.ROBOT_TOKEN, String.class)`; `context` is loaded from data (a correlation/context id).
+
+### Auth — Okta **private-key JWT assertion** (NO client_secret, NO basic auth, single token)
+`utils/{ServiceName}TokenHelper.java` (rename of `SampleTokenHelper`):
+```java
+package utils;
+
+import ca.bnc.lsist.api.data.TestData;
+import ca.bnc.lsist.core.token.RobotToken;
+import ca.bnc.lsist.core.utils.Validate;
+import java.util.Map;
+import java.util.Set;
+
+/** Retrieves an OAuth access token via private-key JWT assertion against Okta. */
+public final class {ServiceName}TokenHelper {
+    // TODO: replace with your API's Okta values (from SERVICE_AUTH_SPEC).
+    private static final String CLIENT_ID            = "{oktaClientId}";          // e.g. 0oa...
+    private static final String AUTH_SERVER_TOKEN_URL = "{oktaTokenUrl}";         // .../oauth2/<auth-server>/v1/token
+    private static final String OKTA_CREDENTIALS_FILE = "oktaCredentials.json";
+    private static final String PRIVATE_KEY_FIELD     = "{privateKeyField}";      // e.g. MY_API_PRIVATE_KEY
+
+    private {ServiceName}TokenHelper() {}
+
+    public static String getToken(Map<String, String> testData, {ServiceName}Scope scope) throws Exception {
+        RobotToken token = new RobotToken();
+        String privateKey = new TestData(testData).from(OKTA_CREDENTIALS_FILE).forIndex(1).getForKey(PRIVATE_KEY_FIELD);
+        Validate.Objects.isNotNull(privateKey, "private key is not null");
+        String accessToken = token.getOktaTokenWithPrivateKey(
+                privateKey, Set.of(scope.getValue()), AUTH_SERVER_TOKEN_URL, CLIENT_ID);
+        Validate.Objects.isNotNull(accessToken, "access token is not null");
+        return accessToken;
+    }
+}
+```
+`utils/{ServiceName}Scope.java` — the API's OAuth scopes (rename of `SampleScope`):
+```java
+package utils;
+
+public enum {ServiceName}Scope {
+    READ("{api:resource:read}"), WRITE("{api:resource:write}"), DELETE("{api:resource:delete}");
+    private final String value;
+    {ServiceName}Scope(String value) { this.value = value; }
+    public String getValue() { return value; }
+}
+```
+> The private key is read from `oktaCredentials.json` (a `$sensitive:` field — never a literal). Request the WRITE
+> scope for create/update, READ for get/list, DELETE for delete.
+
+### Test data — `TestData` + `ApiEnvironment` (data-driven)
+- `@DataProvider` returns `ca.bnc.lsist.api.environment.ApiEnvironment.buildTestEnvironment(TEST_ID)` → `Iterator<Object[]>`.
+- `data-manager.json` (keyed by `TEST_ID`) maps each iteration to data files: `{ "TEST_ID": [ { "serverConfig.json":
+  ["base","endpoints"], "{entity}Data.json": ["rec1"], "descriptor": "...", "comment": "..." } ] }`. The
+  **SPI `TestngListener`** selects it via `-DtestEnvironment=<env>` → `bnc.data.manager = data/<env>/data-manager.json`.
+- read: `td.from("serverConfig.json").forIndex(1).getForKey("{BaseUrlKey}")` (base URL block) and
+  `.forIndex(2).getForKey("{endpointKey}")` (endpoints block); `getForKey("as-json-...")` for JSON bodies.
+- secrets: `"$sensitive:ENV_VAR_NAME"` — auto-resolved from the environment; never a literal credential.
+
+### Assertions + traceability
+- `ca.bnc.lsist.core.utils.Validate.Objects.isNotNull(value, "context")` (nested `Objects` form).
+- `ca.bnc.lsist.api.assertion.AssertionHelper.compareFieldByFieldRecursively(actual, expected, "context")` /
+  `assertResponseStructure(actual, expected)`; `@HasToBeIgnoredForAssertion` on dynamic fields.
+- `@ca.bnc.lsist.core.annotation.Xray(requirement = "...", test = "...")` — class-level; `@DependentStep` per step
+  (`t000_`, `t001_`, … `t999_`; lexicographic order = run order).
+
+---
+
+## 1. Response model — `src/main/java/models/{Name}Response.java`
 ```java
 package models;
 
+import ca.bnc.lsist.core.annotation.HasToBeIgnoredForAssertion;
 import lombok.Getter;
 import lombok.Setter;
 
-@Getter
-@Setter
+@Getter @Setter
 public class {Name}Response {
-    // Match fields from the service response DTO.
-    // Nested objects        -> public static inner class with @Getter @Setter
-    // Dynamic fields        -> @HasToBeIgnoredForAssertion   (timestamps, generated IDs)
-    // List endpoints        -> add: List<{Item}> content;  + pagination: totalElements, totalPages, size, number
+    // Fields mirror the service response DTO (names from DATA_MODELS — never invented).
+    // Nested -> public static inner class with @Getter @Setter. Dynamic fields -> @HasToBeIgnoredForAssertion.
 }
 ```
 
----
+## 2. Pretest (setup/teardown) — `src/test/java/{serviceName}Api/pretest/{ServiceName}BaseTest.java`
+> **⚠️ Base tests vs Validation tests:** pretest/base classes are SETUP-ONLY — **no** `@Factory`, `@DataProvider`,
+> `TEST_ID`, or `@Xray`. They obtain the token, call the API, and `pushToTheWorld`. The chain is
+> `Base → {ServiceName}BaseTest → {ServiceName}GetTest → {ServiceName}ValidateTest`.
+```java
+package {serviceName}Api.pretest;
 
-## 2. Base Test — Unified Template
+import base.Base;
+import utils.{ServiceName}Scope;
+import ca.bnc.lsist.api.data.TestData;
+import ca.bnc.lsist.core.annotation.DependentStep;
+import ca.bnc.lsist.core.utils.Validate;
+import io.restassured.response.Response;
+import java.util.Map;
+import org.testng.annotations.Test;
+import static utils.{ServiceName}TokenHelper.getToken;
+import static org.testng.Assert.fail;
 
-`src/test/java/{serviceName}Api/test/base/{Action}Test.java`       — happy path
-`src/test/java/{serviceName}Api/test/base/{Action}ErrorTest.java`  — error case (same structure; see variant table)
+public class {ServiceName}BaseTest extends Base {
 
-> **⚠️ CRITICAL — Base tests vs Validation tests**
-> - Base tests (`test/base/`) **MUST NOT** declare `@Factory`, `@DataProvider`, `TEST_ID`, or `@Xray`. They are
->   **setup-only** classes that execute the API call and push the response into the World.
-> - Only **Validation** classes (`test/happyPath/` or `test/errorCase/`) get `@Factory(dataProvider)`, `TEST_ID`,
->   `@Xray`, **extend** the base test, and add the assertion methods.
-> - Base test classes have **no constructor** (they inherit from `Base`/pretest). Validation classes have a
->   `@Factory` constructor.
+    @Test
+    @DependentStep
+    public void t000_Setup_Token() {
+        try {
+            logStep("Retrieving write token");
+            String robotToken = getToken(testData, {ServiceName}Scope.WRITE);
+            Validate.Objects.isNotNull(robotToken, "robotToken is not null");
+            pushToTheWorld(WorldKey.ROBOT_TOKEN, robotToken);
+        } catch (Exception ex) { fail(ex.getMessage()); }
+    }
 
+    @Test
+    @DependentStep
+    public void t001_Create_Resource() {
+        try {
+            String jwt = pullFromTheWorld(WorldKey.ROBOT_TOKEN, String.class);
+            Validate.Objects.isNotNull(jwt, "Token is not null");
+
+            TestData td = new TestData(testData);
+            String baseUrl = td.from("serverConfig.json").forIndex(1).getForKey("{BaseUrlKey}");
+            String createEndpoint = td.from("serverConfig.json").forIndex(2).getForKey("{create_endpoint_key}");
+            String endpoint = rest().getApiUrl(createEndpoint, Map.of("{BaseUrlKey}", baseUrl));
+
+            String requestBody = td.from("{entity}Data.json").forIndex(1).getForKey("as-json-create-request-body");
+            String context = td.from("{entity}Data.json").forIndex(2).getForKey("context");
+
+            logStep("POST create resource");
+            Response response = rest().post(endpoint, jwt, requestBody, context);
+            response.then().assertThat().statusCode(201);
+            pushToTheWorld(WorldKey.CONTEXT, context);
+            // store the created id from the response for t002/t999 (e.g. response.jsonPath().getString("id"))
+        } catch (Exception ex) { fail(ex.getMessage()); }
+    }
+
+    @Test
+    @DependentStep
+    public void t999_Delete_Resource() {
+        try {
+            String jwt = getToken(testData, {ServiceName}Scope.DELETE);
+            String context = pullFromTheWorld(WorldKey.CONTEXT, String.class);
+            // build the delete endpoint with the stored id, then:
+            Response response = rest().delete(/* deleteEndpoint */ "", jwt, context);
+            response.then().assertThat().statusCode(204);
+        } catch (Exception ex) { fail(ex.getMessage()); }
+    }
+}
+```
+
+## 3. GET base — `src/test/java/{serviceName}Api/test/base/{ServiceName}GetTest.java`
 ```java
 package {serviceName}Api.test.base;
 
-// ... imports: ApiEnvironment, TestData, Validate, WorldKey, HttpStatus, io.restassured.response.Response ...
+import {serviceName}Api.pretest.{ServiceName}BaseTest;
+import utils.{ServiceName}Scope;
+import ca.bnc.lsist.core.annotation.DependentStep;
+import io.restassured.response.Response;
+import org.testng.annotations.Test;
+import static utils.{ServiceName}TokenHelper.getToken;
+import static org.testng.Assert.fail;
 
-    String entityId = td.from("{entity}Data.json").forIndex(1).getForKey("{field}");
-    // POST/PUT/PATCH: load body ->
-    //   JSONObject body = td.from("{entity}Data.json").forIndex(1)
-    //       .getFormattedForKey("as-json-request-body", JSONObject.class);
+public class {ServiceName}GetTest extends {ServiceName}BaseTest {
 
-    Validate.Objects.isNotNull(entityId, "entityId is not null");
-    String endpoint = rest().getApiUrl(urlTemplate, Map.of("{baseUrlKey}", baseUrl, "{path_var}", entityId));
-
-    // --- Execute (see HTTP method variant table below) ---
-    Response rawResponse = rest().get(endpoint);
-
-    Validate.Objects.isNotNull(rawResponse, "The response is not null");
-    rawResponse.then().assertThat().statusCode(HttpStatus.SC_OK);
-    pushToTheWorld(WorldKey.RAW_RESPONSE, rawResponse);   // ⚠️ OMIT this push for error base tests
-} catch (Exception ex) {
-    fail(ex.getMessage());
+    @Test
+    @DependentStep
+    public void t002_Get_Resource() {
+        try {
+            String jwt = getToken(testData, {ServiceName}Scope.READ);
+            String context = pullFromTheWorld(WorldKey.CONTEXT, String.class);
+            // build the get endpoint with the stored id:
+            Response response = rest().get(/* getEndpoint */ "", jwt, context);
+            response.then().assertThat().statusCode(200);
+            pushToTheWorld(WorldKey.RAW_RESPONSE, response);
+        } catch (Exception ex) { fail(ex.getMessage()); }
+    }
 }
 ```
 
-### HTTP method variants
-
-| Method | Call | With auth |
-|--------|------|-----------|
-| GET    | `rest().get(endpoint)` | `rest().get(endpoint, jwt)` |
-| POST   | `rest().post(endpoint, body.toString())` | `rest().post(endpoint, jwt, body.toString())` |
-| PUT    | `rest().put(endpoint, body.toString())` | `rest().put(endpoint, jwt, body.toString())` |
-| PATCH  | `rest().patch(endpoint, body.toString())` | `rest().patch(endpoint, jwt, body.toString())` |
-| DELETE | `rest().delete(endpoint)` | `rest().delete(endpoint, jwt)` |
-
-Auth token: `String jwt = pullFromTheWorld(WorldKey.ROBOT_TOKEN, String.class);`
-
-> **Multi-group services:** if `config.yml` → `service_auth` defines multiple groups (e.g. tpps, apps), use a
-> group-specific WorldKey: `WorldKey.TPPS_TOKEN`, `WorldKey.APPS_TOKEN`, `WorldKey.SCOPES_TOKEN`.
-
----
-
-## 3. Validation Test — Unified Template
-
-Both happy-path and error validation classes share the Factory/DataProvider boilerplate. Use the variant table to
-set the package, parent, class name, and validation methods.
-
+## 4. Validation — `src/test/java/{serviceName}Api/test/happyPath/{ServiceName}ValidateTest.java`
+> Only the Validation class carries `@Factory`/`@DataProvider`/`TEST_ID`/`@Xray`, extends the GET base, and asserts.
 ```java
-package {serviceName}Api.test.{layer};   // happyPath OR errorCase
+package {serviceName}Api.test.happyPath;
 
-import {serviceName}Api.test.base.{ParentTest};
+import {serviceName}Api.test.base.{ServiceName}GetTest;
 import ca.bnc.lsist.api.data.TestData;
 import ca.bnc.lsist.api.assertion.AssertionHelper;
 import ca.bnc.lsist.api.environment.ApiEnvironment;
@@ -141,133 +242,71 @@ import java.util.Map;
 import static ca.bnc.lsist.api.utils.JSONUtils.readJSONObjectFromString;
 import static org.testng.Assert.fail;
 
-@Xray(requirement = "{xray_id}")   // from config.yml -> service_auth.{group}.xray_requirement; if empty -> "TODO-FILL"
-@Test(groups = {"integration", "nonregression", "{priority}"})   // {priority} = P0 | P1 | P2 | P3
-public class Validate{Action}Test extends {Action}Test {
+@Xray(requirement = "{requirement}", test = "{xrayTest}")   // unknown -> "TODO-FILL"
+@Test(groups = {"integration", "nonregression", "{priority}"})   // P0 | P1 | P2 | P3
+public class {ServiceName}ValidateTest extends {ServiceName}GetTest {
 
     private static final String TEST_ID = "{Test ID from data-manager}";
 
     @Factory(dataProvider = "testData")
-    public Validate{Action}Test(Map<String, String> testData) { this.testData = testData; }
+    public {ServiceName}ValidateTest(Map<String, String> testData) { setTestData(testData); }
 
-    // --- 3a. Happy-path validation methods ---
-    @Test
-    @DependentStep
-    public void {tN+1}_Validate_Response_Body_Fields() {
-        try {
-            JSONObject actual = pullFromTheWorld(WorldKey.ACTUAL_RESPONSE, JSONObject.class);
-            JSONObject expected = pullFromTheWorld(WorldKey.EXPECTED_RESPONSE, JSONObject.class);
-            Validate.Objects.isNotNull(actual, "Actual response is not null");
-            Validate.Objects.isNotNull(expected, "Expected response is not null");
-            // Option A (POJO — stable schema):
-            //   {Name}Response a = JSONUtils.objectMapper(actual, {Name}Response.class);
-            //   {Name}Response e = JSONUtils.objectMapper(expected, {Name}Response.class);
-            //   AssertionHelper.compareFieldByFieldRecursively(a, e);
-            // Option B (JSON — dynamic/polymorphic):
-            //   AssertionHelper.assertResponseStructure(actual, expected);
-        } catch (Exception ex) { fail(ex.getMessage()); }
-    }
-
-    // --- 3b. Error-case validation methods ---
-    @Test
-    @DependentStep
-    public void {tN}_Validate_Error_Status_Code() {
-        try {
-            Response rawResponse = pullFromTheWorld(WorldKey.RAW_RESPONSE, Response.class);
-            Validate.Objects.isNotNull(rawResponse, "Response is not null");
-            TestData tdExpected = new TestData(testData).from("{entity}ErrorResponse.json").forIndex(1);
-            int expectedStatus = Integer.parseInt(tdExpected.getForKey("expected_status"));
-            rawResponse.then().assertThat().statusCode(expectedStatus);
-        } catch (Exception ex) { fail(ex.getMessage()); }
-    }
+    @DataProvider(name = "testData")
+    public static Iterator<Object[]> testData() { return ApiEnvironment.buildTestEnvironment(TEST_ID); }
 
     @Test
     @DependentStep
-    public void {tN+1}_Validate_Error_Response_Body() {
+    public void t003_Validate_Response_Structure() {
         try {
-            Response rawResponse = pullFromTheWorld(WorldKey.RAW_RESPONSE, Response.class);
-            JSONObject actual = readJSONObjectFromString(rawResponse.then().extract().body().asString());
-            Validate.Objects.isNotNull(actual, "Error response body is not null");
-            TestData tdExpected = new TestData(testData).from("{entity}ErrorResponse.json").forIndex(1);
-            JSONObject expected = tdExpected.getFormattedForKey("as-json-error-response", JSONObject.class);
-            Validate.Objects.isNotNull(expected, "Expected error response is not null");
+            Response response = pullFromTheWorld(WorldKey.RAW_RESPONSE, Response.class);
+            JSONObject actual = readJSONObjectFromString(response.then().extract().body().asString());
+            JSONObject expected = new TestData(testData).from("{entity}Response.json").forIndex(1)
+                    .getJSONObject("as-json-expected-response");
             AssertionHelper.assertResponseStructure(actual, expected);
         } catch (Exception ex) { fail(ex.getMessage()); }
     }
+
+    @Test
+    @DependentStep
+    public void t004_Validate_Field_Values() {
+        try {
+            Response response = pullFromTheWorld(WorldKey.RAW_RESPONSE, Response.class);
+            {Name}Response actual = response.getBody().as({Name}Response.class);
+            {Name}Response expected = /* map the expected from {entity}Response.json */ null;
+            AssertionHelper.compareFieldByFieldRecursively(actual, expected, "{ServiceName} response");
+        } catch (Exception ex) { fail(ex.getMessage()); }
+    }
 }
 ```
+**Error case** (`test/errorCase/{ServiceName}ValidateErrorTest`): same shape, asserts the error status + body —
+400 (missing/invalid fields, BVA/EP), 401 (no/invalid token), 403 (insufficient scope), 404 (unknown id), 409 (conflict).
 
-### Variant table
+## 5. Listener registration (once per project)
+`src/main/java/listener/TestngListener.java` `extends ca.bnc.lsist.api.listener.ApiTestListener`; register via SPI —
+`src/main/resources/META-INF/services/org.testng.ITestNGListener` containing the single line `listener.TestngListener`
+(no `<listeners>` block in the suite).
 
-| Variant | Package | Extends | Class name | Default priority |
-|---------|---------|---------|------------|------------------|
-| Happy path | `test.happyPath` | `{Action}Test` | `Validate{Action}Test` | P0 |
-| Error case | `test.errorCase` | `{Action}ErrorTest` | `Validate{Action}ErrorTest` | P1 |
+## 6. Data files — `src/test/resources/data/{env}/`
+- **`data-manager.json`** — `TEST_ID` → iterations → data-file → record-ids (see §0).
+- **`serverConfig.json`** — `forIndex(1)` = base-URL block (`{BaseUrlKey}`), `forIndex(2)` = endpoints block
+  (`{create_endpoint_key}`, `{get_endpoint_key}`, …).
+- **`{entity}Data.json`** — request bodies (`as-json-create-request-body`) + `context`.
+- **`{entity}Response.json`** — expected responses (`as-json-expected-response`).
+- **`oktaCredentials.json`** — `{ "creds": { "{privateKeyField}": "$sensitive:MY_API_PRIVATE_KEY" } }` (never a literal).
 
-### Error categories to test per endpoint
-
-| Status | Scenario | Technique |
-|--------|----------|-----------|
-| 400 | Missing required fields, invalid format, constraints | EP / BVA |
-| 401 | No token, expired token, invalid token | EP |
-| 403 | Valid token, insufficient scopes/roles | EP |
-| 404 | Non-existent resource ID | EP |
-| 409 | Duplicate creation, concurrent modification | State Transition |
-
----
-
-## 4. Data Files
-
-`{entity}Data.json` — happy-path request/expected data (one object per `@Factory` index).
-
-`{entity}ErrorResponse.json`
-```json
-{
-  "Not Found Error":   { "expected_status": "404", "as-json-error-response": { "status": 404, "error": "Not Found",   "message": "Entity not found" } },
-  "Bad Request Error": { "expected_status": "400", "as-json-error-response": { "status": 400, "error": "Bad Request", "message": "Validation failed" } }
-}
-```
-
-### Auth data
-```json
-{ "service_auth": { "client_id": "$sensitive:SERVICE_CLIENT_ID", "client_secret": "$sensitive:SERVICE_CLIENT_SECRET", "scope": "read write" } }
-```
-
-Use `$sensitive:ENV_VAR_NAME` for **all** credentials — never a literal secret. (Veritas secret-scans generated
-files before write and will reject a literal credential.)
-
----
-
-## 5. Suite XML
-
-Generate **three suites** in `suites/` from this single template — only the group filter changes:
-
+## 7. Suite XML — `suites/all.xml`
+A TestNG suite that includes the `{ServiceName}ValidateTest` classes; the listener is auto-registered via SPI (no
+`<listeners>`). Group filters select smoke (P0) / regression (P0+P1) / full.
 ```xml
 <!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
-<suite name="{Service Name} {SuiteLabel}" verbose="1">
-  <test name="{Service Name} {TestLabel}">
-    {GROUP_FILTER}
+<suite name="{Service Name} API Tests" group-by-instances="true">
+  <test name="{Service Name}">
+    <groups><run><include name="integration"/><include name="nonregression"/></run></groups>
     <classes>
-      <class name="{serviceName}Api.test.happyPath.Validate{Action}Test"/>
-      <class name="{serviceName}Api.test.errorCase.Validate{Action}ErrorTest"/>
-      <!-- one <class> per Validate* class -->
+      <class name="{serviceName}Api.test.happyPath.{ServiceName}ValidateTest"/>
     </classes>
   </test>
 </suite>
 ```
 
-| File | `{SuiteLabel}` | `{GROUP_FILTER}` |
-|------|----------------|------------------|
-| `{svc}-smoke.xml` | `Smoke (P0)` | `<groups><run><include name="P0"/></run></groups>` |
-| `{svc}-regression.xml` | `Regression (P0+P1)` | `<groups><run><include name="P0"/><include name="P1"/></run></groups>` |
-| `{svc}.xml` | `API Tests — Full` | *(omit — runs all groups)* |
-
-Priority annotation: `@Test(groups = {"integration", "nonregression", "P0"})` — P0/P1/P2/P3 per test plan.
-
-**Execution:**
-```bash
-mvn test -Dsuite=suites/{svc}-smoke.xml      -Denv=staging-ta   # P0     (~1 min)
-mvn test -Dsuite=suites/{svc}-regression.xml -Denv=staging-ta   # P0+P1  (~5 min)
-mvn test -Dsuite=suites/{svc}.xml            -Denv=staging-ta   # All    (~15 min)
-mvn test -Dsuite=suites/{svc}.xml            -Denv=dev          # Different env
-```
+**Execution:** `mvn test -DtestEnvironment=staging-ta` (the listener loads `data/staging-ta/data-manager.json`).
