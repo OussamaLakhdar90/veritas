@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Search, ArrowRight, ArrowLeft, Plus, Check, AlertTriangle, Sparkles, GitPullRequest, FileCode, GitPullRequestArrow, ExternalLink, Ticket, X, Lock, Trash2, KeyRound } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { api, Repo, TestGenPlan, TestGenPlanItem, CodegenRun, Scope, ServiceAuthGroup } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, Field, Input, PageHeader, Select, Spinner, Table, Td, Th, Row } from '../components/ui';
 import { useToast } from '../components/Toast';
@@ -8,7 +9,7 @@ import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
 
-const STEPS = ['Service', 'Destination', 'Plan', 'Auth', 'Review'];
+const STEP_KEYS = ['stepService', 'stepDestination', 'stepPlan', 'stepTokens', 'stepReview'] as const;
 
 /** Default OAuth scopes for a freshly-authenticated group (the user fills the scope strings). */
 const DEFAULT_SCOPES: Scope[] = [{ name: 'READ', value: '' }, { name: 'WRITE', value: '' }, { name: 'DELETE', value: '' }];
@@ -30,17 +31,18 @@ const STATUS: Record<string, { label: string; tone: string; icon: typeof Plus }>
 };
 
 function Stepper({ step }: { step: number }) {
+  const { t } = useTranslation();
   return (
     <div className="mb-6 flex gap-2">
-      {STEPS.map((label, i) => {
+      {STEP_KEYS.map((key, i) => {
         const n = i + 1;
         const active = n === step;
         const done = n < step;
         return (
-          <div key={label} className="flex-1">
+          <div key={key} className="flex-1">
             <div className={cn('h-1 rounded-full', done || active ? 'bg-brand' : 'bg-border')} />
             <p className={cn('mt-1.5 text-[11px]', active ? 'font-semibold text-ink-900' : done ? 'text-ink-700' : 'text-muted')}>
-              {n}. {label}
+              {n}. {t(`wizard.${key}`)}
             </p>
           </div>
         );

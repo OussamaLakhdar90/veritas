@@ -1,6 +1,8 @@
 import React from 'react';
 import { Loader2, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { cn } from './cn';
+import { TONE } from '../theme/tokens';
 
 /* ── Button ─────────────────────────────────────────────────────────────── */
 type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
@@ -79,11 +81,12 @@ export function EmptyState({ icon: Icon, title, body, action }:
 
 /* ── Error state ────────────────────────────────────────────────────────── */
 export function ErrorState({ message }: { message?: string }) {
+  const { t } = useTranslation();
   return (
     <Card className="border-l-4 border-l-danger">
       <CardBody>
         <p className="text-sm text-danger" role="alert">
-          Couldn’t load this data{message ? `: ${message}` : '.'} Check your connection settings and try again.
+          {t('common.errorTitle')}{message ? `: ${message}` : '.'} {t('common.errorRetry')}
         </p>
       </CardBody>
     </Card>
@@ -117,15 +120,24 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTML
   });
 
 /* ── KPI tile ───────────────────────────────────────────────────────────── */
-export function KpiTile({ label, value, sub, tone = 'ink' }:
-  { label: string; value: React.ReactNode; sub?: React.ReactNode; tone?: 'ink' | 'brand' | 'success' | 'warning' | 'danger' }) {
+export interface KpiTrend { dir: 'up' | 'down' | 'flat'; label: string; good?: boolean }
+export function KpiTile({ label, value, sub, tone = 'ink', trend }:
+  { label: string; value: React.ReactNode; sub?: React.ReactNode;
+    tone?: 'ink' | 'brand' | 'success' | 'warning' | 'danger'; trend?: KpiTrend }) {
   const toneCls = { ink: 'text-ink-900', brand: 'text-brand', success: 'text-success', warning: 'text-warning', danger: 'text-danger' }[tone];
+  const trendTone = trend?.good === undefined ? TONE.muted : trend.good ? TONE.ok : TONE.danger;
+  const arrow = trend?.dir === 'up' ? '▲' : trend?.dir === 'down' ? '▼' : '•';
   return (
     <Card className="flex-1">
       <CardBody>
         <p className="text-[12px] font-medium uppercase tracking-wide text-muted">{label}</p>
         <p className={cn('mt-1 text-3xl font-semibold tabular-nums', toneCls)}>{value}</p>
         {sub && <p className="mt-1 text-[13px] text-muted">{sub}</p>}
+        {trend && (
+          <span className={cn('mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold', trendTone)}>
+            <span aria-hidden="true">{arrow}</span> {trend.label}
+          </span>
+        )}
       </CardBody>
     </Card>
   );

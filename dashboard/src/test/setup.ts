@@ -1,7 +1,11 @@
 import '@testing-library/jest-dom/vitest'
 import { cleanup } from '@testing-library/react'
-import { afterAll, afterEach, beforeAll, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, vi } from 'vitest'
 import { server } from './msw/server'
+import i18n from '../i18n'
+
+// The app defaults to French (NBC/Québec); tests assert the English source strings, so pin every test to English.
+beforeEach(() => { i18n.changeLanguage('en') })
 
 // Every fetch a flow makes must be explicitly stubbed — an unhandled request fails the test loudly (catches a
 // missed endpoint or a silent real-network call).
