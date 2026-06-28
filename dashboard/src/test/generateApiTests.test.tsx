@@ -23,7 +23,7 @@ function mock(plan: Record<string, unknown> = scratchPlan) {
     http.get('*/api/v1/repos', () => HttpResponse.json([repo])),
     http.get('*/api/v1/repos/:slug/branches', () => HttpResponse.json(['develop', 'main'])),
     http.get('*/api/v1/jira/search', () => HttpResponse.json([jira])),
-    http.get('*/api/v1/services/:service/test-gen/auth-profile', () => HttpResponse.json({ authenticated: false, scopes: [] })),
+    http.get('*/api/v1/services/:service/test-gen/auth-profile', () => HttpResponse.json({ groups: [] })),
     http.post('*/api/v1/services/:service/test-gen/plan', () => HttpResponse.json(plan)),
   )
 }
@@ -44,7 +44,7 @@ async function toAuth(user: ReturnType<typeof userEvent.setup>) {
   await toPlan(user)
   await screen.findByText("Here's what we'd do")
   await user.click(screen.getByRole('button', { name: /Continue \(/ }))
-  await screen.findByText('How does this service authenticate?')
+  await screen.findByText('How many tokens does this service need?')
 }
 
 describe('Generate API Tests wizard', () => {
@@ -102,7 +102,7 @@ describe('Generate API Tests wizard', () => {
       todos: JSON.stringify(['A valid policy id must exist before these run']),
     }
     let published = false
-    let genBody: { jiraKey?: string; endpoints?: string[]; serviceAuth?: { authenticated: boolean; clientId?: string; scopes: unknown[] } } = {}
+    let genBody: { jiraKey?: string; endpoints?: string[]; serviceAuth?: { groups: unknown[] } } = {}
     mock()
     server.use(
       http.post('*/api/v1/services/:service/test-gen/generate', async ({ request }) => {
@@ -125,9 +125,9 @@ describe('Generate API Tests wizard', () => {
     expect(screen.getByText(/weren't compiled here/)).toBeInTheDocument()
     expect(screen.getByText(/A valid policy id must exist/)).toBeInTheDocument()
 
-    // The selected ticket was forwarded; serviceAuth (public default) is included.
+    // The selected ticket was forwarded; serviceAuth (public default ⇒ no groups) is included.
     expect(genBody.jiraKey).toBe('CIAM-1842')
-    expect(genBody.serviceAuth).toEqual({ authenticated: false, scopes: [] })
+    expect(genBody.serviceAuth).toEqual({ groups: [] })
 
     // No PR yet — pushing is a separate, explicit click.
     expect(published).toBe(false)
@@ -140,9 +140,9 @@ describe('Generate API Tests wizard', () => {
     expect(screen.getByText(/git checkout veritas\/ciam-policies-tests/)).toBeInTheDocument()
   })
 
-  it('declares Okta auth (client id + scope) and forwards it as serviceAuth', async () => {
+  it('declares one Okta token group and forwards it as serviceAuth', async () => {
     const genRun = { id: 'cg-2', serviceName: 'ciam-policies', buildStatus: 'SKIPPED', filesWritten: '[]', todos: '[]' }
-    let genBody: { serviceAuth?: { authenticated: boolean; clientId?: string; scopes: { name: string; value: string }[] } } = {}
+    let genBody: { serviceAuth?: { groups: { name: string; clientId?: string; scopes: { name: string; value: string }[] }[] } } = {}
     mock()
     server.use(
       http.post('*/api/v1/services/:service/test-gen/generate', async ({ request }) => {
@@ -154,17 +154,17 @@ describe('Generate API Tests wizard', () => {
     renderPage(<GenerateApiTests />, { path: '/generate-api-tests', route: '/generate-api-tests' })
     await toAuth(user)
 
-    // Switch from public to "Needs an Okta token", fill the client id + a scope string.
-    await user.click(screen.getByRole('button', { name: /Needs an Okta token/ }))
-    await user.type(screen.getByLabelText('Okta client id'), '0oaTEST')
-    await user.type(screen.getByLabelText('scope 0 value'), 'ciam:policy:read')
+    // Pick "One token", fill the group's client id + a scope string.
+    await user.click(screen.getByRole('button', { name: 'One token' }))
+    await user.type(screen.getByLabelText('group 0 client id'), '0oaTEST')
+    await user.type(screen.getByLabelText('group 0 scope 0 value'), 'ciam:policy:read')
 
     await user.click(screen.getByRole('button', { name: /Generate selected/ }))
     await screen.findByText('Review & open a pull request')
 
-    expect(genBody.serviceAuth?.authenticated).toBe(true)
-    expect(genBody.serviceAuth?.clientId).toBe('0oaTEST')
-    expect(genBody.serviceAuth?.scopes.find((s) => s.name === 'READ')?.value).toBe('ciam:policy:read')
+    expect(genBody.serviceAuth?.groups).toHaveLength(1)
+    expect(genBody.serviceAuth?.groups[0].clientId).toBe('0oaTEST')
+    expect(genBody.serviceAuth?.groups[0].scopes.find((s) => s.name === 'READ')?.value).toBe('ciam:policy:read')
   })
 
   it('requires a Jira ticket before the plan can be seen', async () => {
@@ -189,7 +189,7 @@ describe('Generate API Tests wizard', () => {
       http.get('*/api/v1/repos', () => HttpResponse.json([repo])),
       http.get('*/api/v1/repos/:slug/branches', () => HttpResponse.json(['develop'])),
       http.get('*/api/v1/jira/search', () => HttpResponse.json([jira])),
-      http.get('*/api/v1/services/:service/test-gen/auth-profile', () => HttpResponse.json({ authenticated: false, scopes: [] })),
+      http.get('*/api/v1/services/:service/test-gen/auth-profile', () => HttpResponse.json({ groups: [] })),
       http.post('*/api/v1/services/:service/test-gen/plan', () =>
         HttpResponse.json({ detail: 'Could not clone the repo', status: 500 }, { status: 500 })),
     )

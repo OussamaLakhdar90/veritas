@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Search, ArrowRight, ArrowLeft, Plus, Check, AlertTriangle, Sparkles, GitPullRequest, FileCode, GitPullRequestArrow, ExternalLink, Ticket, X, Lock, Trash2 } from 'lucide-react';
-import { api, Repo, TestGenPlan, TestGenPlanItem, CodegenRun, Scope } from '../api';
+import { Search, ArrowRight, ArrowLeft, Plus, Check, AlertTriangle, Sparkles, GitPullRequest, FileCode, GitPullRequestArrow, ExternalLink, Ticket, X, Lock, Trash2, KeyRound } from 'lucide-react';
+import { api, Repo, TestGenPlan, TestGenPlanItem, CodegenRun, Scope, ServiceAuthGroup } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, Field, Input, PageHeader, Select, Spinner, Table, Td, Th, Row } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { useCopilotGate } from '../lib/copilotAuth';
@@ -10,8 +10,10 @@ import { cn } from '../components/cn';
 
 const STEPS = ['Service', 'Destination', 'Plan', 'Auth', 'Review'];
 
-/** Default OAuth scopes for a freshly-authenticated service (the user fills the scope strings). */
+/** Default OAuth scopes for a freshly-authenticated group (the user fills the scope strings). */
 const DEFAULT_SCOPES: Scope[] = [{ name: 'READ', value: '' }, { name: 'WRITE', value: '' }, { name: 'DELETE', value: '' }];
+/** A fresh token group (one Okta token source). */
+const newGroup = (name: string): ServiceAuthGroup => ({ name, tokenUrl: '', clientId: '', privateKeyField: '', scopes: DEFAULT_SCOPES, pathPrefixes: [] });
 
 function parseList(json?: string): string[] {
   if (!json) return [];
@@ -63,36 +65,24 @@ export function GenerateApiTests() {
   const [jiraQuery, setJiraQuery] = useState('');
   const [plan, setPlan] = useState<TestGenPlan | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  // Okta private-key-JWT auth declaration (the BNC lsist framework). Public when authenticated=false.
-  const [authed, setAuthed] = useState(false);
-  const [tokenUrl, setTokenUrl] = useState('');
-  const [clientId, setClientId] = useState('');
-  const [privateKeyField, setPrivateKeyField] = useState('');
-  const [scopes, setScopes] = useState<Scope[]>(DEFAULT_SCOPES);
+  // Token groups (the BNC lsist framework). 0 groups = public; each group is one Okta token source for an API group.
+  const [authGroups, setAuthGroups] = useState<ServiceAuthGroup[]>([]);
   const [run, setRun] = useState<CodegenRun | null>(null);
   const [prBranch, setPrBranch] = useState('main');
 
-  // Pre-fill the Auth step from the service's saved profile (URLs / client id / scope strings — never the private key).
+  // Pre-fill the Auth step from the service's saved profile (URLs / client ids / scope strings — never the private key).
   const authPrefill = useQuery({
     queryKey: ['auth-profile', appId, serviceRepo],
     queryFn: () => api.authProfile(serviceRepo, appId, serviceRepo),
     enabled: !!appId && !!serviceRepo,
   });
-  useEffect(() => {
-    const p = authPrefill.data;
-    if (!p) return;
-    setAuthed(p.authenticated);
-    setTokenUrl(p.tokenUrl ?? '');
-    setClientId(p.clientId ?? '');
-    setPrivateKeyField(p.privateKeyField ?? '');
-    if (p.scopes?.length) setScopes(p.scopes);
-  }, [authPrefill.data]);
+  useEffect(() => { if (authPrefill.data?.groups) setAuthGroups(authPrefill.data.groups); }, [authPrefill.data]);
 
-  const serviceAuth = authed
-    ? { authenticated: true, tokenUrl, clientId, privateKeyField, scopes: scopes.filter((s) => s.name) }
-    : { authenticated: false, scopes: [] };
-  const patchScope = (i: number, patch: Partial<Scope>) =>
-    setScopes((ss) => ss.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
+  const setPreset = (n: number) =>
+    setAuthGroups(n === 0 ? [] : n === 1 ? [newGroup('primary')] : [newGroup('tpps'), newGroup('apps')]);
+  const patchGroup = (i: number, patch: Partial<ServiceAuthGroup>) =>
+    setAuthGroups((gs) => gs.map((g, idx) => (idx === i ? { ...g, ...patch } : g)));
+  const serviceAuth = { groups: authGroups };
 
   // Where the generated tests are written and the PR is later opened: the chosen test repo, or the service repo itself
   // when starting from scratch with no separate test repo.
@@ -342,71 +332,30 @@ export function GenerateApiTests() {
 
       {step === 4 && (
         <Card>
-          <CardHeader title="How does this service authenticate?"
-            subtitle="Tests get an Okta token by private-key JWT. We store only the URL, client id and scopes — your private key stays in oktaCredentials.json." />
+          <CardHeader title="How many tokens does this service need?"
+            subtitle="One per API group. Each gets an Okta token by private-key JWT — we store only the URL, client id and scopes; your private key stays in oktaCredentials.json." />
           <CardBody className="space-y-5">
             <div className="flex gap-2">
-              <PresetBtn active={!authed} onClick={() => setAuthed(false)}>No token (public)</PresetBtn>
-              <PresetBtn active={authed} onClick={() => setAuthed(true)}>Needs an Okta token</PresetBtn>
+              <PresetBtn active={authGroups.length === 0} onClick={() => setPreset(0)}>No token (public)</PresetBtn>
+              <PresetBtn active={authGroups.length === 1} onClick={() => setPreset(1)}>One token</PresetBtn>
+              <PresetBtn active={authGroups.length === 2} onClick={() => setPreset(2)}>Two tokens · different APIs</PresetBtn>
             </div>
 
-            {!authed ? (
+            {authGroups.length === 0 ? (
               <p className="rounded-lg bg-ink-50 p-3 text-[13px] text-muted">
                 Public service — every endpoint is called without a token.
               </p>
             ) : (
-              <div className="space-y-4 rounded-lg border border-border p-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Okta token URL" hint="the /v1/token endpoint">
-                    <Input aria-label="Okta token URL" value={tokenUrl} onChange={(e) => setTokenUrl(e.target.value)}
-                      placeholder="https://your-okta/oauth2/<auth-server>/v1/token" />
-                  </Field>
-                  <Field label="Okta client id">
-                    <Input aria-label="Okta client id" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="0oa…" />
-                  </Field>
-                  <div className="col-span-2">
-                    <Field label="Private-key field in oktaCredentials.json"
-                      hint="Veritas never sees the key — it's a $sensitive value in oktaCredentials.json.">
-                      <Input aria-label="private key field" value={privateKeyField}
-                        onChange={(e) => setPrivateKeyField(e.target.value)} placeholder="MY_API_PRIVATE_KEY" />
-                    </Field>
-                  </div>
-                </div>
+              authGroups.map((g, i) => (
+                <AuthGroupCard key={i} index={i} group={g} multi={authGroups.length > 1} onChange={patchGroup} />
+              ))
+            )}
 
-                <div>
-                  <p className="mb-1.5 text-[12px] font-medium text-ink-900">OAuth scopes the API requires</p>
-                  <div className="space-y-2">
-                    {scopes.map((s, i) => (
-                      <div key={i} className="flex items-end gap-2">
-                        <div className="w-28">
-                          <Field label={i === 0 ? 'Name' : ''}>
-                            <Input aria-label={`scope ${i} name`} value={s.name}
-                              onChange={(e) => patchScope(i, { name: e.target.value.toUpperCase() })} placeholder="READ" />
-                          </Field>
-                        </div>
-                        <div className="flex-1">
-                          <Field label={i === 0 ? 'Okta scope string' : ''}>
-                            <Input aria-label={`scope ${i} value`} value={s.value}
-                              onChange={(e) => patchScope(i, { value: e.target.value })} placeholder="myapi:resource:read" />
-                          </Field>
-                        </div>
-                        <button type="button" aria-label={`remove scope ${i}`} className="mb-1.5 text-muted hover:text-danger"
-                          onClick={() => setScopes((ss) => ss.filter((_, idx) => idx !== i))}>
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  <Button variant="secondary" className="mt-2" onClick={() => setScopes((ss) => [...ss, { name: '', value: '' }])}>
-                    <Plus className="h-4 w-4" /> Add scope
-                  </Button>
-                </div>
-
-                <p className="flex items-center gap-1.5 rounded-lg bg-success/5 p-2.5 text-[12px] text-success">
-                  <Lock className="h-3.5 w-3.5 shrink-0" /> Put the private key in <span className="font-mono">oktaCredentials.json</span> as
-                  <span className="font-mono">"$sensitive:MY_API_PRIVATE_KEY"</span> — it never leaves your environment.
-                </p>
-              </div>
+            {authGroups.length > 0 && (
+              <p className="flex items-center gap-1.5 rounded-lg bg-success/5 p-2.5 text-[12px] text-success">
+                <Lock className="h-3.5 w-3.5 shrink-0" /> Put each private key in <span className="font-mono">oktaCredentials.json</span> as a
+                <span className="font-mono">"$sensitive:…"</span> value — it never leaves your environment.
+              </p>
             )}
 
             <div className="flex items-center justify-between border-t border-border pt-4">
@@ -506,6 +455,78 @@ function PresetBtn({ active, onClick, children }: { active: boolean; onClick: ()
         active ? 'border-brand bg-brand/10 font-semibold text-ink-900' : 'border-border text-muted hover:bg-ink-50')}>
       {children}
     </button>
+  );
+}
+
+/** One token group = one Okta token source (token URL + client id + private-key field + scopes) for an API group. */
+function AuthGroupCard({ index, group, multi, onChange }:
+  { index: number; group: ServiceAuthGroup; multi: boolean; onChange: (i: number, patch: Partial<ServiceAuthGroup>) => void }) {
+  const scopes = group.scopes ?? [];
+  const setScopes = (next: Scope[]) => onChange(index, { scopes: next });
+  const patchScope = (si: number, patch: Partial<Scope>) => setScopes(scopes.map((s, idx) => (idx === si ? { ...s, ...patch } : s)));
+  return (
+    <div className="space-y-3 rounded-lg border border-border p-3">
+      <div className="flex items-center gap-2">
+        <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-[12px] font-medium text-brand">
+          <KeyRound className="h-3 w-3" /> Token {String.fromCharCode(65 + index)}
+        </span>
+        {multi && <span className="text-[12px] text-muted">for the endpoints under its path prefix</span>}
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        {multi && (
+          <Field label="Group name" hint="becomes WorldKey.{NAME}_TOKEN">
+            <Input aria-label={`group ${index} name`} value={group.name} onChange={(e) => onChange(index, { name: e.target.value })} placeholder="tpps" />
+          </Field>
+        )}
+        {multi && (
+          <Field label="Applies to paths" hint="Comma-separated prefixes, e.g. /tpps">
+            <Input aria-label={`group ${index} paths`} value={(group.pathPrefixes ?? []).join(', ')}
+              onChange={(e) => onChange(index, { pathPrefixes: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })} />
+          </Field>
+        )}
+        <Field label="Okta token URL" hint="the /v1/token endpoint">
+          <Input aria-label={`group ${index} token url`} value={group.tokenUrl ?? ''} onChange={(e) => onChange(index, { tokenUrl: e.target.value })}
+            placeholder="https://your-okta/oauth2/<auth-server>/v1/token" />
+        </Field>
+        <Field label="Okta client id">
+          <Input aria-label={`group ${index} client id`} value={group.clientId ?? ''} onChange={(e) => onChange(index, { clientId: e.target.value })} placeholder="0oa…" />
+        </Field>
+        <div className="col-span-2">
+          <Field label="Private-key field in oktaCredentials.json" hint="Veritas never sees the key — it's a $sensitive value.">
+            <Input aria-label={`group ${index} private key field`} value={group.privateKeyField ?? ''}
+              onChange={(e) => onChange(index, { privateKeyField: e.target.value })} placeholder="MY_API_PRIVATE_KEY" />
+          </Field>
+        </div>
+      </div>
+      <div>
+        <p className="mb-1.5 text-[12px] font-medium text-ink-900">OAuth scopes</p>
+        <div className="space-y-2">
+          {scopes.map((s, si) => (
+            <div key={si} className="flex items-end gap-2">
+              <div className="w-24">
+                <Field label={si === 0 ? 'Name' : ''}>
+                  <Input aria-label={`group ${index} scope ${si} name`} value={s.name}
+                    onChange={(e) => patchScope(si, { name: e.target.value.toUpperCase() })} placeholder="READ" />
+                </Field>
+              </div>
+              <div className="flex-1">
+                <Field label={si === 0 ? 'Okta scope string' : ''}>
+                  <Input aria-label={`group ${index} scope ${si} value`} value={s.value}
+                    onChange={(e) => patchScope(si, { value: e.target.value })} placeholder="myapi:resource:read" />
+                </Field>
+              </div>
+              <button type="button" aria-label={`group ${index} remove scope ${si}`} className="mb-1.5 text-muted hover:text-danger"
+                onClick={() => setScopes(scopes.filter((_, idx) => idx !== si))}>
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+        </div>
+        <Button variant="secondary" className="mt-2" onClick={() => setScopes([...scopes, { name: '', value: '' }])}>
+          <Plus className="h-4 w-4" /> Add scope
+        </Button>
+      </div>
+    </div>
   );
 }
 
