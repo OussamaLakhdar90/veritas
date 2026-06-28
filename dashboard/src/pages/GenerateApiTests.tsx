@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Search, ArrowRight, ArrowLeft, Plus, Check, AlertTriangle, Sparkles, GitPullRequest, FileCode, GitPullRequestArrow, ExternalLink, Ticket, X, KeyRound, Lock, Terminal } from 'lucide-react';
-import { api, Repo, TestGenPlan, TestGenPlanItem, CodegenRun, Mechanism, ServiceAuthGroup } from '../api';
+import { Search, ArrowRight, ArrowLeft, Plus, Check, AlertTriangle, Sparkles, GitPullRequest, FileCode, GitPullRequestArrow, ExternalLink, Ticket, X, Lock, Trash2 } from 'lucide-react';
+import { api, Repo, TestGenPlan, TestGenPlanItem, CodegenRun, Scope } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, Field, Input, PageHeader, Select, Spinner, Table, Td, Th, Row } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { useCopilotGate } from '../lib/copilotAuth';
@@ -10,15 +10,8 @@ import { cn } from '../components/cn';
 
 const STEPS = ['Service', 'Destination', 'Plan', 'Auth', 'Review'];
 
-/** The token-generation mechanisms and the env-var roles each needs (the user types the env-var name for each role). */
-const MECHANISMS: { value: Mechanism; label: string; roles: { key: string; label: string }[] }[] = [
-  { value: 'PRIVATE_KEY', label: 'Private key', roles: [{ key: 'privateKey', label: 'private key' }] },
-  { value: 'BASIC_AUTH', label: 'Basic auth (base64)', roles: [{ key: 'basicAuth', label: 'base64 Authorization' }] },
-  { value: 'OAUTH2_CLIENT_CREDENTIALS', label: 'OAuth2 client credentials',
-    roles: [{ key: 'clientId', label: 'client id' }, { key: 'clientSecret', label: 'client secret' }] },
-];
-const rolesFor = (m: Mechanism) => MECHANISMS.find((x) => x.value === m)?.roles ?? [];
-const newGroup = (name: string): ServiceAuthGroup => ({ name, mechanism: 'PRIVATE_KEY', envVars: {}, pathPrefixes: [] });
+/** Default OAuth scopes for a freshly-authenticated service (the user fills the scope strings). */
+const DEFAULT_SCOPES: Scope[] = [{ name: 'READ', value: '' }, { name: 'WRITE', value: '' }, { name: 'DELETE', value: '' }];
 
 function parseList(json?: string): string[] {
   if (!json) return [];
@@ -70,25 +63,36 @@ export function GenerateApiTests() {
   const [jiraQuery, setJiraQuery] = useState('');
   const [plan, setPlan] = useState<TestGenPlan | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [authGroups, setAuthGroups] = useState<ServiceAuthGroup[]>([]);
+  // Okta private-key-JWT auth declaration (the BNC lsist framework). Public when authenticated=false.
+  const [authed, setAuthed] = useState(false);
+  const [tokenUrl, setTokenUrl] = useState('');
+  const [clientId, setClientId] = useState('');
+  const [privateKeyField, setPrivateKeyField] = useState('');
+  const [scopes, setScopes] = useState<Scope[]>(DEFAULT_SCOPES);
   const [run, setRun] = useState<CodegenRun | null>(null);
   const [prBranch, setPrBranch] = useState('main');
 
-  // Pre-fill the Auth step from the service's saved profile (declared token groups — names only, never secrets).
+  // Pre-fill the Auth step from the service's saved profile (URLs / client id / scope strings — never the private key).
   const authPrefill = useQuery({
     queryKey: ['auth-profile', appId, serviceRepo],
     queryFn: () => api.authProfile(serviceRepo, appId, serviceRepo),
     enabled: !!appId && !!serviceRepo,
   });
-  useEffect(() => { if (authPrefill.data?.groups) setAuthGroups(authPrefill.data.groups); }, [authPrefill.data]);
+  useEffect(() => {
+    const p = authPrefill.data;
+    if (!p) return;
+    setAuthed(p.authenticated);
+    setTokenUrl(p.tokenUrl ?? '');
+    setClientId(p.clientId ?? '');
+    setPrivateKeyField(p.privateKeyField ?? '');
+    if (p.scopes?.length) setScopes(p.scopes);
+  }, [authPrefill.data]);
 
-  const setPreset = (n: number) =>
-    setAuthGroups(n === 0 ? [] : n === 1 ? [newGroup('primary')] : [newGroup('primary'), newGroup('secondary')]);
-  const patchGroup = (i: number, patch: Partial<ServiceAuthGroup>) =>
-    setAuthGroups((gs) => gs.map((g, idx) => (idx === i ? { ...g, ...patch } : g)));
-  // Every env-var name the user typed, as a copy-paste setx checklist (values stay in the user's environment).
-  const setxLines = authGroups.flatMap((g) => Object.values(g.envVars).filter(Boolean)
-    .map((name) => `setx ${name} "<value>"`));
+  const serviceAuth = authed
+    ? { authenticated: true, tokenUrl, clientId, privateKeyField, scopes: scopes.filter((s) => s.name) }
+    : { authenticated: false, scopes: [] };
+  const patchScope = (i: number, patch: Partial<Scope>) =>
+    setScopes((ss) => ss.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
 
   // Where the generated tests are written and the PR is later opened: the chosen test repo, or the service repo itself
   // when starting from scratch with no separate test repo.
@@ -147,7 +151,7 @@ export function GenerateApiTests() {
       outputBranch: testBranch || serviceBranch || undefined,
       endpoints: [...selected],
       jiraKey,
-      serviceAuth: { groups: authGroups },
+      serviceAuth,
     }),
     onSuccess: (r) => { setRun(r); setStep(5); toast.push('success', 'Tests generated — review them, then open a PR.'); },
     onError: (e: Error) => toast.push('error', e.message),
@@ -339,30 +343,69 @@ export function GenerateApiTests() {
       {step === 4 && (
         <Card>
           <CardHeader title="How does this service authenticate?"
-            subtitle="Tell us which tokens it needs. We store only the variable names — your secrets stay in your environment." />
+            subtitle="Tests get an Okta token by private-key JWT. We store only the URL, client id and scopes — your private key stays in oktaCredentials.json." />
           <CardBody className="space-y-5">
             <div className="flex gap-2">
-              <PresetBtn active={authGroups.length === 0} onClick={() => setPreset(0)}>No token</PresetBtn>
-              <PresetBtn active={authGroups.length === 1} onClick={() => setPreset(1)}>One token</PresetBtn>
-              <PresetBtn active={authGroups.length === 2} onClick={() => setPreset(2)}>Two tokens · different APIs</PresetBtn>
+              <PresetBtn active={!authed} onClick={() => setAuthed(false)}>No token (public)</PresetBtn>
+              <PresetBtn active={authed} onClick={() => setAuthed(true)}>Needs an Okta token</PresetBtn>
             </div>
 
-            {authGroups.length === 0 ? (
+            {!authed ? (
               <p className="rounded-lg bg-ink-50 p-3 text-[13px] text-muted">
                 Public service — every endpoint is called without a token.
               </p>
             ) : (
-              authGroups.map((g, i) => (
-                <AuthGroupCard key={i} index={i} group={g} multi={authGroups.length > 1} onChange={patchGroup} />
-              ))
-            )}
+              <div className="space-y-4 rounded-lg border border-border p-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Okta token URL" hint="the /v1/token endpoint">
+                    <Input aria-label="Okta token URL" value={tokenUrl} onChange={(e) => setTokenUrl(e.target.value)}
+                      placeholder="https://your-okta/oauth2/<auth-server>/v1/token" />
+                  </Field>
+                  <Field label="Okta client id">
+                    <Input aria-label="Okta client id" value={clientId} onChange={(e) => setClientId(e.target.value)} placeholder="0oa…" />
+                  </Field>
+                  <div className="col-span-2">
+                    <Field label="Private-key field in oktaCredentials.json"
+                      hint="Veritas never sees the key — it's a $sensitive value in oktaCredentials.json.">
+                      <Input aria-label="private key field" value={privateKeyField}
+                        onChange={(e) => setPrivateKeyField(e.target.value)} placeholder="MY_API_PRIVATE_KEY" />
+                    </Field>
+                  </div>
+                </div>
 
-            {setxLines.length > 0 && (
-              <div className="rounded-lg border-l-4 border-l-success bg-success/5 p-3">
-                <p className="mb-1.5 flex items-center gap-1.5 text-[13px] font-semibold text-success">
-                  <Terminal className="h-3.5 w-3.5" /> Set these in your environment, then you're done
+                <div>
+                  <p className="mb-1.5 text-[12px] font-medium text-ink-900">OAuth scopes the API requires</p>
+                  <div className="space-y-2">
+                    {scopes.map((s, i) => (
+                      <div key={i} className="flex items-end gap-2">
+                        <div className="w-28">
+                          <Field label={i === 0 ? 'Name' : ''}>
+                            <Input aria-label={`scope ${i} name`} value={s.name}
+                              onChange={(e) => patchScope(i, { name: e.target.value.toUpperCase() })} placeholder="READ" />
+                          </Field>
+                        </div>
+                        <div className="flex-1">
+                          <Field label={i === 0 ? 'Okta scope string' : ''}>
+                            <Input aria-label={`scope ${i} value`} value={s.value}
+                              onChange={(e) => patchScope(i, { value: e.target.value })} placeholder="myapi:resource:read" />
+                          </Field>
+                        </div>
+                        <button type="button" aria-label={`remove scope ${i}`} className="mb-1.5 text-muted hover:text-danger"
+                          onClick={() => setScopes((ss) => ss.filter((_, idx) => idx !== i))}>
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <Button variant="secondary" className="mt-2" onClick={() => setScopes((ss) => [...ss, { name: '', value: '' }])}>
+                    <Plus className="h-4 w-4" /> Add scope
+                  </Button>
+                </div>
+
+                <p className="flex items-center gap-1.5 rounded-lg bg-success/5 p-2.5 text-[12px] text-success">
+                  <Lock className="h-3.5 w-3.5 shrink-0" /> Put the private key in <span className="font-mono">oktaCredentials.json</span> as
+                  <span className="font-mono">"$sensitive:MY_API_PRIVATE_KEY"</span> — it never leaves your environment.
                 </p>
-                <pre className="overflow-x-auto rounded bg-ink-900/90 px-3 py-2 font-mono text-[12px] text-white">{setxLines.join('\n')}</pre>
               </div>
             )}
 
@@ -463,73 +506,6 @@ function PresetBtn({ active, onClick, children }: { active: boolean; onClick: ()
         active ? 'border-brand bg-brand/10 font-semibold text-ink-900' : 'border-border text-muted hover:bg-ink-50')}>
       {children}
     </button>
-  );
-}
-
-/** One declared token group: mechanism + the env-var NAMES it reads + (when multi) the paths it covers. */
-function AuthGroupCard({ index, group, multi, onChange }:
-  { index: number; group: ServiceAuthGroup; multi: boolean; onChange: (i: number, patch: Partial<ServiceAuthGroup>) => void }) {
-  const setEnv = (role: string, name: string) => onChange(index, { envVars: { ...group.envVars, [role]: name } });
-  return (
-    <div className="rounded-lg border border-border p-3">
-      <div className="mb-2.5 flex items-center gap-2">
-        <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-[12px] font-medium text-brand">
-          <KeyRound className="h-3 w-3" /> Token {String.fromCharCode(65 + index)}
-        </span>
-        {multi && <span className="text-[12px] text-muted">used by endpoints under its path prefix</span>}
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="How is it generated?">
-          <Select value={group.mechanism} onChange={(e) => onChange(index, { mechanism: e.target.value as Mechanism, envVars: {} })}>
-            {MECHANISMS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-          </Select>
-        </Field>
-        {multi && (
-          <Field label="Applies to paths" hint="Comma-separated prefixes, e.g. /tpps">
-            <Input aria-label={`Token ${String.fromCharCode(65 + index)} paths`} value={group.pathPrefixes.join(', ')}
-              onChange={(e) => onChange(index, { pathPrefixes: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })} />
-          </Field>
-        )}
-        {rolesFor(group.mechanism).map((r) => (
-          <div key={r.key} className="col-span-2">
-            <Field label={`Windows env var for the ${r.label}`} hint="Veritas never sees the value — only the name.">
-              <Input aria-label={`Token ${String.fromCharCode(65 + index)} ${r.key} env var`}
-                placeholder={`E.g. CIAM_${(group.name || 'token').toUpperCase()}_${r.key.toUpperCase()}`}
-                value={group.envVars[r.key] ?? ''} onChange={(e) => setEnv(r.key, e.target.value)} />
-            </Field>
-          </div>
-        ))}
-      </div>
-      {group.mechanism === 'BASIC_AUTH' && <Base64Helper />}
-    </div>
-  );
-}
-
-/** Browser-only base64 helper: turns client id + password into base64(id:password) locally — never sent to the server. */
-function Base64Helper() {
-  const [cid, setCid] = useState('');
-  const [pw, setPw] = useState('');
-  const [b64, setB64] = useState('');
-  const encode = () => {
-    if (!cid && !pw) return;
-    try { setB64(btoa(`${cid}:${pw}`)); } catch { setB64(btoa(unescape(encodeURIComponent(`${cid}:${pw}`)))); }
-  };
-  return (
-    <div className="mt-3 rounded-md bg-ink-50 p-3">
-      <p className="mb-0.5 flex items-center gap-1.5 text-[12px] font-medium text-ink-900"><Lock className="h-3.5 w-3.5" /> Encode the base64 for me</p>
-      <p className="mb-2 text-[11px] text-muted">Computed in your browser — client id and password are never sent to Veritas.</p>
-      <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
-        <Field label="Client id"><Input value={cid} onChange={(e) => setCid(e.target.value)} placeholder="svc-account" /></Field>
-        <Field label="Password"><Input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="••••••••" /></Field>
-        <Button type="button" variant="secondary" onClick={encode}>Encode</Button>
-      </div>
-      {b64 && (
-        <div className="mt-2">
-          <p className="mb-0.5 text-[11px] text-muted">base64(client id:password) — use it in your setx command:</p>
-          <code className="block break-all rounded border border-border bg-surface px-2 py-1.5 font-mono text-[12px]">{b64}</code>
-        </div>
-      )}
-    </div>
   );
 }
 
