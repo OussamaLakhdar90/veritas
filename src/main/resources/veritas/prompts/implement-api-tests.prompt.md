@@ -40,6 +40,10 @@ Non-negotiable rules from the template:
   `todos` entry naming it; never derive or invent it.
 - **Secrets:** every credential is a `$sensitive:ENV_VAR_NAME` reference — never a literal. (Veritas rejects any
   generated file containing a literal secret before it is written.)
+- **`WorldKey` is a fixed framework enum** — use only its members (`RAW_RESPONSE`, `ACTUAL_RESPONSE`,
+  `EXPECTED_RESPONSE`, `ROBOT_TOKEN`, `TEST_DATA`, `CLIENT_ID`, `CONTEXT`) plus `ROBOT_TOKEN_{NAME}` for multi-token.
+  Never invent a member. There is no created-id key: carry a created resource's id by keeping its `Response` in
+  `WorldKey.RAW_RESPONSE` and re-reading the id from it in the next step.
 - **Authentication (`SERVICE_AUTH_SPEC`):** the supplied `SERVICE_AUTH_SPEC` block is authoritative. It lists 0..N
   **token groups** (one per API group). Each authenticates via Okta **private-key JWT** and gets its own
   `{Name}TokenHelper` (static `getToken(testData, scope)` → `RobotToken.getOktaTokenWithPrivateKey`), `{Name}Scope`

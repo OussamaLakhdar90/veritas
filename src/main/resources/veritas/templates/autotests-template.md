@@ -37,6 +37,10 @@ layout:
 - `rest()` → the shared `ca.bnc.lsist.core.rest.RestClient` (auto pretty-print logging + sensitive-data redaction)
 - `logStep(String)` · `logResponseStatusCode(int)` · `log` (protected SLF4J)
 - inherited: `pushToTheWorld(WorldKey, Object)` / `pullFromTheWorld(WorldKey, Class<T>)` — share state across `@DependentStep`
+- `WorldKey` is the framework enum (do NOT invent a member). Its keys: `RAW_RESPONSE`, `ACTUAL_RESPONSE`,
+  `EXPECTED_RESPONSE`, `ROBOT_TOKEN`, `TEST_DATA`, `CLIENT_ID`, `CONTEXT`. **There is no dedicated "created-id" key** —
+  carry a created resource's id by keeping its `Response` in `WorldKey.RAW_RESPONSE` and re-reading the id from it in
+  the next step.
 
 ### HTTP — `rest()` (every verb takes a positional `jwt` AND a trailing `context`)
 - `rest().get(endpoint, jwt, context)` · `rest().post(endpoint, jwt, body, context)` ·
@@ -178,19 +182,25 @@ public class {ServiceName}BaseTest extends Base {
             logStep("POST create resource");
             Response response = rest().post(endpoint, jwt, requestBody, context);
             response.then().assertThat().statusCode(201);
+            // No dedicated WorldKey for ids — keep the create Response; t002/t999 re-read the id from it.
+            pushToTheWorld(WorldKey.RAW_RESPONSE, response);
             pushToTheWorld(WorldKey.CONTEXT, context);
-            // store the created id from the response for t002/t999 (e.g. response.jsonPath().getString("id"))
         } catch (Exception ex) { fail(ex.getMessage()); }
     }
 
     @Test
     @DependentStep
-    public void t999_Delete_Resource() {
+    public void t999_Delete_Resource() {   // ONLY if the API exposes a DELETE — never fabricate one
         try {
             String jwt = getToken(testData, {ServiceName}Scope.DELETE);
             String context = pullFromTheWorld(WorldKey.CONTEXT, String.class);
-            // build the delete endpoint with the stored id, then:
-            Response response = rest().delete(/* deleteEndpoint */ "", jwt, context);
+            Response prior = pullFromTheWorld(WorldKey.RAW_RESPONSE, Response.class);
+            String id = prior.then().extract().jsonPath().getString("{idField}");
+            TestData td = new TestData(testData);
+            String baseUrl = td.from("serverConfig.json").forIndex(1).getForKey("{BaseUrlKey}");
+            String deleteEndpoint = td.from("serverConfig.json").forIndex(2).getForKey("{delete_endpoint_key}");
+            String endpoint = rest().getApiUrl(deleteEndpoint, Map.of("{BaseUrlKey}", baseUrl, "{pathVar}", id));
+            Response response = rest().delete(endpoint, jwt, context);
             response.then().assertThat().statusCode(204);
         } catch (Exception ex) { fail(ex.getMessage()); }
     }
@@ -203,8 +213,10 @@ package {serviceName}Api.test.base;
 
 import {serviceName}Api.pretest.{ServiceName}BaseTest;
 import utils.{ServiceName}Scope;
+import ca.bnc.lsist.api.data.TestData;
 import ca.bnc.lsist.core.annotation.DependentStep;
 import io.restassured.response.Response;
+import java.util.Map;
 import org.testng.annotations.Test;
 import static utils.{ServiceName}TokenHelper.getToken;
 import static org.testng.Assert.fail;
@@ -217,10 +229,16 @@ public class {ServiceName}GetTest extends {ServiceName}BaseTest {
         try {
             String jwt = getToken(testData, {ServiceName}Scope.READ);
             String context = pullFromTheWorld(WorldKey.CONTEXT, String.class);
-            // build the get endpoint with the stored id:
-            Response response = rest().get(/* getEndpoint */ "", jwt, context);
+            // Re-read the created id from the stored create Response.
+            Response created = pullFromTheWorld(WorldKey.RAW_RESPONSE, Response.class);
+            String id = created.then().extract().jsonPath().getString("{idField}");
+            TestData td = new TestData(testData);
+            String baseUrl = td.from("serverConfig.json").forIndex(1).getForKey("{BaseUrlKey}");
+            String getEndpoint = td.from("serverConfig.json").forIndex(2).getForKey("{get_endpoint_key}");
+            String endpoint = rest().getApiUrl(getEndpoint, Map.of("{BaseUrlKey}", baseUrl, "{pathVar}", id));
+            Response response = rest().get(endpoint, jwt, context);
             response.then().assertThat().statusCode(200);
-            pushToTheWorld(WorldKey.RAW_RESPONSE, response);
+            pushToTheWorld(WorldKey.RAW_RESPONSE, response);   // overwrite with the GET Response for validation
         } catch (Exception ex) { fail(ex.getMessage()); }
     }
 }
