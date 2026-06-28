@@ -173,6 +173,8 @@ export interface DefectLink {
   id: string
   findingId: string
   scanId?: string
+  serviceName?: string
+  severity?: string
   jiraKey?: string
   jiraUrl?: string
   jiraStatus?: string
@@ -181,6 +183,16 @@ export interface DefectLink {
   createdBy?: string
   lastSyncedAt?: string
   createdAt?: string
+}
+
+/** Aggregate defect metrics: totals, open/closed, and distributions by severity / status / service. */
+export interface DefectMetrics {
+  total: number
+  open: number
+  closed: number
+  bySeverity: Record<string, number>
+  byStatusCategory: Record<string, number>
+  byService: Record<string, number>
 }
 
 export interface GateDecision {
@@ -404,6 +416,7 @@ export const api = {
   costSummary: () => get<CostSummary>('/costs/summary'),
   preflight: () => get<PreflightCheck[]>('/preflight'),
   defects: () => get<DefectLink[]>('/defects'),
+  defectMetrics: () => get<DefectMetrics>('/defects/metrics'),
   syncDefects: () => post<{ updated: number }>('/defects/sync', {}),
   gates: (status = 'PENDING') => get<GateDecision[]>(`/gates?status=${encodeURIComponent(status)}`),
   approveGate: (id: string, approver = 'dashboard') => post<GateDecision>(`/gates/${id}/approve`, { approver }),

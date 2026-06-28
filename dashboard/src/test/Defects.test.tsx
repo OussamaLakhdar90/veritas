@@ -27,6 +27,21 @@ function renderDefects() {
 }
 
 describe('Defects page', () => {
+  it('shows the defect-metrics strip (totals + severity distribution)', async () => {
+    server.use(
+      http.get('*/api/v1/defects', () => HttpResponse.json([])),
+      http.get('*/api/v1/defects/metrics', () => HttpResponse.json({
+        total: 5, open: 3, closed: 2, bySeverity: { HIGH: 4, MEDIUM: 1 },
+        byStatusCategory: { done: 2, 'in progress': 3 }, byService: { 'ciam-policies': 5 },
+      })),
+    )
+    renderDefects()
+
+    expect(await screen.findByText('Total defects')).toBeInTheDocument()
+    expect(screen.getByText('By severity')).toBeInTheDocument()
+    expect(screen.getByText('HIGH')).toBeInTheDocument()
+  })
+
   it('renders the page header while the list is loading', async () => {
     // Never-resolving GET keeps the query in its loading branch.
     server.use(http.get('*/api/v1/defects', () => new Promise(() => {})))

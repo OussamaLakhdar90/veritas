@@ -19,6 +19,8 @@ public class DefectLink extends AuditableEntity {
     private String findingId;
 
     private String scanId;
+    private String serviceName;     // carried from the finding's scan — for per-service defect density
+    private String severity;        // carried from the finding — for the severity distribution
     private String jiraKey;
     private String jiraUrl;
     private String jiraStatus;

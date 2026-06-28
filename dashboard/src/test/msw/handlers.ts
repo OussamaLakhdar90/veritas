@@ -13,4 +13,7 @@ export const handlers = [
   http.get('*/api/v1/services', () => HttpResponse.json([])),
   // The Reviews page loads recent verdicts on mount; default empty so unrelated tests don't see an unhandled request.
   http.get('*/api/v1/reviews/recent', () => HttpResponse.json([])),
+  // The Defects page loads aggregate metrics; default to an empty (zero-total → hidden) summary.
+  http.get('*/api/v1/defects/metrics', () =>
+    HttpResponse.json({ total: 0, open: 0, closed: 0, bySeverity: {}, byStatusCategory: {}, byService: {} })),
 ]

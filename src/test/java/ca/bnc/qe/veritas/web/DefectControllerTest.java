@@ -49,4 +49,25 @@ class DefectControllerTest {
                 .andExpect(jsonPath("$[0].jiraStatusCategory").value("indeterminate"))
                 .andExpect(jsonPath("$[0].createdInJira").value(true));
     }
+
+    @Test
+    void exposesAggregateDefectMetrics() throws Exception {
+        DefectLink open = new DefectLink();
+        open.setSeverity("HIGH");
+        open.setServiceName("ciam-policies");
+        open.setJiraStatusCategory("in progress");
+        DefectLink closed = new DefectLink();
+        closed.setSeverity("HIGH");
+        closed.setServiceName("ciam-policies");
+        closed.setJiraStatusCategory("done");
+        when(defectLinks.findAllByOrderByCreatedAtDesc()).thenReturn(List.of(open, closed));
+
+        mvc.perform(get("/api/v1/defects/metrics"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(2))
+                .andExpect(jsonPath("$.open").value(1))
+                .andExpect(jsonPath("$.closed").value(1))
+                .andExpect(jsonPath("$.bySeverity.HIGH").value(2))
+                .andExpect(jsonPath("$.byService['ciam-policies']").value(2));
+    }
 }

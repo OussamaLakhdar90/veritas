@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bug, RefreshCw, ExternalLink } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, Card, CardBody, EmptyState, PageHeader, Spinner, Table, Td, Row, SortableTh, useSort } from '../components/ui';
+import { Badge, Button, Card, CardBody, EmptyState, KpiTile, PageHeader, Spinner, Table, Td, Row, SortableTh, useSort } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
 import { DefectLink } from '../api';
@@ -21,15 +21,25 @@ function statusTone(category?: string): string {
   return TONE.muted;
 }
 
+function severityTone(severity?: string): string {
+  const s = (severity || '').toUpperCase();
+  if (s === 'CRITICAL' || s === 'HIGH') return TONE.danger;
+  if (s === 'MEDIUM') return TONE.warn;
+  if (s === 'LOW' || s === 'INFO') return TONE.info;
+  return TONE.muted;
+}
+
 export function Defects() {
   const toast = useToast();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['defects'], queryFn: api.defects });
+  const metricsQ = useQuery({ queryKey: ['defect-metrics'], queryFn: api.defectMetrics });
   const sync = useMutation({
     mutationFn: api.syncDefects,
-    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ['defects'] }); toast.push('success', `Synced — ${r.updated} updated.`); },
+    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ['defects'] }); qc.invalidateQueries({ queryKey: ['defect-metrics'] }); toast.push('success', `Synced — ${r.updated} updated.`); },
     onError: (e: Error) => toast.push('error', `Sync failed: ${e.message}`),
   });
+  const m = metricsQ.data;
 
   const sort = useSort(q.data ?? [], { key: 'jiraKey' }, DEFECT_ACCESSORS);
   const rows = sort.sorted;
@@ -38,6 +48,26 @@ export function Defects() {
       <PageHeader title="Defects" subtitle="Jira defects raised from contract findings, with live status."
         actions={<Button variant="secondary" loading={sync.isPending} onClick={() => sync.mutate()}>
           <RefreshCw className="h-4 w-4" /> Refresh statuses</Button>} />
+
+      {m && m.total > 0 && (
+        <div className="mb-6 space-y-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <KpiTile label="Total defects" value={m.total} />
+            <KpiTile label="Open" value={m.open} tone={m.open > 0 ? 'warning' : 'success'} />
+            <KpiTile label="Closed" value={m.closed} tone="success" />
+          </div>
+          <Card>
+            <CardBody className="flex flex-wrap items-center gap-x-6 gap-y-2">
+              <span className="text-[13px] font-medium text-ink-900">By severity</span>
+              {Object.entries(m.bySeverity).map(([sev, n]) => (
+                <span key={sev} className="inline-flex items-center gap-1.5 text-[13px] text-muted">
+                  <Badge className={severityTone(sev)}>{sev}</Badge> {n}
+                </span>
+              ))}
+            </CardBody>
+          </Card>
+        </div>
+      )}
 
       {q.isLoading ? (
         <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> Loading…</CardBody></Card>
