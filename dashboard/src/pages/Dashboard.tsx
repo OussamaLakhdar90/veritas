@@ -1,9 +1,11 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { ShieldCheck, AlertTriangle, Activity, FileText, ArrowRight, Settings as SettingsIcon } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { ShieldCheck, AlertTriangle, Activity, FileText, ArrowRight, Settings as SettingsIcon, Sparkles } from 'lucide-react';
 import { api, Scan } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, KpiTile, PageHeader, Skeleton } from '../components/ui';
+import type { KpiTrend } from '../components/ui';
 import { TONE } from '../theme/tokens';
 
 /** Map a validation status to a status-pill tone. */
@@ -15,17 +17,19 @@ function statusTone(status?: string): string {
   return TONE.muted;
 }
 
-/** Plain-language status label — never show the raw enum. */
-function statusLabel(status?: string): string {
-  const s = (status || '').toUpperCase();
-  if (['COMPLETED', 'DONE', 'SUCCESS', 'PASSED'].includes(s)) return 'Completed';
-  if (['FAILED', 'ERROR'].includes(s)) return 'Failed';
-  if (['RUNNING', 'IN_PROGRESS'].includes(s)) return 'Running';
-  if (['PENDING', 'QUEUED'].includes(s)) return 'Queued';
-  return status ? status.charAt(0) + status.slice(1).toLowerCase() : '—';
-}
-
 export function Dashboard() {
+  const { t } = useTranslation();
+
+  /** Plain-language, localized status label — never show the raw enum. */
+  const statusLabel = (status?: string): string => {
+    const s = (status || '').toUpperCase();
+    if (['COMPLETED', 'DONE', 'SUCCESS', 'PASSED'].includes(s)) return t('status.completed');
+    if (['FAILED', 'ERROR'].includes(s)) return t('status.failed');
+    if (['RUNNING', 'IN_PROGRESS'].includes(s)) return t('status.running');
+    if (['PENDING', 'QUEUED'].includes(s)) return t('status.queued');
+    return status ? status.charAt(0) + status.slice(1).toLowerCase() : '—';
+  };
+
   const scansQ = useQuery({ queryKey: ['scans'], queryFn: () => api.scans() });
   const preflightQ = useQuery({ queryKey: ['preflight'], queryFn: api.preflight });
   const costQ = useQuery({ queryKey: ['costs'], queryFn: api.costSummary });
@@ -45,26 +49,63 @@ export function Dashboard() {
     return { services, findings, openDefects, spend };
   }, [scans, defectsQ.data, costQ.data]);
 
+  // How many distinct services currently carry findings — drives the executive one-liner.
+  const attention = useMemo(
+    () => new Set(scans.filter((s) => (s.totalFindings ?? 0) > 0).map((s) => s.serviceName)).size,
+    [scans],
+  );
+
+  // Honest findings trend: per service, compare the latest scan to the most recent STRICTLY-earlier scan; sum the
+  // deltas. Only show a chip when there's a real baseline (a prior scan at a different time) and the net moved.
+  const findingsTrend: KpiTrend | undefined = useMemo(() => {
+    const byService = new Map<string, Scan[]>();
+    for (const s of scans) {
+      const arr = byService.get(s.serviceName) ?? [];
+      arr.push(s);
+      byService.set(s.serviceName, arr);
+    }
+    let delta = 0;
+    let hasBaseline = false;
+    byService.forEach((list) => {
+      const sorted = [...list].sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''));
+      const latest = sorted[0];
+      const prev = sorted.find((x) => (x.startedAt ?? '') < (latest.startedAt ?? ''));
+      if (latest && prev) {
+        delta += (latest.totalFindings ?? 0) - (prev.totalFindings ?? 0);
+        hasBaseline = true;
+      }
+    });
+    if (!hasBaseline || delta === 0) return undefined;
+    return delta < 0
+      ? { dir: 'down', good: true, label: t('overview.trendFindingsDown', { count: -delta }) }
+      : { dir: 'up', good: false, label: t('overview.trendFindingsUp', { count: delta }) };
+  }, [scans, t]);
+
   const recent: Scan[] = [...scans]
     .sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))
     .slice(0, 8);
 
   // Don't render misleading zeros when the core data couldn't load — show a real error instead.
   const loadError = (scansQ.isError && scansQ.error) || (costQ.isError && costQ.error) || (defectsQ.isError && defectsQ.error);
+  const showBanner = !scansQ.isLoading && !loadError && scans.length > 0;
 
   return (
     <div>
       <PageHeader
-        title="Overview"
-        subtitle="API accuracy, test coverage and cost across your services."
+        title={t('overview.title')}
+        subtitle={t('overview.subtitle')}
         actions={
           <Link to="/repos">
-            <Button><ShieldCheck className="h-4 w-4" /> Validate a service</Button>
+            <Button><ShieldCheck className="h-4 w-4" /> {t('overview.validateBtn')}</Button>
           </Link>
         }
       />
 
-      {loadError && <div className="mb-6"><ErrorState message={`Couldn't load the overview: ${(loadError as Error).message}`} /></div>}
+      {loadError && (
+        <div className="mb-6">
+          <ErrorState message={t('overview.loadError', { message: (loadError as Error).message })} />
+        </div>
+      )}
 
       {/* Setup nudge — only when something is unconfigured */}
       {missing.length > 0 && (
@@ -74,17 +115,35 @@ export function Dashboard() {
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
               <div>
                 <p className="text-sm font-semibold text-ink-900">
-                  Finish setup ({missing.length} {missing.length === 1 ? 'item' : 'items'})
+                  {t('overview.finishSetup', { count: missing.length })}
                 </p>
                 <p className="mt-0.5 text-[13px] text-muted">
-                  {missing.slice(0, 3).map((c) => c.name).join(', ')}
-                  {missing.length > 3 ? ` and ${missing.length - 3} more` : ''} need attention before Veritas can run.
+                  {missing.length > 3
+                    ? t('overview.setupBodyMore', { names: missing.slice(0, 3).map((c) => c.name).join(', '), count: missing.length - 3 })
+                    : t('overview.setupBody', { names: missing.map((c) => c.name).join(', ') })}
                 </p>
               </div>
             </div>
             <Link to="/settings">
-              <Button variant="secondary" size="sm"><SettingsIcon className="h-4 w-4" /> Open Settings</Button>
+              <Button variant="secondary" size="sm"><SettingsIcon className="h-4 w-4" /> {t('overview.openSettings')}</Button>
             </Link>
+          </CardBody>
+        </Card>
+      )}
+
+      {/* Executive one-liner — a manager-readable health verdict above the metrics */}
+      {showBanner && (
+        <Card className="mb-6 border-l-4 border-l-brand">
+          <CardBody className="flex items-center gap-3">
+            <Sparkles className="h-5 w-5 shrink-0 text-brand" />
+            <p className="text-[13.5px] text-ink-700">
+              <span className="font-semibold text-ink-900">
+                {attention > 0
+                  ? t('overview.execAttention', { services: totals.services, attention })
+                  : t('overview.execHealthy', { services: totals.services })}
+              </span>{' '}
+              {t('overview.execTail', { findings: totals.findings, defects: totals.openDefects, spend: totals.spend.toFixed(2) })}
+            </p>
           </CardBody>
         </Card>
       )}
@@ -95,10 +154,14 @@ export function Dashboard() {
           Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28" />)
         ) : (
           <>
-            <KpiTile label="Services validated" value={totals.services} tone="brand" sub={`${scans.length} validation${scans.length === 1 ? '' : 's'} total`} />
-            <KpiTile label="Findings" value={totals.findings} tone={totals.findings > 0 ? 'warning' : 'success'} sub="across all validations" />
-            <KpiTile label="Open defects" value={totals.openDefects} tone={totals.openDefects > 0 ? 'danger' : 'success'} sub="not yet resolved in Jira" />
-            <KpiTile label="Est. analysis cost" value={`$${totals.spend.toFixed(2)}`} sub={costQ.data ? `${costQ.data.actions} AI calls` : 'this environment'} />
+            <KpiTile label={t('overview.kpiServices')} value={totals.services} tone="brand"
+              sub={t('overview.kpiServicesSub', { count: scans.length })} />
+            <KpiTile label={t('overview.kpiFindings')} value={totals.findings}
+              tone={totals.findings > 0 ? 'warning' : 'success'} sub={t('overview.kpiFindingsSub')} trend={findingsTrend} />
+            <KpiTile label={t('overview.kpiDefects')} value={totals.openDefects}
+              tone={totals.openDefects > 0 ? 'danger' : 'success'} sub={t('overview.kpiDefectsSub')} />
+            <KpiTile label={t('overview.kpiCost')} value={`$${totals.spend.toFixed(2)}`}
+              sub={costQ.data ? t('overview.kpiCostCalls', { count: costQ.data.actions }) : t('overview.kpiCostEnv')} />
           </>
         )}
       </div>
@@ -106,20 +169,19 @@ export function Dashboard() {
       {/* Pipeline by service — everything the platform holds work for, browsable (find-your-work). */}
       {services.length > 0 && (
         <Card className="mb-6">
-          <CardHeader title="Pipeline by service"
-            subtitle="What exists at each stage, per service — strategy through codegen." />
+          <CardHeader title={t('overview.pipelineTitle')} subtitle={t('overview.pipelineSubtitle')} />
           <CardBody className="p-0">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-[12px] uppercase tracking-wide text-muted">
-                    <th className="px-5 py-3 font-medium">Service</th>
-                    <th className="px-5 py-3 font-medium text-right">Strategies</th>
-                    <th className="px-5 py-3 font-medium text-right">Conditions</th>
-                    <th className="px-5 py-3 font-medium text-right">Cases</th>
-                    <th className="px-5 py-3 font-medium text-right">Release plans</th>
-                    <th className="px-5 py-3 font-medium text-right">Codegen</th>
-                    <th className="px-5 py-3 font-medium text-right">Scans</th>
+                    <th className="px-5 py-3 font-medium">{t('overview.colService')}</th>
+                    <th className="px-5 py-3 font-medium text-right">{t('overview.colStrategies')}</th>
+                    <th className="px-5 py-3 font-medium text-right">{t('overview.colConditions')}</th>
+                    <th className="px-5 py-3 font-medium text-right">{t('overview.colCases')}</th>
+                    <th className="px-5 py-3 font-medium text-right">{t('overview.colPlans')}</th>
+                    <th className="px-5 py-3 font-medium text-right">{t('overview.colCodegen')}</th>
+                    <th className="px-5 py-3 font-medium text-right">{t('overview.colScans')}</th>
                     <th className="px-5 py-3" />
                   </tr>
                 </thead>
@@ -136,7 +198,7 @@ export function Dashboard() {
                       <td className="px-5 py-3 text-right whitespace-nowrap">
                         <Link to="/test-strategy"
                           className="inline-flex items-center gap-1 text-[13px] font-medium text-gold hover:underline">
-                          Open <ArrowRight className="h-3.5 w-3.5" />
+                          {t('overview.open')} <ArrowRight className="h-3.5 w-3.5" />
                         </Link>
                       </td>
                     </tr>
@@ -150,27 +212,27 @@ export function Dashboard() {
 
       {/* Recent activity */}
       <Card>
-        <CardHeader title="Recent validations" subtitle="Your latest validations."
-          action={<Link to="/repos" className="text-[13px] font-medium text-gold hover:underline">New validation</Link>} />
+        <CardHeader title={t('overview.recentTitle')} subtitle={t('overview.recentSubtitle')}
+          action={<Link to="/repos" className="text-[13px] font-medium text-gold hover:underline">{t('overview.newValidation')}</Link>} />
         <CardBody className="p-0">
           {scansQ.isLoading ? (
             <div className="space-y-2 p-5">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
           ) : recent.length === 0 ? (
             <div className="p-5">
-              <EmptyState icon={Activity} title="No validations yet"
-                body="Validate a service to see its findings and a management report here."
-                action={<Link to="/repos"><Button><ShieldCheck className="h-4 w-4" /> Validate your first service</Button></Link>} />
+              <EmptyState icon={Activity} title={t('overview.noValidations')}
+                body={t('overview.noValidationsBody')}
+                action={<Link to="/repos"><Button><ShieldCheck className="h-4 w-4" /> {t('overview.validateFirst')}</Button></Link>} />
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-[12px] uppercase tracking-wide text-muted">
-                    <th className="px-5 py-3 font-medium">Service</th>
-                    <th className="px-5 py-3 font-medium">Status</th>
-                    <th className="px-5 py-3 font-medium text-right">Findings</th>
-                    <th className="px-5 py-3 font-medium text-right">Est. cost</th>
-                    <th className="px-5 py-3 font-medium">Started</th>
+                    <th className="px-5 py-3 font-medium">{t('overview.colService')}</th>
+                    <th className="px-5 py-3 font-medium">{t('overview.colStatus')}</th>
+                    <th className="px-5 py-3 font-medium text-right">{t('overview.colFindings')}</th>
+                    <th className="px-5 py-3 font-medium text-right">{t('overview.colCost')}</th>
+                    <th className="px-5 py-3 font-medium">{t('overview.colStarted')}</th>
                     <th className="px-5 py-3" />
                   </tr>
                 </thead>
@@ -184,11 +246,11 @@ export function Dashboard() {
                       <td className="px-5 py-3 text-muted">{s.startedAt}</td>
                       <td className="px-5 py-3 text-right whitespace-nowrap">
                         <Link to={`/findings/${s.id}`} className="inline-flex items-center gap-1 text-[13px] font-medium text-gold hover:underline">
-                          View <ArrowRight className="h-3.5 w-3.5" />
+                          {t('overview.view')} <ArrowRight className="h-3.5 w-3.5" />
                         </Link>
                         <a href={api.reportUrl(s.id)} target="_blank" rel="noreferrer"
                           className="ml-3 inline-flex items-center gap-1 text-[13px] font-medium text-muted hover:text-ink-900">
-                          <FileText className="h-3.5 w-3.5" /> Report
+                          <FileText className="h-3.5 w-3.5" /> {t('overview.report')}
                         </a>
                       </td>
                     </tr>

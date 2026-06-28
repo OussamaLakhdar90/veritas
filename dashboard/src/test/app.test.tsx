@@ -38,10 +38,10 @@ function stubDashboard(): void {
   )
 }
 
-// The sidebar items, exactly as the NAV array in App.tsx renders them.
+// The sidebar items, exactly as the grouped NAV_GROUPS in App.tsx render them (English source labels).
 const NAV_LABELS = [
-  "Dashboard", "Get started", "Validate", "Defects", "Test Strategy", "Multi-source",
-  "Test Plans", "Test Cases", "Reviews", "Generate API Tests", "Generate Tests (local)",
+  "Overview", "Get started", "Validate a service", "Defects", "Test Strategy", "Multi-source",
+  "Test Plans", "Test Cases", "Reviews", "Generate API Tests", "Local generation",
   "Gates", "Cost", "Glossary", "Settings",
 ]
 
@@ -188,14 +188,14 @@ describe("App shell — navigation changes the route", () => {
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument()
   })
 
-  it("returns to the Dashboard when the Dashboard link is clicked from another page", async () => {
+  it("returns to the Overview when the Overview link is clicked from another page", async () => {
     stubDashboard()
     gotoHash("#/costs")
     const user = userEvent.setup()
     renderApp()
 
     expect(await screen.findByRole("heading", { name: "LLM cost" })).toBeInTheDocument()
-    await user.click(screen.getByRole("link", { name: "Dashboard" }))
+    await user.click(screen.getByRole("link", { name: "Overview" }))
     expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument()
   })
 })
