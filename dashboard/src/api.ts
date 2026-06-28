@@ -270,21 +270,24 @@ export interface TestGenPlan {
   filesScanned: number
 }
 
-/** How a token group is generated — each reads its credential from a Windows env var the user names. */
-export type Mechanism = 'PRIVATE_KEY' | 'BASIC_AUTH' | 'OAUTH2_CLIENT_CREDENTIALS'
-
-/** One declared token group: a service_auth.{name} → WorldKey.{NAME}_TOKEN. envVars holds env-var NAMES only. */
-export interface ServiceAuthGroup {
+/** One OAuth scope: enum-constant name (READ/WRITE/DELETE) → the Okta scope string the API requires. */
+export interface Scope {
   name: string
-  mechanism: Mechanism
-  envVars: Record<string, string>
-  pathPrefixes: string[]
-  xrayRequirement?: string
+  value: string
 }
 
-/** A service's auth-token declaration: 0 groups = public (no token). Names only — never a secret value. */
+/**
+ * A service's auth declaration for the BNC lsist framework: an Okta access token via private-key JWT assertion.
+ * `authenticated: false` = public (no token). Stores only the token URL, client id, the private-key FIELD name, and
+ * the scope strings — never the private key itself (that stays in oktaCredentials.json as a $sensitive value).
+ */
 export interface ServiceAuthSpec {
-  groups: ServiceAuthGroup[]
+  authenticated: boolean
+  tokenUrl?: string
+  clientId?: string
+  privateKeyField?: string
+  credentialsFile?: string
+  scopes: Scope[]
 }
 
 export interface TestCase {
