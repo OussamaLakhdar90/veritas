@@ -70,12 +70,29 @@ public class DiffEngine {
                         ce, Confidence.HIGH));
             }
         }
+        // When the code extraction is known-incomplete — controllers delegate their @*Mapping to interfaces outside the
+        // scanned sources (e.g. openapi-generator API interfaces) — a spec endpoint "not found in code" is UNVERIFIABLE,
+        // not a dead endpoint. Don't emit "dead spec?" findings we can't stand behind; surface one honest summary.
+        boolean codeIncomplete = codeExtractionIncomplete(code);
+        int unverifiable = 0;
         for (Endpoint se : spec.endpoints()) {
             if (!codeByKey.containsKey(key(se)) && !codeByPath.containsKey(normPath(se.pathTemplate()))) {
-                findings.add(finding(FindingType.EXTRA_ENDPOINT, se.signature(), spec.source(),
-                        "Endpoint " + se.signature() + " is in the spec but not found in code (dead spec?)",
-                        null, Confidence.MEDIUM));
+                if (codeIncomplete) {
+                    unverifiable++;
+                } else {
+                    findings.add(finding(FindingType.EXTRA_ENDPOINT, se.signature(), spec.source(),
+                            "Endpoint " + se.signature() + " is in the spec but not found in code (dead spec?)",
+                            null, Confidence.MEDIUM));
+                }
             }
+        }
+        if (unverifiable > 0) {
+            findings.add(finding(FindingType.EXTRA_ENDPOINT, "code-extraction-incomplete", spec.source(),
+                    unverifiable + " spec endpoint(s) could not be cross-checked against code: the implementing "
+                            + "controllers delegate their request mappings to interfaces outside the scanned sources "
+                            + "(e.g. openapi-generator API interfaces). Re-run with the generated API interfaces in "
+                            + "scope to verify these — they are NOT being reported as dead spec.",
+                    null, Confidence.LOW));
         }
 
         // schema field-level diff for schemas present (by name) on both sides
@@ -507,6 +524,12 @@ public class DiffEngine {
             }
         }
         return out;
+    }
+
+    /** True when the code model flagged controllers that delegate their @*Mapping to interfaces not in scanned sources. */
+    private boolean codeExtractionIncomplete(ApiModel code) {
+        return code.blindSpots() != null && code.blindSpots().stream()
+                .anyMatch(b -> b != null && b.contains("mappings declared on interfaces are not analysed"));
     }
 
     /** True when the code model flagged that authorization is centralized in a SecurityFilterChain/HttpSecurity bean. */
