@@ -13,8 +13,13 @@ public enum Thoroughness {
     ECONOMY(ModelTier.ECONOMY),
     /** The balanced default. */
     STANDARD(ModelTier.STANDARD),
-    /** The strongest model — the most rigorous reconcile (e.g. a release gate). */
-    DEEP(ModelTier.DEEP);
+    /**
+     * The strongest model — the most rigorous reconcile (e.g. a release gate). Resolves to the FRONTIER tier so the
+     * selector picks the top-tier model (Claude Opus 4.8 today — the cheapest/primary frontier model, multiplier 27)
+     * rather than a cheaper mid-tier "deep" model (gpt-5.4 / gemini-3.1-pro, multiplier 6). Catalog-driven: the
+     * concrete model comes from models.yaml / model-policy.yaml, never hardcoded here.
+     */
+    DEEP(ModelTier.FRONTIER);
 
     private final ModelTier tier;
 
