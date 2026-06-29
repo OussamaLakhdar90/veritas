@@ -51,9 +51,16 @@ class OpenApiServerBasePathTest {
     }
 
     @Test
-    void ignoresATemplatedServerUrl() {
-        // A server with a {var} can't yield a static base — leave the path as-is rather than guess.
+    void salvagesLiteralPathFromATemplatedHost() {
+        // Only the host is templated; the path /api is literal, so it must still prefix (keeps code/spec symmetric).
         assertThat(endpointsOf(widgetSpec("servers:\n  - url: 'https://{host}/api'\n")).get(0).pathTemplate())
+                .isEqualTo("/api/widget");
+    }
+
+    @Test
+    void ignoresAServerWhosePathItselfIsTemplated() {
+        // The path segment is templated — no static base to recover, so leave the path as-is rather than guess.
+        assertThat(endpointsOf(widgetSpec("servers:\n  - url: 'https://api.bnc.ca/{basePath}'\n")).get(0).pathTemplate())
                 .isEqualTo("/widget");
     }
 
@@ -64,6 +71,20 @@ class OpenApiServerBasePathTest {
         assertThat(OpenApiModelExtractor.serverBasePath(server("api"))).isEqualTo("/api");      // leading slash added
         assertThat(OpenApiModelExtractor.serverBasePath(server("http://h:8080"))).isEmpty();    // no path
         assertThat(OpenApiModelExtractor.serverBasePath(new OpenAPI())).isEmpty();              // no servers
+    }
+
+    @Test
+    void serverBasePathSalvagesLiteralPathsFromTemplatedServers() {
+        // Templated scheme/host/port but a literal path → keep the path.
+        assertThat(OpenApiModelExtractor.serverBasePath(server("https://{env}.bnc.ca/ciam"))).isEqualTo("/ciam");
+        assertThat(OpenApiModelExtractor.serverBasePath(server("https://{host}:{port}/ciam"))).isEqualTo("/ciam");
+        assertThat(OpenApiModelExtractor.serverBasePath(server("https://{host}/api?x=1#f"))).isEqualTo("/api");
+        // Templated path segment, fully-templated server, or no path → no recoverable base.
+        assertThat(OpenApiModelExtractor.serverBasePath(server("https://api.bnc.ca/{basePath}"))).isEmpty();
+        assertThat(OpenApiModelExtractor.serverBasePath(server("/{version}"))).isEmpty();
+        assertThat(OpenApiModelExtractor.serverBasePath(server("{server}"))).isEmpty();
+        assertThat(OpenApiModelExtractor.serverBasePath(server("https://{host}.bnc.ca"))).isEmpty();      // no path
+        assertThat(OpenApiModelExtractor.serverBasePath(server("https://{host}.bnc.ca/"))).isEmpty();     // root only
     }
 
     private static OpenAPI server(String url) {

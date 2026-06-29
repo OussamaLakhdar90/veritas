@@ -81,19 +81,26 @@ public class OpenApiModelExtractor {
 
     /**
      * The base path of the first {@code servers[].url}: an absolute URL (e.g. {@code http://host:8080/api} → {@code
-     * /api}), a relative base ({@code /api} → {@code /api}), or none/templated/root (→ {@code ""}, no prefix). A
-     * server templated with {@code {var}} is left alone (no resolvable static base). Trailing slash stripped.
+     * /api}), a relative base ({@code /api} → {@code /api}), or none/root (→ {@code ""}, no prefix). A server whose
+     * scheme/host/port is templated keeps its LITERAL path ({@code https://{env}.bnc.ca/ciam} → {@code /ciam}); only a
+     * server whose PATH itself is templated ({@code https://api/{basePath}}, {@code /{version}}) or a fully-templated
+     * server ({@code {server}}) yields {@code ""} — there is no static base to recover, so we surface it rather than
+     * guess (keeping the code/spec base-path comparison symmetric). Trailing slash stripped.
      */
     static String serverBasePath(OpenAPI openApi) {
         if (openApi.getServers() == null || openApi.getServers().isEmpty()) {
             return "";
         }
         String url = openApi.getServers().get(0).getUrl();
-        if (url == null || url.isBlank() || url.contains("{")) {
+        if (url == null || url.isBlank()) {
             return "";
         }
         String p;
-        if (url.matches("(?i)^[a-z][a-z0-9+.-]*://.*")) {   // absolute URL → take the path component only
+        if (url.contains("{")) {
+            // Templated: URI.create chokes on '{', so salvage the literal path lexically — but only if the PATH is
+            // literal. A '{' remaining in the extracted path means we refuse to assert a base.
+            p = literalPathOfTemplatedServer(url);
+        } else if (url.matches("(?i)^[a-z][a-z0-9+.-]*://.*")) {   // absolute URL → take the path component only
             try {
                 p = java.net.URI.create(url).getPath();
             } catch (RuntimeException e) {
@@ -109,6 +116,35 @@ public class OpenApiModelExtractor {
             p = "/" + p;
         }
         return p.endsWith("/") ? p.substring(0, p.length() - 1) : p;
+    }
+
+    /**
+     * The literal path of a templated server URL, or {@code ""} when no static path can be recovered. Drops any
+     * query/fragment, takes the path after {@code scheme://authority} (or the whole string for a relative URL), and
+     * returns {@code ""} if that path still contains a {@code {var}} placeholder (a templated path segment, or a
+     * fully-templated server with no resolvable path). The caller normalizes the result (leading/trailing slash).
+     */
+    private static String literalPathOfTemplatedServer(String url) {
+        String s = url;
+        int q = s.indexOf('?');
+        if (q >= 0) {
+            s = s.substring(0, q);
+        }
+        int h = s.indexOf('#');
+        if (h >= 0) {
+            s = s.substring(0, h);
+        }
+        String path;
+        int scheme = s.indexOf("://");
+        if (scheme >= 0) {
+            int slash = s.indexOf('/', scheme + 3);   // first '/' after the (possibly templated) authority
+            path = slash >= 0 ? s.substring(slash) : "";
+        } else if (s.startsWith("/")) {
+            path = s;   // relative base path
+        } else {
+            return "";  // no scheme and not path-rooted (e.g. "{server}") — nothing to recover
+        }
+        return path.contains("{") ? "" : path;
     }
 
     /** Prepend {@code base} to a spec {@code path} (base already has no trailing slash; path may be "" or "/"). */
