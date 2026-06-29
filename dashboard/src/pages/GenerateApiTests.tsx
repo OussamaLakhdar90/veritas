@@ -141,7 +141,9 @@ export function GenerateApiTests() {
       serviceRepoSlug: serviceRepo,
       serviceBranch: serviceBranch || undefined,
       outputRepoSlug: outputRepo,
-      outputBranch: testBranch || serviceBranch || undefined,
+      // Base the PR on the chosen automation-repo branch. Only fall back to the service branch when the tests go
+      // INTO the service repo itself (no separate automation repo) — never carry the service branch onto another repo.
+      outputBranch: testBranch || (testRepo ? undefined : serviceBranch) || undefined,
       endpoints: [...selected],
       jiraKey,
       serviceAuth,
