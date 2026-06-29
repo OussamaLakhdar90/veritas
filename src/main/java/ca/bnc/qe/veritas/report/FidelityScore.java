@@ -33,12 +33,15 @@ public final class FidelityScore {
         return Math.max(0, 100 - penalty);
     }
 
-    /** Unconfirmed items (AI-origin / low confidence / design-quality) — excluded from the score. */
+    /** Unconfirmed items (AI-origin / low confidence / design-quality / AI-disputed) — excluded from the score. */
     public static boolean isNeedsAttention(Finding f) {
         String type = f.getType() != null ? f.getType().name() : "";
         boolean designOnly = type.equals("DESIGN_QUALITY") || type.equals("TEST_BASIS_GAP");
         boolean llm = f.getOrigin() != null && !f.getOrigin().equalsIgnoreCase("DETERMINISTIC");
         boolean lowConf = f.getConfidence() != null && f.getConfidence().name().equals("LOW");
-        return designOnly || llm || lowConf;
+        // The reconcile LLM flagged this as a likely false positive: it leaves the score + release gate (still listed
+        // for a human, severity intact). This is the single chokepoint both the report split and blocking count use.
+        boolean aiDisputed = f.isAiDisputed();
+        return designOnly || llm || lowConf || aiDisputed;
     }
 }

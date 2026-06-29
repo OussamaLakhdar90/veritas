@@ -268,6 +268,62 @@ class ContractValidationServiceBranchTest {
     }
 
     @Test
+    void aiDispute_movesABlockerOutOfTheGate_butKeepsItListedWithSeverityIntact() {
+        Finding det = Finding.builder().findingId("FID").type(FindingType.STATUS_CODE_MISSING).layer(Layer.L4)
+                .severity(Severity.BLOCKER).confidence(Confidence.HIGH).origin("DETERMINISTIC").endpoint("GET /x")
+                .specSource("repo-spec").summary("Code returns 500 not in spec").build();
+        when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(new ArrayList<>(List.of(det)));
+        when(diffEngine.l1FromMessages(anyString(), any())).thenReturn(List.of());
+        when(openApi.extract(eq("repo-spec"), anyString()))
+                .thenReturn(new SpecParse(specModel("repo-spec"), List.of(), true));
+        armLlm("{\"correctedYaml\":\"openapi: 3.0.3\",\"findings\":[],\"designFindings\":[],"
+                + "\"disputedFindings\":[{\"findingId\":\"FID\",\"reason\":\"the @ControllerAdvice does map 500 here\"}]}");
+
+        ValidationResult r = svc.validate(req(true, new SpecInput("repo-spec", "spec-yaml")));
+        assertThat(r.status()).isEqualTo("COMPLETED");
+
+        org.mockito.ArgumentCaptor<Scan> scanCap = org.mockito.ArgumentCaptor.forClass(Scan.class);
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<List<Finding>> findCap =
+                org.mockito.ArgumentCaptor.forClass((Class) List.class);
+        verify(scanPersistence).complete(scanCap.capture(), findCap.capture(), any());
+
+        Finding fid = findCap.getValue().stream().filter(f -> "FID".equals(f.getFindingId())).findFirst().orElseThrow();
+        assertThat(fid.isAiDisputed()).isTrue();
+        assertThat(fid.getAiDisputeReason()).contains("ControllerAdvice");
+        assertThat(fid.getSeverity()).isEqualTo(Severity.BLOCKER);   // severity is NEVER altered — a human can overturn
+        // It is still listed (not deleted) but moved out of the score + release gate.
+        assertThat(ca.bnc.qe.veritas.report.FidelityScore.isNeedsAttention(fid)).isTrue();
+        assertThat(scanCap.getValue().getFidelityScore()).isEqualTo(100);   // a disputed BLOCKER costs no penalty
+    }
+
+    @Test
+    void aiDispute_forAnUnknownFindingId_isIgnored() {
+        Finding det = Finding.builder().findingId("FID").type(FindingType.STATUS_CODE_MISSING).layer(Layer.L4)
+                .severity(Severity.BLOCKER).confidence(Confidence.HIGH).origin("DETERMINISTIC").endpoint("GET /x")
+                .specSource("repo-spec").summary("Code returns 500 not in spec").build();
+        when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(new ArrayList<>(List.of(det)));
+        when(diffEngine.l1FromMessages(anyString(), any())).thenReturn(List.of());
+        when(openApi.extract(eq("repo-spec"), anyString()))
+                .thenReturn(new SpecParse(specModel("repo-spec"), List.of(), true));
+        // The AI disputes an id the engine never emitted — it must be ignored, never trusted.
+        armLlm("{\"correctedYaml\":\"openapi: 3.0.3\",\"findings\":[],\"designFindings\":[],"
+                + "\"disputedFindings\":[{\"findingId\":\"NOT-A-REAL-ID\",\"reason\":\"trust me\"}]}");
+
+        svc.validate(req(true, new SpecInput("repo-spec", "spec-yaml")));
+
+        org.mockito.ArgumentCaptor<Scan> scanCap = org.mockito.ArgumentCaptor.forClass(Scan.class);
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<List<Finding>> findCap =
+                org.mockito.ArgumentCaptor.forClass((Class) List.class);
+        verify(scanPersistence).complete(scanCap.capture(), findCap.capture(), any());
+
+        Finding fid = findCap.getValue().stream().filter(f -> "FID".equals(f.getFindingId())).findFirst().orElseThrow();
+        assertThat(fid.isAiDisputed()).isFalse();                          // unknown id never honoured
+        assertThat(scanCap.getValue().getFidelityScore()).isEqualTo(75);   // the BLOCKER still counts: 100 - 25
+    }
+
+    @Test
     void specWideDesignFinding_contradictedByPresenceFacts_isSuppressed() {
         when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(new ArrayList<>(List.of(deterministic("gap"))));
         when(diffEngine.l1FromMessages(anyString(), any())).thenReturn(List.of());

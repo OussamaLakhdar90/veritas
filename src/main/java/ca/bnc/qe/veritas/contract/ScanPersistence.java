@@ -66,6 +66,8 @@ public class ScanPersistence {
             r.setProposedFix(f.getProposedFix());
             r.setCitation(f.getCitation());
             r.setStatus(f.getStatus());
+            r.setAiDisputed(f.isAiDisputed());
+            r.setAiDisputeReason(f.getAiDisputeReason());
             SourceRef ref = f.getCodeEvidence();
             if (ref != null) {
                 r.setCodeFile(ref.location());
