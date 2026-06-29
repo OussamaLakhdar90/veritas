@@ -967,5 +967,15 @@
     "toastComplete_one": "{{service}} : analyse terminée — {{count}} constat.",
     "toastComplete_other": "{{service}} : analyse terminée — {{count}} constats.",
     "toastFailed": "{{service}} : échec de la validation."
+  },
+  "palette": {
+    "title": "Palette de commandes",
+    "placeholder": "Rechercher des pages et des services…",
+    "pages": "Pages",
+    "services": "Services",
+    "noResults": "Aucun résultat",
+    "toSelect": "pour sélectionner",
+    "toNavigate": "pour naviguer",
+    "open": "Rechercher"
   }
 }
