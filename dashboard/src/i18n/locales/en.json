@@ -826,7 +826,7 @@
     "next": "Next",
     "step2Title": "Where are the tests?",
     "step2Subtitle": "If you already have a test repo we'll update it; otherwise we start fresh.",
-    "testRepoLabel": "Test repo",
+    "testRepoLabel": "Automation repo",
     "testRepoHint": "Leave on “create them” to generate from scratch.",
     "noTestsYet": "No tests yet — create them",
     "jiraTicketLabel": "Jira ticket *",

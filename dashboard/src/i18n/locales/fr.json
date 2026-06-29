@@ -826,7 +826,7 @@
     "next": "Suivant",
     "step2Title": "Où se trouvent les tests?",
     "step2Subtitle": "Si vous avez déjà un dépôt de tests, nous le mettrons à jour; sinon, nous partons de zéro.",
-    "testRepoLabel": "Dépôt de tests",
+    "testRepoLabel": "Dépôt d’automatisation",
     "testRepoHint": "Conservez « les créer » pour générer à partir de zéro.",
     "noTestsYet": "Aucun test pour l'instant — les créer",
     "jiraTicketLabel": "Billet Jira *",
