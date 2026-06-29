@@ -30,4 +30,8 @@ public class Finding {
     String status = "OPEN";       // disposition: OPEN | ACCEPTED | REJECTED | TRIAGED | WONT_FIX | …
     String reviewedBy;           // who set the disposition (nullable; populated on a live re-render from persistence)
     java.time.Instant reviewedAt; // when the disposition was set (nullable)
+    @Builder.Default
+    boolean aiDisputed = false;   // the reconcile LLM flagged this DETERMINISTIC finding as a likely false positive…
+    String aiDisputeReason;       // …with this code-grounded reason. Never deletes/downgrades severity — only moves the
+                                  // finding out of the automatic release-blocking gate and into the review view.
 }

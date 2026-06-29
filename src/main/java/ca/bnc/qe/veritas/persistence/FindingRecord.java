@@ -67,4 +67,10 @@ public class FindingRecord extends AuditableEntity {
     private Instant reviewedAt;
     @Column(length = 1000)
     private String reviewNote;
+
+    // The reconcile LLM flagged this deterministic finding as a likely false positive (excluded from the release gate
+    // but still listed). Persisted so a live re-render reproduces the as-scanned view; severity is never altered.
+    private boolean aiDisputed;
+    @Column(length = 1000)
+    private String aiDisputeReason;
 }

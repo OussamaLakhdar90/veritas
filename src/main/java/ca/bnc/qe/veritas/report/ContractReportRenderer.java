@@ -107,6 +107,9 @@ public class ContractReportRenderer {
         int score = FidelityScore.of(counted);
         long blocking = counted.stream().filter(f -> f.getSeverity() != null
                 && (f.getSeverity().name().equals("BLOCKER") || f.getSeverity().name().equals("CRITICAL"))).count();
+        // Deterministic findings the AI flagged as possible false positives — excluded from the gate above but shown
+        // prominently so the relaxed verdict is honest and a human can overturn the dispute.
+        long disputed = attention.stream().filter(Finding::isAiDisputed).count();
         String[] band = scoreBand(score);
 
         StringBuilder sb = new StringBuilder();
@@ -146,7 +149,7 @@ public class ContractReportRenderer {
         sb.append("<div class=\"content\">");
 
         // ---- Bottom line: the one-glance "is it safe to release?" verdict (deterministic from the gate) ----
-        sb.append(bottomLine(score, blocking, counted.size(), missing.size(), wrong.size(), dead.size()));
+        sb.append(bottomLine(score, blocking, counted.size(), missing.size(), wrong.size(), dead.size(), disputed));
 
         // ---- Table of contents (anchors to each section present) ----
         boolean anyFix = findings.stream().anyMatch(f -> !isBlank(f.getProposedFix()));
@@ -419,6 +422,21 @@ public class ContractReportRenderer {
                 .append(f.getLayer() != null ? " · " + esc(layerLabel(f.getLayer())) : "")
                 .append(f.getConfidence() != null ? " · " + esc(confidenceLabel(f.getConfidence())) : "").append("</span>")
                 .append("</div>");
+        // AI-disputed: a deterministic finding the assistant believes is a false positive. Shown prominently with its
+        // reason; it is excluded from the release gate but still listed — a human verifies before dismissing it.
+        if (f.isAiDisputed()) {
+            sb.append("<div class=\"ai-dispute\" style=\"border-left:4px solid #C2410C;background:#fff4ec;"
+                    + "border-radius:0 6px 6px 0;padding:.5rem .8rem;margin:.5rem 0;font-size:.86rem\">")
+                    .append("<strong>").append(bi("Flagged by AI as a possible false positive",
+                            "Signalé par l'IA comme faux positif possible")).append("</strong> — ")
+                    .append(bi("excluded from the release gate, still listed; verify before dismissing.",
+                            "exclu de la décision de livraison, mais toujours listé; à vérifier avant de l'écarter."));
+            if (!isBlank(f.getAiDisputeReason())) {
+                sb.append("<div style=\"margin-top:.3rem;color:#7c2d12\">")
+                        .append(biDyn(f.getAiDisputeReason(), fr)).append("</div>");
+            }
+            sb.append("</div>");
+        }
         // Recorded disposition (from the dashboard's system of record) — shown as an audited badge.
         String disp = f.getStatus();
         if (disp != null && !disp.isBlank() && !"OPEN".equalsIgnoreCase(disp)) {
@@ -575,7 +593,7 @@ public class ContractReportRenderer {
     }
 
     /** The plain "is it safe to release?" verdict box — first thing management sees, derived only from the gate. */
-    private String bottomLine(int score, long blocking, int total, int missing, int wrong, int dead) {
+    private String bottomLine(int score, long blocking, int total, int missing, int wrong, int dead, long disputed) {
         boolean pass = score >= FidelityScore.PASS_THRESHOLD;
         String color, tint, statusEn, statusFr;
         if (blocking > 0) {
@@ -615,7 +633,19 @@ public class ContractReportRenderer {
                 .append(bi("Action", "Action")).append("</td><td style=\"padding:.1rem 0\">").append(bi(actionEn, actionFr)).append("</td></tr>");
         b.append("<tr><td style=\"color:#475069;padding:.1rem 1rem .1rem 0;vertical-align:top;white-space:nowrap\">")
                 .append(bi("Effort", "Effort")).append("</td><td style=\"padding:.1rem 0\">").append(bi(timeEn, timeFr)).append("</td></tr>");
-        b.append("</table></div>");
+        b.append("</table>");
+        // Honesty when the gate was conditionally relaxed: surface that the AI excluded N findings as possible false
+        // positives, so a clean-looking verdict is never mistaken for "nothing flagged". They remain listed in §6.
+        if (disputed > 0) {
+            b.append("<div style=\"margin-top:.6rem;font-size:.82rem;color:#475069\">").append(bi(
+                    "Note: " + disputed + " deterministic finding" + (disputed == 1 ? " was" : "s were")
+                            + " flagged by the AI as a possible false positive and excluded from this gate — review "
+                            + (disputed == 1 ? "it" : "them") + " in §6 before relying on this verdict.",
+                    "Note : " + disputed + " constat(s) déterministe(s) signalé(s) par l'IA comme faux positif(s) "
+                            + "possible(s) et exclu(s) de cette décision — à vérifier au §6 avant de vous y fier."))
+                    .append("</div>");
+        }
+        b.append("</div>");
         return b.toString();
     }
 

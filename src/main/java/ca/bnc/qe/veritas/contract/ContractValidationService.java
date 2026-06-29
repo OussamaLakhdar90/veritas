@@ -212,6 +212,7 @@ public class ContractValidationService {
     public ValidationResult runInto(Scan scan, ValidationRequest req) {
         List<Finding> findings = new ArrayList<>();
         Map<String, JsonNode> enrich = new HashMap<>();
+        Map<String, String> disputes = new HashMap<>();   // findingId -> AI dispute reason (from reconcile)
         String correctedYamlPath = null;
         try {
             stage(scan, ScanStages.EXTRACTING);
@@ -250,6 +251,7 @@ public class ContractValidationService {
                 log.info("Scan {} [{}] AI reconcile finished in {}s",
                         scan.getId(), scan.getServiceName(), (System.currentTimeMillis() - t0) / 1000);
                 enrich.putAll(rr.enrich());
+                disputes.putAll(rr.disputes());
                 scan.setTotalPremiumRequests(rr.cost().premiumRequests());
                 scan.setTotalEstCostUsd(rr.cost().estCostUsd());
                 llmCorrected = rr.correctedYaml();
@@ -287,15 +289,24 @@ public class ContractValidationService {
             // as-scanned disk report matches the live re-render (which reads the same enrichment from the persisted row).
             findings = findings.stream().map(f -> {
                 JsonNode e = enrich.get(f.getFindingId());
-                if (e == null) {
+                String disputeReason = disputes.get(f.getFindingId());
+                // The AI may only DOWNGRADE a hard deterministic finding (one that is currently counted/blocking) —
+                // never a design/LLM/low-confidence item (already not counted), and never an escalation. Severity is
+                // left intact; the finding stays listed. This is the only place a dispute takes effect.
+                boolean dispute = disputeReason != null && isDeterministic(f)
+                        && !ca.bnc.qe.veritas.report.FidelityScore.isNeedsAttention(f);
+                if (e == null && !dispute) {
                     return f;
                 }
                 var b = f.toBuilder();
-                if (f.getExplanation() == null && e.hasNonNull("explanation")) {
+                if (e != null && f.getExplanation() == null && e.hasNonNull("explanation")) {
                     b.explanation(e.get("explanation").asText());
                 }
-                if (f.getProposedFix() == null && e.hasNonNull("proposedFix")) {
+                if (e != null && f.getProposedFix() == null && e.hasNonNull("proposedFix")) {
                     b.proposedFix(e.get("proposedFix").asText());
+                }
+                if (dispute) {
+                    b.aiDisputed(true).aiDisputeReason(disputeReason);
                 }
                 return b.build();
             }).toList();
@@ -334,6 +345,9 @@ public class ContractValidationService {
                     }
                     if (f.getProposedFix() != null) {
                         toTranslate.add(f.getProposedFix());
+                    }
+                    if (f.getAiDisputeReason() != null) {
+                        toTranslate.add(f.getAiDisputeReason());
                     }
                 }
                 if (scan.getBlindSpots() != null) {
@@ -387,7 +401,8 @@ public class ContractValidationService {
     }
 
     private record ReconcileResult(String correctedYaml, Map<String, JsonNode> enrich, CostResult cost,
-                                   List<Finding> llmFindings, Double confidence, String blindSpots) {}
+                                   List<Finding> llmFindings, Double confidence, String blindSpots,
+                                   Map<String, String> disputes) {}
 
     /**
      * Compact structured projection of one or more {@link ApiModel}s for the reconcile prompt: every endpoint with its
@@ -579,11 +594,17 @@ public class ContractValidationService {
                 + "set under `documentedValues` is documented in prose only: describe it as documented, never as the spec "
                 + "restricting or enforcing an enum; only a set under `enum` is a formal schema enum. Build the corrected "
                 + "YAML schemas from these structured DTOs, not from guesses. "
+                + "If a DETERMINISTIC_FINDINGS item looks like a FALSE POSITIVE that the CODE_API/SPEC_API evidence "
+                + "contradicts, do NOT silently accept it: list it in disputedFindings with its findingId and a "
+                + "one-sentence code-grounded reason. Only dispute a findingId that appears in DETERMINISTIC_FINDINGS; "
+                + "never invent ids; a dispute REQUIRES a concrete reason. Veritas keeps every disputed finding visible "
+                + "to a human and only moves it out of the automatic release-blocking gate — it is never deleted. "
                 + "Do NOT add citations — Veritas attaches the governing standard (OpenAPI / HTTP / JSON Schema) "
                 + "deterministically. Reply with exactly one fenced ```json block as the LAST thing, matching: "
                 + "{\"correctedYaml\": string, \"findings\": [{\"findingId\": string, \"explanation\": string, "
                 + "\"proposedFix\": string}], \"designFindings\": [{\"layer\": \"L5\"|\"L6\", \"severity\": string, "
-                + "\"endpoint\": string, \"summary\": string, \"explanation\": string}]}. No prose after the json.";
+                + "\"endpoint\": string, \"summary\": string, \"explanation\": string}], "
+                + "\"disputedFindings\": [{\"findingId\": string, \"reason\": string}]}. No prose after the json.";
 
         // Chunk-and-merge: a large finding set would otherwise have its middle elided by the prompt cap.
         // Batch the findings (deterministic) and merge the per-finding enrichment; the corrected YAML and design
@@ -595,6 +616,7 @@ public class ContractValidationService {
                 + " and drafting a corrected spec…");
 
         Map<String, JsonNode> enrich = new HashMap<>();
+        Map<String, String> disputes = new HashMap<>();   // findingId -> AI dispute reason (bounded to ids we sent)
         List<Finding> design = new ArrayList<>();
         Set<String> designIds = new HashSet<>();
         String correctedYaml = null;
@@ -613,6 +635,13 @@ public class ContractValidationService {
                 log.info("Scan {} reconcile batch {}/{} ({} finding(s))…", scanId, batchNo, batches.size(), batch.size());
             }
             String batchJson = objectMapper.writeValueAsString(batch);
+            Set<String> batchIds = new HashSet<>();   // the deterministic ids sent THIS batch — disputes are bounded to them
+            for (Map<String, String> m : batch) {
+                String id = m.get("findingId");
+                if (id != null) {
+                    batchIds.add(id);
+                }
+            }
             String inputs = promptComposer.data("DETERMINISTIC_FINDINGS", batchJson)
                     + promptComposer.data("CODE_API", codeApi)
                     + promptComposer.data("SPEC_API", specApi)
@@ -652,6 +681,23 @@ public class ContractValidationService {
                     }
                 }
             }
+            // AI dispute channel: honour ONLY ids we actually sent this batch and only with a concrete reason — never
+            // trust an id the engine never emitted (blocks fabricated / design-finding ids). Non-destructive downstream.
+            for (JsonNode dn : node.path("disputedFindings")) {
+                if (!dn.hasNonNull("findingId") || !dn.hasNonNull("reason")) {
+                    continue;
+                }
+                String id = dn.get("findingId").asText();
+                String reason = dn.get("reason").asText();
+                if (reason.isBlank()) {
+                    continue;
+                }
+                if (!batchIds.contains(id)) {
+                    log.info("Scan {} ignoring AI dispute for unknown finding id {} (not sent this batch)", scanId, id);
+                    continue;
+                }
+                disputes.putIfAbsent(id, reason);
+            }
             for (Finding df : parseDesignFindings(node, knownPaths)) {
                 // Suppress an AI absence claim the resolved spec contradicts (e.g. "no examples" when $ref examples
                 // exist). Only for SPEC-WIDE claims: a finding scoped to a specific endpoint can't be refuted by
@@ -686,7 +732,7 @@ public class ContractValidationService {
         CostResult cost = new CostResult(model, mode == null ? BillingMode.PER_REQUEST : mode, premium, tokIn, tokOut,
                 Math.round(costUsd * 10_000.0) / 10_000.0, false);   // aggregate across batches; per-batch ledger rows carry the real flag
         String blindSpots = blind.isEmpty() ? null : String.join("; ", blind);
-        return new ReconcileResult(correctedYaml, enrich, cost, design, confidence, blindSpots);
+        return new ReconcileResult(correctedYaml, enrich, cost, design, confidence, blindSpots, disputes);
     }
 
     /** Split findings into batches whose serialized JSON stays within a per-call token budget (≥1 batch). */

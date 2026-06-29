@@ -43,6 +43,8 @@ public final class FindingMapper {
                 .status(r.getStatus() == null ? "OPEN" : r.getStatus())
                 .reviewedBy(r.getReviewedBy())
                 .reviewedAt(r.getReviewedAt())
+                .aiDisputed(r.isAiDisputed())
+                .aiDisputeReason(r.getAiDisputeReason())
                 .build();
     }
 

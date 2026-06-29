@@ -43,6 +43,19 @@
         "confidence": { "type": ["number", "null"] },
         "blindSpots": { "type": "array", "items": { "type": "string" } }
       }
+    },
+    "disputedFindings": {
+      "type": "array",
+      "description": "DETERMINISTIC findings the LLM believes are FALSE POSITIVES the CODE_API/SPEC_API evidence contradicts. Veritas keeps each one visible to a human and only moves it out of the automatic release-blocking gate — it is never deleted. findingId must be one sent in DETERMINISTIC_FINDINGS; reason is mandatory.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["findingId", "reason"],
+        "properties": {
+          "findingId": { "type": "string" },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
     }
   }
 }

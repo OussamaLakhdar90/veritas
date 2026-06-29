@@ -43,6 +43,24 @@ class FindingMapperTest {
     }
 
     @Test
+    void rebuildsAiDisputeFlagSoLiveReRenderMatchesAsScanned() {
+        FindingRecord r = new FindingRecord();
+        r.setFingerprint("fp2");
+        r.setType("STATUS_CODE_MISSING");
+        r.setSeverity("BLOCKER");
+        r.setOrigin("DETERMINISTIC");
+        r.setSummary("500 not in spec");
+        r.setAiDisputed(true);
+        r.setAiDisputeReason("the @ControllerAdvice maps 500 here");
+
+        Finding f = FindingMapper.toFinding(r);
+
+        assertThat(f.isAiDisputed()).isTrue();
+        assertThat(f.getAiDisputeReason()).isEqualTo("the @ControllerAdvice maps 500 here");
+        assertThat(f.getSeverity()).isEqualTo(Severity.BLOCKER);   // severity preserved — the human can overturn
+    }
+
+    @Test
     void guardsUnknownEnumValuesAndDefaultsStatus() {
         FindingRecord bad = new FindingRecord();
         bad.setType("NOT_A_TYPE");
