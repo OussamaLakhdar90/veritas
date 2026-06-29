@@ -50,6 +50,35 @@ class DiffEngineIncompleteCodeTest {
     }
 
     @Test
+    void suppressesDeadSpecWhenFunctionalRoutingBlindSpotPresent() {
+        // A RouterFunction service yields a partial/empty code model — uncovered spec endpoints are unverifiable, not dead.
+        ApiModel code = new ApiModel("code", null, null, null, List.of(), Map.of(), List.of(
+                "Functional routing (RouterFunction / RouterFunctions.route) in Routes.java is only partially analysed: "
+                        + "routes that are not a literal verb + path are not covered."));
+        ApiModel spec = spec(ep(HttpMethod.GET, "/a"), ep(HttpMethod.POST, "/b"));
+
+        List<Finding> findings = new DiffEngine().diffCodeVsSpec(code, spec);
+
+        assertThat(findings).noneMatch(f -> f.getSummary() != null
+                && f.getSummary().contains("not found in code (dead spec?)"));
+        assertThat(findings).filteredOn(f -> f.getType() == FindingType.EXTRA_ENDPOINT).singleElement()
+                .satisfies(f -> assertThat(f.getSummary()).contains("could not be cross-checked").contains("2 spec endpoint"));
+    }
+
+    @Test
+    void suppressesDeadSpecWhenKotlinRoutingBlindSpotPresent() {
+        ApiModel code = new ApiModel("code", null, null, null, List.of(), Map.of(), List.of(
+                "2 Kotlin source file(s) declare Spring web routing but were not analysed (this extractor parses Java "
+                        + "only); any endpoints they declare are not covered."));
+        ApiModel spec = spec(ep(HttpMethod.GET, "/a"));
+
+        List<Finding> findings = new DiffEngine().diffCodeVsSpec(code, spec);
+
+        assertThat(findings).noneMatch(f -> f.getSummary() != null
+                && f.getSummary().contains("not found in code (dead spec?)"));
+    }
+
+    @Test
     void stillFlagsDeadSpecWhenCodeExtractionIsComplete() {
         ApiModel code = new ApiModel("code", null, null, null, List.of(), Map.of(), List.of());   // complete
         ApiModel spec = spec(ep(HttpMethod.GET, "/owners"));

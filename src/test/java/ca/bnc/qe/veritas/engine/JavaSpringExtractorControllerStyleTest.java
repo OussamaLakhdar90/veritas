@@ -82,7 +82,7 @@ class JavaSpringExtractorControllerStyleTest {
     }
 
     @Test
-    void declaresBlindSpotForFunctionalRouting(@TempDir Path dir) throws Exception {
+    void declaresBlindSpotForUnresolvableFunctionalRouting(@TempDir Path dir) throws Exception {
         write(dir, "Routes.java", """
             import org.springframework.web.reactive.function.server.*;
             class Routes {
@@ -94,6 +94,86 @@ class JavaSpringExtractorControllerStyleTest {
 
         ApiModel model = new JavaSpringExtractor().extract(dir);
 
-        assertThat(model.blindSpots()).anySatisfy(b -> assertThat(b).contains("Functional routing").contains("not analysed"));
+        // Nothing literal to extract → no fabricated endpoints, and an honest blind spot remains.
+        assertThat(model.endpoints()).isEmpty();
+        assertThat(model.blindSpots()).anySatisfy(b -> assertThat(b).contains("Functional routing"));
+    }
+
+    @Test
+    void extractsLiteralBuilderDslRoutes(@TempDir Path dir) throws Exception {
+        write(dir, "Routes.java", """
+            import org.springframework.web.reactive.function.server.*;
+            class Routes {
+                RouterFunction<ServerResponse> routes(Handler handler) {
+                    return RouterFunctions.route()
+                        .GET("/api/ping", handler::ping)
+                        .POST("/api/echo", handler::echo)
+                        .build();
+                }
+            }
+            """);
+
+        ApiModel model = new JavaSpringExtractor().extract(dir);
+
+        // Both literal verb+path routes are extracted; nothing residual → no blind spot.
+        assertThat(model.endpoints()).extracting(Endpoint::signature)
+                .containsExactlyInAnyOrder("GET /api/ping", "POST /api/echo");
+        assertThat(model.blindSpots()).noneSatisfy(b -> assertThat(b).contains("Functional routing"));
+    }
+
+    @Test
+    void extractsStandaloneRequestPredicatesRoute(@TempDir Path dir) throws Exception {
+        write(dir, "Routes.java", """
+            import org.springframework.web.reactive.function.server.*;
+            import static org.springframework.web.reactive.function.server.RequestPredicates.*;
+            class Routes {
+                RouterFunction<ServerResponse> routes(Handler h) {
+                    return RouterFunctions.route(GET("/health"), h::health);
+                }
+            }
+            """);
+
+        ApiModel model = new JavaSpringExtractor().extract(dir);
+
+        assertThat(model.endpoints()).extracting(Endpoint::signature).containsExactly("GET /health");
+        assertThat(model.blindSpots()).noneSatisfy(b -> assertThat(b).contains("Functional routing"));
+    }
+
+    @Test
+    void nonLiteralRouteIsNotFabricatedAndKeepsTheBlindSpot(@TempDir Path dir) throws Exception {
+        write(dir, "Routes.java", """
+            import org.springframework.web.reactive.function.server.*;
+            class Routes {
+                static final String PATH = "/dyn";
+                RouterFunction<ServerResponse> routes(Handler h) {
+                    return RouterFunctions.route().GET(PATH, h::dyn).build();
+                }
+            }
+            """);
+
+        ApiModel model = new JavaSpringExtractor().extract(dir);
+
+        // The path is a constant, not a literal — we never guess it; the route stays a blind spot.
+        assertThat(model.endpoints()).isEmpty();
+        assertThat(model.blindSpots()).anySatisfy(b -> assertThat(b).contains("Functional routing"));
+    }
+
+    @Test
+    void partialExtractionStillKeepsTheBlindSpotForResidualRoutes(@TempDir Path dir) throws Exception {
+        write(dir, "Routes.java", """
+            import org.springframework.web.reactive.function.server.*;
+            class Routes {
+                static final String PATH = "/dyn";
+                RouterFunction<ServerResponse> routes(Handler h) {
+                    return RouterFunctions.route().GET("/a", h::a).GET(PATH, h::dyn).build();
+                }
+            }
+            """);
+
+        ApiModel model = new JavaSpringExtractor().extract(dir);
+
+        // The literal route is extracted; the constant-path route remains unread, so the blind spot persists.
+        assertThat(model.endpoints()).extracting(Endpoint::signature).containsExactly("GET /a");
+        assertThat(model.blindSpots()).anySatisfy(b -> assertThat(b).contains("Functional routing"));
     }
 }

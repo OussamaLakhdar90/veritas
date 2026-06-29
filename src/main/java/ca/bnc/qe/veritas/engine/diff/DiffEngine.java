@@ -71,8 +71,9 @@ public class DiffEngine {
             }
         }
         // When the code extraction is known-incomplete — controllers delegate their @*Mapping to interfaces outside the
-        // scanned sources (e.g. openapi-generator API interfaces) — a spec endpoint "not found in code" is UNVERIFIABLE,
-        // not a dead endpoint. Don't emit "dead spec?" findings we can't stand behind; surface one honest summary.
+        // scanned sources (e.g. openapi-generator API interfaces), or the service uses functional RouterFunction /
+        // Kotlin routing this extractor can't read — a spec endpoint "not found in code" is UNVERIFIABLE, not a dead
+        // endpoint. Don't emit "dead spec?" findings we can't stand behind; surface one honest summary.
         boolean codeIncomplete = codeExtractionIncomplete(code);
         int unverifiable = 0;
         for (Endpoint se : spec.endpoints()) {
@@ -88,9 +89,10 @@ public class DiffEngine {
         }
         if (unverifiable > 0) {
             findings.add(finding(FindingType.EXTRA_ENDPOINT, "code-extraction-incomplete", spec.source(),
-                    unverifiable + " spec endpoint(s) could not be cross-checked against code: the implementing "
-                            + "controllers delegate their request mappings to interfaces outside the scanned sources "
-                            + "(e.g. openapi-generator API interfaces). Re-run with the generated API interfaces in "
+                    unverifiable + " spec endpoint(s) could not be cross-checked against code because part of the "
+                            + "routing is not statically analysable (controllers delegating their request mappings to "
+                            + "interfaces outside the scanned sources such as openapi-generator API interfaces, "
+                            + "functional RouterFunction routing, or Kotlin sources). Re-run with the full routing in "
                             + "scope to verify these — they are NOT being reported as dead spec.",
                     null, Confidence.LOW));
         }
@@ -531,10 +533,22 @@ public class DiffEngine {
         return out;
     }
 
-    /** True when the code model flagged controllers that delegate their @*Mapping to interfaces not in scanned sources. */
+    /**
+     * True when part of the code's routing could not be statically analysed, so a spec endpoint "not found in code" is
+     * UNVERIFIABLE rather than provably dead: controllers delegating their @*Mapping to interfaces outside the scanned
+     * sources (openapi-generator API interfaces), functional {@code RouterFunction} routing, or Kotlin sources this
+     * Java/annotation extractor cannot read.
+     */
     private boolean codeExtractionIncomplete(ApiModel code) {
-        return code.blindSpots() != null && code.blindSpots().stream()
-                .anyMatch(b -> b != null && b.contains("mappings declared on interfaces are not analysed"));
+        if (code.blindSpots() == null) {
+            return false;
+        }
+        return code.blindSpots().stream().anyMatch(b -> b != null && (
+                b.contains("mappings declared on interfaces are not analysed")
+                        || b.contains("RouterFunction")
+                        || b.contains("Functional routing")
+                        || b.contains("Kotlin source file(s) declare Spring web routing")
+                        || b.contains("coRouter")));
     }
 
     /** True when the code model flagged that authorization is centralized in a SecurityFilterChain/HttpSecurity bean. */
