@@ -967,5 +967,15 @@
     "toastComplete_one": "{{service}}: scan complete — {{count}} finding.",
     "toastComplete_other": "{{service}}: scan complete — {{count}} findings.",
     "toastFailed": "{{service}}: validation failed."
+  },
+  "palette": {
+    "title": "Command palette",
+    "placeholder": "Search pages and services…",
+    "pages": "Pages",
+    "services": "Services",
+    "noResults": "No matches",
+    "toSelect": "to select",
+    "toNavigate": "to navigate",
+    "open": "Search"
   }
 }

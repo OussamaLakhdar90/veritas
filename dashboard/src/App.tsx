@@ -1,11 +1,8 @@
+import { useEffect, useState } from 'react';
 import { HashRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom';
 import { motion, MotionConfig } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
-import {
-  LayoutDashboard, ShieldCheck, Bug, ClipboardList, ListChecks, Code2, GitPullRequestArrow,
-  Coins, Settings, Moon, Sun, Target, ClipboardCheck, Rocket, BookOpen, Layers, Sparkles,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { Moon, Sun, Search } from 'lucide-react';
 import { Dashboard } from './pages/Dashboard';
 import { Onboarding } from './pages/Onboarding';
 import { RepoPicker } from './pages/RepoPicker';
@@ -32,40 +29,8 @@ import { setLanguage, type Lang } from './i18n';
 import { CopilotAuthProvider } from './lib/copilotAuth';
 import { BackgroundScansProvider } from './lib/backgroundScans';
 import { cn } from './components/cn';
-
-interface NavItem { to: string; key: string; icon: LucideIcon; end?: boolean; adv?: boolean }
-interface NavGroup { section: string; items: NavItem[] }
-
-/** Sidebar grouped into labeled sections so 15 destinations read as a hierarchy, not a flat wall of links. */
-const NAV_GROUPS: NavGroup[] = [
-  { section: 'secOverview', items: [
-    { to: '/', key: 'overview', icon: LayoutDashboard, end: true },
-    { to: '/onboarding', key: 'getStarted', icon: Rocket },
-  ] },
-  { section: 'secValidate', items: [
-    { to: '/repos', key: 'validate', icon: ShieldCheck },
-    { to: '/defects', key: 'defects', icon: Bug },
-  ] },
-  { section: 'secDesign', items: [
-    { to: '/test-strategy', key: 'testStrategy', icon: Target },
-    { to: '/multi-source-strategy', key: 'multiSource', icon: Layers },
-    { to: '/test-plans', key: 'testPlans', icon: ClipboardList },
-    { to: '/test-cases', key: 'testCases', icon: ListChecks },
-    { to: '/review-test-cases', key: 'reviews', icon: ClipboardCheck },
-  ] },
-  { section: 'secAutomation', items: [
-    { to: '/generate-api-tests', key: 'generateApiTests', icon: Sparkles },
-    { to: '/generate-tests', key: 'localGeneration', icon: Code2, adv: true },
-  ] },
-  { section: 'secGovern', items: [
-    { to: '/gates', key: 'gates', icon: GitPullRequestArrow },
-    { to: '/costs', key: 'cost', icon: Coins },
-  ] },
-  { section: 'secAdmin', items: [
-    { to: '/glossary', key: 'glossary', icon: BookOpen },
-    { to: '/settings', key: 'settings', icon: Settings },
-  ] },
-];
+import { NAV_GROUPS } from './lib/nav';
+import { CommandPalette } from './components/CommandPalette';
 
 /** EN/FR segmented toggle — French is the default (NBC/Québec); the choice persists to localStorage. */
 function LanguageToggle() {
@@ -125,6 +90,15 @@ function RoutedMain() {
 export function App() {
   const [dark, toggleDark] = useDarkMode();
   const { t } = useTranslation();
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  // ⌘K / Ctrl-K toggles the command palette from anywhere.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen((o) => !o); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   return (
     <MotionConfig reducedMotion="user">
     <HashRouter>
@@ -185,6 +159,11 @@ export function App() {
               <EngineBadge />
             </span>
             <span className="flex items-center gap-2">
+              <button type="button" onClick={() => setPaletteOpen(true)}
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-bg px-3 text-[12px] text-muted transition-colors hover:text-ink-900">
+                <Search className="h-3.5 w-3.5" /> {t('palette.open')}
+                <kbd className="rounded bg-surface px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-border">⌘K</kbd>
+              </button>
               <LanguageToggle />
               <button onClick={toggleDark} aria-label={t('header.toggleTheme')}
                 className="grid h-9 w-9 place-items-center rounded-md text-ink-600 hover:bg-ink-50">
@@ -196,6 +175,7 @@ export function App() {
         </CopilotAuthProvider>
         </div>
       </div>
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       </BackgroundScansProvider>
     </HashRouter>
     </MotionConfig>
