@@ -1779,29 +1779,81 @@ public class JavaSpringExtractor {
      * conflicting bases (multi-module / profiles), records a blind spot and applies none rather than guessing.
      */
     private String springBasePath(Path sourceRoot, List<String> blindSpots) {
-        java.util.Set<String> bases = new java.util.LinkedHashSet<>();
-        for (Path cfg : findAppConfigs(sourceRoot)) {
+        AppConfigs cfgs = findAppConfigs(sourceRoot);
+        java.util.Set<String> defaultBases = new java.util.LinkedHashSet<>();
+        // profile -> base, for a base configured under a Spring profile (a profile file, or a profile-gated document
+        // inside a multi-doc application.yml). The active profile is environment-defined, so these never produce a
+        // prefix — only a blind spot. LinkedHashMap keeps a stable order for the message.
+        java.util.Map<String, String> profileBases = new java.util.LinkedHashMap<>();
+
+        for (Path cfg : cfgs.defaults()) {
             java.util.Properties props = loadAppProps(cfg);
             if (props == null) {
                 continue;
             }
-            String base = "";
-            base = appendSegment(base, props.getProperty("server.servlet.context-path"));
-            base = appendSegment(base, props.getProperty("spring.mvc.servlet.path"));
-            base = appendSegment(base, props.getProperty("spring.webflux.base-path"));
-            if (!base.isEmpty()) {
-                bases.add(base);
+            String base = basePathFrom(props);
+            if (base.isEmpty()) {
+                continue;
+            }
+            // YamlPropertiesFactoryBean flattens a multi-document YAML and does NOT honour `on-profile`; if the merged
+            // properties carry that marker, a base here is profile-gated, not unconditional — treat it as a profile.
+            String onProfile = props.getProperty("spring.config.activate.on-profile");
+            if (onProfile != null && !onProfile.isBlank()) {
+                profileBases.putIfAbsent(onProfile.trim(), base);
+            } else {
+                defaultBases.add(base);
             }
         }
-        if (bases.isEmpty()) {
+        for (Path cfg : cfgs.profiles()) {
+            java.util.Properties props = loadAppProps(cfg);
+            if (props == null) {
+                continue;
+            }
+            String base = basePathFrom(props);
+            if (!base.isEmpty()) {
+                profileBases.putIfAbsent(profileNameOf(cfg), base);
+            }
+        }
+
+        if (defaultBases.size() == 1) {
+            return defaultBases.iterator().next();   // the default (no -Dspring.profiles.active) base — what runs as-is
+        }
+        if (defaultBases.size() > 1) {
+            blindSpots.add("The service's application config declares more than one base path " + defaultBases
+                    + "; the code-side base path was not applied, so endpoint paths may not line up with the spec's "
+                    + "server base.");
             return "";
         }
-        if (bases.size() == 1) {
-            return bases.iterator().next();
+        if (!profileBases.isEmpty()) {
+            blindSpots.add("A base path is configured only under a Spring profile (" + formatProfileBases(profileBases)
+                    + "); the active profile is environment-defined, so no code-side base path was applied and endpoint "
+                    + "paths may not line up with the spec's server base.");
         }
-        blindSpots.add("The service's application config declares more than one base path " + bases + "; the code-side "
-                + "base path was not applied, so endpoint paths may not line up with the spec's server base.");
         return "";
+    }
+
+    /**
+     * The composed base path from one config's flattened properties: {@code server.servlet.context-path}
+     * (+ {@code spring.mvc.servlet.path}) for MVC, or {@code spring.webflux.base-path} for WebFlux. Templated/root
+     * segments are skipped via {@link #appendSegment}. Returns "" when none is configured.
+     */
+    private String basePathFrom(java.util.Properties props) {
+        String base = "";
+        base = appendSegment(base, props.getProperty("server.servlet.context-path"));
+        base = appendSegment(base, props.getProperty("spring.mvc.servlet.path"));
+        base = appendSegment(base, props.getProperty("spring.webflux.base-path"));
+        return base;
+    }
+
+    private String profileNameOf(Path cfg) {
+        java.util.regex.Matcher m = PROFILE_CONFIG.matcher(cfg.getFileName().toString());
+        return m.matches() ? m.group(1) : cfg.getFileName().toString();
+    }
+
+    private String formatProfileBases(java.util.Map<String, String> profileBases) {
+        return profileBases.entrySet().stream()
+                .map(e -> e.getValue() + " under profile '" + e.getKey() + "'")
+                .collect(java.util.stream.Collectors.joining(", "));
     }
 
     private String appendSegment(String base, String seg) {
@@ -1815,19 +1867,41 @@ public class JavaSpringExtractor {
         return List.of("application.yml", "application.yaml", "application.properties");
     }
 
-    private List<Path> findAppConfigs(Path root) {
+    /** A profile-specific config {@code application-<profile>.{yml,yaml,properties}}; group 1 is the profile name. */
+    private static final java.util.regex.Pattern PROFILE_CONFIG =
+            java.util.regex.Pattern.compile("application-([^.]+)\\.(yml|yaml|properties)");
+
+    /** Discovered application configs, split into default (profile-less) and profile-specific files. */
+    private record AppConfigs(List<Path> defaults, List<Path> profiles) {}
+
+    private AppConfigs findAppConfigs(Path root) {
         try (Stream<Path> s = Files.walk(root)) {
             List<Path> all = s.filter(Files::isRegularFile)
-                    .filter(p -> appConfigNames().contains(p.getFileName().toString()))
                     .filter(p -> !p.toString().replace('\\', '/').contains("/test/"))
+                    .filter(p -> {
+                        String n = p.getFileName().toString();
+                        return appConfigNames().contains(n) || PROFILE_CONFIG.matcher(n).matches();
+                    })
                     .collect(java.util.stream.Collectors.toList());
-            List<Path> main = all.stream()
-                    .filter(p -> p.toString().replace('\\', '/').contains("/src/main/resources/"))
-                    .collect(java.util.stream.Collectors.toList());
-            return main.isEmpty() ? all : main;
+            // Narrow each group to src/main/resources independently (so a profile config outside it isn't dropped just
+            // because the defaults live under src/main/resources).
+            List<Path> defaults = preferMainResources(all.stream()
+                    .filter(p -> appConfigNames().contains(p.getFileName().toString()))
+                    .collect(java.util.stream.Collectors.toList()));
+            List<Path> profiles = preferMainResources(all.stream()
+                    .filter(p -> !appConfigNames().contains(p.getFileName().toString()))
+                    .collect(java.util.stream.Collectors.toList()));
+            return new AppConfigs(defaults, profiles);
         } catch (Exception e) {
-            return List.of();
+            return new AppConfigs(List.of(), List.of());
         }
+    }
+
+    private List<Path> preferMainResources(List<Path> configs) {
+        List<Path> main = configs.stream()
+                .filter(p -> p.toString().replace('\\', '/').contains("/src/main/resources/"))
+                .collect(java.util.stream.Collectors.toList());
+        return main.isEmpty() ? configs : main;
     }
 
     /** Flatten an application config to Spring-style dot-keyed properties (YAML nested + flat, or .properties). */
