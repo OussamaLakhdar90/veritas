@@ -107,6 +107,12 @@ public class JavaSpringExtractor {
         Map<String, Integer> adviceExStatus = adviceExceptionStatuses(units, types);
         Map<String, Set<Integer>> serviceStatuses = serviceMethodStatuses(units, types, adviceExStatus);
 
+        // The app's Spring base path (spring.webflux.base-path / server.servlet.context-path / spring.mvc.servlet.path)
+        // prefixes every route at runtime. Apply it to code-side paths so they line up with the spec side, which already
+        // folds in the OpenAPI servers[].url base — without it, an app served under e.g. /ciam shows phantom
+        // "missing from spec" + "dead spec" findings for the very same endpoint.
+        final String springBase = springBasePath(sourceRoot, blindSpots);
+
         List<Endpoint> endpoints = new ArrayList<>();
         List<String> referenced = new ArrayList<>();
         for (CompilationUnit cu : units) {
@@ -115,6 +121,9 @@ public class JavaSpringExtractor {
                     .filter(td -> isController(td, types))
                     .forEach(ctrl -> {
                         List<String> bases = classPaths(ctrl, types, constants, blindSpots);
+                        if (!springBase.isEmpty()) {
+                            bases = bases.stream().map(b -> joinPath(springBase, b)).collect(java.util.stream.Collectors.toList());
+                        }
                         List<String> classSecurity = securityOf(ctrl, types);
                         int before = endpoints.size();
                         // For a plain @Controller, only @ResponseBody methods are REST endpoints; the rest return views.
@@ -1761,6 +1770,82 @@ public class JavaSpringExtractor {
 
     private String nz(String s) {
         return s == null ? "" : s;
+    }
+
+    /**
+     * The app's Spring base path — the prefix every route is served under at runtime — read from the default
+     * application config: {@code server.servlet.context-path} (+ {@code spring.mvc.servlet.path}) for MVC, or
+     * {@code spring.webflux.base-path} for WebFlux. Returns "" when none is configured. When several configs declare
+     * conflicting bases (multi-module / profiles), records a blind spot and applies none rather than guessing.
+     */
+    private String springBasePath(Path sourceRoot, List<String> blindSpots) {
+        java.util.Set<String> bases = new java.util.LinkedHashSet<>();
+        for (Path cfg : findAppConfigs(sourceRoot)) {
+            java.util.Properties props = loadAppProps(cfg);
+            if (props == null) {
+                continue;
+            }
+            String base = "";
+            base = appendSegment(base, props.getProperty("server.servlet.context-path"));
+            base = appendSegment(base, props.getProperty("spring.mvc.servlet.path"));
+            base = appendSegment(base, props.getProperty("spring.webflux.base-path"));
+            if (!base.isEmpty()) {
+                bases.add(base);
+            }
+        }
+        if (bases.isEmpty()) {
+            return "";
+        }
+        if (bases.size() == 1) {
+            return bases.iterator().next();
+        }
+        blindSpots.add("The service's application config declares more than one base path " + bases + "; the code-side "
+                + "base path was not applied, so endpoint paths may not line up with the spec's server base.");
+        return "";
+    }
+
+    private String appendSegment(String base, String seg) {
+        return (seg == null || seg.isBlank() || seg.equals("/")) ? base : joinPath(base, seg);
+    }
+
+    /** Default {@code application.{yml,yaml,properties}} (preferring src/main/resources; never test configs). */
+    private List<String> appConfigNames() {
+        return List.of("application.yml", "application.yaml", "application.properties");
+    }
+
+    private List<Path> findAppConfigs(Path root) {
+        try (Stream<Path> s = Files.walk(root)) {
+            List<Path> all = s.filter(Files::isRegularFile)
+                    .filter(p -> appConfigNames().contains(p.getFileName().toString()))
+                    .filter(p -> !p.toString().replace('\\', '/').contains("/test/"))
+                    .collect(java.util.stream.Collectors.toList());
+            List<Path> main = all.stream()
+                    .filter(p -> p.toString().replace('\\', '/').contains("/src/main/resources/"))
+                    .collect(java.util.stream.Collectors.toList());
+            return main.isEmpty() ? all : main;
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    /** Flatten an application config to Spring-style dot-keyed properties (YAML nested + flat, or .properties). */
+    private java.util.Properties loadAppProps(Path cfg) {
+        try {
+            if (cfg.getFileName().toString().endsWith(".properties")) {
+                java.util.Properties p = new java.util.Properties();
+                try (java.io.InputStream in = Files.newInputStream(cfg)) {
+                    p.load(in);
+                }
+                return p;
+            }
+            org.springframework.beans.factory.config.YamlPropertiesFactoryBean y =
+                    new org.springframework.beans.factory.config.YamlPropertiesFactoryBean();
+            y.setResources(new org.springframework.core.io.FileSystemResource(cfg.toFile()));
+            return y.getObject();
+        } catch (Exception e) {
+            log.debug("Could not read application config {}: {}", cfg, e.getMessage());
+            return null;
+        }
     }
 
     private Integer line(com.github.javaparser.ast.Node n) {
