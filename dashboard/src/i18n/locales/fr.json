@@ -32,7 +32,10 @@
     "connected": "Connecté",
     "jump": "Aller à un service…",
     "toggleTheme": "Changer de thème",
-    "language": "Langue"
+    "language": "Langue",
+    "menu": "Ouvrir le menu",
+    "collapse": "Réduire la barre latérale",
+    "expand": "Agrandir la barre latérale"
   },
   "common": {
     "errorTitle": "Impossible de charger ces données",
