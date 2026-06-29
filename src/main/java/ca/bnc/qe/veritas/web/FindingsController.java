@@ -1,6 +1,12 @@
 package ca.bnc.qe.veritas.web;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import ca.bnc.qe.veritas.persistence.FindingRecord;
 import ca.bnc.qe.veritas.persistence.FindingRecordRepository;
@@ -43,6 +49,37 @@ public class FindingsController {
                 ? scanRepository.findAllByOrderByStartedAtDesc()
                 : scanRepository.findByServiceNameOrderByStartedAtDesc(service);
     }
+
+    /** Daily scan activity over the last {@code days} (zero-filled, oldest→newest) — backs the findings trend + weekly delta. */
+    @GetMapping("/scans/trend")
+    public List<ScanTrendPoint> scansTrend(@RequestParam(defaultValue = "30") int days) {
+        int d = Math.max(1, Math.min(days, 365));
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate from = today.minusDays(d - 1L);
+        Map<LocalDate, int[]> acc = new HashMap<>();   // [0] = scans, [1] = findings
+        for (Scan s : scanRepository.findAll()) {
+            Instant st = s.getStartedAt();
+            if (st == null) {
+                continue;
+            }
+            LocalDate day = st.atZone(ZoneOffset.UTC).toLocalDate();
+            if (day.isBefore(from) || day.isAfter(today)) {
+                continue;
+            }
+            int[] a = acc.computeIfAbsent(day, k -> new int[2]);
+            a[0] += 1;
+            a[1] += s.getTotalFindings();
+        }
+        List<ScanTrendPoint> out = new ArrayList<>();
+        for (LocalDate day = from; !day.isAfter(today); day = day.plusDays(1)) {
+            int[] a = acc.getOrDefault(day, new int[2]);
+            out.add(new ScanTrendPoint(day.toString(), a[0], a[1]));
+        }
+        return out;
+    }
+
+    /** One day of scan activity. */
+    public record ScanTrendPoint(String date, int scans, int findings) {}
 
     /** One scan — its live {@code stage}/{@code status} drive the dashboard progress stepper while it runs. */
     @GetMapping("/scans/{id}")

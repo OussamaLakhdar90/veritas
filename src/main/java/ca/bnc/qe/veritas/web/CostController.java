@@ -1,8 +1,14 @@
 package ca.bnc.qe.veritas.web;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.web.bind.annotation.RequestParam;
 import ca.bnc.qe.veritas.persistence.CostEntry;
 import ca.bnc.qe.veritas.persistence.CostEntryRepository;
 import ca.bnc.qe.veritas.persistence.RunStepRepository;
@@ -64,4 +70,35 @@ public class CostController {
         out.put("bySkill", bySkill);
         return out;
     }
+
+    /** Daily spend over the last {@code days} (zero-filled, oldest→newest) — backs the cost sparkline + weekly delta. */
+    @GetMapping("/costs/trend")
+    public List<CostTrendPoint> costTrend(@RequestParam(defaultValue = "30") int days) {
+        int d = Math.max(1, Math.min(days, 365));
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate from = today.minusDays(d - 1L);
+        Map<LocalDate, double[]> acc = new HashMap<>();   // [0] = usd, [1] = action count
+        for (CostEntry e : costs.findAll()) {
+            Instant c = e.getCreatedAt();
+            if (c == null) {
+                continue;
+            }
+            LocalDate day = c.atZone(ZoneOffset.UTC).toLocalDate();
+            if (day.isBefore(from) || day.isAfter(today)) {
+                continue;
+            }
+            double[] a = acc.computeIfAbsent(day, k -> new double[2]);
+            a[0] += e.getEstCostUsd();
+            a[1] += 1;
+        }
+        List<CostTrendPoint> out = new ArrayList<>();
+        for (LocalDate day = from; !day.isAfter(today); day = day.plusDays(1)) {
+            double[] a = acc.getOrDefault(day, new double[2]);
+            out.add(new CostTrendPoint(day.toString(), Math.round(a[0] * 10000.0) / 10000.0, (int) a[1]));
+        }
+        return out;
+    }
+
+    /** One day of spend. */
+    public record CostTrendPoint(String date, double totalUsd, int actions) {}
 }

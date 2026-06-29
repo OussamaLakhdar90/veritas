@@ -104,8 +104,12 @@
     "chartResolution": "Résolution des anomalies",
     "chartResolutionSub": "fermées sur le total dans Jira",
     "chartResolved": "résolues",
-    "chartTrend": "Constats par validation",
-    "chartTrendSub": "analyses les plus récentes"
+    "chartTrend": "Constats par jour",
+    "chartTrendSub": "30 derniers jours",
+    "trendWeekFewer": "{{count}} de moins que la semaine dernière",
+    "trendWeekMore": "{{count}} de plus que la semaine dernière",
+    "trendCostDown": "{{amount}} de moins que la semaine dernière",
+    "trendCostUp": "{{amount}} de plus que la semaine dernière"
   },
   "severity": {
     "BLOCKER": "Bloquant",

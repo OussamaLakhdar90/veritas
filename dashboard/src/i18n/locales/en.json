@@ -104,8 +104,12 @@
     "chartResolution": "Defect resolution",
     "chartResolutionSub": "closed vs total in Jira",
     "chartResolved": "resolved",
-    "chartTrend": "Findings per validation",
-    "chartTrendSub": "most recent scans"
+    "chartTrend": "Findings per day",
+    "chartTrendSub": "last 30 days",
+    "trendWeekFewer": "{{count}} fewer than last week",
+    "trendWeekMore": "{{count}} more than last week",
+    "trendCostDown": "{{amount}} less than last week",
+    "trendCostUp": "{{amount}} more than last week"
   },
   "severity": {
     "BLOCKER": "Blocker",

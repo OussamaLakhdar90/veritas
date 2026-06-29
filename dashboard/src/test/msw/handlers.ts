@@ -16,4 +16,7 @@ export const handlers = [
   // The Defects page loads aggregate metrics; default to an empty (zero-total → hidden) summary.
   http.get('*/api/v1/defects/metrics', () =>
     HttpResponse.json({ total: 0, open: 0, closed: 0, bySeverity: {}, byStatusCategory: {}, byService: {} })),
+  // The Overview pulls daily cost + scan trends for its sparkline + weekly deltas; default to empty series.
+  http.get('*/api/v1/costs/trend', () => HttpResponse.json([])),
+  http.get('*/api/v1/scans/trend', () => HttpResponse.json([])),
 ]

@@ -18,6 +18,15 @@ function statusTone(status?: string): string {
   return TONE.muted;
 }
 
+/** Sum of the last 7 points minus the 7 before — the week-over-week delta. null until two full weeks of data. */
+function weeklyDelta(series: number[]): number | null {
+  if (series.length < 14) return null;
+  const last7 = series.slice(-7).reduce((a, b) => a + b, 0);
+  const prev7 = series.slice(-14, -7).reduce((a, b) => a + b, 0);
+  if (last7 === 0 && prev7 === 0) return null;
+  return Math.round((last7 - prev7) * 100) / 100;
+}
+
 export function Dashboard() {
   const { t } = useTranslation();
 
@@ -38,6 +47,8 @@ export function Dashboard() {
   const servicesQ = useQuery({ queryKey: ['services'], queryFn: api.services });
   const services = servicesQ.data ?? [];
   const metricsQ = useQuery({ queryKey: ['defect-metrics'], queryFn: api.defectMetrics });
+  const scansTrendQ = useQuery({ queryKey: ['scans-trend'], queryFn: () => api.scansTrend(30) });
+  const costTrendQ = useQuery({ queryKey: ['cost-trend'], queryFn: () => api.costTrend(30) });
 
   const scans = scansQ.data ?? [];
   const missing = (preflightQ.data ?? []).filter((c) => c.status === 'MISSING');
@@ -57,44 +68,30 @@ export function Dashboard() {
     [scans],
   );
 
-  // Honest findings trend: per service, compare the latest scan to the most recent STRICTLY-earlier scan; sum the
-  // deltas. Only show a chip when there's a real baseline (a prior scan at a different time) and the net moved.
+  // Real week-over-week trends from the daily time-series endpoints (sum of the last 7 days vs the 7 before).
+  const findingsSeries = useMemo(() => (scansTrendQ.data ?? []).map((p) => p.findings), [scansTrendQ.data]);
   const findingsTrend: KpiTrend | undefined = useMemo(() => {
-    const byService = new Map<string, Scan[]>();
-    for (const s of scans) {
-      const arr = byService.get(s.serviceName) ?? [];
-      arr.push(s);
-      byService.set(s.serviceName, arr);
-    }
-    let delta = 0;
-    let hasBaseline = false;
-    byService.forEach((list) => {
-      const sorted = [...list].sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''));
-      const latest = sorted[0];
-      const prev = sorted.find((x) => (x.startedAt ?? '') < (latest.startedAt ?? ''));
-      if (latest && prev) {
-        delta += (latest.totalFindings ?? 0) - (prev.totalFindings ?? 0);
-        hasBaseline = true;
-      }
-    });
-    if (!hasBaseline || delta === 0) return undefined;
-    return delta < 0
-      ? { dir: 'down', good: true, label: t('overview.trendFindingsDown', { count: -delta }) }
-      : { dir: 'up', good: false, label: t('overview.trendFindingsUp', { count: delta }) };
-  }, [scans, t]);
+    const d = weeklyDelta(findingsSeries);
+    if (d == null || d === 0) return undefined;
+    return d < 0
+      ? { dir: 'down', good: true, label: t('overview.trendWeekFewer', { count: -d }) }
+      : { dir: 'up', good: false, label: t('overview.trendWeekMore', { count: d }) };
+  }, [findingsSeries, t]);
+  const costTrend: KpiTrend | undefined = useMemo(() => {
+    const d = weeklyDelta((costTrendQ.data ?? []).map((p) => p.totalUsd));
+    if (d == null || Math.abs(d) < 0.005) return undefined;
+    return { dir: d < 0 ? 'down' : 'up',
+      label: t(d < 0 ? 'overview.trendCostDown' : 'overview.trendCostUp', { amount: `$${Math.abs(d).toFixed(2)}` }) };
+  }, [costTrendQ.data, t]);
 
   const recent: Scan[] = [...scans]
     .sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))
     .slice(0, 8);
 
   // Chart data — the defect-severity donut + resolution gauge come from the metrics endpoint; the sparkline is the
-  // per-validation findings count over the most recent scans (oldest→newest so the line reads left to right).
+  // daily findings series from /scans/trend (oldest→newest, left to right).
   const sevSlices = useMemo(() => severitySlices(metricsQ.data?.bySeverity ?? {}), [metricsQ.data]);
   const sevTotal = sevSlices.reduce((n, s) => n + s.value, 0);
-  const sparkValues = useMemo(
-    () => [...scans].sort((a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? '')).map((s) => s.totalFindings ?? 0).slice(-8),
-    [scans],
-  );
 
   // Don't render misleading zeros when the core data couldn't load — show a real error instead.
   const loadError = (scansQ.isError && scansQ.error) || (costQ.isError && costQ.error) || (defectsQ.isError && defectsQ.error);
@@ -172,7 +169,7 @@ export function Dashboard() {
             <KpiTile label={t('overview.kpiDefects')} value={totals.openDefects}
               tone={totals.openDefects > 0 ? 'danger' : 'success'} sub={t('overview.kpiDefectsSub')} />
             <KpiTile label={t('overview.kpiCost')} value={`$${totals.spend.toFixed(2)}`}
-              sub={costQ.data ? t('overview.kpiCostCalls', { count: costQ.data.actions }) : t('overview.kpiCostEnv')} />
+              sub={costQ.data ? t('overview.kpiCostCalls', { count: costQ.data.actions }) : t('overview.kpiCostEnv')} trend={costTrend} />
           </>
         )}
       </div>
@@ -210,7 +207,7 @@ export function Dashboard() {
           <Card>
             <CardHeader title={t('overview.chartTrend')} subtitle={t('overview.chartTrendSub')} />
             <CardBody>
-              <Sparkline values={sparkValues} ariaLabel={t('overview.chartTrend')} />
+              <Sparkline values={findingsSeries} ariaLabel={t('overview.chartTrend')} />
             </CardBody>
           </Card>
         </div>
