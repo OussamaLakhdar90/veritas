@@ -87,4 +87,50 @@ class JavaSpringExtractorBasePathTest {
         assertThat(model.endpoints()).extracting(Endpoint::signature)
                 .containsExactlyInAnyOrder("GET /policies", "GET /policies/{app}");
     }
+
+    @Test
+    void profileOnlyBaseAppliesNoPrefixButSurfacesABlindSpot(@TempDir Path dir) throws Exception {
+        // The base path exists only under a profile — we can't know it's active at runtime, so apply nothing and say so.
+        writeConfig(dir, "application.yml", "server:\n  port: 8080\n");
+        writeConfig(dir, "application-prod.yml", "spring:\n  webflux:\n    base-path: /ciam\n");
+        writeJava(dir, "PolicyController.java", POLICY_CONTROLLER);
+
+        ApiModel model = new JavaSpringExtractor().extract(dir);
+
+        assertThat(model.endpoints()).extracting(Endpoint::signature)
+                .containsExactlyInAnyOrder("GET /policies", "GET /policies/{app}");
+        assertThat(model.blindSpots())
+                .anySatisfy(b -> assertThat(b).contains("profile").contains("prod").contains("/ciam"));
+    }
+
+    @Test
+    void defaultBaseWinsEvenWhenAProfileDiffers(@TempDir Path dir) throws Exception {
+        writeConfig(dir, "application.yml", "server:\n  servlet:\n    context-path: /api\n");
+        writeConfig(dir, "application-prod.yml", "spring:\n  webflux:\n    base-path: /ciam\n");
+        writeJava(dir, "PolicyController.java", POLICY_CONTROLLER);
+
+        ApiModel model = new JavaSpringExtractor().extract(dir);
+
+        assertThat(model.endpoints()).extracting(Endpoint::signature)
+                .containsExactlyInAnyOrder("GET /api/policies", "GET /api/policies/{app}");
+        assertThat(model.blindSpots()).noneSatisfy(b -> assertThat(b).contains("only under a Spring profile"));
+    }
+
+    @Test
+    void multiDocProfileGatedBaseInOneYamlIsTreatedAsProfileDependent(@TempDir Path dir) throws Exception {
+        // A profile-gated document inside a single application.yml flattens (YamlPropertiesFactoryBean does not honour
+        // on-profile), so a base under it must not become an unconditional prefix.
+        writeConfig(dir, "application.yml",
+                "server:\n  port: 8080\n"
+                + "---\n"
+                + "spring:\n  config:\n    activate:\n      on-profile: prod\n  webflux:\n    base-path: /ciam\n");
+        writeJava(dir, "PolicyController.java", POLICY_CONTROLLER);
+
+        ApiModel model = new JavaSpringExtractor().extract(dir);
+
+        assertThat(model.endpoints()).extracting(Endpoint::signature)
+                .containsExactlyInAnyOrder("GET /policies", "GET /policies/{app}");
+        assertThat(model.blindSpots())
+                .anySatisfy(b -> assertThat(b).contains("only under a Spring profile"));
+    }
 }
