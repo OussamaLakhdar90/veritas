@@ -36,7 +36,9 @@
   },
   "common": {
     "errorTitle": "Impossible de charger ces données",
-    "errorRetry": "Vérifiez vos paramètres de connexion et réessayez."
+    "errorRetry": "Vérifiez vos paramètres de connexion et réessayez.",
+    "close": "Fermer",
+    "dismissToast": "Rejeter la notification"
   },
   "status": {
     "completed": "Terminé",
@@ -915,5 +917,55 @@
     "connected": "✓ Connecté !",
     "expired": "Le code a expiré — fermez et réessayez.",
     "failed": "Échec de la connexion — fermez et réessayez."
+  },
+  "scan": {
+    "QUEUED": {
+      "short": "En attente"
+    },
+    "CLONING": {
+      "label": "Récupération du code",
+      "short": "Récupération",
+      "detail": "Récupération de la branche depuis Bitbucket"
+    },
+    "RESOLVING_SPEC": {
+      "label": "Localisation de la spécification de l’API",
+      "short": "Localisation",
+      "detail": "Lecture du fichier de spécification que vous avez choisi"
+    },
+    "EXTRACTING": {
+      "label": "Lecture de l’API à partir du code",
+      "short": "Lecture du code",
+      "detail": "Lecture des points de terminaison et des types de données — en lecture seule, votre application n’est jamais exécutée"
+    },
+    "DIFFING": {
+      "label": "Comparaison du code et de la spécification",
+      "short": "Comparaison",
+      "detail": "Points de terminaison, paramètres, types de données, codes de statut"
+    },
+    "RECONCILING": {
+      "label": "Revue par IA et correctifs suggérés",
+      "short": "Revue IA",
+      "detail": "L’IA explique chaque écart et suggère une correction"
+    },
+    "REPORTING": {
+      "label": "Préparation du rapport",
+      "short": "Rapport",
+      "detail": "Calcul de l’exactitude et préparation des résultats"
+    },
+    "DONE": {
+      "short": "Terminé"
+    },
+    "FAILED": {
+      "short": "Échec"
+    },
+    "dockFailed": "Échec de la validation",
+    "dockComplete_one": "Terminé · {{count}} constat",
+    "dockComplete_other": "Terminé · {{count}} constats",
+    "dockOpenScan": "Ouvrir l’analyse",
+    "dockViewFindings": "Voir les constats",
+    "dockDismiss": "Rejeter",
+    "toastComplete_one": "{{service}} : analyse terminée — {{count}} constat.",
+    "toastComplete_other": "{{service}} : analyse terminée — {{count}} constats.",
+    "toastFailed": "{{service}} : échec de la validation."
   }
 }

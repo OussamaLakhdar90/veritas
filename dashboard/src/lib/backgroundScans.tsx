@@ -1,11 +1,12 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Check, AlertTriangle, X, ArrowRight, Loader2 } from 'lucide-react';
 import { api } from '../api';
 import { useToast } from '../components/Toast';
 import { cn } from '../components/cn';
-import { stagePct, stageShort, formatElapsed, useElapsed } from './scanStages';
+import { stagePct, formatElapsed, useElapsed } from './scanStages';
 
 /**
  * Keeps "Run in background" scans visible after the modal closes — the missing piece that made
@@ -60,6 +61,7 @@ export function BackgroundScansProvider({ children }: { children: ReactNode }) {
 function BgScanCard({ scan, onDismiss }: { scan: BgScan; onDismiss: () => void }) {
   const navigate = useNavigate();
   const toast = useToast();
+  const { t } = useTranslation();
   const notified = useRef(false);
 
   // Shares the ['scan', id] query key with the modal's poller, so there's no double polling.
@@ -86,8 +88,8 @@ function BgScanCard({ scan, onDismiss }: { scan: BgScan; onDismiss: () => void }
   // Announce the outcome once (the modal is gone, so the dock owns the notification now).
   useEffect(() => {
     if (notified.current || !data) return;
-    if (done) { notified.current = true; toast.push('success', `${scan.service}: scan complete — ${findings} finding${findings === 1 ? '' : 's'}.`); }
-    else if (failed) { notified.current = true; toast.push('error', `${scan.service}: validation failed.`); }
+    if (done) { notified.current = true; toast.push('success', t('scan.toastComplete', { service: scan.service, count: findings })); }
+    else if (failed) { notified.current = true; toast.push('error', t('scan.toastFailed', { service: scan.service })); }
   }, [done, failed, data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const open = () => { navigate(`/findings/${scan.id}`); onDismiss(); };
@@ -111,18 +113,18 @@ function BgScanCard({ scan, onDismiss }: { scan: BgScan; onDismiss: () => void }
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
             <p className="truncate text-[13px] font-semibold text-ink-900">{scan.service}</p>
-            <button onClick={onDismiss} aria-label="Dismiss" className="shrink-0 text-muted hover:text-ink-700">
+            <button onClick={onDismiss} aria-label={t('scan.dockDismiss')} className="shrink-0 text-muted hover:text-ink-700">
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
           <p className="mt-0.5 truncate text-[12px] text-muted">
-            {failed ? 'Validation failed'
-              : done ? `Complete · ${findings} finding${findings === 1 ? '' : 's'}`
-              : `${stageShort(stage)} · ${formatElapsed(elapsed)}`}
+            {failed ? t('scan.dockFailed')
+              : done ? t('scan.dockComplete', { count: findings })
+              : `${t(`scan.${stage}.short`)} · ${formatElapsed(elapsed)}`}
           </p>
           {(done || failed) && (
             <button onClick={open} className="mt-1.5 inline-flex items-center gap-1 text-[12px] font-medium text-brand-600 hover:underline">
-              {failed ? 'Open scan' : 'View findings'} <ArrowRight className="h-3 w-3" />
+              {failed ? t('scan.dockOpenScan') : t('scan.dockViewFindings')} <ArrowRight className="h-3 w-3" />
             </button>
           )}
         </div>
