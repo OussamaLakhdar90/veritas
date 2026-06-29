@@ -357,7 +357,8 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
   const failedStepIdx = failed && failedStage ? SCAN_STEPS.findIndex((s) => s.key === failedStage) : -1;
   const stepNo = Math.min(total, Math.max(0, current));
   const pct = failed ? (failedStage ? stagePct(failedStage) : 8) : stagePct(stage);
-  const activeLabel = SCAN_STEPS.find((s) => s.key === stage)?.label;
+  const activeStep = SCAN_STEPS.find((s) => s.key === stage);
+  const activeLabel = activeStep ? t(`scan.${activeStep.key}.label`) : undefined;
   const elapsed = useElapsed(startMs, !failed);          // whole-scan timer
   const stageElapsed = useStageElapsed(stage, !failed);  // current step's own timer
   // Time-aware reassurance for the slow AI step — escalates instead of insisting "a minute or two" at 8 minutes.
@@ -426,7 +427,7 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
                 <div className="flex items-center justify-between gap-2">
                   <p className={cn('truncate text-[13px] font-medium',
                     status === 'pending' ? 'text-muted' : 'text-ink-900')}>
-                    {step.label}
+                    {t(`scan.${step.key}.label`)}
                   </p>
                   {status === 'active' && (
                     <span className="shrink-0 text-[11px] font-medium tabular-nums text-gold">{formatElapsed(stageElapsed)}</span>
@@ -436,7 +437,7 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
                 <p className="text-[12px] text-muted">
                   {isFailedHere && errorMessage ? errorMessage
                     : status === 'active' && stageDetail ? stageDetail
-                    : step.detail}
+                    : t(`scan.${step.key}.detail`)}
                 </p>
                 {status === 'active' && step.long && (
                   <div className="mt-1.5 space-y-1">

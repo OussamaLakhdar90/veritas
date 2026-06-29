@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import { Button } from './ui';
 
@@ -14,6 +15,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }:
   }) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = React.useId();
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (!open) return;
@@ -62,7 +64,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }:
         className={`relative w-full ${width} rounded-xl bg-surface shadow-pop ring-1 ring-border focus:outline-none`}>
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <h3 id={titleId} className="text-[15px] font-semibold text-ink-900">{title}</h3>
-          <Button variant="ghost" size="sm" onClick={onClose} aria-label="Close"><X className="h-4 w-4" /></Button>
+          <Button variant="ghost" size="sm" onClick={onClose} aria-label={t('common.close')}><X className="h-4 w-4" /></Button>
         </div>
         <div className="px-5 py-4">{children}</div>
         {footer && <div className="flex justify-end gap-2 border-t border-border px-5 py-3">{footer}</div>}
