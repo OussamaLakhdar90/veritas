@@ -12,16 +12,30 @@ public record ConstraintSet(
         Boolean exclusiveMax,
         String pattern,
         List<String> enumValues,
-        String format
+        String format,
+        /** True when {@code enumValues} were parsed from a parameter's DESCRIPTION prose, not a formal schema enum. */
+        boolean enumFromDescription
 ) {
+    /** Standard constraints — an enum here (if any) is a formal schema/Java enum, not description-derived. */
+    public ConstraintSet(Integer minLength, Integer maxLength, Double minimum, Double maximum,
+            Boolean exclusiveMin, Boolean exclusiveMax, String pattern, List<String> enumValues, String format) {
+        this(minLength, maxLength, minimum, maximum, exclusiveMin, exclusiveMax, pattern, enumValues, format, false);
+    }
+
     public static ConstraintSet empty() {
         return new ConstraintSet(null, null, null, null, null, null, null, null, null);
     }
 
-    /** Copy with the enum values set (used when a field/param type resolves to a Java enum). */
+    /** Copy with the enum values set (a formal schema/Java enum). */
     public ConstraintSet withEnumValues(List<String> values) {
         return new ConstraintSet(minLength, maxLength, minimum, maximum, exclusiveMin, exclusiveMax,
                 pattern, values, format);
+    }
+
+    /** Copy with enum values parsed from the parameter's DESCRIPTION prose (documented, but not a formal schema enum). */
+    public ConstraintSet withEnumFromDescription(List<String> values) {
+        return new ConstraintSet(minLength, maxLength, minimum, maximum, exclusiveMin, exclusiveMax,
+                pattern, values, format, true);
     }
 
     public boolean isEmpty() {

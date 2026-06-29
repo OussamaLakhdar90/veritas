@@ -171,6 +171,8 @@ components:
 - [ ] Every code endpoint appears in corrected YAML.
 - [ ] Every exception-handler status appears in every applicable operation.
 - [ ] Every Bean Validation constraint translated.
+- [ ] Each parameter is named by its EXACT location from the evidence (path / query / header / cookie) — a `@RequestHeader` / `in: header` param is a HEADER parameter, never a "query parameter".
+- [ ] A value set that appears only in a parameter's DESCRIPTION (not a formal schema `enum:`) is described as "documented in the description", never as the spec "restricting" or "enforcing" an enum.
 - [ ] No corrected YAML endpoint lacks backing code.
 - [ ] Every CRITICAL / HIGH finding references a code location (file+line or class.method).
 - [ ] L6 findings cite CTFL §1.4.4 or CTAL-TA §1.3.2.
