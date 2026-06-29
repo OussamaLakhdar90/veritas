@@ -218,10 +218,15 @@ public class DiffEngine {
                 // Surface it so the documented allowed values are verified at the edge, but at LOW confidence because
                 // that downstream enforcement is legitimate and out of view. Scoped to enums to stay high-signal
                 // (not every format/length hint a controller binds loosely).
-                findings.add(finding(FindingType.CONSTRAINT_GAP, label(ce), spec.source(),
-                        "Parameter '" + cp.name() + "' — the spec restricts it to " + sp.constraints().enumValues()
-                                + " but the code binds it without that enum (allowed values not enforced at the API boundary)",
-                        ce, Confidence.LOW));
+                // Word the finding for what the spec ACTUALLY declares: a formal schema enum truly restricts the
+                // value set, whereas values parsed from the description prose are documented, not formally enforced.
+                String enumMsg = sp.constraints().enumFromDescription()
+                        ? "Parameter '" + cp.name() + "' — the spec's description documents the allowed values "
+                                + sp.constraints().enumValues() + ", but the schema doesn't formally constrain them and "
+                                + "the code doesn't enforce them at the API boundary"
+                        : "Parameter '" + cp.name() + "' — the spec restricts it to " + sp.constraints().enumValues()
+                                + " but the code binds it without that enum (allowed values not enforced at the API boundary)";
+                findings.add(finding(FindingType.CONSTRAINT_GAP, label(ce), spec.source(), enumMsg, ce, Confidence.LOW));
             }
         }
         for (ParamModel sp : se.params()) {

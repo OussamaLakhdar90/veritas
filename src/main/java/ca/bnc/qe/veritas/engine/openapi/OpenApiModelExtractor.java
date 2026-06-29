@@ -298,7 +298,7 @@ public class OpenApiModelExtractor {
         if (cs.enumValues() == null || cs.enumValues().isEmpty()) {
             List<String> prose = enumFromDescription(p.getDescription());
             if (prose != null) {
-                cs = cs.withEnumValues(prose);
+                cs = cs.withEnumFromDescription(prose);   // documented in prose — NOT a formal schema enum
             }
         }
         return new ParamModel(p.getName(), loc,

@@ -332,6 +332,24 @@ class DiffEngineBranchTest {
     }
 
     @Test
+    void specEnumFromDescriptionIsWordedAsDocumentedNotRestricted() {
+        // The allowed set is only in the parameter's DESCRIPTION prose (not a formal schema enum), so the finding must
+        // say it's "documented" — never claim the spec "restricts" it (the spec-enum-framing imprecision).
+        ConstraintSet specC = ConstraintSet.empty().withEnumFromDescription(List.of("ACTIVE", "CLOSED"));
+        ApiModel code = oneEpParams("code", "RETURN",
+                List.of(new ParamModel("status", ParamLocation.QUERY, "string", null, false, none(), src)));
+        ApiModel spec = oneEpParams("repo-spec", "SPEC",
+                List.of(new ParamModel("status", ParamLocation.QUERY, "string", null, false, specC, src)));
+
+        Finding f = diff.diffCodeVsSpec(code, spec).stream()
+                .filter(x -> x.getType() == FindingType.CONSTRAINT_GAP).findFirst().orElseThrow();
+        assertThat(f.getSummary())
+                .contains("description documents the allowed values")
+                .contains("doesn't enforce them at the API boundary")
+                .doesNotContain("the spec restricts it to");
+    }
+
+    @Test
     void specNonEnumConstraintWithNoCodeConstraintEmitsNoGap() {
         // spec has only a maxLength (no enum) and code has none -> the enum-mirror branch does NOT fire (scoped to enums).
         ConstraintSet specC = new ConstraintSet(null, 50, null, null, null, null, null, null, null);
