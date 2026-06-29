@@ -167,6 +167,10 @@ export interface CoverageItem {
 export interface TestPlanDetail { plan: TestPlan; coverage: CoverageItem[] }
 
 export interface CostSummary { totalEstCostUsd: number; actions: number; bySkill: Record<string, number> }
+/** One day of LLM spend (zero-filled series from /costs/trend). */
+export interface CostTrendPoint { date: string; totalUsd: number; actions: number }
+/** One day of scan activity (zero-filled series from /scans/trend). */
+export interface ScanTrendPoint { date: string; scans: number; findings: number }
 export interface PreflightCheck { name: string; status: string; detail: string; remediation: string }
 
 export interface DefectLink {
@@ -453,6 +457,8 @@ export const api = {
   testPlans: () => get<TestPlan[]>('/test-plans'),
   testPlan: (id: string) => get<TestPlanDetail>(`/test-plans/${id}`),
   costSummary: () => get<CostSummary>('/costs/summary'),
+  costTrend: (days = 30) => get<CostTrendPoint[]>(`/costs/trend?days=${days}`),
+  scansTrend: (days = 30) => get<ScanTrendPoint[]>(`/scans/trend?days=${days}`),
   preflight: () => get<PreflightCheck[]>('/preflight'),
   defects: () => get<DefectLink[]>('/defects'),
   defectMetrics: () => get<DefectMetrics>('/defects/metrics'),

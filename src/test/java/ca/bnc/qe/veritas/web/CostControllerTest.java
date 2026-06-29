@@ -57,4 +57,17 @@ class CostControllerTest {
         when(runs.findById("nope")).thenReturn(Optional.empty());
         mvc.perform(get("/api/v1/runs/nope")).andExpect(status().isNotFound());
     }
+
+    @Test
+    void costTrendZeroFillsTheWindowAndCountsTodaysSpend() throws Exception {
+        CostEntry e = entry("validate-contract", 1.25);
+        e.setCreatedAt(java.time.Instant.now());   // falls in today's bucket
+        when(costs.findAll()).thenReturn(List.of(e));
+        mvc.perform(get("/api/v1/costs/trend?days=7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(7))                 // zero-filled to the window
+                .andExpect(jsonPath("$[6].actions").value(1))               // most recent day = today
+                .andExpect(jsonPath("$[6].totalUsd").value(1.25))
+                .andExpect(jsonPath("$[0].actions").value(0));              // older days empty
+    }
 }

@@ -33,6 +33,22 @@ class FindingsControllerTest {
     @MockBean private BitbucketLinkBuilder linkBuilder;
 
     @Test
+    void scansTrendZeroFillsTheWindowAndSumsTodaysFindings() throws Exception {
+        Scan s = new Scan();
+        s.setServiceName("svc");
+        s.setTotalFindings(4);
+        s.setStartedAt(java.time.Instant.now());   // falls in today's bucket
+        when(scanRepository.findAll()).thenReturn(List.of(s));
+
+        mvc.perform(get("/api/v1/scans/trend?days=7"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(7))
+                .andExpect(jsonPath("$[6].scans").value(1))
+                .andExpect(jsonPath("$[6].findings").value(4))
+                .andExpect(jsonPath("$[0].scans").value(0));
+    }
+
+    @Test
     void patchUpdatesStatus() throws Exception {
         FindingRecord f = new FindingRecord();
         f.setStatus("OPEN");
