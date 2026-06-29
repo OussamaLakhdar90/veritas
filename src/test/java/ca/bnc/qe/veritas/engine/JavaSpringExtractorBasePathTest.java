@@ -133,4 +133,39 @@ class JavaSpringExtractorBasePathTest {
         assertThat(model.blindSpots())
                 .anySatisfy(b -> assertThat(b).contains("only under a Spring profile"));
     }
+
+    @Test
+    void unconditionalBaseInFirstDocSurvivesATrailingProfileGatedDoc(@TempDir Path dir) throws Exception {
+        // The realistic Spring layout: an unconditional base in document 1, then a prod-only override document with no
+        // base of its own. Parsing per-document, the base is NOT profile-gated, so the prefix must still apply (the
+        // on-profile marker belongs to a different document and must not poison the default base).
+        writeConfig(dir, "application.yml",
+                "server:\n  servlet:\n    context-path: /ciam\n"
+                + "---\n"
+                + "spring:\n  config:\n    activate:\n      on-profile: prod\n  datasource:\n    url: jdbc:prod\n");
+        writeJava(dir, "PolicyController.java", POLICY_CONTROLLER);
+
+        ApiModel model = new JavaSpringExtractor().extract(dir);
+
+        assertThat(model.endpoints()).extracting(Endpoint::signature)
+                .containsExactlyInAnyOrder("GET /ciam/policies", "GET /ciam/policies/{app}");
+        assertThat(model.blindSpots()).noneSatisfy(b -> assertThat(b).contains("only under a Spring profile"));
+    }
+
+    @Test
+    void profileOnlyBaseInOnProfileListFormIsStillProfileDependent(@TempDir Path dir) throws Exception {
+        // on-profile as a YAML list flattens to on-profile[0]/[1]; the base under it must still be recognised as
+        // profile-gated, never mistaken for an unconditional base and wrongly prefixed.
+        writeConfig(dir, "application.yml",
+                "server:\n  port: 8080\n"
+                + "---\n"
+                + "spring:\n  config:\n    activate:\n      on-profile: [prod, staging]\n  webflux:\n    base-path: /ciam\n");
+        writeJava(dir, "PolicyController.java", POLICY_CONTROLLER);
+
+        ApiModel model = new JavaSpringExtractor().extract(dir);
+
+        assertThat(model.endpoints()).extracting(Endpoint::signature)
+                .containsExactlyInAnyOrder("GET /policies", "GET /policies/{app}");
+        assertThat(model.blindSpots()).anySatisfy(b -> assertThat(b).contains("only under a Spring profile"));
+    }
 }
