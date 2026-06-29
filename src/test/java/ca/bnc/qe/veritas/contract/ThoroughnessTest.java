@@ -12,7 +12,8 @@ class ThoroughnessTest {
     void mapsToModelTiers() {
         assertThat(Thoroughness.ECONOMY.tier()).isEqualTo(ModelTier.ECONOMY);
         assertThat(Thoroughness.STANDARD.tier()).isEqualTo(ModelTier.STANDARD);
-        assertThat(Thoroughness.DEEP.tier()).isEqualTo(ModelTier.DEEP);
+        // DEEP escalates to the FRONTIER tier so the strongest model (Opus 4.8 today) runs the reconcile.
+        assertThat(Thoroughness.DEEP.tier()).isEqualTo(ModelTier.FRONTIER);
     }
 
     @Test
