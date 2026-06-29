@@ -1852,32 +1852,29 @@ public class JavaSpringExtractor {
         // prefix — only a blind spot. LinkedHashMap keeps a stable order for the message.
         java.util.Map<String, String> profileBases = new java.util.LinkedHashMap<>();
 
+        // Parse each YAML DOCUMENT separately (loadConfigDocuments) so an `on-profile` marker only gates a base in the
+        // SAME document — a flattened merge would otherwise let a trailing profile document's marker poison a genuine
+        // unconditional base from the default document.
         for (Path cfg : cfgs.defaults()) {
-            java.util.Properties props = loadAppProps(cfg);
-            if (props == null) {
-                continue;
-            }
-            String base = basePathFrom(props);
-            if (base.isEmpty()) {
-                continue;
-            }
-            // YamlPropertiesFactoryBean flattens a multi-document YAML and does NOT honour `on-profile`; if the merged
-            // properties carry that marker, a base here is profile-gated, not unconditional — treat it as a profile.
-            String onProfile = props.getProperty("spring.config.activate.on-profile");
-            if (onProfile != null && !onProfile.isBlank()) {
-                profileBases.putIfAbsent(onProfile.trim(), base);
-            } else {
-                defaultBases.add(base);
+            for (java.util.Properties props : loadConfigDocuments(cfg)) {
+                String base = basePathFrom(props);
+                if (base.isEmpty()) {
+                    continue;
+                }
+                String onProfile = onProfileLabel(props);
+                if (!onProfile.isEmpty()) {
+                    profileBases.putIfAbsent(onProfile, base);   // base lives under a profile-gated document
+                } else {
+                    defaultBases.add(base);                      // unconditional base in a profile-less document
+                }
             }
         }
         for (Path cfg : cfgs.profiles()) {
-            java.util.Properties props = loadAppProps(cfg);
-            if (props == null) {
-                continue;
-            }
-            String base = basePathFrom(props);
-            if (!base.isEmpty()) {
-                profileBases.putIfAbsent(profileNameOf(cfg), base);
+            for (java.util.Properties props : loadConfigDocuments(cfg)) {
+                String base = basePathFrom(props);
+                if (!base.isEmpty()) {
+                    profileBases.putIfAbsent(profileNameOf(cfg), base);
+                }
             }
         }
 
@@ -1970,24 +1967,62 @@ public class JavaSpringExtractor {
         return main.isEmpty() ? configs : main;
     }
 
-    /** Flatten an application config to Spring-style dot-keyed properties (YAML nested + flat, or .properties). */
-    private java.util.Properties loadAppProps(Path cfg) {
+    /**
+     * Each config DOCUMENT as flattened dot-keyed properties. A multi-document YAML yields ONE {@link java.util.Properties}
+     * per document (split on {@code ---} separator lines) so a {@code spring.config.activate.on-profile} marker only
+     * gates a base in its own document; {@code YamlPropertiesFactoryBean}'s default merge would flatten the boundaries
+     * away. A {@code .properties} file (no multi-document concept) yields a single element.
+     */
+    private List<java.util.Properties> loadConfigDocuments(Path cfg) {
         try {
             if (cfg.getFileName().toString().endsWith(".properties")) {
                 java.util.Properties p = new java.util.Properties();
                 try (java.io.InputStream in = Files.newInputStream(cfg)) {
                     p.load(in);
                 }
-                return p;
+                return p.isEmpty() ? List.of() : List.of(p);
             }
-            org.springframework.beans.factory.config.YamlPropertiesFactoryBean y =
-                    new org.springframework.beans.factory.config.YamlPropertiesFactoryBean();
-            y.setResources(new org.springframework.core.io.FileSystemResource(cfg.toFile()));
-            return y.getObject();
+            List<java.util.Properties> docs = new ArrayList<>();
+            for (String doc : Files.readString(cfg).split("(?m)^---\\s*$")) {   // a line that is exactly '---'
+                if (doc.isBlank()) {
+                    continue;
+                }
+                org.springframework.beans.factory.config.YamlPropertiesFactoryBean y =
+                        new org.springframework.beans.factory.config.YamlPropertiesFactoryBean();
+                y.setResources(new org.springframework.core.io.ByteArrayResource(
+                        doc.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+                java.util.Properties p = y.getObject();
+                if (p != null && !p.isEmpty()) {
+                    docs.add(p);
+                }
+            }
+            return docs;
         } catch (Exception e) {
             log.debug("Could not read application config {}: {}", cfg, e.getMessage());
-            return null;
+            return List.of();
         }
+    }
+
+    /**
+     * The profile a document is gated to via {@code spring.config.activate.on-profile}, or "" when it is unconditional.
+     * Handles both the scalar form ({@code on-profile: prod}) and the list form ({@code on-profile: [prod, staging]},
+     * which flattens to {@code …on-profile[0]}, {@code …on-profile[1]}) — so a profile-only base in list form is never
+     * mistaken for an unconditional default.
+     */
+    private String onProfileLabel(java.util.Properties props) {
+        String scalar = props.getProperty("spring.config.activate.on-profile");
+        if (scalar != null && !scalar.isBlank()) {
+            return scalar.trim();
+        }
+        List<String> vals = new ArrayList<>();
+        for (int i = 0; ; i++) {
+            String v = props.getProperty("spring.config.activate.on-profile[" + i + "]");
+            if (v == null) {
+                break;
+            }
+            vals.add(v.trim());
+        }
+        return String.join(",", vals);
     }
 
     private Integer line(com.github.javaparser.ast.Node n) {
