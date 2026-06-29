@@ -169,11 +169,6 @@ public class JavaSpringExtractor {
                     });
         }
 
-        // Functional RouterFunction routing: extract the literal builder-DSL routes (best-effort); anything not a
-        // literal verb + path keeps a per-unit blind spot so the DiffEngine won't falsely call uncovered spec
-        // endpoints dead. Apply the Spring base path just like controller routes.
-        endpoints.addAll(extractRouterFunctions(sourceRoot, units, springBase, blindSpots));
-
         // Centralized authorization in a SecurityFilterChain bean is enforced by URL pattern, not method annotations.
         // RESOLVE it per endpoint CONSERVATIVELY (only where a literal authorizeHttpRequests chain matches the endpoint
         // unambiguously, Spring first-match semantics); for anything we can't decide, keep the coarse "centralized
@@ -603,6 +598,9 @@ public class JavaSpringExtractor {
      */
     private void addCoverageBlindSpots(Path sourceRoot, List<CompilationUnit> units, List<String> blindSpots) {
         // (a) Kotlin sources declaring Spring web stereotypes / functional routing — not analysed (Java parser only).
+        // Gate on SPECIFIC web markers (the @*Mapping annotations, a stereotype, or a router DSL) rather than a bare
+        // "Mapping" substring — the latter matches unrelated types (e.g. ColumnMapping) and would raise a spurious
+        // blind spot that the DiffEngine guard then turns into whole-service dead-spec suppression.
         try (Stream<Path> files = Files.walk(sourceRoot)) {
             long ktWeb = files.filter(p -> p.toString().endsWith(".kt"))
                     .filter(p -> !p.toString().contains(File.separator + "test" + File.separator))
@@ -610,7 +608,10 @@ public class JavaSpringExtractor {
                         try {
                             String s = Files.readString(p);
                             return s.contains("@RestController") || s.contains("@Controller")
-                                    || s.contains("Mapping") || s.contains("RouterFunction") || s.contains("coRouter");
+                                    || s.contains("@RequestMapping") || s.contains("@GetMapping")
+                                    || s.contains("@PostMapping") || s.contains("@PutMapping")
+                                    || s.contains("@PatchMapping") || s.contains("@DeleteMapping")
+                                    || s.contains("RouterFunction") || s.contains("coRouter");
                         } catch (Exception e) {
                             return false;
                         }
@@ -623,76 +624,20 @@ public class JavaSpringExtractor {
         } catch (Exception ignore) {
             // best-effort coverage probe — never fail extraction over it
         }
-        // (b) Functional WebFlux/Web routing (RouterFunction) in Java is handled by extractRouterFunctions(): it pulls
-        // the literal builder-DSL routes and keeps a per-unit blind spot for anything not statically resolvable.
-    }
-
-    /** RouterFunction builder verbs we extract literal routes for, and the broader set used only to detect residue. */
-    private static final Set<String> ROUTER_VERBS = Set.of("GET", "POST", "PUT", "PATCH", "DELETE");
-    private static final Set<String> ROUTER_VERBS_ALL = Set.of("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS");
-
-    /**
-     * Best-effort extraction of LITERAL functional routes from the RouterFunctions builder DSL —
-     * {@code RouterFunctions.route().GET("/lit", handler)...build()} and
-     * {@code route(RequestPredicates.GET("/lit"), handler)}. Only a verb call (GET/POST/PUT/PATCH/DELETE) whose first
-     * argument is a String LITERAL becomes an Endpoint, with EMPTY params/responses — never a fabricated shape. The
-     * Spring base path is applied just like controller routes. For each functional-routing unit, the blind spot is KEPT
-     * whenever any routing remains unread (a non-literal verb path, {@code nest()} prefix composition, a Kotlin
-     * {@code coRouter}, or a router we extracted nothing from), so the DiffEngine still suppresses false "dead spec"
-     * for those. Verb names are case-sensitive, so an ordinary {@code obj.get(...)} call is never mistaken for a route.
-     */
-    private List<Endpoint> extractRouterFunctions(Path sourceRoot, List<CompilationUnit> units, String springBase,
-                                                  List<String> blindSpots) {
-        List<Endpoint> out = new ArrayList<>();
-        for (CompilationUnit cu : units) {
-            String text = cu.toString();
-            if (!text.contains("RouterFunctions.route") && !text.contains("RouterFunction<")) {
-                continue;   // not a functional-routing unit
-            }
-            String file = cu.getStorage().map(s -> relPath(sourceRoot, s.getPath())).orElse("?");
-            Set<String> seen = new java.util.HashSet<>();
-            int literalVerbCalls = 0;
-            long broaderVerbCalls = 0;
-            for (MethodCallExpr mc : cu.findAll(MethodCallExpr.class)) {
-                String name = mc.getNameAsString();
-                if (ROUTER_VERBS_ALL.contains(name)) {
-                    broaderVerbCalls++;
-                }
-                if (!ROUTER_VERBS.contains(name) || mc.getArguments().isEmpty()
-                        || !(mc.getArgument(0) instanceof StringLiteralExpr lit)) {
-                    continue;   // non-literal path → can't resolve; left for the blind spot
-                }
-                HttpMethod hm = httpMethod(name);
-                if (hm == null) {
-                    continue;
-                }
-                literalVerbCalls++;
-                String path = joinPath(springBase, lit.asString());
-                if (!seen.add(hm + " " + path)) {
-                    continue;   // de-dup identical literal routes within the unit
-                }
-                Integer ln = line(mc);
-                String operationId = mc.getArguments().size() > 1 ? mc.getArgument(1).toString() : hm + " " + path;
-                out.add(new Endpoint(hm, path, operationId, List.of(), null, List.of(), null, null, List.of(),
-                        SourceRef.code(file, ln, ln, snippet(mc.toString()))));
-            }
-            // Keep the blind spot whenever any routing here remains unread: nothing literal extracted, a broader verb
-            // call we didn't extract (non-literal path or HEAD/OPTIONS), or prefix/coroutine composition.
-            boolean residual = literalVerbCalls == 0 || broaderVerbCalls > literalVerbCalls
-                    || text.contains("nest(") || text.contains("coRouter");
-            if (residual) {
-                blindSpots.add("Functional routing (RouterFunction / RouterFunctions.route) in " + file + " is only "
-                        + "partially analysed: routes that are not a literal verb + path (nested, dynamic, "
-                        + "method-reference, or Kotlin coroutine routers) are not covered.");
-            }
+        // (b) Functional WebFlux/Web routing (RouterFunction) in Java — not annotation-based, so not analysed. Detect it
+        // from the AST (a RouterFunction<> type, or a RouterFunctions.route(...) call), NOT a toString() substring, so a
+        // mere mention in a comment/string never triggers it — that would otherwise over-suppress dead-spec via the
+        // DiffEngine guard. These routes are surfaced as an honest blind spot rather than guessed at or fabricated.
+        boolean functional = units.stream().anyMatch(cu ->
+                cu.findAll(ClassOrInterfaceType.class).stream()
+                        .anyMatch(t -> t.getNameAsString().equals("RouterFunction"))
+                || cu.findAll(MethodCallExpr.class).stream().anyMatch(mc ->
+                        mc.getNameAsString().equals("route")
+                        && mc.getScope().map(s -> s.toString().equals("RouterFunctions")).orElse(false)));
+        if (functional) {
+            blindSpots.add("Functional routing (RouterFunction / RouterFunctions.route) was detected but is not analysed "
+                    + "(only annotation-based @RequestMapping endpoints are extracted); those routes are not covered.");
         }
-        return out;
-    }
-
-    /** A short, single-line snippet for a SourceRef (the call text, capped). */
-    private static String snippet(String s) {
-        String oneLine = s.replaceAll("\\s+", " ").trim();
-        return oneLine.length() > 200 ? oneLine.substring(0, 200) : oneLine;
     }
 
     private boolean isController(TypeDeclaration<?> td, Map<String, TypeDeclaration<?>> types) {

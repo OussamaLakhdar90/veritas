@@ -82,98 +82,51 @@ class JavaSpringExtractorControllerStyleTest {
     }
 
     @Test
-    void declaresBlindSpotForUnresolvableFunctionalRouting(@TempDir Path dir) throws Exception {
+    void declaresBlindSpotForFunctionalRouting(@TempDir Path dir) throws Exception {
         write(dir, "Routes.java", """
             import org.springframework.web.reactive.function.server.*;
             class Routes {
-                RouterFunction<ServerResponse> routes() {
-                    return RouterFunctions.route(null, null);
+                RouterFunction<ServerResponse> routes(Handler h) {
+                    return RouterFunctions.route().GET("/api/ping", h::ping).build();
                 }
             }
             """);
 
         ApiModel model = new JavaSpringExtractor().extract(dir);
 
-        // Nothing literal to extract → no fabricated endpoints, and an honest blind spot remains.
+        // Functional routes are not annotation-based: we never fabricate an (empty-shaped) endpoint from them — doing
+        // so would manufacture body/param mismatches against the spec. They are surfaced as an honest blind spot.
         assertThat(model.endpoints()).isEmpty();
-        assertThat(model.blindSpots()).anySatisfy(b -> assertThat(b).contains("Functional routing"));
+        assertThat(model.blindSpots())
+                .anySatisfy(b -> assertThat(b).contains("Functional routing").contains("not analysed"));
     }
 
     @Test
-    void extractsLiteralBuilderDslRoutes(@TempDir Path dir) throws Exception {
-        write(dir, "Routes.java", """
-            import org.springframework.web.reactive.function.server.*;
-            class Routes {
-                RouterFunction<ServerResponse> routes(Handler handler) {
-                    return RouterFunctions.route()
-                        .GET("/api/ping", handler::ping)
-                        .POST("/api/echo", handler::echo)
-                        .build();
-                }
+    void functionalRoutingMentionedOnlyInACommentIsNotFlagged(@TempDir Path dir) throws Exception {
+        // Detection is AST-based, not a toString() substring, so a mere mention in a comment must not raise a blind
+        // spot (which the DiffEngine guard would otherwise turn into whole-service dead-spec suppression).
+        write(dir, "NotARouter.java", """
+            class NotARouter {
+                // This class does not use RouterFunctions.route(...) or any RouterFunction<...> — just mentions them.
+                String name() { return "x"; }
             }
             """);
 
         ApiModel model = new JavaSpringExtractor().extract(dir);
 
-        // Both literal verb+path routes are extracted; nothing residual → no blind spot.
-        assertThat(model.endpoints()).extracting(Endpoint::signature)
-                .containsExactlyInAnyOrder("GET /api/ping", "POST /api/echo");
         assertThat(model.blindSpots()).noneSatisfy(b -> assertThat(b).contains("Functional routing"));
     }
 
     @Test
-    void extractsStandaloneRequestPredicatesRoute(@TempDir Path dir) throws Exception {
-        write(dir, "Routes.java", """
-            import org.springframework.web.reactive.function.server.*;
-            import static org.springframework.web.reactive.function.server.RequestPredicates.*;
-            class Routes {
-                RouterFunction<ServerResponse> routes(Handler h) {
-                    return RouterFunctions.route(GET("/health"), h::health);
-                }
-            }
+    void unrelatedKotlinMappingTypeIsNotFlaggedAsWebRouting(@TempDir Path dir) throws Exception {
+        // A bare "Mapping" substring (e.g. a ColumnMapping data class) is NOT a web stereotype — it must not raise the
+        // Kotlin web blind spot, since that would suppress genuine dead-spec findings for the whole service.
+        write(dir, "ColumnMapping.kt", """
+            data class ColumnMapping(val from: String, val to: String)
             """);
 
         ApiModel model = new JavaSpringExtractor().extract(dir);
 
-        assertThat(model.endpoints()).extracting(Endpoint::signature).containsExactly("GET /health");
-        assertThat(model.blindSpots()).noneSatisfy(b -> assertThat(b).contains("Functional routing"));
-    }
-
-    @Test
-    void nonLiteralRouteIsNotFabricatedAndKeepsTheBlindSpot(@TempDir Path dir) throws Exception {
-        write(dir, "Routes.java", """
-            import org.springframework.web.reactive.function.server.*;
-            class Routes {
-                static final String PATH = "/dyn";
-                RouterFunction<ServerResponse> routes(Handler h) {
-                    return RouterFunctions.route().GET(PATH, h::dyn).build();
-                }
-            }
-            """);
-
-        ApiModel model = new JavaSpringExtractor().extract(dir);
-
-        // The path is a constant, not a literal — we never guess it; the route stays a blind spot.
-        assertThat(model.endpoints()).isEmpty();
-        assertThat(model.blindSpots()).anySatisfy(b -> assertThat(b).contains("Functional routing"));
-    }
-
-    @Test
-    void partialExtractionStillKeepsTheBlindSpotForResidualRoutes(@TempDir Path dir) throws Exception {
-        write(dir, "Routes.java", """
-            import org.springframework.web.reactive.function.server.*;
-            class Routes {
-                static final String PATH = "/dyn";
-                RouterFunction<ServerResponse> routes(Handler h) {
-                    return RouterFunctions.route().GET("/a", h::a).GET(PATH, h::dyn).build();
-                }
-            }
-            """);
-
-        ApiModel model = new JavaSpringExtractor().extract(dir);
-
-        // The literal route is extracted; the constant-path route remains unread, so the blind spot persists.
-        assertThat(model.endpoints()).extracting(Endpoint::signature).containsExactly("GET /a");
-        assertThat(model.blindSpots()).anySatisfy(b -> assertThat(b).contains("Functional routing"));
+        assertThat(model.blindSpots()).noneSatisfy(b -> assertThat(b).contains("Kotlin"));
     }
 }
