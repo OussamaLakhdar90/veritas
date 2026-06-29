@@ -1805,7 +1805,9 @@ public class JavaSpringExtractor {
     }
 
     private String appendSegment(String base, String seg) {
-        return (seg == null || seg.isBlank() || seg.equals("/")) ? base : joinPath(base, seg);
+        // Skip empties, root, and unresolved placeholders (${...} / #{...}) — a templated base path can't be matched
+        // statically, mirroring how the spec side skips a templated servers[].url.
+        return (seg == null || seg.isBlank() || seg.equals("/") || seg.contains("{")) ? base : joinPath(base, seg);
     }
 
     /** Default {@code application.{yml,yaml,properties}} (preferring src/main/resources; never test configs). */
