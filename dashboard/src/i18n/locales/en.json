@@ -32,7 +32,10 @@
     "connected": "Connected",
     "jump": "Jump to a service…",
     "toggleTheme": "Toggle theme",
-    "language": "Language"
+    "language": "Language",
+    "menu": "Open menu",
+    "collapse": "Collapse sidebar",
+    "expand": "Expand sidebar"
   },
   "common": {
     "errorTitle": "Couldn’t load this data",

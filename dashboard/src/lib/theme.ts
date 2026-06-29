@@ -11,3 +11,14 @@ export function useDarkMode(): [boolean, () => void] {
   }, [dark]);
   return [dark, () => setDark((d) => !d)];
 }
+
+const SIDEBAR_KEY = 'veritas-sidebar-collapsed';
+
+/** Sidebar collapse state (desktop), persisted to localStorage. */
+export function useSidebarCollapsed(): [boolean, () => void] {
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(SIDEBAR_KEY) === '1');
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0');
+  }, [collapsed]);
+  return [collapsed, () => setCollapsed((c) => !c)];
+}
