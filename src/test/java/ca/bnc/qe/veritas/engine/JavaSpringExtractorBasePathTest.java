@@ -75,4 +75,16 @@ class JavaSpringExtractorBasePathTest {
         assertThat(model.endpoints()).extracting(Endpoint::signature)
                 .containsExactlyInAnyOrder("GET /policies", "GET /policies/{app}");
     }
+
+    @Test
+    void skipsTemplatedBasePathPlaceholder(@TempDir Path dir) throws Exception {
+        // An unresolved ${...} placeholder can't be matched statically — must NOT be prepended literally.
+        writeConfig(dir, "application.yml", "spring:\n  webflux:\n    base-path: ${API_BASE:/ciam}\n");
+        writeJava(dir, "PolicyController.java", POLICY_CONTROLLER);
+
+        ApiModel model = new JavaSpringExtractor().extract(dir);
+
+        assertThat(model.endpoints()).extracting(Endpoint::signature)
+                .containsExactlyInAnyOrder("GET /policies", "GET /policies/{app}");
+    }
 }
