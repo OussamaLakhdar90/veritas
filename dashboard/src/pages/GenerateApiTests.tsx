@@ -23,11 +23,11 @@ function parseList(json?: string): string[] {
 const buildTone = (s?: string) => ({ PASS: TONE.ok, REPAIRED: TONE.warn, FAIL: TONE.danger, SKIPPED: TONE.muted }[s ?? ''] ?? TONE.muted);
 
 /** Plain-language badge + tone for each reconciliation status. */
-const STATUS: Record<string, { label: string; tone: string; icon: typeof Plus }> = {
-  GAP: { label: 'add test', tone: TONE.warn, icon: Plus },
-  CURRENT: { label: 'covered', tone: TONE.ok, icon: Check },
-  ORPHAN: { label: 'flag', tone: TONE.muted, icon: AlertTriangle },
-  STALE: { label: 'update', tone: TONE.danger, icon: ArrowRight },
+const STATUS: Record<string, { labelKey: string; tone: string; icon: typeof Plus }> = {
+  GAP: { labelKey: 'statusAddTest', tone: TONE.warn, icon: Plus },
+  CURRENT: { labelKey: 'statusCovered', tone: TONE.ok, icon: Check },
+  ORPHAN: { labelKey: 'statusFlag', tone: TONE.muted, icon: AlertTriangle },
+  STALE: { labelKey: 'statusUpdate', tone: TONE.danger, icon: ArrowRight },
 };
 
 function Stepper({ step }: { step: number }) {
@@ -53,6 +53,7 @@ function Stepper({ step }: { step: number }) {
 
 /** The git-native, non-technical wizard: pick a service repo → say where the tests live → see the plan. */
 export function GenerateApiTests() {
+  const { t } = useTranslation();
   const toast = useToast();
   const { blocked, notice } = useCopilotGate();
   const [step, setStep] = useState(1);
@@ -94,7 +95,7 @@ export function GenerateApiTests() {
     mutationFn: () => api.repos(appId),
     onSuccess: (rs) => {
       setRepos(rs);
-      if (rs.length === 0) toast.push('error', 'No repos found for that app.');
+      if (rs.length === 0) toast.push('error', t('genApi.noReposFound'));
     },
     onError: (e: Error) => toast.push('error', e.message),
   });
@@ -145,7 +146,7 @@ export function GenerateApiTests() {
       jiraKey,
       serviceAuth,
     }),
-    onSuccess: (r) => { setRun(r); setStep(5); toast.push('success', 'Tests generated — review them, then open a PR.'); },
+    onSuccess: (r) => { setRun(r); setStep(5); toast.push('success', t('genApi.testsGenerated')); },
     onError: (e: Error) => toast.push('error', e.message),
   });
 
@@ -155,7 +156,7 @@ export function GenerateApiTests() {
       api.publishCodegen(run!.id, outputRepo, prBranch || 'main', allowFailedBuild),
     onSuccess: (updated) => {
       setRun(updated);
-      toast.push('success', updated.prUrl ? 'Pull request opened.' : 'Submitted for approval — approve it on the Gates page to open the PR.');
+      toast.push('success', updated.prUrl ? t('genApi.prOpenedToast') : t('genApi.submittedForApproval'));
     },
     onError: (e: Error) => toast.push('error', e.message),
   });
@@ -172,40 +173,40 @@ export function GenerateApiTests() {
 
   return (
     <div>
-      <PageHeader title="Generate API tests"
-        subtitle="Pick a service from git, see what's covered, and choose what to generate. Nothing is written without your approval." />
+      <PageHeader title={t('genApi.pageTitle')}
+        subtitle={t('genApi.pageSubtitle')} />
       <Stepper step={step} />
 
       {step === 1 && (
         <Card>
-          <CardHeader title="Which service do you want tests for?" subtitle="Pick the service repo from git — we only read it." />
+          <CardHeader title={t('genApi.step1Title')} subtitle={t('genApi.step1Subtitle')} />
           <CardBody className="space-y-4">
             <div className="flex items-end gap-2">
               <div className="flex-1">
-                <Field label="Git app" hint="Your Bitbucket app id, e.g. APP7571.">
+                <Field label={t('genApi.gitAppLabel')} hint={t('genApi.gitAppHint')}>
                   <Input placeholder="APP7571" value={appId} autoFocus
                     onChange={(e) => { setAppId(e.target.value); setRepos([]); setServiceRepo(''); }}
                     onKeyDown={(e) => e.key === 'Enter' && appId.trim() && loadRepos.mutate()} />
                 </Field>
               </div>
               <Button variant="secondary" loading={loadRepos.isPending}
-                onClick={() => appId.trim() ? loadRepos.mutate() : toast.push('error', 'Enter your git app id.')}>
-                <Search className="h-4 w-4" /> Find repos
+                onClick={() => appId.trim() ? loadRepos.mutate() : toast.push('error', t('genApi.enterGitAppId'))}>
+                <Search className="h-4 w-4" /> {t('genApi.findRepos')}
               </Button>
             </div>
 
             {repos.length > 0 && (
               <>
-                <Field label="Service repo">
+                <Field label={t('genApi.serviceRepoLabel')}>
                   <Select value={serviceRepo} onChange={(e) => setServiceRepo(e.target.value)}>
-                    <option value="">Choose a repo…</option>
+                    <option value="">{t('genApi.chooseRepo')}</option>
                     {repos.map((r) => <option key={r.slug} value={r.slug}>{r.name || r.slug}</option>)}
                   </Select>
                 </Field>
                 {serviceRepo && (
-                  <Field label="Branch" hint={svcBranches.isLoading ? 'Loading branches…' : 'Leave on the default branch unless you need another.'}>
+                  <Field label={t('genApi.branchLabel')} hint={svcBranches.isLoading ? t('genApi.loadingBranches') : t('genApi.branchHintDefault')}>
                     <Select value={serviceBranch} onChange={(e) => setServiceBranch(e.target.value)}>
-                      <option value="">(default branch)</option>
+                      <option value="">{t('genApi.defaultBranchOption')}</option>
                       {(svcBranches.data ?? []).map((b) => <option key={b} value={b}>{b}</option>)}
                     </Select>
                   </Field>
@@ -214,7 +215,7 @@ export function GenerateApiTests() {
             )}
 
             <div className="flex justify-end">
-              <Button disabled={!serviceRepo} onClick={() => setStep(2)}>Next <ArrowRight className="h-4 w-4" /></Button>
+              <Button disabled={!serviceRepo} onClick={() => setStep(2)}>{t('genApi.next')} <ArrowRight className="h-4 w-4" /></Button>
             </div>
           </CardBody>
         </Card>
@@ -222,33 +223,33 @@ export function GenerateApiTests() {
 
       {step === 2 && (
         <Card>
-          <CardHeader title="Where are the tests?"
-            subtitle="If you already have a test repo we'll update it; otherwise we start fresh." />
+          <CardHeader title={t('genApi.step2Title')}
+            subtitle={t('genApi.step2Subtitle')} />
           <CardBody className="space-y-4">
-            <Field label="Test repo" hint="Leave on “create them” to generate from scratch.">
+            <Field label={t('genApi.testRepoLabel')} hint={t('genApi.testRepoHint')}>
               <Select value={testRepo} onChange={(e) => setTestRepo(e.target.value)}>
-                <option value="">No tests yet — create them</option>
+                <option value="">{t('genApi.noTestsYet')}</option>
                 {repos.map((r) => <option key={r.slug} value={r.slug}>{r.name || r.slug}</option>)}
               </Select>
             </Field>
             {testRepo && (
-              <Field label="Branch" hint={testBranches.isLoading ? 'Loading branches…' : undefined}>
+              <Field label={t('genApi.branchLabel')} hint={testBranches.isLoading ? t('genApi.loadingBranches') : undefined}>
                 <Select value={testBranch} onChange={(e) => setTestBranch(e.target.value)}>
-                  <option value="">(default branch)</option>
+                  <option value="">{t('genApi.defaultBranchOption')}</option>
                   {(testBranches.data ?? []).map((b) => <option key={b} value={b}>{b}</option>)}
                 </Select>
               </Field>
             )}
 
-            <Field label="Jira ticket *"
-              hint="The work item these tests commit under — its key goes in the branch, commit and PR so Jira links them.">
+            <Field label={t('genApi.jiraTicketLabel')}
+              hint={t('genApi.jiraTicketHint')}>
               {jiraKey ? (
                 <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-ink-50 px-3 py-2">
                   <span className="min-w-0 text-[13px]">
                     <span className="font-mono font-medium text-ink-900">{jiraKey}</span>
                     {jiraSummary && <span className="text-muted"> — {jiraSummary}</span>}
                   </span>
-                  <button type="button" aria-label="Clear ticket" className="shrink-0 text-muted hover:text-ink-900"
+                  <button type="button" aria-label={t('genApi.clearTicket')} className="shrink-0 text-muted hover:text-ink-900"
                     onClick={() => { setJiraKey(''); setJiraSummary(''); setJiraQuery(''); }}>
                     <X className="h-4 w-4" />
                   </button>
@@ -256,14 +257,14 @@ export function GenerateApiTests() {
               ) : (
                 <div className="relative">
                   <Ticket className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-                  <Input className="pl-8" placeholder="Search Jira, or paste a key / URL (e.g. CIAM-1842)"
+                  <Input className="pl-8" placeholder={t('genApi.jiraSearchPlaceholder')}
                     value={jiraQuery} onChange={(e) => setJiraQuery(e.target.value)} />
                   {jiraQuery.trim().length >= 2 && (
                     <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border border-border bg-surface shadow-card">
                       {jiraResults.isLoading ? (
-                        <p className="px-3 py-2 text-[13px] text-muted">Searching…</p>
+                        <p className="px-3 py-2 text-[13px] text-muted">{t('genApi.searching')}</p>
                       ) : (jiraResults.data ?? []).length === 0 ? (
-                        <p className="px-3 py-2 text-[13px] text-muted">No matching tickets.</p>
+                        <p className="px-3 py-2 text-[13px] text-muted">{t('genApi.noMatchingTickets')}</p>
                       ) : (
                         (jiraResults.data ?? []).map((i) => (
                           <button key={i.key} type="button"
@@ -281,10 +282,10 @@ export function GenerateApiTests() {
             </Field>
 
             <div className="flex items-center justify-between">
-              <Button variant="secondary" onClick={() => setStep(1)}><ArrowLeft className="h-4 w-4" /> Back</Button>
+              <Button variant="secondary" onClick={() => setStep(1)}><ArrowLeft className="h-4 w-4" /> {t('genApi.back')}</Button>
               <Button loading={planM.isPending} disabled={!jiraKey}
-                onClick={() => jiraKey ? planM.mutate() : toast.push('error', 'Pick a Jira ticket first.')}>
-                See the plan <ArrowRight className="h-4 w-4" />
+                onClick={() => jiraKey ? planM.mutate() : toast.push('error', t('genApi.pickJiraFirst'))}>
+                {t('genApi.seeThePlan')} <ArrowRight className="h-4 w-4" />
               </Button>
             </div>
           </CardBody>
@@ -293,38 +294,38 @@ export function GenerateApiTests() {
 
       {step === 3 && (
         <Card>
-          <CardHeader title="Here's what we'd do"
+          <CardHeader title={t('genApi.step3Title')}
             subtitle={plan?.mode === 'REFACTOR'
-              ? `Scanned ${plan?.filesScanned ?? 0} existing test files — we'll update, never replace.`
-              : 'No tests yet — we\'ll create a fresh set.'} />
+              ? t('genApi.step3SubtitleRefactor', { count: plan?.filesScanned ?? 0 })
+              : t('genApi.step3SubtitleScratch')} />
           <CardBody className="space-y-5">
             {planM.isPending || !plan ? (
-              <p className="flex items-center gap-2 text-sm text-muted"><Spinner /> Reconciling the API against your tests…</p>
+              <p className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('genApi.reconciling')}</p>
             ) : (
               <>
                 <div className="grid grid-cols-3 gap-3">
-                  <Tile label="Already covered" value={covered} />
-                  <Tile label="New tests" value={gaps} tone="text-gold" />
-                  <Tile label="Orphaned" value={orphans} />
+                  <Tile label={t('genApi.tileCovered')} value={covered} />
+                  <Tile label={t('genApi.tileNewTests')} value={gaps} tone="text-gold" />
+                  <Tile label={t('genApi.tileOrphaned')} value={orphans} />
                 </div>
 
                 <div>
                   <p className="mb-2 text-[13px] text-muted">
-                    {gaps > 0 ? 'Uncheck anything you don\'t want. By default we generate the gaps.' : 'Everything is covered — nothing to generate.'}
+                    {gaps > 0 ? t('genApi.uncheckHint') : t('genApi.everythingCovered')}
                   </p>
-                  <Table head={<><Th /><Th>Endpoint</Th><Th>What</Th></>}>
+                  <Table head={<><Th /><Th>{t('genApi.thEndpoint')}</Th><Th>{t('genApi.thWhat')}</Th></>}>
                     {plan.items.map((it) => <PlanRow key={(it.signature ?? it.path) + it.status} it={it} selected={selected} toggle={toggle} />)}
                   </Table>
                 </div>
 
                 <div className="flex items-center justify-between border-t border-border pt-4">
-                  <Button variant="secondary" onClick={() => setStep(2)}><ArrowLeft className="h-4 w-4" /> Back</Button>
+                  <Button variant="secondary" onClick={() => setStep(2)}><ArrowLeft className="h-4 w-4" /> {t('genApi.back')}</Button>
                   <Button disabled={selected.size === 0} onClick={() => setStep(4)}>
-                    Continue ({selected.size}) <ArrowRight className="h-4 w-4" />
+                    {t('genApi.continueCount', { count: selected.size })} <ArrowRight className="h-4 w-4" />
                   </Button>
                 </div>
                 <p className="flex items-center gap-1.5 text-[12px] text-muted">
-                  <GitPullRequest className="h-3.5 w-3.5" /> Next we'll set up tokens, then write the tests to <span className="font-mono">{outputRepo || '—'}</span> on a branch — nothing is pushed until you click “Open pull request”.
+                  <GitPullRequest className="h-3.5 w-3.5" /> {t('genApi.nextTokensPrefix')} <span className="font-mono">{outputRepo || '—'}</span> {t('genApi.nextTokensSuffix')}
                 </p>
               </>
             )}
@@ -334,18 +335,18 @@ export function GenerateApiTests() {
 
       {step === 4 && (
         <Card>
-          <CardHeader title="How many tokens does this service need?"
-            subtitle="One per API group. Each gets an Okta token by private-key JWT — we store only the URL, client id and scopes; your private key stays in oktaCredentials.json." />
+          <CardHeader title={t('genApi.step4Title')}
+            subtitle={t('genApi.step4Subtitle')} />
           <CardBody className="space-y-5">
             <div className="flex gap-2">
-              <PresetBtn active={authGroups.length === 0} onClick={() => setPreset(0)}>No token (public)</PresetBtn>
-              <PresetBtn active={authGroups.length === 1} onClick={() => setPreset(1)}>One token</PresetBtn>
-              <PresetBtn active={authGroups.length === 2} onClick={() => setPreset(2)}>Two tokens · different APIs</PresetBtn>
+              <PresetBtn active={authGroups.length === 0} onClick={() => setPreset(0)}>{t('genApi.presetNoToken')}</PresetBtn>
+              <PresetBtn active={authGroups.length === 1} onClick={() => setPreset(1)}>{t('genApi.presetOneToken')}</PresetBtn>
+              <PresetBtn active={authGroups.length === 2} onClick={() => setPreset(2)}>{t('genApi.presetTwoTokens')}</PresetBtn>
             </div>
 
             {authGroups.length === 0 ? (
               <p className="rounded-lg bg-ink-50 p-3 text-[13px] text-muted">
-                Public service — every endpoint is called without a token.
+                {t('genApi.publicServiceNote')}
               </p>
             ) : (
               authGroups.map((g, i) => (
@@ -355,18 +356,18 @@ export function GenerateApiTests() {
 
             {authGroups.length > 0 && (
               <p className="flex items-center gap-1.5 rounded-lg bg-success/5 p-2.5 text-[12px] text-success">
-                <Lock className="h-3.5 w-3.5 shrink-0" /> Put each private key in <span className="font-mono">oktaCredentials.json</span> as a
-                <span className="font-mono">"$sensitive:…"</span> value — it never leaves your environment.
+                <Lock className="h-3.5 w-3.5 shrink-0" /> {t('genApi.privateKeyNote1')} <span className="font-mono">oktaCredentials.json</span> {t('genApi.privateKeyNote2')}
+                <span className="font-mono">"$sensitive:…"</span> {t('genApi.privateKeyNote3')}
               </p>
             )}
 
             <div className="flex items-center justify-between border-t border-border pt-4">
-              <Button variant="secondary" onClick={() => setStep(3)}><ArrowLeft className="h-4 w-4" /> Back</Button>
+              <Button variant="secondary" onClick={() => setStep(3)}><ArrowLeft className="h-4 w-4" /> {t('genApi.back')}</Button>
               <span className="flex items-center gap-3">
                 {notice}
                 <Button disabled={selected.size === 0 || blocked} loading={generateM.isPending}
                   onClick={() => generateM.mutate()}>
-                  <Sparkles className="h-4 w-4" /> Generate selected ({selected.size})
+                  <Sparkles className="h-4 w-4" /> {t('genApi.generateSelected', { count: selected.size })}
                 </Button>
               </span>
             </div>
@@ -377,18 +378,18 @@ export function GenerateApiTests() {
       {step === 5 && run && (
         <Card>
           <CardHeader
-            title={<span className="inline-flex items-center gap-2">Review &amp; open a pull request
-              <Badge className={buildTone(run.buildStatus)}>build {run.buildStatus ?? '—'}</Badge></span>}
-            subtitle={`Generated tests for ${run.serviceName} — review, then open a PR when you're ready.`} />
+            title={<span className="inline-flex items-center gap-2">{t('genApi.step5Title')}
+              <Badge className={buildTone(run.buildStatus)}>{t('genApi.buildBadge', { status: run.buildStatus ?? '—' })}</Badge></span>}
+            subtitle={t('genApi.step5Subtitle', { name: run.serviceName })} />
           <CardBody className="space-y-5">
             {run.buildStatus === 'SKIPPED' && (
               <div className="rounded-lg border-l-4 border-l-warning bg-warning/5 p-3 text-[13px] text-ink-700">
-                These tests weren't compiled here (build skipped) — don't assume they compile; CI will verify before merge.
+                {t('genApi.buildSkippedNote')}
               </div>
             )}
 
             <div>
-              <p className="mb-1.5 text-[13px] font-semibold text-ink-900">Generated files</p>
+              <p className="mb-1.5 text-[13px] font-semibold text-ink-900">{t('genApi.generatedFiles')}</p>
               <ul className="space-y-1">
                 {parseList(run.filesWritten).map((f) => (
                   <li key={f} className="flex items-center gap-2 font-mono text-[12.5px] text-muted"><FileCode className="h-3.5 w-3.5 shrink-0" /> {f}</li>
@@ -399,7 +400,7 @@ export function GenerateApiTests() {
 
             {parseList(run.todos).length > 0 && (
               <div className="rounded-lg border-l-4 border-l-warning bg-warning/5 p-3">
-                <p className="mb-1 text-[13px] font-semibold text-ink-900">Before these run, you'll need</p>
+                <p className="mb-1 text-[13px] font-semibold text-ink-900">{t('genApi.beforeTheseRun')}</p>
                 <ul className="list-disc space-y-0.5 pl-5 text-[13px] text-ink-700">
                   {parseList(run.todos).map((t, i) => <li key={i}>{t}</li>)}
                 </ul>
@@ -408,39 +409,39 @@ export function GenerateApiTests() {
 
             {run.prUrl ? (
               <div className="space-y-3">
-                <p className="text-sm">Pull request opened: <a href={run.prUrl} target="_blank" rel="noreferrer"
+                <p className="text-sm">{t('genApi.pullRequestOpenedLabel')} <a href={run.prUrl} target="_blank" rel="noreferrer"
                   className="inline-flex items-center gap-1 font-medium text-gold hover:underline">{run.prUrl} <ExternalLink className="h-3.5 w-3.5" /></a></p>
                 <div className="rounded-lg bg-ink-50 p-3 text-[13px] text-ink-700">
-                  <p className="mb-1 font-semibold text-ink-900">Next: test it locally</p>
-                  <p>Veritas generated the tests and opened the PR. Running them against the live API is done from your machine (or CI) — pull the branch and run your suite:</p>
-                  <pre className="mt-2 overflow-x-auto rounded bg-ink-900/90 px-3 py-2 font-mono text-[12px] text-white">git fetch origin{'\n'}git checkout {run.branch ?? 'the PR branch'}</pre>
+                  <p className="mb-1 font-semibold text-ink-900">{t('genApi.testItLocally')}</p>
+                  <p>{t('genApi.testItLocallyBody')}</p>
+                  <pre className="mt-2 overflow-x-auto rounded bg-ink-900/90 px-3 py-2 font-mono text-[12px] text-white">git fetch origin{'\n'}git checkout {run.branch ?? t('genApi.thePrBranch')}</pre>
                 </div>
               </div>
             ) : (
               <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-end">
                 <div className="flex-1">
-                  <Field label="Open the PR against" hint={`Base branch in ${outputRepo}.`}>
+                  <Field label={t('genApi.openPrAgainst')} hint={t('genApi.baseBranchHint', { repo: outputRepo })}>
                     <Input value={prBranch} onChange={(e) => setPrBranch(e.target.value)} placeholder="main" />
                   </Field>
                 </div>
                 <Button loading={publishM.isPending && !publishM.variables?.allowFailedBuild}
                   onClick={() => publishM.mutate({ allowFailedBuild: false })}>
-                  <GitPullRequestArrow className="h-4 w-4" /> Open pull request
+                  <GitPullRequestArrow className="h-4 w-4" /> {t('genApi.openPullRequest')}
                 </Button>
                 {run.buildStatus === 'FAIL' && (
                   <Button variant="secondary" loading={publishM.isPending && publishM.variables?.allowFailedBuild}
-                    title="Build failed — open the PR anyway (override)"
+                    title={t('genApi.openAnywayTitle')}
                     onClick={() => publishM.mutate({ allowFailedBuild: true })}>
-                    Open anyway (build failed)
+                    {t('genApi.openAnyway')}
                   </Button>
                 )}
               </div>
             )}
 
             <div className="flex items-center justify-between border-t border-border pt-4">
-              <Button variant="secondary" onClick={() => setStep(4)}><ArrowLeft className="h-4 w-4" /> Back</Button>
+              <Button variant="secondary" onClick={() => setStep(4)}><ArrowLeft className="h-4 w-4" /> {t('genApi.back')}</Button>
               <p className="flex items-center gap-1.5 text-[12px] text-muted">
-                <GitPullRequest className="h-3.5 w-3.5" /> Opening a PR pushes a branch for review — it never merges on its own.
+                <GitPullRequest className="h-3.5 w-3.5" /> {t('genApi.openingPrNote')}
               </p>
             </div>
           </CardBody>
@@ -463,6 +464,7 @@ function PresetBtn({ active, onClick, children }: { active: boolean; onClick: ()
 /** One token group = one Okta token source (token URL + client id + private-key field + scopes) for an API group. */
 function AuthGroupCard({ index, group, multi, onChange }:
   { index: number; group: ServiceAuthGroup; multi: boolean; onChange: (i: number, patch: Partial<ServiceAuthGroup>) => void }) {
+  const { t } = useTranslation();
   const scopes = group.scopes ?? [];
   const setScopes = (next: Scope[]) => onChange(index, { scopes: next });
   const patchScope = (si: number, patch: Partial<Scope>) => setScopes(scopes.map((s, idx) => (idx === si ? { ...s, ...patch } : s)));
@@ -470,54 +472,54 @@ function AuthGroupCard({ index, group, multi, onChange }:
     <div className="space-y-3 rounded-lg border border-border p-3">
       <div className="flex items-center gap-2">
         <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-[12px] font-medium text-brand">
-          <KeyRound className="h-3 w-3" /> Token {String.fromCharCode(65 + index)}
+          <KeyRound className="h-3 w-3" /> {t('genApi.tokenLetter', { letter: String.fromCharCode(65 + index) })}
         </span>
-        {multi && <span className="text-[12px] text-muted">for the endpoints under its path prefix</span>}
+        {multi && <span className="text-[12px] text-muted">{t('genApi.tokenForEndpoints')}</span>}
       </div>
       <div className="grid grid-cols-2 gap-3">
         {multi && (
-          <Field label="Group name" hint="becomes WorldKey.{NAME}_TOKEN">
-            <Input aria-label={`group ${index} name`} value={group.name} onChange={(e) => onChange(index, { name: e.target.value })} placeholder="tpps" />
+          <Field label={t('genApi.groupNameLabel')} hint={t('genApi.groupNameHint')}>
+            <Input aria-label={t('genApi.ariaGroupName', { index })} value={group.name} onChange={(e) => onChange(index, { name: e.target.value })} placeholder="tpps" />
           </Field>
         )}
         {multi && (
-          <Field label="Applies to paths" hint="Comma-separated prefixes, e.g. /tpps">
-            <Input aria-label={`group ${index} paths`} value={(group.pathPrefixes ?? []).join(', ')}
+          <Field label={t('genApi.appliesToPathsLabel')} hint={t('genApi.appliesToPathsHint')}>
+            <Input aria-label={t('genApi.ariaGroupPaths', { index })} value={(group.pathPrefixes ?? []).join(', ')}
               onChange={(e) => onChange(index, { pathPrefixes: e.target.value.split(',').map((s) => s.trim()).filter(Boolean) })} />
           </Field>
         )}
-        <Field label="Okta token URL" hint="the /v1/token endpoint">
-          <Input aria-label={`group ${index} token url`} value={group.tokenUrl ?? ''} onChange={(e) => onChange(index, { tokenUrl: e.target.value })}
+        <Field label={t('genApi.oktaTokenUrlLabel')} hint={t('genApi.oktaTokenUrlHint')}>
+          <Input aria-label={t('genApi.ariaGroupTokenUrl', { index })} value={group.tokenUrl ?? ''} onChange={(e) => onChange(index, { tokenUrl: e.target.value })}
             placeholder="https://your-okta/oauth2/<auth-server>/v1/token" />
         </Field>
-        <Field label="Okta client id">
-          <Input aria-label={`group ${index} client id`} value={group.clientId ?? ''} onChange={(e) => onChange(index, { clientId: e.target.value })} placeholder="0oa…" />
+        <Field label={t('genApi.oktaClientIdLabel')}>
+          <Input aria-label={t('genApi.ariaGroupClientId', { index })} value={group.clientId ?? ''} onChange={(e) => onChange(index, { clientId: e.target.value })} placeholder="0oa…" />
         </Field>
         <div className="col-span-2">
-          <Field label="Private-key field in oktaCredentials.json" hint="Veritas never sees the key — it's a $sensitive value.">
-            <Input aria-label={`group ${index} private key field`} value={group.privateKeyField ?? ''}
+          <Field label={t('genApi.privateKeyFieldLabel')} hint={t('genApi.privateKeyFieldHint')}>
+            <Input aria-label={t('genApi.ariaGroupPrivateKeyField', { index })} value={group.privateKeyField ?? ''}
               onChange={(e) => onChange(index, { privateKeyField: e.target.value })} placeholder="MY_API_PRIVATE_KEY" />
           </Field>
         </div>
       </div>
       <div>
-        <p className="mb-1.5 text-[12px] font-medium text-ink-900">OAuth scopes</p>
+        <p className="mb-1.5 text-[12px] font-medium text-ink-900">{t('genApi.oauthScopes')}</p>
         <div className="space-y-2">
           {scopes.map((s, si) => (
             <div key={si} className="flex items-end gap-2">
               <div className="w-24">
-                <Field label={si === 0 ? 'Name' : ''}>
-                  <Input aria-label={`group ${index} scope ${si} name`} value={s.name}
+                <Field label={si === 0 ? t('genApi.scopeNameLabel') : ''}>
+                  <Input aria-label={t('genApi.ariaGroupScopeName', { index, si })} value={s.name}
                     onChange={(e) => patchScope(si, { name: e.target.value.toUpperCase() })} placeholder="READ" />
                 </Field>
               </div>
               <div className="flex-1">
-                <Field label={si === 0 ? 'Okta scope string' : ''}>
-                  <Input aria-label={`group ${index} scope ${si} value`} value={s.value}
+                <Field label={si === 0 ? t('genApi.oktaScopeStringLabel') : ''}>
+                  <Input aria-label={t('genApi.ariaGroupScopeValue', { index, si })} value={s.value}
                     onChange={(e) => patchScope(si, { value: e.target.value })} placeholder="myapi:resource:read" />
                 </Field>
               </div>
-              <button type="button" aria-label={`group ${index} remove scope ${si}`} className="mb-1.5 text-muted hover:text-danger"
+              <button type="button" aria-label={t('genApi.ariaGroupRemoveScope', { index, si })} className="mb-1.5 text-muted hover:text-danger"
                 onClick={() => setScopes(scopes.filter((_, idx) => idx !== si))}>
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -525,7 +527,7 @@ function AuthGroupCard({ index, group, multi, onChange }:
           ))}
         </div>
         <Button variant="secondary" className="mt-2" onClick={() => setScopes([...scopes, { name: '', value: '' }])}>
-          <Plus className="h-4 w-4" /> Add scope
+          <Plus className="h-4 w-4" /> {t('genApi.addScope')}
         </Button>
       </div>
     </div>
@@ -542,6 +544,7 @@ function Tile({ label, value, tone }: { label: string; value: number; tone?: str
 }
 
 function PlanRow({ it, selected, toggle }: { it: TestGenPlanItem; selected: Set<string>; toggle: (sig: string) => void }) {
+  const { t } = useTranslation();
   const meta = STATUS[it.status] ?? STATUS.GAP;
   const Icon = meta.icon;
   const sig = it.signature ?? it.path ?? '';
@@ -550,7 +553,7 @@ function PlanRow({ it, selected, toggle }: { it: TestGenPlanItem; selected: Set<
     <Row>
       <Td>
         {selectable ? (
-          <input type="checkbox" aria-label={`Select ${sig}`} className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
+          <input type="checkbox" aria-label={t('genApi.selectEndpoint', { sig })} className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
             checked={selected.has(sig)} onChange={() => toggle(sig)} />
         ) : <span className="inline-block h-4 w-4" />}
       </Td>
@@ -559,7 +562,7 @@ function PlanRow({ it, selected, toggle }: { it: TestGenPlanItem; selected: Set<
         {it.reason && <div className="text-[11px] text-muted">{it.reason}</div>}
       </Td>
       <Td>
-        <Badge className={meta.tone}><Icon className="h-3 w-3" /> {meta.label}</Badge>
+        <Badge className={meta.tone}><Icon className="h-3 w-3" /> {t(`genApi.${meta.labelKey}`)}</Badge>
       </Td>
     </Row>
   );

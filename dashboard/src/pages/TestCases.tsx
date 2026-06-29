@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ListChecks, Search, Check, X, Upload, Sparkles } from 'lucide-react';
 import { api, TestCase } from '../api';
@@ -16,6 +17,7 @@ const tone = (s?: string) => {
 };
 
 export function TestCases() {
+  const { t } = useTranslation();
   const toast = useToast();
   const qc = useQueryClient();
   const { blocked, notice } = useCopilotGate();
@@ -28,13 +30,13 @@ export function TestCases() {
 
   const generate = useMutation({
     mutationFn: () => api.generateTestCases(svc, { basis }),
-    onSuccess: () => { setQuery(svc); qc.invalidateQueries({ queryKey: ['test-cases', svc] }); toast.push('success', 'Test cases generated.'); },
+    onSuccess: () => { setQuery(svc); qc.invalidateQueries({ queryKey: ['test-cases', svc] }); toast.push('success', t('testCases.toastGenerated')); },
     onError: (e: Error) => toast.push('error', e.message),
   });
 
   const act = useMutation({
     mutationFn: ({ tc, fn }: { tc: TestCase; fn: () => Promise<unknown> }) => fn(),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['test-cases'] }); toast.push('success', 'Updated.'); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['test-cases'] }); toast.push('success', t('testCases.toastUpdated')); },
     onError: (e: Error) => toast.push('error', e.message),
   });
   const busyId = act.isPending ? act.variables?.tc.id : undefined;
@@ -42,47 +44,47 @@ export function TestCases() {
 
   return (
     <div>
-      <PageHeader title="Test cases" subtitle="Review, approve and push generated test cases to Xray." />
+      <PageHeader title={t('testCases.pageTitle')} subtitle={t('testCases.pageSubtitle')} />
 
       <Card className="mb-6">
         <CardBody>
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-            <div className="flex-1"><Field label="Service"><ServiceField value={svc}
+            <div className="flex-1"><Field label={t('testCases.serviceLabel')}><ServiceField value={svc}
               onChange={(e) => setSvc(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && svc && setQuery(svc)} /></Field></div>
-            <div className="flex-1"><Field label="Project key" hint="needed to push to Xray"><Input placeholder="CIAM" value={projectKey}
+            <div className="flex-1"><Field label={t('testCases.projectKeyLabel')} hint={t('testCases.projectKeyHint')}><Input placeholder="CIAM" value={projectKey}
               onChange={(e) => setProjectKey(e.target.value.toUpperCase())} /></Field></div>
-            <Button onClick={() => setQuery(svc)} disabled={!svc} className="sm:mb-0.5"><Search className="h-4 w-4" /> Load</Button>
+            <Button onClick={() => setQuery(svc)} disabled={!svc} className="sm:mb-0.5"><Search className="h-4 w-4" /> {t('testCases.loadButton')}</Button>
           </div>
         </CardBody>
       </Card>
 
       <Card className="mb-6">
-        <CardHeader title="Generate test cases" subtitle="ISTQB Test-Analyst cases from a basis (endpoints or stories) for the service above." />
+        <CardHeader title={t('testCases.generateTitle')} subtitle={t('testCases.generateSubtitle')} />
         <CardBody className="space-y-4">
-          <Field label="Basis" hint="What to design cases for — paste endpoints, acceptance criteria or stories.">
-            <Textarea placeholder="e.g. POST /policies — create; GET /policies/{id} — fetch; 404 when missing…" value={basis}
+          <Field label={t('testCases.basisLabel')} hint={t('testCases.basisHint')}>
+            <Textarea placeholder={t('testCases.basisPlaceholder')} value={basis}
               onChange={(e) => setBasis(e.target.value)} />
           </Field>
           <div className="flex items-center justify-end gap-3">
             {notice}
             <Button loading={generate.isPending} disabled={blocked}
-              onClick={() => (svc && basis.trim()) ? generate.mutate() : toast.push('error', 'Service and basis are required.')}>
-              <Sparkles className="h-4 w-4" /> Generate
+              onClick={() => (svc && basis.trim()) ? generate.mutate() : toast.push('error', t('testCases.validationRequired'))}>
+              <Sparkles className="h-4 w-4" /> {t('testCases.generateButton')}
             </Button>
           </div>
         </CardBody>
       </Card>
 
       {!query ? (
-        <EmptyState icon={ListChecks} title="Load a service" body="Enter a service name above to review its test cases." />
+        <EmptyState icon={ListChecks} title={t('testCases.emptyLoadTitle')} body={t('testCases.emptyLoadBody')} />
       ) : q.isLoading ? (
-        <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> Loading…</CardBody></Card>
+        <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('testCases.loading')}</CardBody></Card>
       ) : rows.length === 0 ? (
-        <EmptyState icon={ListChecks} title={`No cases for "${query}"`} body="Generate test cases for this service to review them here." />
+        <EmptyState icon={ListChecks} title={t('testCases.emptyNoCases', { query })} body={t('testCases.emptyNoCasesBody')} />
       ) : (
         <Card>
           <CardBody className="p-0">
-            <Table head={<><Th>Title</Th><Th>Technique</Th><Th>Status</Th><Th>Xray</Th><Th className="text-right">Actions</Th></>}>
+            <Table head={<><Th>{t('testCases.colTitle')}</Th><Th>{t('testCases.colTechnique')}</Th><Th>{t('testCases.colStatus')}</Th><Th>{t('testCases.colXray')}</Th><Th className="text-right">{t('testCases.colActions')}</Th></>}>
               {rows.map((tc) => (
                 <Row key={tc.id}>
                   <Td className="max-w-md font-medium text-ink-900">{tc.title}</Td>
@@ -93,14 +95,14 @@ export function TestCases() {
                     <span className="inline-flex gap-2">
                       <Button size="sm" variant="secondary" disabled={busyId === tc.id}
                         onClick={() => act.mutate({ tc, fn: () => api.patchTestCase(tc.id, { status: 'APPROVED', actor: 'dashboard' }) })}>
-                        <Check className="h-4 w-4" /> Approve</Button>
+                        <Check className="h-4 w-4" /> {t('testCases.approveButton')}</Button>
                       <Button size="sm" variant="ghost" disabled={busyId === tc.id}
                         onClick={() => act.mutate({ tc, fn: () => api.patchTestCase(tc.id, { status: 'REJECTED' }) })}>
-                        <X className="h-4 w-4" /> Reject</Button>
+                        <X className="h-4 w-4" /> {t('testCases.rejectButton')}</Button>
                       <Button size="sm" variant="secondary" disabled={busyId === tc.id || !projectKey}
-                        title={projectKey ? '' : 'Enter a project key first'}
+                        title={projectKey ? '' : t('testCases.pushTitleHint')}
                         onClick={() => act.mutate({ tc, fn: () => api.pushTestCase(tc.id, projectKey) })}>
-                        <Upload className="h-4 w-4" /> Push to Xray</Button>
+                        <Upload className="h-4 w-4" /> {t('testCases.pushButton')}</Button>
                     </span>
                   </Td>
                 </Row>

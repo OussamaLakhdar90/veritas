@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ClipboardList, Play, FileText, ExternalLink, ScrollText, ArrowRight } from 'lucide-react';
@@ -11,6 +12,7 @@ import { TONE } from '../theme/tokens';
 
 /** ISTQB Test-Manager strategy wizard: synthesize a structured strategy from a basis, then review versions. */
 export function TestStrategy() {
+  const { t } = useTranslation();
   const toast = useToast();
   const qc = useQueryClient();
   const [service, setService] = useState('');
@@ -26,7 +28,7 @@ export function TestStrategy() {
     onSuccess: () => {
       setLoaded(service);
       qc.invalidateQueries({ queryKey: ['strategies', service] });
-      toast.push('success', 'Strategy generated.');
+      toast.push('success', t('testStrategy.strategyGenerated'));
     },
     onError: (e: Error) => toast.push('error', e.message),
   });
@@ -34,45 +36,45 @@ export function TestStrategy() {
   const rows = list.data ?? [];
   return (
     <div>
-      <PageHeader title="Test strategy" subtitle="Generate a consultant-grade ISTQB Test-Manager strategy from the codebase or stories." />
+      <PageHeader title={t('testStrategy.pageTitle')} subtitle={t('testStrategy.pageSubtitle')} />
 
       <Card className="mb-6">
-        <CardHeader title="New strategy" subtitle="Risk register, approach, exit criteria + a self-review — synthesized in one cost-routed call." />
+        <CardHeader title={t('testStrategy.newStrategy')} subtitle={t('testStrategy.newStrategySubtitle')} />
         <CardBody className="space-y-4">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Field label="Service" hint="Pick an existing service or type a new one."><ServiceField value={service} onChange={(e) => setService(e.target.value)} /></Field>
-            <Field label="Basis source">
-              <Select aria-label="Basis source" value={source} onChange={(e) => setSource(e.target.value)}>
-                <option value="CODE">Codebase</option>
-                <option value="JIRA">Jira stories</option>
-                <option value="CONFLUENCE">Confluence</option>
+            <Field label={t('testStrategy.serviceLabel')} hint={t('testStrategy.serviceHint')}><ServiceField value={service} onChange={(e) => setService(e.target.value)} /></Field>
+            <Field label={t('testStrategy.basisSourceLabel')}>
+              <Select aria-label={t('testStrategy.basisSourceLabel')} value={source} onChange={(e) => setSource(e.target.value)}>
+                <option value="CODE">{t('testStrategy.sourceCodebase')}</option>
+                <option value="JIRA">{t('testStrategy.sourceJiraStories')}</option>
+                <option value="CONFLUENCE">{t('testStrategy.sourceConfluence')}</option>
               </Select>
             </Field>
           </div>
-          <Field label="Basis" hint="Paste the test basis (endpoints, user stories, requirements) the strategy should cover.">
-            <Textarea placeholder="e.g. POST /policies — create a policy; GET /policies/{id} — fetch…" value={basis} onChange={(e) => setBasis(e.target.value)} />
+          <Field label={t('testStrategy.basisLabel')} hint={t('testStrategy.basisHint')}>
+            <Textarea placeholder={t('testStrategy.basisPlaceholder')} value={basis} onChange={(e) => setBasis(e.target.value)} />
           </Field>
           <div className="flex items-center justify-end gap-3">
             {notice}
             <Button loading={generate.isPending} disabled={blocked}
-              onClick={() => (service && basis.trim()) ? generate.mutate() : toast.push('error', 'Service and basis are required.')}>
-              <Play className="h-4 w-4" /> Generate strategy
+              onClick={() => (service && basis.trim()) ? generate.mutate() : toast.push('error', t('testStrategy.serviceAndBasisRequired'))}>
+              <Play className="h-4 w-4" /> {t('testStrategy.generateStrategy')}
             </Button>
           </div>
         </CardBody>
       </Card>
 
       {!loaded ? (
-        <EmptyState icon={ClipboardList} title="No strategy yet" body="Generate one above; its versions and rationale appear here." />
+        <EmptyState icon={ClipboardList} title={t('testStrategy.noStrategyYet')} body={t('testStrategy.noStrategyYetBody')} />
       ) : list.isLoading ? (
-        <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> Loading…</CardBody></Card>
+        <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('testStrategy.loading')}</CardBody></Card>
       ) : rows.length === 0 ? (
-        <EmptyState icon={ClipboardList} title={`No strategies for "${loaded}"`} />
+        <EmptyState icon={ClipboardList} title={t('testStrategy.noStrategiesForService', { service: loaded })} />
       ) : (
         <Card>
-          <CardHeader title={`Strategies — ${loaded}`} />
+          <CardHeader title={t('testStrategy.strategiesForService', { service: loaded })} />
           <CardBody className="p-0">
-            <Table head={<><Th>Status</Th><Th className="text-right">Confidence</Th><Th>Created</Th><Th /></>}>
+            <Table head={<><Th>{t('testStrategy.columnStatus')}</Th><Th className="text-right">{t('testStrategy.columnConfidence')}</Th><Th>{t('testStrategy.columnCreated')}</Th><Th /></>}>
               {rows.map((s) => (
                 <Row key={s.id}>
                   <Td><Badge className={s.status === 'APPROVED' ? TONE.ok : TONE.info}>{s.status ?? 'DRAFT'}</Badge></Td>
@@ -82,18 +84,18 @@ export function TestStrategy() {
                     <div className="inline-flex items-center gap-4">
                       {s.source === 'multi-source' && (
                         <a href={api.strategyWhyDocUrl(s.id)} target="_blank" rel="noreferrer"
-                          title="Evidence why-doc: each section traced to its Jira/Confluence/code units"
+                          title={t('testStrategy.evidenceTooltip')}
                           className="inline-flex items-center gap-1 text-[13px] font-medium text-gold hover:underline">
-                          <ScrollText className="h-3.5 w-3.5" /> Evidence <ExternalLink className="h-3 w-3" />
+                          <ScrollText className="h-3.5 w-3.5" /> {t('testStrategy.evidence')} <ExternalLink className="h-3 w-3" />
                         </a>
                       )}
                       <a href={api.strategyRationaleUrl(s.id)} target="_blank" rel="noreferrer"
                         className="inline-flex items-center gap-1 text-[13px] font-medium text-gold hover:underline">
-                        <FileText className="h-3.5 w-3.5" /> Rationale <ExternalLink className="h-3 w-3" />
+                        <FileText className="h-3.5 w-3.5" /> {t('testStrategy.rationale')} <ExternalLink className="h-3 w-3" />
                       </a>
                       <Link to={`/test-strategy/${s.id}`}
                         className="inline-flex items-center gap-1 text-[13px] font-medium text-gold hover:underline">
-                        Open <ArrowRight className="h-3.5 w-3.5" />
+                        {t('testStrategy.open')} <ArrowRight className="h-3.5 w-3.5" />
                       </Link>
                     </div>
                   </Td>

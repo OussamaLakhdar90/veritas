@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bug, FileText, CheckCircle2, AlertTriangle, Check, X, ExternalLink } from 'lucide-react';
@@ -23,10 +24,13 @@ const DISP_TONE: Record<string, string> = {
   REJECTED: TONE.danger, WONT_FIX: TONE.danger, FALSE_POSITIVE: TONE.danger,
   TRIAGED: TONE.info, JIRA_CREATED: TONE.info,
 };
-const DISP_LABEL: Record<string, string> = {
-  ACCEPTED: 'Accepted', REJECTED: 'Rejected', WONT_FIX: "Won't fix",
-  FALSE_POSITIVE: 'False positive', TRIAGED: 'Triaged', JIRA_CREATED: 'Defect raised', FIXED: 'Fixed',
+const DISP_LABEL_KEY: Record<string, string> = {
+  ACCEPTED: 'dispAccepted', REJECTED: 'dispRejected', WONT_FIX: 'dispWontFix',
+  FALSE_POSITIVE: 'dispFalsePositive', TRIAGED: 'dispTriaged', JIRA_CREATED: 'dispDefectRaised', FIXED: 'dispFixed',
 };
+// Recorded disposition → translated human label (the system of record for accept/reject).
+const dispLabel = (t: (k: string) => string, status?: string) =>
+  status && DISP_LABEL_KEY[status] ? t(`findings.${DISP_LABEL_KEY[status]}`) : (status ?? '');
 const dispositioned = (s?: string) => !!s && s !== 'OPEN';
 
 // Stable accessor map for client-side sorting (severity sorts by blocker→info, not alphabetically).
@@ -41,6 +45,7 @@ const SORT_ACCESSORS: Record<string, (f: Finding) => string | number> = {
 const raiseable = (f: Finding) => f.status !== 'JIRA_CREATED';
 
 export function Findings() {
+  const { t } = useTranslation();
   const { scanId } = useParams();
   const q = useQuery({ queryKey: ['findings', scanId], queryFn: () => api.findings(scanId!), enabled: !!scanId });
   const [filter, setFilter] = useState<string>('ALL');
@@ -84,7 +89,7 @@ export function Findings() {
     onSettled: (_d, _e, v) => setInFlight((s) => { const n = new Set(s); n.delete(`${v.f.id}:${v.status}`); return n; }),
     onSuccess: (_r, v) => {
       qc.invalidateQueries({ queryKey: ['findings', scanId] });
-      toast.push('success', `Marked ${DISP_LABEL[v.status] ?? v.status}.`);
+      toast.push('success', t('findings.markedDisposition', { label: dispLabel(t, v.status) }));
     },
     onError: (e: Error) => toast.push('error', e.message),
   });
@@ -92,27 +97,27 @@ export function Findings() {
 
   return (
     <div>
-      <PageHeader title="Findings"
-        subtitle="Differences between the documented API and what the code actually does. Review each one, mark it Accepted or Rejected, then raise a Jira defect if it needs fixing."
+      <PageHeader title={t('findings.title')}
+        subtitle={t('findings.subtitle')}
         actions={scanId && (
           <a href={api.reportUrl(scanId)} target="_blank" rel="noreferrer"
-            title="Open the management report — findings, the accuracy score and recommendations, for managers and developers.">
-            <Button variant="secondary"><FileText className="h-4 w-4" /> Management report</Button>
+            title={t('findings.reportTooltip')}>
+            <Button variant="secondary"><FileText className="h-4 w-4" /> {t('findings.managementReport')}</Button>
           </a>
         )} />
 
       {q.isLoading ? (
-        <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> Loading findings…</CardBody></Card>
+        <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('findings.loading')}</CardBody></Card>
       ) : q.isError ? (
         <ErrorState message={(q.error as Error).message} />
       ) : findings.length === 0 ? (
-        <EmptyState icon={CheckCircle2} title="No differences found"
-          body="The code matches the documented API exactly. Open the management report for the details, or validate again with a different spec." />
+        <EmptyState icon={CheckCircle2} title={t('findings.emptyTitle')}
+          body={t('findings.emptyBody')} />
       ) : (
         <>
           {/* Severity filter chips */}
           <div className="mb-4 flex flex-wrap items-center gap-2">
-            <FilterChip active={filter === 'ALL'} onClick={() => setFilter('ALL')} label={`All ${findings.length}`} />
+            <FilterChip active={filter === 'ALL'} onClick={() => setFilter('ALL')} label={t('findings.filterAll', { count: findings.length })} />
             {SEV_ORDER.filter((s) => counts[s]).map((s) => (
               <button key={s} onClick={() => setFilter(s)}
                 className={cn('rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition',
@@ -122,8 +127,8 @@ export function Findings() {
             ))}
             {selected.size > 0 && (
               <div className="ml-auto flex items-center gap-2">
-                <span className="text-[13px] text-muted">{selected.size} selected</span>
-                <Button size="sm" onClick={() => setBulkOpen(true)}><Bug className="h-4 w-4" /> Raise {selected.size} defects</Button>
+                <span className="text-[13px] text-muted">{t('findings.selectedCount', { count: selected.size })}</span>
+                <Button size="sm" onClick={() => setBulkOpen(true)}><Bug className="h-4 w-4" /> {t('findings.raiseDefects', { count: selected.size })}</Button>
               </div>
             )}
           </div>
@@ -132,22 +137,22 @@ export function Findings() {
             <CardBody className="p-0">
               <Table head={<>
                 <Th className="w-10">
-                  <input type="checkbox" aria-label="Select all" className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
+                  <input type="checkbox" aria-label={t('findings.selectAll')} className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
                     checked={allSelected} onChange={toggleAll} />
                 </Th>
-                <SortableTh label="Severity" sortKey="severity" sort={sort} />
-                <SortableTh label="Confidence" sortKey="confidence" sort={sort} />
-                <SortableTh label="Layer" sortKey="layer" sort={sort} />
-                <SortableTh label="Endpoint" sortKey="endpoint" sort={sort} />
-                <Th>Summary</Th>
-                <Th>Evidence</Th>
-                <SortableTh label="Review status" sortKey="status" sort={sort} className="text-right" />
+                <SortableTh label={t('findings.colSeverity')} sortKey="severity" sort={sort} />
+                <SortableTh label={t('findings.colConfidence')} sortKey="confidence" sort={sort} />
+                <SortableTh label={t('findings.colLayer')} sortKey="layer" sort={sort} />
+                <SortableTh label={t('findings.colEndpoint')} sortKey="endpoint" sort={sort} />
+                <Th>{t('findings.colSummary')}</Th>
+                <Th>{t('findings.colEvidence')}</Th>
+                <SortableTh label={t('findings.colReviewStatus')} sortKey="status" sort={sort} className="text-right" />
               </>}>
                 {shown.map((f) => (
                   <Row key={f.id}>
                     <Td>
                       {raiseable(f) && (
-                        <input type="checkbox" aria-label={`Select ${f.endpoint}`} className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
+                        <input type="checkbox" aria-label={t('findings.selectRow', { endpoint: f.endpoint })} className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
                           checked={selected.has(f.id)} onChange={() => toggle(f.id)} />
                       )}
                     </Td>
@@ -156,7 +161,7 @@ export function Findings() {
                       {f.confidence ? (
                         <span className={cn('inline-flex items-center gap-1 text-[13px]',
                           riskyConfidence(f) ? 'font-medium text-warning' : 'text-muted')}
-                          title={riskyConfidence(f) ? 'High severity but the engine is only low-confidence here — verify before acting.' : undefined}>
+                          title={riskyConfidence(f) ? t('findings.riskyConfidenceTooltip') : undefined}>
                           {confidenceLabel(f.confidence)}
                           {riskyConfidence(f) && <AlertTriangle className="h-3.5 w-3.5" />}
                         </span>
@@ -173,7 +178,7 @@ export function Findings() {
                         f.codeUrl ? (
                           <a href={f.codeUrl} target="_blank" rel="noreferrer"
                             className="inline-flex items-center gap-1 text-brand hover:underline"
-                            title={`Open ${f.codeFile}${f.codeStartLine ? ':' + f.codeStartLine : ''} in Bitbucket`}>
+                            title={t('findings.openInBitbucket', { location: `${f.codeFile}${f.codeStartLine ? ':' + f.codeStartLine : ''}` })}>
                             {`${f.codeFile.split(/[\\/]/).pop()}${f.codeStartLine ? ':' + f.codeStartLine : ''}`}
                             <ExternalLink className="h-3 w-3 shrink-0" />
                           </a>
@@ -185,23 +190,23 @@ export function Findings() {
                     <Td className="text-right whitespace-nowrap">
                       <div className="inline-flex items-center justify-end gap-1.5">
                         {dispositioned(f.status) && f.status !== 'JIRA_CREATED' && (
-                          <span title={f.reviewedBy ? `by ${f.reviewedBy}` : undefined}>
-                            <Badge className={DISP_TONE[f.status!] ?? TONE.muted}>{DISP_LABEL[f.status!] ?? f.status}</Badge>
+                          <span title={f.reviewedBy ? t('findings.reviewedBy', { name: f.reviewedBy }) : undefined}>
+                            <Badge className={DISP_TONE[f.status!] ?? TONE.muted}>{dispLabel(t, f.status)}</Badge>
                           </span>
                         )}
                         {f.status === 'JIRA_CREATED' ? (
-                          <span className="inline-flex items-center gap-1 text-[13px] text-success"><CheckCircle2 className="h-4 w-4" /> Defect raised</span>
+                          <span className="inline-flex items-center gap-1 text-[13px] text-success"><CheckCircle2 className="h-4 w-4" /> {t('findings.defectRaised')}</span>
                         ) : (
                           <>
-                            <Button size="sm" variant="ghost" title="Accept — this is a real difference that matches the code"
+                            <Button size="sm" variant="ghost" title={t('findings.acceptTooltip')}
                               loading={busy(f, 'ACCEPTED')} onClick={() => disposition.mutate({ f, status: 'ACCEPTED' })}>
                               <Check className="h-4 w-4 text-success" />
                             </Button>
-                            <Button size="sm" variant="ghost" title="Reject — not applicable to this service; it won't appear in reports"
+                            <Button size="sm" variant="ghost" title={t('findings.rejectTooltip')}
                               loading={busy(f, 'REJECTED')} onClick={() => setRejectFor(f)}>
                               <X className="h-4 w-4 text-danger" />
                             </Button>
-                            <Button size="sm" variant="secondary" onClick={() => setDefectFor(f)}><Bug className="h-4 w-4" /> Raise defect</Button>
+                            <Button size="sm" variant="secondary" onClick={() => setDefectFor(f)}><Bug className="h-4 w-4" /> {t('findings.raiseDefect')}</Button>
                           </>
                         )}
                       </div>
@@ -219,19 +224,18 @@ export function Findings() {
         onClose={(done) => { setBulkOpen(false); if (done) setSelected(new Set()); }} />}
 
       {rejectFor && (
-        <Modal open title="Reject this finding?"
+        <Modal open title={t('findings.rejectModalTitle')}
           onClose={busy(rejectFor, 'REJECTED') ? () => {} : () => setRejectFor(null)}
           footer={<>
-            <Button variant="secondary" onClick={() => setRejectFor(null)} disabled={busy(rejectFor, 'REJECTED')}>Cancel</Button>
+            <Button variant="secondary" onClick={() => setRejectFor(null)} disabled={busy(rejectFor, 'REJECTED')}>{t('findings.cancel')}</Button>
             <Button variant="danger" loading={busy(rejectFor, 'REJECTED')}
               onClick={() => { disposition.mutate({ f: rejectFor, status: 'REJECTED' }); setRejectFor(null); }}>
-              <X className="h-4 w-4" /> Reject finding
+              <X className="h-4 w-4" /> {t('findings.rejectFinding')}
             </Button>
           </>}>
           <p className="text-[13px] text-ink-900">{rejectFor.summary}</p>
           <p className="mt-3 text-[13px] text-muted">
-            Once rejected, this finding is excluded from the management report and won't be raised as a defect.
-            It's recorded under your name and can be changed later.
+            {t('findings.rejectModalBody')}
           </p>
         </Modal>
       )}
@@ -251,6 +255,7 @@ function FilterChip({ active, onClick, label }: { active: boolean; onClick: () =
 
 /* ── Raise-defect form (single or bulk; replaces window.prompt) ──────────────── */
 function DefectModal({ findings, scanId, onClose }: { findings: Finding[]; scanId?: string; onClose: (done?: boolean) => void }) {
+  const { t } = useTranslation();
   const toast = useToast();
   const qc = useQueryClient();
   const [project, setProject] = useState('');
@@ -269,31 +274,31 @@ function DefectModal({ findings, scanId, onClose }: { findings: Finding[]; scanI
     onSuccess: ({ ok, fail }) => {
       qc.invalidateQueries({ queryKey: ['findings', scanId] });
       qc.invalidateQueries({ queryKey: ['defects'] });
-      if (ok > 0) toast.push('success', `Created ${ok} defect${ok === 1 ? '' : 's'}.`);
-      if (fail.length) toast.push('error', `${fail.length} failed: ${fail[0]}`);
+      if (ok > 0) toast.push('success', t('findings.createdDefects', { count: ok }));
+      if (fail.length) toast.push('error', t('findings.defectsFailed', { count: fail.length, message: fail[0] }));
       onClose(true);
     },
-    onError: (e: Error) => toast.push('error', `Failed to create defect: ${e.message}`),
+    onError: (e: Error) => toast.push('error', t('findings.createDefectError', { message: e.message })),
   });
 
   return (
-    <Modal open title={bulk ? `Raise ${findings.length} Jira defects` : 'Raise a Jira defect'}
+    <Modal open title={bulk ? t('findings.raiseJiraDefectsBulk', { count: findings.length }) : t('findings.raiseJiraDefect')}
       onClose={create.isPending ? () => {} : () => onClose(false)}
       footer={<>
-        <Button variant="secondary" onClick={() => onClose(false)} disabled={create.isPending}>Cancel</Button>
-        <Button onClick={() => project.trim() ? create.mutate() : toast.push('error', 'Enter a project key.')}
-          loading={create.isPending}><Bug className="h-4 w-4" /> {bulk ? `Create ${findings.length}` : 'Create defect'}</Button>
+        <Button variant="secondary" onClick={() => onClose(false)} disabled={create.isPending}>{t('findings.cancel')}</Button>
+        <Button onClick={() => project.trim() ? create.mutate() : toast.push('error', t('findings.enterProjectKey'))}
+          loading={create.isPending}><Bug className="h-4 w-4" /> {bulk ? t('findings.createCount', { count: findings.length }) : t('findings.createDefect')}</Button>
       </>}>
       <div className="mb-4 flex items-start gap-3 rounded-lg bg-ink-50 p-3">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
         <div className="min-w-0 text-[13px]">
           {bulk
-            ? <p className="font-medium text-ink-900">{findings.length} findings will each get a Bug issue.</p>
+            ? <p className="font-medium text-ink-900">{t('findings.findingsGetBug', { count: findings.length })}</p>
             : <><p className="font-medium text-ink-900">{findings[0].summary}</p>
                 <p className="mt-0.5 font-mono text-[12px] text-muted">{findings[0].endpoint}</p></>}
         </div>
       </div>
-      <Field label="Jira project key" hint="Where the Bug issue(s) will be created, e.g. CIAM.">
+      <Field label={t('findings.projectKeyLabel')} hint={t('findings.projectKeyHint')}>
         <Input autoFocus placeholder="CIAM" value={project}
           onChange={(e) => setProject(e.target.value.toUpperCase())}
           onKeyDown={(e) => e.key === 'Enter' && project.trim() && create.mutate()} />
