@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import {
@@ -15,15 +16,15 @@ import { cn } from '../components/cn';
 const STATUS_TONE: Record<string, string> = {
   IMPLEMENTED: TONE.ok, PLANNED: TONE.warn, UNDOCUMENTED: TONE.info, PARTIAL: TONE.warn, COVERAGE_GAP: TONE.danger,
 };
-const STATUS_LABEL: Record<string, string> = {
-  IMPLEMENTED: 'Implemented', PLANNED: 'Planned (not built)', UNDOCUMENTED: 'Undocumented',
-  PARTIAL: 'Partial', COVERAGE_GAP: 'Coverage gap',
+const STATUS_LABEL_KEY: Record<string, string> = {
+  IMPLEMENTED: 'statusImplemented', PLANNED: 'statusPlanned', UNDOCUMENTED: 'statusUndocumented',
+  PARTIAL: 'statusPartial', COVERAGE_GAP: 'statusCoverageGap',
 };
 // Evidence source → chip tint.
 const SOURCE_TONE: Record<string, string> = { JIRA: TONE.info, CONFLUENCE: TONE.warn, CODE: TONE.muted, POLICY: TONE.ok };
-const GAP_LABEL: Record<string, string> = {
-  PLANNED_NOT_IMPLEMENTED: 'Specified, not built', IMPLEMENTED_UNDOCUMENTED: 'Built, unspecified',
-  COVERAGE_GAP: 'Done in Jira, not built', POSSIBLE_MISCLUSTER: 'Possible mis-cluster',
+const GAP_LABEL_KEY: Record<string, string> = {
+  PLANNED_NOT_IMPLEMENTED: 'gapPlannedNotImplemented', IMPLEMENTED_UNDOCUMENTED: 'gapImplementedUndocumented',
+  COVERAGE_GAP: 'gapCoverageGap', POSSIBLE_MISCLUSTER: 'gapPossibleMiscluster',
 };
 
 /** A labelled checkbox that reveals its source's inputs when ticked. */
@@ -43,6 +44,7 @@ function SourceToggle({ on, setOn, icon: Icon, label, children }:
 }
 
 export function MultiSourceStrategy() {
+  const { t } = useTranslation();
   const nav = useNavigate();
   const toast = useToast();
   const [service, setService] = useState('');
@@ -95,8 +97,8 @@ export function MultiSourceStrategy() {
     onSuccess: (p) => {
       setPreview(p); setSelected(new Set());
       toast.push('success', p.carryForwardNotes.length
-        ? `Re-extracted — ${p.carryForwardNotes.length} edit(s) couldn't be carried forward.`
-        : 'Re-extracted — your edits were carried forward.');
+        ? t('multiSource.reextractedSomeNotCarried', { count: p.carryForwardNotes.length })
+        : t('multiSource.reextractedAllCarried'));
     },
     onError: onErr,
   });
@@ -118,7 +120,7 @@ export function MultiSourceStrategy() {
   // Generation is async (202 + poll): kick it off, then poll the snapshot until it reports done or failed.
   const generateM = useMutation({
     mutationFn: () => api.generateStrategyFromSnapshot(snapshotId),
-    onSuccess: (acc) => { setGeneratingId(acc.snapshotId); toast.push('success', 'Generating the strategy…'); },
+    onSuccess: (acc) => { setGeneratingId(acc.snapshotId); toast.push('success', t('multiSource.toastGeneratingStrategy')); },
     onError: onErr,
   });
   const genPoll = useQuery({
@@ -135,13 +137,13 @@ export function MultiSourceStrategy() {
     if (!generatingId || !d) return;
     if (d.generatedStrategyId) {
       setGeneratingId(null);
-      toast.push('success', 'Multi-source strategy generated.');
+      toast.push('success', t('multiSource.toastStrategyGenerated'));
       nav('/test-strategy');
     } else if (d.generationError) {
       setGeneratingId(null);
       toast.push('error', d.generationError);
     }
-  }, [genPoll.data, generatingId, nav, toast]);
+  }, [genPoll.data, generatingId, nav, toast, t]);
   const generating = generateM.isPending || !!generatingId;
 
   const toggleSelect = (id: string) => setSelected((prev) => {
@@ -158,36 +160,36 @@ export function MultiSourceStrategy() {
 
   return (
     <div className="max-w-3xl">
-      <PageHeader title="Multi-source strategy"
-        subtitle="Build a test strategy from Jira + Confluence + code. Preview the clustered features, tidy them up, then generate." />
+      <PageHeader title={t('multiSource.pageTitle')}
+        subtitle={t('multiSource.pageSubtitle')} />
 
       {!preview ? (
         <Card>
-          <CardHeader title="1 · Choose sources" subtitle="Any combination — code-only, Jira-only, pre-dev (Jira + Confluence), or all three." />
+          <CardHeader title={t('multiSource.step1Title')} subtitle={t('multiSource.step1Subtitle')} />
           <CardBody className="space-y-4">
-            <Field label="Service name"><Input value={service} onChange={(e) => setService(e.target.value)} placeholder="ciam-policies" /></Field>
+            <Field label={t('multiSource.serviceNameLabel')}><Input value={service} onChange={(e) => setService(e.target.value)} placeholder="ciam-policies" /></Field>
 
-            <SourceToggle on={useCode} setOn={setUseCode} icon={GitBranch} label="Code (a Bitbucket repo)">
+            <SourceToggle on={useCode} setOn={setUseCode} icon={GitBranch} label={t('multiSource.codeToggleLabel')}>
               <div className="grid grid-cols-2 gap-3">
-                <Field label="App-id (project key)"><Input value={appId} onChange={(e) => setAppId(e.target.value)} placeholder="APP7571" /></Field>
-                <Field label="Repo slug"><Input value={repoSlug} onChange={(e) => setRepoSlug(e.target.value)} placeholder="ciam-policies" /></Field>
+                <Field label={t('multiSource.appIdLabel')}><Input value={appId} onChange={(e) => setAppId(e.target.value)} placeholder="APP7571" /></Field>
+                <Field label={t('multiSource.repoSlugLabel')}><Input value={repoSlug} onChange={(e) => setRepoSlug(e.target.value)} placeholder="ciam-policies" /></Field>
               </div>
-              <Field label="Branch" hint="defaults to the repo default"><Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="develop" /></Field>
+              <Field label={t('multiSource.branchLabel')} hint={t('multiSource.branchHint')}><Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="develop" /></Field>
             </SourceToggle>
 
-            <SourceToggle on={useJira} setOn={setUseJira} icon={Bug} label="Jira (issues by JQL or epic)">
-              <Field label="JQL"><Input value={jql} onChange={(e) => setJql(e.target.value)} placeholder='project = CIAM AND fixVersion = "2025.1"' /></Field>
-              <Field label="…or epic key" hint="fetch all child issues of this epic"><Input value={epicKey} onChange={(e) => setEpicKey(e.target.value)} placeholder="CIAM-100" /></Field>
+            <SourceToggle on={useJira} setOn={setUseJira} icon={Bug} label={t('multiSource.jiraToggleLabel')}>
+              <Field label={t('multiSource.jqlLabel')}><Input value={jql} onChange={(e) => setJql(e.target.value)} placeholder='project = CIAM AND fixVersion = "2025.1"' /></Field>
+              <Field label={t('multiSource.epicKeyLabel')} hint={t('multiSource.epicKeyHint')}><Input value={epicKey} onChange={(e) => setEpicKey(e.target.value)} placeholder="CIAM-100" /></Field>
             </SourceToggle>
 
-            <SourceToggle on={useConf} setOn={setUseConf} icon={FileText} label="Confluence (design pages)">
-              <Field label="Page ids" hint="comma-separated"><Input value={pageIds} onChange={(e) => setPageIds(e.target.value)} placeholder="123456, 234567" /></Field>
-              <Field label="…or root page id" hint="include the whole page tree under this page"><Input value={rootPageId} onChange={(e) => setRootPageId(e.target.value)} placeholder="987654" /></Field>
+            <SourceToggle on={useConf} setOn={setUseConf} icon={FileText} label={t('multiSource.confToggleLabel')}>
+              <Field label={t('multiSource.pageIdsLabel')} hint={t('multiSource.pageIdsHint')}><Input value={pageIds} onChange={(e) => setPageIds(e.target.value)} placeholder="123456, 234567" /></Field>
+              <Field label={t('multiSource.rootPageIdLabel')} hint={t('multiSource.rootPageIdHint')}><Input value={rootPageId} onChange={(e) => setRootPageId(e.target.value)} placeholder="987654" /></Field>
             </SourceToggle>
 
             <div className="flex justify-end pt-1">
               <Button onClick={() => previewM.mutate()} loading={previewM.isPending} disabled={!ready}>
-                <Layers className="h-4 w-4" /> Preview the feature index
+                <Layers className="h-4 w-4" /> {t('multiSource.previewBtn')}
               </Button>
             </div>
           </CardBody>
@@ -198,18 +200,18 @@ export function MultiSourceStrategy() {
           {preview.hardFail && (
             <Card className="border-l-4 border-l-danger"><CardBody className="flex items-start gap-3">
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-danger" />
-              <div><p className="text-sm font-semibold text-ink-900">A selected source returned no usable evidence</p>
-                <p className="mt-0.5 text-[13px] text-muted">{preview.fetchFailures.join('; ') || 'Fix or deselect that source, then preview again.'} Generation is blocked until this is resolved.</p></div>
+              <div><p className="text-sm font-semibold text-ink-900">{t('multiSource.hardFailTitle')}</p>
+                <p className="mt-0.5 text-[13px] text-muted">{preview.fetchFailures.join('; ') || t('multiSource.hardFailFallback')}{t('multiSource.hardFailBlocked')}</p></div>
             </CardBody></Card>
           )}
           {!preview.hardFail && preview.fetchFailures.length > 0 && (
             <Card className="border-l-4 border-l-warning"><CardBody className="text-[13px] text-muted">
-              <span className="font-medium text-ink-900">Some items couldn't be fetched:</span> {preview.fetchFailures.join('; ')}
+              <span className="font-medium text-ink-900">{t('multiSource.someItemsNotFetched')}</span> {preview.fetchFailures.join('; ')}
             </CardBody></Card>
           )}
           {preview.carryForwardNotes.length > 0 && (
             <Card className="border-l-4 border-l-warning"><CardBody className="text-[13px] text-muted">
-              <p className="font-medium text-ink-900">Some of your edits couldn't be carried forward</p>
+              <p className="font-medium text-ink-900">{t('multiSource.carryForwardTitle')}</p>
               <ul className="mt-1 list-disc space-y-0.5 pl-5">
                 {preview.carryForwardNotes.map((n, i) => <li key={i}>{n}</li>)}
               </ul>
@@ -218,33 +220,33 @@ export function MultiSourceStrategy() {
 
           {/* Feature index — editable */}
           <Card>
-            <CardHeader title="2 · Review &amp; tidy the feature index"
-              subtitle="Merge features that are the same capability, rename them, and pin the ones you've confirmed — then generate." />
+            <CardHeader title={t('multiSource.step2Title')}
+              subtitle={t('multiSource.step2Subtitle')} />
             <CardBody>
               <div className="mb-3 flex flex-wrap items-center gap-2 text-[13px]">
-                <span className="text-muted">Sources:</span>
+                <span className="text-muted">{t('multiSource.sourcesLabel')}</span>
                 {preview.mix.code && <Badge className={SOURCE_TONE.CODE}>code</Badge>}
                 {preview.mix.jira && <Badge className={SOURCE_TONE.JIRA}>jira</Badge>}
                 {preview.mix.confluence && <Badge className={SOURCE_TONE.CONFLUENCE}>confluence</Badge>}
-                <span className="ml-auto text-muted">{preview.features.length} feature(s) · {preview.gaps.length} gap(s) · {preview.redactionCount} redaction(s)</span>
+                <span className="ml-auto text-muted">{t('multiSource.featureStats', { features: preview.features.length, gaps: preview.gaps.length, redactions: preview.redactionCount })}</span>
               </div>
 
               {/* Merge action bar */}
               {selected.size >= 1 && (
                 <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-brand/40 bg-brand/5 p-2.5">
-                  <span className="text-[13px] font-medium text-ink-900">{selected.size} selected</span>
+                  <span className="text-[13px] font-medium text-ink-900">{t('multiSource.selectedCount', { count: selected.size })}</span>
                   {selected.size >= 2 ? (
                     <>
                       <Input className="h-8 max-w-[220px]" value={mergeName} onChange={(e) => setMergeName(e.target.value)}
-                        placeholder="Merged name (optional)" />
+                        placeholder={t('multiSource.mergedNamePlaceholder')} />
                       <Button size="sm" onClick={() => mergeM.mutate()} loading={mergeM.isPending}>
-                        <GitMerge className="h-4 w-4" /> Merge {selected.size}
+                        <GitMerge className="h-4 w-4" /> {t('multiSource.mergeBtn', { count: selected.size })}
                       </Button>
                     </>
                   ) : (
-                    <span className="text-[12px] text-muted">Select another feature to merge.</span>
+                    <span className="text-[12px] text-muted">{t('multiSource.selectAnotherToMerge')}</span>
                   )}
-                  <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>{t('multiSource.clearBtn')}</Button>
                 </div>
               )}
 
@@ -257,7 +259,7 @@ export function MultiSourceStrategy() {
                         isSel ? 'border-brand/50 bg-brand/5' : f.pinned ? 'border-success/40' : 'border-border')}>
                       <div className="flex items-center gap-2">
                         <input type="checkbox" checked={isSel} onChange={() => toggleSelect(f.featureId)}
-                          aria-label={`Select ${f.displayName} to merge`}
+                          aria-label={t('multiSource.selectToMergeAria', { name: f.displayName })}
                           className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40" />
 
                         {renaming === f.featureId ? (
@@ -266,19 +268,19 @@ export function MultiSourceStrategy() {
                             <Input className="h-8" autoFocus value={renameValue}
                               onChange={(e) => setRenameValue(e.target.value)}
                               onKeyDown={(e) => { if (e.key === 'Escape') setRenaming(null); }} />
-                            <Button size="sm" type="submit" loading={renameM.isPending} aria-label="Save name"><Check className="h-4 w-4" /></Button>
-                            <Button size="sm" variant="ghost" type="button" onClick={() => setRenaming(null)} aria-label="Cancel"><X className="h-4 w-4" /></Button>
+                            <Button size="sm" type="submit" loading={renameM.isPending} aria-label={t('multiSource.saveNameAria')}><Check className="h-4 w-4" /></Button>
+                            <Button size="sm" variant="ghost" type="button" onClick={() => setRenaming(null)} aria-label={t('multiSource.cancelAria')}><X className="h-4 w-4" /></Button>
                           </form>
                         ) : (
                           <>
                             <span className="font-medium text-ink-900">{f.displayName}</span>
                             <button type="button" onClick={() => startRename(f.featureId, f.displayName)} disabled={busy}
-                              className="text-muted hover:text-ink-700 disabled:opacity-40" title="Rename" aria-label="Rename feature">
+                              className="text-muted hover:text-ink-700 disabled:opacity-40" title={t('multiSource.renameTitle')} aria-label={t('multiSource.renameFeatureAria')}>
                               <Pencil className="h-3.5 w-3.5" />
                             </button>
-                            <Badge className={STATUS_TONE[f.status] ?? TONE.muted}>{STATUS_LABEL[f.status] ?? f.status}</Badge>
+                            <Badge className={STATUS_TONE[f.status] ?? TONE.muted}>{STATUS_LABEL_KEY[f.status] ? t(`multiSource.${STATUS_LABEL_KEY[f.status]}`) : f.status}</Badge>
                             <button type="button" onClick={() => pinM.mutate({ featureId: f.featureId, pinned: !f.pinned })}
-                              disabled={busy} title={f.pinned ? 'Unpin' : 'Pin (confirm)'} aria-label={f.pinned ? 'Unpin feature' : 'Pin feature'}
+                              disabled={busy} title={f.pinned ? t('multiSource.unpinTitle') : t('multiSource.pinConfirmTitle')} aria-label={f.pinned ? t('multiSource.unpinFeatureAria') : t('multiSource.pinFeatureAria')}
                               className={cn('ml-auto rounded p-1 disabled:opacity-40',
                                 f.pinned ? 'text-success' : 'text-muted hover:text-ink-700')}>
                               <Pin className={cn('h-4 w-4', f.pinned && 'fill-current')} />
@@ -304,11 +306,11 @@ export function MultiSourceStrategy() {
           {/* Gaps */}
           {preview.gaps.length > 0 && (
             <Card>
-              <CardHeader title="Coverage gaps" subtitle="Detected deterministically from the clustering — they update as you merge." />
+              <CardHeader title={t('multiSource.coverageGapsTitle')} subtitle={t('multiSource.coverageGapsSubtitle')} />
               <CardBody className="space-y-2">
                 {preview.gaps.map((g, i) => (
                   <div key={i} className="flex items-start gap-2 text-[13px]">
-                    <Badge className={g.kind === 'IMPLEMENTED_UNDOCUMENTED' || g.kind === 'COVERAGE_GAP' ? TONE.danger : TONE.warn}>{GAP_LABEL[g.kind] ?? g.kind}</Badge>
+                    <Badge className={g.kind === 'IMPLEMENTED_UNDOCUMENTED' || g.kind === 'COVERAGE_GAP' ? TONE.danger : TONE.warn}>{GAP_LABEL_KEY[g.kind] ? t(`multiSource.${GAP_LABEL_KEY[g.kind]}`) : g.kind}</Badge>
                     <span className="text-ink-900">{g.message}</span>
                   </div>
                 ))}
@@ -320,17 +322,17 @@ export function MultiSourceStrategy() {
           <Card>
             <CardBody className="flex items-center justify-between gap-4">
               <div className="text-[13px] text-muted">
-                Estimated synthesis cost <span className="font-semibold text-ink-900">~${preview.estimatedCostUsd.toFixed(2)}</span>
-                <span className="ml-1">(rough — billed per feature when you generate).</span>
+                {t('multiSource.estimatedCostLabel')} <span className="font-semibold text-ink-900">~${preview.estimatedCostUsd.toFixed(2)}</span>
+                <span className="ml-1">{t('multiSource.estimatedCostNote')}</span>
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="secondary" onClick={() => setPreview(null)}><ArrowLeft className="h-4 w-4" /> Back</Button>
+                <Button variant="secondary" onClick={() => setPreview(null)}><ArrowLeft className="h-4 w-4" /> {t('multiSource.backBtn')}</Button>
                 <Button variant="secondary" onClick={() => recheckM.mutate()} loading={recheckM.isPending} disabled={busy}
-                  title="Re-extract the same sources and carry your pins, renames and merges forward onto the fresh index">
-                  <RefreshCw className="h-4 w-4" /> Re-extract (keep edits)
+                  title={t('multiSource.reextractTitle')}>
+                  <RefreshCw className="h-4 w-4" /> {t('multiSource.reextractBtn')}
                 </Button>
                 <Button onClick={() => generateM.mutate()} loading={generating} disabled={preview.hardFail || busy || generating}>
-                  <Sparkles className="h-4 w-4" /> {generating ? 'Generating…' : 'Generate strategy'}
+                  <Sparkles className="h-4 w-4" /> {generating ? t('multiSource.generatingBtn') : t('multiSource.generateBtn')}
                 </Button>
               </div>
             </CardBody>
@@ -340,7 +342,7 @@ export function MultiSourceStrategy() {
 
       {!preview && (
         <p className="mt-4 flex items-center gap-1.5 text-[12px] text-muted">
-          <ShieldCheck className="h-3.5 w-3.5" /> Preview runs the cheap stages only (extract + cluster); editing is free; the priced synthesis runs only when you click Generate.
+          <ShieldCheck className="h-3.5 w-3.5" /> {t('multiSource.footerNote')}
         </p>
       )}
     </div>

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Trans, useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, XCircle, AlertTriangle, Plug, KeyRound, Github, RefreshCw } from 'lucide-react';
 import { api, type ConnectionsCfg, type EndpointCfg, type ConnectionTestResult, type CopilotLoginStart } from '../api';
@@ -7,16 +8,17 @@ import { DeviceFlowModal } from '../components/CopilotSignIn';
 import { useToast } from '../components/Toast';
 
 // Plain-language labels for the raw config enums shown in the dropdowns (value stays the enum; only the display changes).
+// Maps hold i18n leaf keys; the visible label is resolved with `t` inside the component.
 const EDITION_LABEL: Record<string, string> = {
-  CLOUD: 'Cloud (hosted, e.g. bitbucket.org)',
-  SERVER_DC: 'Self-hosted (internal server)',
+  CLOUD: 'editionCloud',
+  SERVER_DC: 'editionSelfHosted',
 };
 const AUTH_LABEL: Record<string, string> = {
-  APP_PASSWORD: 'App Password (account + generated token)',
-  BEARER: 'HTTP Token / PAT (personal access token)',
-  BASIC: 'Username + Password',
-  OAUTH: 'OAuth (sign in via your identity provider)',
-  CLIENT_CREDENTIALS: 'Client ID & Secret (service accounts)',
+  APP_PASSWORD: 'authAppPassword',
+  BEARER: 'authBearer',
+  BASIC: 'authBasic',
+  OAUTH: 'authOauth',
+  CLIENT_CREDENTIALS: 'authClientCredentials',
 };
 
 type ServiceKey = 'bitbucket' | 'jira' | 'xray' | 'confluence';
@@ -34,28 +36,31 @@ interface ServiceDef {
 // Auth types that require a username (Basic = user+password; App-password = user+token). Bearer/OAuth/Client-creds don't.
 const NEEDS_USERNAME = new Set(['BASIC', 'APP_PASSWORD']);
 
+// `label` (token field) and `note` hold i18n leaf keys; resolved with `t` inside ServiceCard.
+// Service `label` stays a literal brand name (not translated).
 const SERVICES: ServiceDef[] = [
   { key: 'bitbucket', label: 'Bitbucket', editions: ['CLOUD', 'SERVER_DC'],
     authByEdition: { CLOUD: ['APP_PASSWORD', 'OAUTH'], SERVER_DC: ['BEARER', 'BASIC'] },
     workspaceEditions: ['CLOUD'],
-    tokens: [{ key: 'GIT_USERNAME', label: 'Username', role: 'username', optional: true },
-             { key: 'GIT_TOKEN', label: 'HTTP access token', role: 'secret' }],
-    note: { SERVER_DC: 'Server/DC: BEARER = an HTTP access token (PAT); BASIC = your BNC username + password. No workspace — the project key (app-id) is entered on the Validate screen.' } },
+    tokens: [{ key: 'GIT_USERNAME', label: 'tokenUsername', role: 'username', optional: true },
+             { key: 'GIT_TOKEN', label: 'tokenHttpAccessToken', role: 'secret' }],
+    note: { SERVER_DC: 'noteBitbucketServerDc' } },
   { key: 'jira', label: 'Jira', editions: ['SERVER_DC', 'CLOUD'],
     authByEdition: { SERVER_DC: ['BEARER', 'BASIC'], CLOUD: ['BEARER', 'BASIC'] },
-    tokens: [{ key: 'JIRA_USERNAME', label: 'Username', role: 'username', optional: true },
-             { key: 'JIRA_API_TOKEN', label: 'HTTP access token', role: 'secret' }] },
+    tokens: [{ key: 'JIRA_USERNAME', label: 'tokenUsername', role: 'username', optional: true },
+             { key: 'JIRA_API_TOKEN', label: 'tokenHttpAccessToken', role: 'secret' }] },
   { key: 'xray', label: 'Xray', editions: ['SERVER_DC', 'CLOUD'],
     authByEdition: { SERVER_DC: ['BEARER', 'BASIC'], CLOUD: ['CLIENT_CREDENTIALS', 'BEARER'] },
-    tokens: [{ key: 'JIRA_USERNAME', label: 'Username', role: 'username', optional: true },
-             { key: 'XRAY_API_TOKEN', label: 'HTTP access token (may reuse the Jira token)', role: 'secret', optional: true }] },
+    tokens: [{ key: 'JIRA_USERNAME', label: 'tokenUsername', role: 'username', optional: true },
+             { key: 'XRAY_API_TOKEN', label: 'tokenHttpAccessTokenXray', role: 'secret', optional: true }] },
   { key: 'confluence', label: 'Confluence', editions: ['CLOUD', 'SERVER_DC'],
     authByEdition: { CLOUD: ['BEARER', 'BASIC'], SERVER_DC: ['BEARER', 'BASIC'] },
-    tokens: [{ key: 'JIRA_USERNAME', label: 'Username', role: 'username', optional: true },
-             { key: 'CONFLUENCE_API_TOKEN', label: 'HTTP access token', role: 'secret' }] },
+    tokens: [{ key: 'JIRA_USERNAME', label: 'tokenUsername', role: 'username', optional: true },
+             { key: 'CONFLUENCE_API_TOKEN', label: 'tokenHttpAccessToken', role: 'secret' }] },
 ];
 
 export function Settings() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const toast = useToast();
   const conns = useQuery({ queryKey: ['connections'], queryFn: api.connections });
@@ -64,13 +69,13 @@ export function Settings() {
 
   return (
     <div className="mx-auto max-w-4xl">
-      <PageHeader title="Settings"
-        subtitle="Connect your tools and sign in to Copilot — everything Veritas needs, no terminal required." />
+      <PageHeader title={t('settings.pageTitle')}
+        subtitle={t('settings.pageSubtitle')} />
 
       {/* Readiness checklist */}
       <Card className="mb-6">
-        <CardHeader title="Setup checklist" subtitle="What's configured and what still needs attention."
-          action={<Button variant="ghost" size="sm" onClick={() => preflight.refetch()}><RefreshCw className="h-4 w-4" /> Refresh</Button>} />
+        <CardHeader title={t('settings.checklistTitle')} subtitle={t('settings.checklistSubtitle')}
+          action={<Button variant="ghost" size="sm" onClick={() => preflight.refetch()}><RefreshCw className="h-4 w-4" /> {t('settings.refresh')}</Button>} />
         <CardBody className="space-y-2">
           {preflight.isLoading ? <Spinner /> : (preflight.data ?? []).map((c) => (
             <div key={c.name} className="flex items-start gap-3">
@@ -102,18 +107,19 @@ export function Settings() {
                 qc.invalidateQueries({ queryKey: ['secrets'] });
                 qc.invalidateQueries({ queryKey: ['preflight'] });
                 toast.push('success', restart.length
-                  ? `Saved. Restart Veritas to apply: ${restart.join(', ')}.` : 'Saved.');
+                  ? t('settings.toastSavedRestart', { fields: restart.join(', ') }) : t('settings.toastSaved'));
               }}
               onError={(m) => toast.push('error', m)} />
           ))}
         </div>
-      ) : <p className="text-sm text-danger">Could not load settings.</p>}
+      ) : <p className="text-sm text-danger">{t('settings.couldNotLoad')}</p>}
     </div>
   );
 }
 
 /* ── LLM engine (mock vs live) ───────────────────────────────────────────── */
 function EngineCard() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const toast = useToast();
   const llm = useQuery({ queryKey: ['llm'], queryFn: api.llmSettings });
@@ -124,7 +130,7 @@ function EngineCard() {
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ['llm'] });
       toast.push(r.restartRequiredFields.length ? 'info' : 'success',
-        r.restartRequiredFields.length ? 'Saved — restart Veritas to switch the engine.' : 'Saved.');
+        r.restartRequiredFields.length ? t('settings.toastEngineRestart') : t('settings.toastSaved'));
     },
     onError: (e: Error) => toast.push('error', e.message),
   });
@@ -136,31 +142,35 @@ function EngineCard() {
 
   return (
     <Card className="mb-6">
-      <CardHeader title="LLM engine"
-        subtitle="Which engine runs the skills. Mock returns simulated results; switch to Copilot for real analysis."
+      <CardHeader title={t('settings.engineTitle')}
+        subtitle={t('settings.engineSubtitle')}
         action={<span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${simulated ? 'bg-warning/10 text-warning ring-1 ring-warning/30' : 'bg-success/10 text-success ring-1 ring-success/30'}`}>
-          {simulated ? 'Mock · simulated' : 'Copilot · live'}</span>} />
+          {simulated ? t('settings.engineBadgeMock') : t('settings.engineBadgeLive')}</span>} />
       <CardBody className="space-y-4">
         {simulated && (
           <div className="flex items-start gap-2 rounded-lg bg-warning/5 p-3 text-[13px] text-ink-700">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-            <span>You're in <strong>mock</strong> mode — skill results are simulated and the Copilot sign-in below is not used.
-              Switch to Copilot and restart to run real analysis.</span>
+            <span><Trans i18nKey="settings.engineMockWarning" components={{ b: <strong /> }}
+              defaults="You're in <b>mock</b> mode — skill results are simulated and the Copilot sign-in below is not used. Switch to Copilot and restart to run real analysis." /></span>
           </div>
         )}
         <div className="flex items-end justify-between gap-4">
-          <Field label="Engine" hint="Takes effect after a restart (the gateway is wired at startup).">
+          <Field label={t('settings.engineFieldLabel')} hint={t('settings.engineFieldHint')}>
             <Select value={desired} onChange={(e) => setMode(e.target.value)}>
-              <option value="mock">Mock — simulated (no tokens needed)</option>
-              <option value="http">Copilot — HTTP device-flow (recommended)</option>
-              <option value="copilot">Copilot — CLI binary</option>
+              <option value="mock">{t('settings.engineOptionMock')}</option>
+              <option value="http">{t('settings.engineOptionHttp')}</option>
+              <option value="copilot">{t('settings.engineOptionCopilot')}</option>
             </Select>
           </Field>
           <Button size="sm" loading={save.isPending} disabled={desired.toLowerCase() === (llm.data?.desired ?? active).toLowerCase()}
-            onClick={() => save.mutate(desired)}>Save</Button>
+            onClick={() => save.mutate(desired)}>{t('settings.save')}</Button>
         </div>
         {pendingRestart && (
-          <p className="text-[12px] text-warning">Pending: <strong>{desired}</strong> will be active after the next restart (currently running <strong>{active}</strong>).</p>
+          <p className="text-[12px] text-warning">
+            <Trans i18nKey="settings.enginePendingRestart" values={{ desired, active }}
+              components={{ d: <strong />, a: <strong /> }}
+              defaults="Pending: <d>{{desired}}</d> will be active after the next restart (currently running <a>{{active}}</a>." />
+          </p>
         )}
       </CardBody>
     </Card>
@@ -169,6 +179,7 @@ function EngineCard() {
 
 /* ── Copilot sign-in ─────────────────────────────────────────────────────── */
 function CopilotCard() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const toast = useToast();
   const status = useQuery({ queryKey: ['copilot'], queryFn: api.copilotStatus });
@@ -181,26 +192,26 @@ function CopilotCard() {
   });
   const signOut = useMutation({
     mutationFn: api.copilotSignout,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['copilot'] }); toast.push('info', 'Signed out of Copilot.'); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['copilot'] }); toast.push('info', t('settings.toastSignedOut')); },
   });
 
   const authed = status.data?.authenticated;
   return (
     <Card className="mb-6">
-      <CardHeader title={<span className="inline-flex items-center gap-2"><Github className="h-4 w-4" /> GitHub Copilot</span>}
-        subtitle="The LLM behind Veritas. Sign in once with GitHub — the token is stored and refreshed automatically." />
+      <CardHeader title={<span className="inline-flex items-center gap-2"><Github className="h-4 w-4" /> {t('settings.copilotTitle')}</span>}
+        subtitle={t('settings.copilotSubtitle')} />
       <CardBody className="flex items-center justify-between">
         <span className={`inline-flex items-center gap-1.5 text-sm font-medium ${authed ? 'text-success' : 'text-muted'}`}>
           {authed ? <CheckCircle2 className="h-4 w-4" /> : <Plug className="h-4 w-4" />}
-          {status.isLoading ? 'Checking…' : authed ? 'Signed in' : 'Not signed in'}
+          {status.isLoading ? t('settings.copilotChecking') : authed ? t('settings.copilotSignedIn') : t('settings.copilotNotSignedIn')}
         </span>
         {authed
-          ? <Button variant="secondary" size="sm" loading={signOut.isPending} onClick={() => signOut.mutate()}>Sign out</Button>
-          : <Button size="sm" loading={start.isPending} onClick={() => start.mutate()}>Sign in with GitHub</Button>}
+          ? <Button variant="secondary" size="sm" loading={signOut.isPending} onClick={() => signOut.mutate()}>{t('settings.signOut')}</Button>
+          : <Button size="sm" loading={start.isPending} onClick={() => start.mutate()}>{t('settings.signInGithub')}</Button>}
       </CardBody>
       <DeviceFlowModal flow={flow} onDone={(ok) => {
         setFlow(null);
-        if (ok) { qc.invalidateQueries({ queryKey: ['copilot'] }); toast.push('success', 'Signed in to Copilot.'); }
+        if (ok) { qc.invalidateQueries({ queryKey: ['copilot'] }); toast.push('success', t('settings.toastSignedIn')); }
       }} />
     </Card>
   );
@@ -211,6 +222,7 @@ function ServiceCard({ def, initial, secrets, onSaved, onError }: {
   def: ServiceDef; initial: EndpointCfg; secrets: Record<string, boolean>;
   onSaved: (restart: string[]) => void; onError: (m: string) => void;
 }) {
+  const { t } = useTranslation();
   const [cfg, setCfg] = useState<EndpointCfg>(initial ?? {});
   const [tokens, setTokens] = useState<Record<string, string>>({});
   const [test, setTest] = useState<ConnectionTestResult | null>(null);
@@ -249,40 +261,40 @@ function ServiceCard({ def, initial, secrets, onSaved, onError }: {
   return (
     <Card>
       <CardHeader title={def.label}
-        action={<Button variant="ghost" size="sm" loading={testing} onClick={runTest}><Plug className="h-4 w-4" /> Test connection</Button>} />
+        action={<Button variant="ghost" size="sm" loading={testing} onClick={runTest}><Plug className="h-4 w-4" /> {t('settings.testConnection')}</Button>} />
       <CardBody className="space-y-4">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="Base URL"><Input value={cfg.baseUrl ?? ''} placeholder="https://…" onChange={(e) => set('baseUrl', e.target.value)} /></Field>
-          <Field label="Edition" hint="Not sure? Ask your admin.">
+          <Field label={t('settings.baseUrl')}><Input value={cfg.baseUrl ?? ''} placeholder={t('settings.baseUrlPlaceholder')} onChange={(e) => set('baseUrl', e.target.value)} /></Field>
+          <Field label={t('settings.edition')} hint={t('settings.editionHint')}>
             <Select value={edition} onChange={(e) => set('edition', e.target.value)}>
-              {def.editions.map((ed) => <option key={ed} value={ed}>{EDITION_LABEL[ed] ?? ed}</option>)}
+              {def.editions.map((ed) => <option key={ed} value={ed}>{EDITION_LABEL[ed] ? t('settings.' + EDITION_LABEL[ed]) : ed}</option>)}
             </Select>
           </Field>
-          {showWorkspace && <Field label="Workspace" hint="Your workspace name (in your URL: bitbucket.org/your-workspace)."><Input value={cfg.workspace ?? ''} onChange={(e) => set('workspace', e.target.value)} /></Field>}
-          <Field label="Sign-in method">
+          {showWorkspace && <Field label={t('settings.workspace')} hint={t('settings.workspaceHint')}><Input value={cfg.workspace ?? ''} onChange={(e) => set('workspace', e.target.value)} /></Field>}
+          <Field label={t('settings.signInMethod')}>
             <Select value={authType} onChange={(e) => set('authType', e.target.value)}>
-              {authTypes.map((a) => <option key={a} value={a}>{AUTH_LABEL[a] ?? a}</option>)}
+              {authTypes.map((a) => <option key={a} value={a}>{AUTH_LABEL[a] ? t('settings.' + AUTH_LABEL[a]) : a}</option>)}
             </Select>
           </Field>
         </div>
-        {note && <p className="text-[12px] text-muted">{note}</p>}
+        {note && <p className="text-[12px] text-muted">{t('settings.' + note)}</p>}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {def.tokens
             // Username only matters for username+secret schemes (BASIC / APP_PASSWORD); hide it for token-only auth.
             .filter((t) => t.role !== 'username' || NEEDS_USERNAME.has(authType ?? ''))
-            .map((t) => {
-              const label = t.role === 'secret'
-                ? (authType === 'BASIC' ? 'Password' : authType === 'BEARER' ? 'HTTP access token (PAT)' : t.label)
-                : t.label;
-              const isUsername = t.role === 'username';
+            .map((tok) => {
+              const label = tok.role === 'secret'
+                ? (authType === 'BASIC' ? t('settings.tokenPassword') : authType === 'BEARER' ? t('settings.tokenHttpAccessTokenPat') : t('settings.' + tok.label))
+                : t('settings.' + tok.label);
+              const isUsername = tok.role === 'username';
               return (
-                <Field key={t.key} label={label}
+                <Field key={tok.key} label={label}
                   hint={isUsername
-                    ? (secrets[t.key] ? 'Already set — leave blank to keep it' : 'Your username')
-                    : (secrets[t.key] ? 'Already configured — leave blank to keep it' : (t.optional ? 'Optional' : 'Required'))}>
+                    ? (secrets[tok.key] ? t('settings.hintAlreadySetUsername') : t('settings.hintYourUsername'))
+                    : (secrets[tok.key] ? t('settings.hintAlreadyConfigured') : (tok.optional ? t('settings.hintOptional') : t('settings.hintRequired')))}>
                   <Input type={isUsername ? 'text' : 'password'} autoComplete="off"
-                    placeholder={secrets[t.key] ? (isUsername ? '(set)' : '••••••••') : ''}
-                    value={tokens[t.key] ?? ''} onChange={(e) => setTokens((s) => ({ ...s, [t.key]: e.target.value }))} />
+                    placeholder={secrets[tok.key] ? (isUsername ? t('settings.placeholderSet') : '••••••••') : ''}
+                    value={tokens[tok.key] ?? ''} onChange={(e) => setTokens((s) => ({ ...s, [tok.key]: e.target.value }))} />
                 </Field>
               );
             })}
@@ -290,7 +302,7 @@ function ServiceCard({ def, initial, secrets, onSaved, onError }: {
         <div className="flex items-center justify-between">
           {test ? <span className={`inline-flex items-center gap-1.5 text-[13px] ${testTone}`}>
             <KeyRound className="h-3.5 w-3.5" /> {test.message}</span> : <span />}
-          <Button size="sm" loading={saving} onClick={save}>Save</Button>
+          <Button size="sm" loading={saving} onClick={save}>{t('settings.save')}</Button>
         </div>
       </CardBody>
     </Card>

@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Trans, useTranslation } from 'react-i18next';
 import { FileText, ExternalLink, ListTree } from 'lucide-react';
 import { api, TestCondition } from '../api';
 import { Badge, Card, CardBody, CardHeader, PageHeader, Spinner, Table, Td, Th, Row, ErrorState } from '../components/ui';
@@ -28,6 +29,7 @@ const priorityTone = (p?: string) => {
  * and a risk, with the automation candidacy decided per condition. Reached from a strategy's detail page.
  */
 export function TestConditions() {
+  const { t } = useTranslation();
   const { id } = useParams();   // = the strategy id the conditions derive from
   const toast = useToast();
   const qc = useQueryClient();
@@ -49,55 +51,57 @@ export function TestConditions() {
     return s;
   }, [conditions]);
 
-  if (q.isLoading) return <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> Loading…</CardBody></Card>;
-  if (q.isError) return <ErrorState message={`Could not load test conditions: ${(q.error as Error)?.message ?? 'unknown error'}`} />;
+  if (q.isLoading) return <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('testConditions.loading')}</CardBody></Card>;
+  if (q.isError) return <ErrorState message={t('testConditions.loadError', { message: (q.error as Error)?.message ?? t('testConditions.unknownError') })} />;
 
-  const service = strategyQ.data?.serviceName ?? 'Service';
+  const service = strategyQ.data?.serviceName ?? t('testConditions.serviceFallback');
 
   return (
     <div>
       <PageHeader
-        title={`${service} — Test Conditions`}
-        subtitle={`${conditions.length} condition(s) · identified during test analysis (what to test)`}
+        title={t('testConditions.pageTitle', { service })}
+        subtitle={t('testConditions.pageSubtitle', { n: conditions.length })}
         actions={
           <div className="flex items-center gap-2">
             {id && (
               <a href={api.testConditionsReportUrl(id)} target="_blank" rel="noreferrer"
                 className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[13px] font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50">
-                <FileText className="h-4 w-4" /> Condition List <ExternalLink className="h-3 w-3" />
+                <FileText className="h-4 w-4" /> {t('testConditions.conditionListLink')} <ExternalLink className="h-3 w-3" />
               </a>
             )}
             <Link to={`/test-strategy/${id}`}
               className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[13px] font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50">
-              <ListTree className="h-4 w-4" /> Strategy
+              <ListTree className="h-4 w-4" /> {t('testConditions.strategyLink')}
             </Link>
           </div>
         } />
 
       <Card className="mb-5">
         <CardBody className="flex flex-wrap items-center gap-3 text-sm">
-          <span className="font-semibold text-ink-900">Automation split</span>
-          <Badge className={TONE.ok}>{split.AUTOMATED} automated</Badge>
-          <Badge className={TONE.danger}>{split.MANUAL} manual</Badge>
-          <Badge className={TONE.warn}>{split.CANDIDATE} candidate</Badge>
-          <span className="text-muted">— decided per condition by risk × repeatability × stability.</span>
+          <span className="font-semibold text-ink-900">{t('testConditions.automationSplit')}</span>
+          <Badge className={TONE.ok}>{t('testConditions.automatedBadge', { n: split.AUTOMATED })}</Badge>
+          <Badge className={TONE.danger}>{t('testConditions.manualBadge', { n: split.MANUAL })}</Badge>
+          <Badge className={TONE.warn}>{t('testConditions.candidateBadge', { n: split.CANDIDATE })}</Badge>
+          <span className="text-muted">{t('testConditions.splitNote')}</span>
           <span className="w-full text-[12px] text-muted">
-            AUTOMATED conditions feed <span className="font-medium text-ink-700">implement-tests</span>;
-            MANUAL / CANDIDATE feed <span className="font-medium text-ink-700">create-test-cases</span>.
+            <Trans i18nKey="testConditions.feedNote">
+              AUTOMATED conditions feed <span className="font-medium text-ink-700">implement-tests</span>;
+              MANUAL / CANDIDATE feed <span className="font-medium text-ink-700">create-test-cases</span>.
+            </Trans>
           </span>
         </CardBody>
       </Card>
 
       <Card>
-        <CardHeader title="Test Condition List"
-          subtitle="Each condition traces a basis item and a risk forward to the cases that cover it." />
+        <CardHeader title={t('testConditions.cardTitle')}
+          subtitle={t('testConditions.cardSubtitle')} />
         <CardBody className="p-0">
           {conditions.length === 0 ? (
             <p className="px-5 py-4 text-sm text-muted">
-              No test conditions yet. Run test analysis for this service to generate them from the approved strategy.
+              {t('testConditions.emptyState')}
             </p>
           ) : (
-            <Table head={<><Th>ID</Th><Th>Condition</Th><Th>Source</Th><Th>Priority</Th><Th>Risk</Th><Th>Technique</Th><Th>Automation</Th></>}>
+            <Table head={<><Th>{t('testConditions.colId')}</Th><Th>{t('testConditions.colCondition')}</Th><Th>{t('testConditions.colSource')}</Th><Th>{t('testConditions.colPriority')}</Th><Th>{t('testConditions.colRisk')}</Th><Th>{t('testConditions.colTechnique')}</Th><Th>{t('testConditions.colAutomation')}</Th></>}>
               {conditions.map((c: TestCondition) => (
                 <Row key={c.id}>
                   <Td className="font-medium text-ink-900">{c.conditionRef}</Td>
@@ -112,7 +116,7 @@ export function TestConditions() {
                     <div className="flex items-center gap-2">
                       <Badge className={automationTone(c.automation)}>{(c.automation || 'CANDIDATE').toUpperCase()}</Badge>
                       <select
-                        aria-label={`Automation for ${c.conditionRef}`}
+                        aria-label={t('testConditions.automationFor', { ref: c.conditionRef })}
                         className="rounded-md border border-border bg-surface px-2 py-1 text-[12px] text-ink-700"
                         value={(c.automation || 'CANDIDATE').toUpperCase()}
                         disabled={setAutomation.isPending}
