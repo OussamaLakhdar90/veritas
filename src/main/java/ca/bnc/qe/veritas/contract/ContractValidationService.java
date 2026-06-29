@@ -18,7 +18,12 @@ import ca.bnc.qe.veritas.cost.ModelTier;
 import ca.bnc.qe.veritas.engine.diff.DiffEngine;
 import ca.bnc.qe.veritas.engine.extract.java.JavaSpringExtractor;
 import ca.bnc.qe.veritas.engine.model.ApiModel;
+import ca.bnc.qe.veritas.engine.model.ConstraintSet;
 import ca.bnc.qe.veritas.engine.model.Endpoint;
+import ca.bnc.qe.veritas.engine.model.FieldModel;
+import ca.bnc.qe.veritas.engine.model.ParamModel;
+import ca.bnc.qe.veritas.engine.model.ResponseModel;
+import ca.bnc.qe.veritas.engine.model.SchemaModel;
 import ca.bnc.qe.veritas.engine.model.SourceRef;
 import ca.bnc.qe.veritas.engine.openapi.CorrectedSpecBuilder;
 import ca.bnc.qe.veritas.engine.openapi.OpenApiModelExtractor;
@@ -384,6 +389,157 @@ public class ContractValidationService {
     private record ReconcileResult(String correctedYaml, Map<String, JsonNode> enrich, CostResult cost,
                                    List<Finding> llmFindings, Double confidence, String blindSpots) {}
 
+    /**
+     * Compact structured projection of one or more {@link ApiModel}s for the reconcile prompt: every endpoint with its
+     * params (name + exact {@code in} location + type + required + constraints), request/response body schema refs and
+     * media types, plus the referenced DTO schemas (fields + constraints). Source refs/line numbers are dropped to keep
+     * it terse. This is what lets the LLM name params by their real location and build the corrected YAML from the
+     * actual DTO shapes — replacing the old terse {@code "VERB /path"} signature lists it had to infer from.
+     */
+    static Map<String, Object> apiEvidence(List<ApiModel> models) {
+        List<Map<String, Object>> endpoints = new ArrayList<>();
+        Map<String, Object> schemas = new LinkedHashMap<>();
+        for (ApiModel m : models) {
+            if (m == null) {
+                continue;
+            }
+            for (Endpoint e : m.endpoints()) {
+                endpoints.add(endpointEvidence(e));
+            }
+            for (Map.Entry<String, SchemaModel> en : m.schemas().entrySet()) {
+                schemas.putIfAbsent(en.getKey(), schemaEvidence(en.getValue()));   // first model wins on name clash
+            }
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("endpoints", endpoints);
+        out.put("schemas", schemas);
+        return out;
+    }
+
+    private static Map<String, Object> endpointEvidence(Endpoint e) {
+        Map<String, Object> ep = new LinkedHashMap<>();
+        ep.put("method", e.method().name());
+        ep.put("path", e.pathTemplate());
+        if (e.params() != null && !e.params().isEmpty()) {
+            List<Map<String, Object>> ps = new ArrayList<>();
+            for (ParamModel p : e.params()) {
+                Map<String, Object> pm = new LinkedHashMap<>();
+                pm.put("name", p.name());
+                pm.put("in", p.location().name().toLowerCase(java.util.Locale.ROOT));   // path|query|header|cookie
+                if (p.type() != null) {
+                    pm.put("type", p.type());
+                }
+                pm.put("required", p.required());
+                putConstraints(pm, p.constraints());
+                ps.add(pm);
+            }
+            ep.put("params", ps);
+        }
+        if (e.requestBody() != null) {
+            Map<String, Object> rb = new LinkedHashMap<>();
+            if (e.requestBody().schemaRef() != null) {
+                rb.put("schema", e.requestBody().schemaRef());
+            }
+            rb.put("required", e.requestBody().required());
+            if (e.requestBody().mediaTypes() != null && !e.requestBody().mediaTypes().isEmpty()) {
+                rb.put("mediaTypes", e.requestBody().mediaTypes());
+            }
+            ep.put("requestBody", rb);
+        }
+        if (e.responses() != null && !e.responses().isEmpty()) {
+            List<Map<String, Object>> rs = new ArrayList<>();
+            for (ResponseModel r : e.responses()) {
+                Map<String, Object> rm = new LinkedHashMap<>();
+                rm.put("status", r.statusCode());
+                if (r.schemaRef() != null) {
+                    rm.put("schema", r.schemaRef());
+                }
+                if (r.mediaTypes() != null && !r.mediaTypes().isEmpty()) {
+                    rm.put("mediaTypes", r.mediaTypes());
+                }
+                rs.add(rm);
+            }
+            ep.put("responses", rs);
+        }
+        if (e.consumes() != null && !e.consumes().isEmpty()) {
+            ep.put("consumes", e.consumes());
+        }
+        if (e.produces() != null && !e.produces().isEmpty()) {
+            ep.put("produces", e.produces());
+        }
+        if (e.security() != null && !e.security().isEmpty()) {
+            ep.put("security", e.security());
+        }
+        return ep;
+    }
+
+    private static Map<String, Object> schemaEvidence(SchemaModel s) {
+        Map<String, Object> sm = new LinkedHashMap<>();
+        if (s.type() != null) {
+            sm.put("type", s.type());
+        }
+        if (s.enumValues() != null && !s.enumValues().isEmpty()) {
+            sm.put("enum", s.enumValues());
+        }
+        if (s.fields() != null && !s.fields().isEmpty()) {
+            List<Map<String, Object>> fs = new ArrayList<>();
+            for (FieldModel f : s.fields()) {
+                Map<String, Object> fm = new LinkedHashMap<>();
+                fm.put("name", f.jsonName());
+                fm.put("type", f.refSchema() != null ? f.refSchema() : f.type());
+                if (f.format() != null) {
+                    fm.put("format", f.format());
+                }
+                if (f.required()) {
+                    fm.put("required", true);
+                }
+                putConstraints(fm, f.constraints());
+                fs.add(fm);
+            }
+            sm.put("fields", fs);
+        }
+        return sm;
+    }
+
+    /**
+     * Append the non-empty constraints to {@code target}. Crucially, an enum is emitted under {@code "enum"} only when
+     * it is a FORMAL schema/Java enum; a set parsed from a parameter's DESCRIPTION prose goes under
+     * {@code "documentedValues"} — so the LLM cannot over-claim that the spec "restricts" a value set that is merely
+     * documented (the provenance the deterministic engine already tracks via {@code ConstraintSet.enumFromDescription}).
+     */
+    private static void putConstraints(Map<String, Object> target, ConstraintSet c) {
+        if (c == null || c.isEmpty()) {
+            return;
+        }
+        if (c.minLength() != null) {
+            target.put("minLength", c.minLength());
+        }
+        if (c.maxLength() != null) {
+            target.put("maxLength", c.maxLength());
+        }
+        if (c.minimum() != null) {
+            target.put("minimum", c.minimum());
+        }
+        if (c.maximum() != null) {
+            target.put("maximum", c.maximum());
+        }
+        if (Boolean.TRUE.equals(c.exclusiveMin())) {
+            target.put("exclusiveMin", true);
+        }
+        if (Boolean.TRUE.equals(c.exclusiveMax())) {
+            target.put("exclusiveMax", true);
+        }
+        if (c.pattern() != null) {
+            target.put("pattern", c.pattern());
+        }
+        if (c.format() != null) {
+            target.put("format", c.format());
+        }
+        if (c.enumValues() != null && !c.enumValues().isEmpty()) {
+            target.put(c.enumFromDescription() ? "documentedValues" : "enum", c.enumValues());
+        }
+    }
+
     private ReconcileResult reconcile(ApiModel code, List<ApiModel> specs, List<Finding> findings,
                                       String owner, Scan scan, SpecPresence presence, ModelTier tier) throws Exception {
         String scanId = scan.getId();
@@ -391,9 +547,11 @@ public class ContractValidationService {
         for (Finding f : findings) {
             brief.add(Map.of("findingId", f.getFindingId(), "type", f.getType().name(), "summary", nz(f.getSummary())));
         }
-        String codeEps = code.endpoints().stream().map(Endpoint::signature).toList().toString();
-        List<String> specEps = new ArrayList<>();
-        specs.forEach(s -> s.endpoints().forEach(e -> specEps.add(e.signature())));
+        // Structured, per-endpoint extracted models (params with exact location/type, request/response schemas, DTO
+        // fields + constraints) — so the LLM names params by their real location and builds the corrected YAML from
+        // the actual DTO shapes instead of inferring them from terse "VERB /path" signatures.
+        String codeApi = objectMapper.writeValueAsString(apiEvidence(List.of(code)));
+        String specApi = objectMapper.writeValueAsString(apiEvidence(specs));
         // The real endpoint paths (code + spec) — an endpoint-scoped design finding about anything else is unverifiable.
         java.util.Set<String> knownPaths = new HashSet<>();
         code.endpoints().forEach(e -> knownPaths.add(e.pathTemplate().toLowerCase(java.util.Locale.ROOT)));
@@ -414,6 +572,13 @@ public class ContractValidationService {
                 + "PARSED_SOURCE_MANIFEST lists the endpoints/types Veritas parsed and resolved; the only genuine gaps "
                 + "are in its knownGaps. NEVER state a source/handler/DTO/security input was 'not supplied' unless it "
                 + "appears in knownGaps. "
+                + "CODE_API and SPEC_API are the STRUCTURED extracted models: every endpoint lists its params with the "
+                + "exact location (in: path|query|header|cookie), type and required flag, its request/response body "
+                + "schemas and media types, plus the referenced DTO schemas (fields + constraints). Name each parameter "
+                + "by its CODE_API `in` value — a header param is a HEADER parameter, never a 'query parameter'. A value "
+                + "set under `documentedValues` is documented in prose only: describe it as documented, never as the spec "
+                + "restricting or enforcing an enum; only a set under `enum` is a formal schema enum. Build the corrected "
+                + "YAML schemas from these structured DTOs, not from guesses. "
                 + "Do NOT add citations — Veritas attaches the governing standard (OpenAPI / HTTP / JSON Schema) "
                 + "deterministically. Reply with exactly one fenced ```json block as the LAST thing, matching: "
                 + "{\"correctedYaml\": string, \"findings\": [{\"findingId\": string, \"explanation\": string, "
@@ -449,8 +614,8 @@ public class ContractValidationService {
             }
             String batchJson = objectMapper.writeValueAsString(batch);
             String inputs = promptComposer.data("DETERMINISTIC_FINDINGS", batchJson)
-                    + promptComposer.data("CODE_ENDPOINTS", codeEps)
-                    + promptComposer.data("SPEC_ENDPOINTS", specEps.toString())
+                    + promptComposer.data("CODE_API", codeApi)
+                    + promptComposer.data("SPEC_API", specApi)
                     + promptComposer.data("SPEC_PRESENCE_FACTS", objectMapper.writeValueAsString(presence))
                     + promptComposer.data("PARSED_SOURCE_MANIFEST", manifest);
             String prompt = promptComposer.compose("[CONTRACT-RECONCILE]", "validate-service-contract.prompt.md",
