@@ -324,6 +324,22 @@ class ContractValidationServiceBranchTest {
     }
 
     @Test
+    void oversizedStructuredEvidence_surfacesATruncationBlindSpot() {
+        when(promptComposer.contextBudgetChars()).thenReturn(10);   // any real CODE_API/SPEC_API JSON exceeds this
+        when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(new ArrayList<>(List.of(deterministic("gap"))));
+        when(diffEngine.l1FromMessages(anyString(), any())).thenReturn(List.of());
+        when(openApi.extract(eq("repo-spec"), anyString()))
+                .thenReturn(new SpecParse(specModel("repo-spec"), List.of(), true));
+        armLlm(reconcileReply());
+
+        svc.validate(req(true, new SpecInput("repo-spec", "spec-yaml")));
+
+        org.mockito.ArgumentCaptor<Scan> scanCap = org.mockito.ArgumentCaptor.forClass(Scan.class);
+        verify(scanPersistence).complete(scanCap.capture(), any(), any());
+        assertThat(scanCap.getValue().getBlindSpots()).contains("exceeded the model context budget");
+    }
+
+    @Test
     void specWideDesignFinding_contradictedByPresenceFacts_isSuppressed() {
         when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(new ArrayList<>(List.of(deterministic("gap"))));
         when(diffEngine.l1FromMessages(anyString(), any())).thenReturn(List.of());
