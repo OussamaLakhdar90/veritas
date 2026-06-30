@@ -124,6 +124,11 @@ public class PromptComposer {
         return untrusted(label, trim(content, contextBudgetChars));
     }
 
+    /** The per-block untrusted-content char budget, so callers can detect when a block will be middle-elided. */
+    public int contextBudgetChars() {
+        return contextBudgetChars;
+    }
+
     /** Fence a block of untrusted content with a clear label so the model treats it as data (no trimming). */
     public static String untrusted(String label, String content) {
         return "<<<UNTRUSTED " + label + "\n" + defang(content) + "\n>>>END " + label + "\n";

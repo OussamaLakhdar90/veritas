@@ -602,12 +602,15 @@ public class ContractValidationService {
                 + "one-sentence code-grounded reason. Only dispute a findingId that appears in DETERMINISTIC_FINDINGS; "
                 + "never invent ids; a dispute REQUIRES a concrete reason. Veritas keeps every disputed finding visible "
                 + "to a human and only moves it out of the automatic release-blocking gate — it is never deleted. "
+                + "In selfReview, report your overall confidence (0-100 integer) that the corrected spec matches the "
+                + "code, and list any blind spots you hit (sources you could not fully see). "
                 + "Do NOT add citations — Veritas attaches the governing standard (OpenAPI / HTTP / JSON Schema) "
                 + "deterministically. Reply with exactly one fenced ```json block as the LAST thing, matching: "
                 + "{\"correctedYaml\": string, \"findings\": [{\"findingId\": string, \"explanation\": string, "
                 + "\"proposedFix\": string}], \"designFindings\": [{\"layer\": \"L5\"|\"L6\", \"severity\": string, "
                 + "\"endpoint\": string, \"summary\": string, \"explanation\": string}], "
-                + "\"disputedFindings\": [{\"findingId\": string, \"reason\": string}]}. No prose after the json.";
+                + "\"disputedFindings\": [{\"findingId\": string, \"reason\": string}], "
+                + "\"selfReview\": {\"confidence\": number, \"blindSpots\": [string]}}. No prose after the json.";
 
         // Chunk-and-merge: a large finding set would otherwise have its middle elided by the prompt cap.
         // Batch the findings (deterministic) and merge the per-finding enrichment; the corrected YAML and design
@@ -625,6 +628,13 @@ public class ContractValidationService {
         String correctedYaml = null;
         Double confidence = null;
         List<String> blind = new ArrayList<>();
+        // If the structured evidence is larger than one untrusted block holds, PromptComposer middle-elides it — surface
+        // that, so a large service's AI review / corrected spec isn't silently built from partial CODE_API/SPEC_API.
+        int evidenceBudget = promptComposer.contextBudgetChars();
+        if (evidenceBudget > 0 && (codeApi.length() > evidenceBudget || specApi.length() > evidenceBudget)) {
+            blind.add("The structured code/spec evidence (CODE_API/SPEC_API) exceeded the model context budget and was "
+                    + "truncated; the AI review and corrected spec for this service may be built from partial evidence.");
+        }
         double premium = 0;
         double costUsd = 0;
         long tokIn = 0;
