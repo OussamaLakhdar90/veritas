@@ -748,6 +748,7 @@ public class JavaSpringExtractor {
         // --- params / body / responses are identical across the method's path×verb combinations ---
         List<ParamModel> params = new ArrayList<>();
         RequestBodyModel body = null;
+        boolean multipart = false;
         for (Parameter p : m.getParameters()) {
             if (hasMeta(p, "PathVariable", types)) {
                 params.add(param(file, p, ParamLocation.PATH, true, types));
@@ -768,7 +769,27 @@ public class JavaSpringExtractor {
                 boolean valid = has(p, "Valid") || has(p, "Validated");
                 body = new RequestBodyModel(bt.schemaRef(), true, valid, null,
                         SourceRef.code(file, line(p), line(p), p.toString()));
+            } else if (hasMeta(p, "RequestPart", types)) {
+                multipart = true;   // a multipart upload part → modelled as a multipart/form-data body below
+            } else if (hasMeta(p, "ModelAttribute", types)) {
+                // Command-object binding flattens the object's fields to form/query params at runtime; we don't expand
+                // them, so surface it rather than silently dropping the bound fields (the project's blind-spot ethos).
+                blindSpots.add("Controller " + controllerClass + "." + m.getNameAsString() + " binds @ModelAttribute '"
+                        + simpleTypeName(p.getType()) + "' — its form/query fields are not expanded; verify them.");
+            } else if (isBoundType(p, "Pageable", "PageRequest")) {
+                // Spring's PageableHandlerMethodArgumentResolver binds these standard query params at runtime.
+                params.add(simpleQuery(file, m, "page", "integer", "int32"));
+                params.add(simpleQuery(file, m, "size", "integer", "int32"));
+                params.add(simpleQuery(file, m, "sort", "string", null));
+            } else if (isBoundType(p, "Sort")) {
+                params.add(simpleQuery(file, m, "sort", "string", null));
             }
+        }
+        // A multipart handler (@RequestPart) HAS a body even without @RequestBody — model it as multipart/form-data so
+        // it isn't seen as bodyless (the part schemas themselves are not modelled, which is honest, not a false claim).
+        if (body == null && multipart) {
+            body = new RequestBodyModel(null, true, false, List.of("multipart/form-data"),
+                    SourceRef.code(file, line(m), line(m), "multipart request"));
         }
 
         BodyType ret = unwrap(m.getType());
@@ -997,7 +1018,10 @@ public class JavaSpringExtractor {
                 List<Expression> elems = e instanceof ArrayInitializerExpr arr ? arr.getValues() : List.of(e);
                 List<String> out = new ArrayList<>();
                 for (Expression x : elems) {
-                    String v = literal(x.toString());
+                    // consumes/produces values may be MediaType.*_VALUE constants — resolve them to the real media type
+                    // (e.g. application/json) via the same resolver the @ControllerAdvice path uses, not the raw literal.
+                    String mt = mediaTypeFromExpr(x);
+                    String v = mt != null ? mt : literal(x.toString());
                     if (v != null && !v.isBlank()) {
                         out.add(v);
                     }
@@ -1065,7 +1089,19 @@ public class JavaSpringExtractor {
             case COOKIE -> "CookieValue";
         }).map(a -> firstString(a, "value", "name")).orElse(null);
         String name = annName != null ? annName : p.getNameAsString();
-        String simple = simpleTypeName(p.getType());
+        // Unwrap Optional<X> / OptionalInt|Long|Double so the param's type is the inner type, and an Optional-wrapped
+        // param is never reported as required (else it false-diffs as type:object / required against an optional spec).
+        Type pt = p.getType();
+        boolean optional = false;
+        String prim = optionalPrimitive(pt);
+        if (prim != null) {
+            optional = true;
+        } else if (pt instanceof ClassOrInterfaceType oc && oc.getNameAsString().equals("Optional")
+                && oc.getTypeArguments().map(ta -> !ta.isEmpty()).orElse(false)) {
+            pt = oc.getTypeArguments().get().get(0);
+            optional = true;
+        }
+        String simple = prim != null ? prim : simpleTypeName(pt);
         String[] tf = openApiType(simple);
         String type = tf[0];
         ConstraintSet cs = constraintsOf(p);
@@ -1076,8 +1112,38 @@ public class JavaSpringExtractor {
             type = "string";
             cs = cs.withEnumValues(enumValuesOf(ed));
         }
-        return new ParamModel(name, loc, type, tf[1], required, cs,
+        return new ParamModel(name, loc, type, tf[1], required && !optional, cs,
                 SourceRef.code(file, line(p), line(p), p.toString()));
+    }
+
+    /** True when the parameter's (unannotated) type simple-name is one of {@code names}. */
+    private boolean isBoundType(Parameter p, String... names) {
+        String t = simpleTypeName(p.getType());
+        for (String n : names) {
+            if (n.equals(t)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** A synthetic, optional query param (used for resolver-bound params like Pageable's page/size/sort). */
+    private ParamModel simpleQuery(String file, MethodDeclaration m, String name, String type, String format) {
+        return new ParamModel(name, ParamLocation.QUERY, type, format, false, ConstraintSet.empty(),
+                SourceRef.code(file, line(m), line(m), name));
+    }
+
+    /** The primitive inner type of OptionalInt/OptionalLong/OptionalDouble, or null when not a primitive optional. */
+    private String optionalPrimitive(Type t) {
+        if (t instanceof ClassOrInterfaceType cit) {
+            return switch (cit.getNameAsString()) {
+                case "OptionalInt" -> "int";
+                case "OptionalLong" -> "long";
+                case "OptionalDouble" -> "double";
+                default -> null;
+            };
+        }
+        return null;
     }
 
     private SchemaModel buildSchema(Path sourceRoot, TypeDeclaration<?> td, Map<String, TypeDeclaration<?>> types) {
