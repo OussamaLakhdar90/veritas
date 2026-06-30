@@ -203,10 +203,10 @@ class DrRegressionFixesTest {
         assertThat(m.blindSpots().toString()).contains("status could not be resolved");
     }
 
-    // (4d) A returned FIELD set via `this.r = ...` is likewise unresolvable syntactically (a field write can collide
-    // with a same-named local) — surface a BLIND SPOT, not a phantom 200.
+    // (4d) A returned FIELD set via `this.r = ...` with NO shadowing local resolves to its status (the no-shadow guard
+    // makes this safe); a phantom 200 must not be emitted.
     @Test
-    void thisFieldReturnedSurfacesBlindSpotNotPhantom(@TempDir Path dir) throws Exception {
+    void thisFieldReturnedWithNoShadowResolvesStatus(@TempDir Path dir) throws Exception {
         write(dir, "C.java", """
             import org.springframework.web.bind.annotation.*;
             import org.springframework.http.*;
@@ -219,8 +219,28 @@ class DrRegressionFixesTest {
             }
             """);
         ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(m.endpoints().get(0).responses()).anySatisfy(r -> assertThat(r.statusCode()).isEqualTo(201));
         assertThat(m.endpoints().get(0).responses()).noneSatisfy(r -> assertThat(r.statusCode()).isEqualTo(200));
-        assertThat(m.blindSpots().toString()).contains("status could not be resolved");
+    }
+
+    // (4g) A returned this.field status must be harvested even when ANOTHER return already resolves — else the field
+    // status is dropped AND a false STATUS_CODE_EXTRA fires against a spec that documents it.
+    @Test
+    void thisFieldReturnIsNotDroppedWhenAnotherReturnResolves(@TempDir Path dir) throws Exception {
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.http.*;
+            @RestController class C {
+                private ResponseEntity<String> result;
+                @PostMapping("/x") public ResponseEntity<String> create(@RequestParam boolean flag) {
+                    if (flag) return ResponseEntity.ok("ok");
+                    this.result = ResponseEntity.status(HttpStatus.CREATED).body("made");
+                    return result;
+                }
+            }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(m.endpoints().get(0).responses()).extracting(r -> r.statusCode()).contains(200, 201);
     }
 
     // (4e) A `this.<field>` write must NOT be harvested as a status of a same-named shadowing LOCAL that is returned —
@@ -357,6 +377,37 @@ class DrRegressionFixesTest {
         assertThat(new DiffEngine().diffCodeVsSpec(code, spec))
                 .noneMatch(f -> f.getType() == FindingType.CONSTRAINT_GAP
                         && f.getSummary() != null && f.getSummary().contains("qty"));
+    }
+
+    // (6d) The fold is PER-SIDE: a code integer field (>=2) vs a TYPE-LESS spec field with an EXCLUSIVE minimum (>1,
+    // which admits 1.5) is a REAL divergence — the spec's bound must NOT be folded off the code's integer-ness.
+    @Test
+    void typelessExclusiveSpecBoundIsNotFoldedOffCodeInteger(@TempDir Path dir) throws Exception {
+        write(dir, "R.java", """
+            import jakarta.validation.constraints.Min;
+            public class R { @Min(2) public Long rate; }
+            """);
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            @RestController class C { @PostMapping("/r") public R create(@RequestBody R r) { return r; } }
+            """);
+        ApiModel code = new JavaSpringExtractor().extract(dir);
+        ApiModel spec = spec("""
+            openapi: 3.0.1
+            info: { title: t, version: '1' }
+            paths:
+              /r:
+                post:
+                  requestBody:
+                    content: { application/json: { schema: { $ref: '#/components/schemas/R' } } }
+                  responses: { '200': { description: ok } }
+            components:
+              schemas:
+                R: { type: object, properties: { rate: { minimum: 1, exclusiveMinimum: true } } }
+            """);
+        assertThat(new DiffEngine().diffCodeVsSpec(code, spec))
+                .anyMatch(f -> f.getType() == FindingType.CONSTRAINT_GAP
+                        && f.getSummary() != null && f.getSummary().contains("rate"));
     }
 
     // (5) An array-of-DTO field vs a scalar must be reported ONCE, not double-counted with compareSchema.

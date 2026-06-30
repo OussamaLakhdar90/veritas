@@ -1959,23 +1959,30 @@ public class JavaSpringExtractor {
             }
         }
         // Harvest from every value the method actually RETURNS — return-expression subtrees, plus a returned LOCAL's
-        // declarator initializer and any BARE-NAME (`r = ...`) assignment. Deliberately NOT `this.<field>` (a field
-        // write can collide with a same-named shadowing local) and NOT transitive name aliasing (order-blind — a
-        // post-copy reassignment of the alias source would be mis-attributed). Those indirections are surfaced as a
-        // blind spot by responseEntityStatusUnresolvable instead of guessed. A ResponseEntity built into a NON-returned
-        // local (a never-invoked fallback lambda, a probe passed to a side-call) is excluded — harvesting it would
-        // fabricate a phantom status + a scored false STATUS_CODE_MISSING on an endpoint that never returns it.
+        // declarator initializer, any BARE-NAME (`r = ...`) assignment, and a `this.<field> = ...` write to a returned
+        // FIELD that no same-named local shadows. The no-shadow guard keeps a field write from colliding with a
+        // shadowing local (whose own value is what is actually returned). Deliberately NOT transitive name aliasing
+        // (order-blind — a post-copy reassignment of the alias source would be mis-attributed); an aliased return is
+        // surfaced as a blind spot by responseEntityStatusUnresolvable instead of guessed. A ResponseEntity built into
+        // a NON-returned local (a never-invoked fallback lambda, a probe passed to a side-call) is excluded — harvesting
+        // it would fabricate a phantom status + a scored false STATUS_CODE_MISSING on an endpoint that never returns it.
         List<Expression> returned = new ArrayList<>();
         returns.forEach(ret -> ret.getExpression().ifPresent(returned::add));
         if (!returnedNames.isEmpty()) {
+            Set<String> localNames = new HashSet<>();
             for (VariableDeclarator vd : m.findAll(VariableDeclarator.class)) {
+                localNames.add(vd.getNameAsString());
                 if (returnedNames.contains(vd.getNameAsString())) {
                     vd.getInitializer().ifPresent(returned::add);
                 }
             }
             for (AssignExpr ae : m.findAll(AssignExpr.class)) {
-                if (ae.getTarget() instanceof NameExpr target && returnedNames.contains(target.getNameAsString())) {
-                    returned.add(ae.getValue());
+                Expression target = ae.getTarget();
+                if (target instanceof NameExpr ne && returnedNames.contains(ne.getNameAsString())) {
+                    returned.add(ae.getValue());   // `r = ...` (bare local)
+                } else if (target instanceof FieldAccessExpr fae && fae.getScope() instanceof ThisExpr
+                        && returnedNames.contains(fae.getNameAsString()) && !localNames.contains(fae.getNameAsString())) {
+                    returned.add(ae.getValue());   // `this.<field> = ...` for a returned field with NO shadowing local
                 }
             }
         }
