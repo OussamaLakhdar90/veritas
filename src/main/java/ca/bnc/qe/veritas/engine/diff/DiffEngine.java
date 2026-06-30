@@ -202,6 +202,13 @@ public class DiffEngine {
                         "Parameter '" + cp.name() + "' required — code " + cp.required() + " vs spec " + sp.required(),
                         ce, Confidence.MEDIUM));
             }
+            // format divergence (int32 vs int64, date vs date-time, …) — a genuine wire-shape difference type alone
+            // misses. LOW confidence and only when BOTH sides declare a format (spec omitting one is under-spec, not drift).
+            if (cp.format() != null && sp.format() != null && !cp.format().equals(sp.format())) {
+                findings.add(finding(FindingType.CONSTRAINT_GAP, label(ce), spec.source(),
+                        "Parameter '" + cp.name() + "' format — code " + cp.format() + " vs spec " + sp.format(),
+                        ce, Confidence.LOW));
+            }
             if (!cp.constraints().isEmpty()) {
                 if (sp.constraints().isEmpty()) {
                     findings.add(finding(FindingType.CONSTRAINT_GAP, label(ce), spec.source(),
@@ -247,6 +254,16 @@ public class DiffEngine {
         if (codeBody != specBody) {
             findings.add(finding(FindingType.REQUEST_BODY_PRESENCE_MISMATCH, label(ce), spec.source(),
                     "Request body presence — code " + codeBody + " vs spec " + specBody, ce, Confidence.HIGH));
+        } else if (codeBody) {
+            // Request-body field-level diff (mirror the response path): when BOTH sides declare a body schema, compare
+            // the resolved structure so a renamed/extra/missing/type-changed body field surfaces — the presence-only
+            // check above missed all of it, leaving request payloads with zero field-level validation.
+            String codeBodyRef = ce.requestBody().schemaRef();
+            String specBodyRef = se.requestBody().schemaRef();
+            if (codeBodyRef != null && specBodyRef != null) {
+                fieldDiffByBinding(findings, code, spec, codeBodyRef, specBodyRef, label(ce) + " request body",
+                        new java.util.HashSet<>(), MAX_SCHEMA_DEPTH);
+            }
         }
         // success status code — code returns it but spec omits it
         Integer codeStatus = successStatus(ce);
@@ -623,6 +640,19 @@ public class DiffEngine {
                 findings.add(finding(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, name + "." + cf.jsonName(), specSource,
                         "Field '" + cf.jsonName() + "' type — code " + cf.type() + " vs spec " + sf.type(),
                         null, Confidence.MEDIUM));
+            }
+            // required drift (required in code, optional in spec or vice versa) — a real client-contract break the
+            // field diff never checked, the body analogue of PARAM_REQUIRED_MISMATCH.
+            if (cf.required() != sf.required()) {
+                findings.add(finding(FindingType.CONSTRAINT_GAP, name + "." + cf.jsonName(), specSource,
+                        "Field '" + cf.jsonName() + "' required — code " + cf.required() + " vs spec " + sf.required(),
+                        null, Confidence.MEDIUM));
+            }
+            // format divergence (date vs date-time, int32 vs int64, …) — only when both declare a format.
+            if (cf.format() != null && sf.format() != null && !cf.format().equals(sf.format())) {
+                findings.add(finding(FindingType.CONSTRAINT_GAP, name + "." + cf.jsonName(), specSource,
+                        "Field '" + cf.jsonName() + "' format — code " + cf.format() + " vs spec " + sf.format(),
+                        null, Confidence.LOW));
             }
             if (!cf.constraints().isEmpty()) {
                 if (sf.constraints().isEmpty()) {
