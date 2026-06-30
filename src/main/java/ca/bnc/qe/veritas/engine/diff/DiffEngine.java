@@ -760,6 +760,14 @@ public class DiffEngine {
         if (!Objects.equals(c.maximum(), s.maximum())) {
             return "maximum code=" + c.maximum() + " spec=" + s.maximum();
         }
+        // exclusiveMinimum/Maximum: null and false both mean "inclusive", so compare on TRUE-ness only (else a code
+        // null vs a spec explicit-false would false-diff).
+        if (Boolean.TRUE.equals(c.exclusiveMin()) != Boolean.TRUE.equals(s.exclusiveMin())) {
+            return "exclusiveMinimum code=" + c.exclusiveMin() + " spec=" + s.exclusiveMin();
+        }
+        if (Boolean.TRUE.equals(c.exclusiveMax()) != Boolean.TRUE.equals(s.exclusiveMax())) {
+            return "exclusiveMaximum code=" + c.exclusiveMax() + " spec=" + s.exclusiveMax();
+        }
         if (!Objects.equals(c.pattern(), s.pattern())) {
             return "pattern code=" + c.pattern() + " spec=" + s.pattern();
         }
