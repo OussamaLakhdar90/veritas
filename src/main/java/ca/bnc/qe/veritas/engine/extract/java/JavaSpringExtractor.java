@@ -1242,20 +1242,21 @@ public class JavaSpringExtractor {
         String pattern = null, format = null;
         // NOTE: @NotBlank is captured via the field's `required` flag, NOT as minLength=1 — synthesizing a
         // length constraint produced spurious CONSTRAINT_GAP findings against specs that (correctly) omit minLength.
+        // Parse DEFENSIVELY: a long-literal (@Min(0L)), underscored (@Size(min=1_000)), or constant (@Size(min=MAX))
+        // value must degrade to "not extracted" (null), NOT throw — an unguarded Integer/Double.valueOf here aborts the
+        // whole scan on idiomatic JSR-380.
         Optional<AnnotationExpr> size = getAnnotation(n, "Size");
         if (size.isPresent()) {
-            String mn = firstString(size.get(), "min");
-            String mx = firstString(size.get(), "max");
-            minLen = mn != null ? Integer.valueOf(mn) : minLen;
-            maxLen = mx != null ? Integer.valueOf(mx) : maxLen;
+            minLen = toInt(firstString(size.get(), "min"));
+            maxLen = toInt(firstString(size.get(), "max"));
         }
         Optional<AnnotationExpr> minA = getAnnotation(n, "Min");
-        if (minA.isPresent() && firstString(minA.get(), "value") != null) {
-            min = Double.valueOf(firstString(minA.get(), "value"));
+        if (minA.isPresent()) {
+            min = toDouble(firstString(minA.get(), "value"));
         }
         Optional<AnnotationExpr> maxA = getAnnotation(n, "Max");
-        if (maxA.isPresent() && firstString(maxA.get(), "value") != null) {
-            max = Double.valueOf(firstString(maxA.get(), "value"));
+        if (maxA.isPresent()) {
+            max = toDouble(firstString(maxA.get(), "value"));
         }
         Optional<AnnotationExpr> pat = getAnnotation(n, "Pattern");
         if (pat.isPresent()) {
@@ -1598,17 +1599,35 @@ public class JavaSpringExtractor {
     }
 
     private int responseStatus(MethodDeclaration m) {
-        Optional<AnnotationExpr> rs = getAnnotation(m, "ResponseStatus");
-        if (rs.isPresent()) {
-            String code = firstString(rs.get(), "value", "code");
-            if (code != null) {
-                if (code.contains("CREATED")) return 201;
-                if (code.contains("NO_CONTENT")) return 204;
-                if (code.contains("ACCEPTED")) return 202;
-                if (code.contains("OK")) return 200;
-            }
+        // Delegate to the full HttpStatus + numeric mapper (statusFromText) so a @ResponseStatus of CONFLICT/NOT_FOUND/
+        // 422/etc. resolves to its true code — the old 4-way ladder collapsed everything else to a phantom 200, which
+        // fabricated a STATUS_CODE_MISSING(200) and dropped the real status.
+        Integer s = responseStatusAnnotation(m);
+        return s != null ? s : 200;
+    }
+
+    /** Parse an int annotation value, tolerating an underscore/long suffix; null when not a literal (e.g. a constant). */
+    private static Integer toInt(String s) {
+        if (s == null) {
+            return null;
         }
-        return 200;
+        try {
+            return Integer.valueOf(s.replace("_", "").replaceAll("[lL]$", "").trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** Parse a numeric annotation value, tolerating underscores and a long/float/double suffix; null when not a literal. */
+    private static Double toDouble(String s) {
+        if (s == null) {
+            return null;
+        }
+        try {
+            return Double.valueOf(s.replace("_", "").replaceAll("[lLfFdD]$", "").trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /** Status codes inferred from {@code ResponseEntity.<factory>(...)} builder calls in the method body. */
