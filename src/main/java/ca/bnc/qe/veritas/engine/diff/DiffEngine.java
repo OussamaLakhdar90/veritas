@@ -868,11 +868,17 @@ public class DiffEngine {
         // PER SIDE by that side's own integer-ness — never the other's. Folding the spec's bound off the CODE being
         // integer would mis-equate a code `>=2` integer with a spec `>1` on a (type-less / number) field that actually
         // admits 1.5, silently dropping a real divergence.
-        if (!Objects.equals(effectiveMin(c, codeInteger), effectiveMin(s, specInteger))) {
-            return "minimum code=" + effectiveMin(c, codeInteger) + " spec=" + effectiveMin(s, specInteger);
+        // Only when the CODE declares the bound: a null code minimum/maximum (no @Min/@Max, or a constant reference the
+        // extractor couldn't resolve to a number) is NOT reliable drift — the bound may be enforced elsewhere — so don't
+        // false-diff "code=null spec=18" (mirror of the required-drift rule). Code stricter than the spec (a non-null
+        // code bound vs a looser/absent spec bound) still fires.
+        Double cMin = effectiveMin(c, codeInteger);
+        if (cMin != null && !Objects.equals(cMin, effectiveMin(s, specInteger))) {
+            return "minimum code=" + cMin + " spec=" + effectiveMin(s, specInteger);
         }
-        if (!Objects.equals(effectiveMax(c, codeInteger), effectiveMax(s, specInteger))) {
-            return "maximum code=" + effectiveMax(c, codeInteger) + " spec=" + effectiveMax(s, specInteger);
+        Double cMax = effectiveMax(c, codeInteger);
+        if (cMax != null && !Objects.equals(cMax, effectiveMax(s, specInteger))) {
+            return "maximum code=" + cMax + " spec=" + effectiveMax(s, specInteger);
         }
         // exclusiveMinimum/Maximum: null and false both mean "inclusive", so compare on TRUE-ness only (else a code
         // null vs a spec explicit-false would false-diff). An integer side's exclusivity is already folded into its
@@ -889,7 +895,9 @@ public class DiffEngine {
         if (c.format() != null && s.format() != null && !c.format().equals(s.format())) {
             return "format code=" + c.format() + " spec=" + s.format();
         }
-        if (!Objects.equals(c.pattern(), s.pattern())) {
+        // Only when the CODE declares a pattern: a null code pattern (no @Pattern, or a constant-reference regexp the
+        // extractor couldn't resolve to a literal) is not reliable drift — don't false-diff "code=null spec=<regex>".
+        if (c.pattern() != null && !c.pattern().equals(s.pattern())) {
             return "pattern code=" + c.pattern() + " spec=" + s.pattern();
         }
         if (!sameValueSet(c.enumValues(), s.enumValues())) {
