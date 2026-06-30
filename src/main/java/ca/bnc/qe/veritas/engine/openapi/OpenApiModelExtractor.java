@@ -55,6 +55,10 @@ public class OpenApiModelExtractor {
         // apples-to-apples comparison with the code's controller mappings. Ignoring it (the prior behaviour) made every
         // endpoint look MISSING/EXTRA whenever the spec declared a base path the code's @RequestMapping also carries.
         String basePath = serverBasePath(openApi);
+        // Spec features this extractor cannot fully model (schema composition, content-typed params, ranged/default
+        // responses, free-form maps) are surfaced here rather than silently degrading into an empty model — mirroring
+        // the code side's blind-spot honesty.
+        List<String> blindSpots = new ArrayList<>();
         List<Endpoint> endpoints = new ArrayList<>();
         if (openApi.getPaths() != null) {
             for (Map.Entry<String, PathItem> pathEntry : openApi.getPaths().entrySet()) {
@@ -62,7 +66,7 @@ public class OpenApiModelExtractor {
                 Map<PathItem.HttpMethod, Operation> ops = pathEntry.getValue().readOperationsMap();
                 for (Map.Entry<PathItem.HttpMethod, Operation> opEntry : ops.entrySet()) {
                     endpoints.add(toEndpoint(specId, path, opEntry.getKey(), opEntry.getValue(),
-                            openApi.getSecurity(), openApi.getComponents()));
+                            openApi.getSecurity(), openApi.getComponents(), blindSpots));
                 }
             }
         }
@@ -70,12 +74,12 @@ public class OpenApiModelExtractor {
         Map<String, SchemaModel> schemas = new LinkedHashMap<>();
         if (openApi.getComponents() != null && openApi.getComponents().getSchemas() != null) {
             for (Map.Entry<String, Schema> s : openApi.getComponents().getSchemas().entrySet()) {
-                schemas.put(s.getKey(), toSchema(specId, s.getKey(), s.getValue()));
+                schemas.put(s.getKey(), toSchema(specId, s.getKey(), s.getValue(), blindSpots));
             }
         }
 
         String title = openApi.getInfo() != null ? openApi.getInfo().getTitle() : null;
-        ApiModel model = new ApiModel(specId, title, version, version, endpoints, schemas);
+        ApiModel model = new ApiModel(specId, title, version, version, endpoints, schemas, blindSpots);
         return new SpecParse(model, messages, true);
     }
 
@@ -276,12 +280,12 @@ public class OpenApiModelExtractor {
 
     private Endpoint toEndpoint(String specId, String path, PathItem.HttpMethod m, Operation op,
                                List<io.swagger.v3.oas.models.security.SecurityRequirement> globalSecurity,
-                               io.swagger.v3.oas.models.Components components) {
+                               io.swagger.v3.oas.models.Components components, List<String> blindSpots) {
         HttpMethod method = HttpMethod.valueOf(m.name());
         List<ParamModel> params = new ArrayList<>();
         if (op.getParameters() != null) {
             for (Parameter p : op.getParameters()) {
-                params.add(toParam(specId, path, p, components));
+                params.add(toParam(specId, path, p, components, blindSpots));
             }
         }
         RequestBodyModel body = toRequestBody(specId, path, op.getRequestBody());
@@ -295,6 +299,10 @@ public class OpenApiModelExtractor {
             for (Map.Entry<String, ApiResponse> r : op.getResponses().entrySet()) {
                 Integer status = parseStatus(r.getKey());
                 if (status == null) {
+                    // A range ('2XX'/'5XX') or 'default' key isn't a concrete status — surface it rather than silently
+                    // dropping the response (its schema/media type would otherwise be invisible to the status diff).
+                    blindSpots.add("Spec response '" + r.getKey() + "' on " + method.name() + " " + path
+                            + " is a range/default key, not a concrete status code — not compared.");
                     continue;
                 }
                 var content = r.getValue() == null ? null : r.getValue().getContent();
@@ -319,7 +327,8 @@ public class OpenApiModelExtractor {
                 SourceRef.spec(specId, "/paths" + path + "/" + method.name().toLowerCase(), null));
     }
 
-    private ParamModel toParam(String specId, String path, Parameter p, io.swagger.v3.oas.models.Components components) {
+    private ParamModel toParam(String specId, String path, Parameter p, io.swagger.v3.oas.models.Components components,
+                               List<String> blindSpots) {
         // setResolve(true) dereferences SCHEMA $refs in bodies/responses, but leaves a PARAMETER $ref — and a
         // parameter whose SCHEMA is itself a $ref to a reusable type/enum — UNRESOLVED. Dereference both by name
         // against components so the param's name, schema and (crucially) its enum are visible; otherwise an
@@ -343,6 +352,21 @@ public class OpenApiModelExtractor {
             default -> ParamLocation.QUERY;
         };
         Schema schema = p.getSchema();
+        // A complex param can be declared via `content` (parameter.content[media].schema) instead of `schema`; pull the
+        // schema from the single content entry so its type/constraints/enum aren't lost (it would look opaque otherwise).
+        if (schema == null && p.getContent() != null) {
+            for (MediaType mt : p.getContent().values()) {
+                if (mt != null && mt.getSchema() != null) {
+                    schema = mt.getSchema();
+                    break;
+                }
+            }
+        }
+        // deepObject serialization can't be reconciled against Spring's flat binding — surface it rather than guess.
+        if (p.getStyle() != null && "deepobject".equalsIgnoreCase(p.getStyle().toString())) {
+            blindSpots.add("Spec parameter '" + p.getName() + "' on " + path + " uses deepObject serialization, which "
+                    + "is not modelled against the code binding.");
+        }
         // Follow the schema $ref chain TRANSITIVELY (schema:{$ref:A}, A:{$ref:B}, B:{enum:[…]}) — a reusable enum is
         // often reached through more than one hop — with a cycle guard. Otherwise the enum stays invisible and the
         // value-level drift is missed.
@@ -403,20 +427,72 @@ public class OpenApiModelExtractor {
     }
 
     @SuppressWarnings("rawtypes")
-    private SchemaModel toSchema(String specId, String name, Schema schema) {
+    private SchemaModel toSchema(String specId, String name, Schema schema, List<String> blindSpots) {
         List<FieldModel> fields = new ArrayList<>();
         List<String> required = schema.getRequired() == null ? List.of() : schema.getRequired();
-        if (schema.getProperties() != null) {
-            Map<String, Schema> props = schema.getProperties();
-            for (Map.Entry<String, Schema> prop : props.entrySet()) {
-                Schema ps = prop.getValue();
-                fields.add(new FieldModel(prop.getKey(), ps.getType(), ps.getFormat(),
-                        required.contains(prop.getKey()), constraints(ps), refName(ps.get$ref()),
-                        SourceRef.spec(specId, "/components/schemas/" + name + "/properties/" + prop.getKey(), null)));
+        collectSchemaProps(specId, name, schema.getProperties(), required, fields);
+        // allOf (inheritance/mixin): merge each INLINE member's properties so the composed fields are visible to the
+        // diff. A $ref (or nested-allOf) member keeps its own named schema — compared by name elsewhere — but means
+        // this schema's field set here is incomplete, which we surface as a blind spot below.
+        boolean unflattenedAllOf = false;
+        if (schema.getAllOf() != null) {
+            for (Object o : schema.getAllOf()) {
+                Schema member = (Schema) o;
+                if (member.getProperties() != null && !member.getProperties().isEmpty()) {
+                    List<String> mreq = member.getRequired() == null ? required : member.getRequired();
+                    collectSchemaProps(specId, name, member.getProperties(), mreq, fields);
+                } else if (member.get$ref() != null || member.getAllOf() != null) {
+                    unflattenedAllOf = true;
+                }
             }
+        }
+        if (hasUnmodelledComposition(schema) || unflattenedAllOf) {
+            blindSpots.add("Spec schema '" + name + "' uses " + compositionKinds(schema, unflattenedAllOf)
+                    + " composition; its composed structure is not fully compared (field-level diff may be incomplete).");
         }
         return new SchemaModel(name, schema.getType(), fields, enumStrings(schema),
                 SourceRef.spec(specId, "/components/schemas/" + name, null));
+    }
+
+    @SuppressWarnings("rawtypes")
+    private void collectSchemaProps(String specId, String name, Map<String, Schema> props, List<String> required,
+                                    List<FieldModel> fields) {
+        if (props == null) {
+            return;
+        }
+        for (Map.Entry<String, Schema> prop : props.entrySet()) {
+            Schema ps = prop.getValue();
+            fields.add(new FieldModel(prop.getKey(), ps.getType(), ps.getFormat(),
+                    required.contains(prop.getKey()), constraints(ps), refName(ps.get$ref()),
+                    SourceRef.spec(specId, "/components/schemas/" + name + "/properties/" + prop.getKey(), null)));
+        }
+    }
+
+    @SuppressWarnings("rawtypes")
+    private boolean hasUnmodelledComposition(Schema s) {
+        return s.getOneOf() != null || s.getAnyOf() != null || s.getDiscriminator() != null
+                || s.getAdditionalProperties() instanceof Schema;   // additionalProperties:{schema} = free-form map
+    }
+
+    @SuppressWarnings("rawtypes")
+    private String compositionKinds(Schema s, boolean unflattenedAllOf) {
+        List<String> kinds = new ArrayList<>();
+        if (s.getOneOf() != null) {
+            kinds.add("oneOf");
+        }
+        if (s.getAnyOf() != null) {
+            kinds.add("anyOf");
+        }
+        if (unflattenedAllOf) {
+            kinds.add("allOf($ref)");
+        }
+        if (s.getDiscriminator() != null) {
+            kinds.add("discriminator");
+        }
+        if (s.getAdditionalProperties() instanceof Schema) {
+            kinds.add("additionalProperties");
+        }
+        return String.join(" / ", kinds);
     }
 
     @SuppressWarnings("rawtypes")
@@ -448,22 +524,35 @@ public class OpenApiModelExtractor {
         if (content == null) {
             return null;
         }
-        for (MediaType mt : content.values()) {
-            if (mt.getSchema() != null) {
-                Schema sc = mt.getSchema();
-                if (sc.get$ref() != null) {
-                    return refName(sc.get$ref());
-                }
-                if (sc.getItems() != null && sc.getItems().get$ref() != null) {
-                    return refName(sc.getItems().get$ref()) + "[]";
-                }
-                // "array" with unresolvable items is a container, not a named schema — return null (unknown)
-                // rather than the literal keyword "array", which would confuse name-based diff comparisons.
-                if ("array".equals(sc.getType())) {
-                    return null;
-                }
-                return sc.getType();
+        // Prefer a JSON media type deterministically when a body declares several (application/json + application/xml);
+        // first-wins on the Content map iteration order would otherwise bind an arbitrary schema.
+        MediaType chosen = null;
+        for (Map.Entry<String, MediaType> e : content.entrySet()) {
+            if (e.getValue() == null || e.getValue().getSchema() == null) {
+                continue;
             }
+            if (chosen == null) {
+                chosen = e.getValue();
+            }
+            if (e.getKey() != null && e.getKey().toLowerCase(java.util.Locale.ROOT).contains("json")) {
+                chosen = e.getValue();
+                break;
+            }
+        }
+        if (chosen != null) {
+            Schema sc = chosen.getSchema();
+            if (sc.get$ref() != null) {
+                return refName(sc.get$ref());
+            }
+            if (sc.getItems() != null && sc.getItems().get$ref() != null) {
+                return refName(sc.getItems().get$ref()) + "[]";
+            }
+            // "array" with unresolvable items is a container, not a named schema — return null (unknown)
+            // rather than the literal keyword "array", which would confuse name-based diff comparisons.
+            if ("array".equals(sc.getType())) {
+                return null;
+            }
+            return sc.getType();
         }
         return null;
     }
