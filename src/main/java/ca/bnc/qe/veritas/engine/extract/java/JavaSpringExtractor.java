@@ -158,13 +158,15 @@ public class JavaSpringExtractor {
                                 }
                             }
                         }
-                        // Mappings declared on an implemented interface aren't analysed — if a controller yields no
-                        // endpoints of its own yet implements interfaces, say so (don't drop silently).
-                        if (endpoints.size() == before && ctrl instanceof ClassOrInterfaceDeclaration coid
-                                && !coid.getImplementedTypes().isEmpty()) {
-                            blindSpots.add("Controller '" + ctrl.getNameAsString() + "' has no mappings on its own methods"
-                                    + " but implements " + coid.getImplementedTypes()
-                                    + "; mappings declared on interfaces are not analysed.");
+                        // Mappings declared on an implemented interface aren't analysed (only superclass extends is
+                        // walked). Surface a blind spot when the controller implements interfaces AND either yields no
+                        // own endpoints (the all-interface case) OR a scanned interface declares @*Mapping methods (the
+                        // MIXED case: an own endpoint must not suppress the interface routes → false dead-spec).
+                        if (ctrl instanceof ClassOrInterfaceDeclaration coid && !coid.getImplementedTypes().isEmpty()
+                                && (endpoints.size() == before || implementsMappedInterface(coid, types))) {
+                            blindSpots.add("Controller '" + ctrl.getNameAsString() + "' implements "
+                                    + coid.getImplementedTypes()
+                                    + " — mappings declared on interfaces are not analysed.");
                         }
                     });
         }
@@ -269,7 +271,9 @@ public class JavaSpringExtractor {
                     continue;
                 }
                 try {
-                    t.resolve();   // symbol-solver resolution; throws UnsolvedSymbolException if unknown
+                    if (t.resolve().isTypeVariable()) {
+                        return false;   // a generic type parameter (e.g. base-controller T) — not a real, bindable type
+                    }
                     return true;
                 } catch (Throwable ignore) {
                     return false;   // genuinely unresolved → caller records a blind spot
@@ -891,6 +895,19 @@ public class JavaSpringExtractor {
      * excluding any the subclass overrides ({@code seenSignatures} carries the subclass's own signatures). Only
      * bases present in the scanned sources are walked; an unresolved base is flagged as a blind spot by the caller.
      */
+    /** True when a scanned implemented interface declares a @*Mapping method — those routes are not analysed (only
+     *  superclass extends is walked), so the caller surfaces a blind spot even when the controller has its own methods. */
+    private boolean implementsMappedInterface(ClassOrInterfaceDeclaration coid, Map<String, TypeDeclaration<?>> types) {
+        for (ClassOrInterfaceType itf : coid.getImplementedTypes()) {
+            if (types.get(itf.getNameAsString()) instanceof ClassOrInterfaceDeclaration idecl
+                    && idecl.getMethods().stream().anyMatch(mm ->
+                            mm.getAnnotations().stream().anyMatch(a -> a.getNameAsString().endsWith("Mapping")))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private List<MethodDeclaration> inheritedMappedMethods(ClassOrInterfaceDeclaration coid,
                                                            Map<String, TypeDeclaration<?>> types,
                                                            Set<String> seenSignatures, Set<String> visited) {
