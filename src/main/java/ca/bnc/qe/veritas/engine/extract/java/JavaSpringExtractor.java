@@ -847,8 +847,12 @@ public class JavaSpringExtractor {
             }
         }
 
-        List<String> security = new ArrayList<>(classSecurity);
-        security.addAll(securityOf(m, types));   // method-level security adds to (overrides conceptually) the class default
+        // Spring method-security is most-specific-wins: a method-level @PreAuthorize/@Secured/@RolesAllowed REPLACES the
+        // class default (it does not union). So a method @PreAuthorize("permitAll()") on a secured controller is OPEN —
+        // unioning would keep the class roles and fabricate a false SECURITY_MISMATCH against a correctly-open spec.
+        List<String> security = hasSecurityAnnotation(m, types)
+                ? securityOf(m, types)
+                : new ArrayList<>(classSecurity);
 
         SourceRef src = SourceRef.code(file, line(m), line(m), m.getDeclarationAsString(false, false, false));
         List<Endpoint> out = new ArrayList<>();
@@ -1079,9 +1083,41 @@ public class JavaSpringExtractor {
     }
 
     private void addSecurity(NodeWithAnnotations<?> n, List<String> out) {
-        getAnnotation(n, "PreAuthorize").map(a -> firstString(a, "value")).filter(s -> s != null).ifPresent(out::add);
+        // A @PreAuthorize whose SpEL is an OPEN/DENY sentinel (permitAll/isAnonymous/denyAll/constant-false) is not an
+        // authorization constraint — the SecurityFilterChain path already excludes PERMIT_ALL / blind-spots denyAll, so
+        // mirror that here; otherwise an explicitly-open endpoint fabricates a false (CRITICAL) SECURITY_MISMATCH.
+        getAnnotation(n, "PreAuthorize").map(a -> firstString(a, "value"))
+                .filter(JavaSpringExtractor::isSecuringSpel).ifPresent(out::add);
         getAnnotation(n, "Secured").ifPresent(a -> out.addAll(stringValues(a, "value")));
         getAnnotation(n, "RolesAllowed").ifPresent(a -> out.addAll(stringValues(a, "value")));
+    }
+
+    /** Open/deny SpEL sentinels that do NOT constrain access (normalized: lower-cased, parens/space stripped). */
+    private static final Set<String> NON_SECURING_SPEL = Set.of(
+            "permitall", "isanonymous", "anonymous", "denyall", "false");
+
+    /** True when a @PreAuthorize SpEL actually constrains access (hasRole/hasAuthority/isAuthenticated/...). */
+    private static boolean isSecuringSpel(String spel) {
+        if (spel == null) {
+            return false;
+        }
+        String s = spel.trim().toLowerCase(java.util.Locale.ROOT).replace("()", "").replace(" ", "");
+        return !NON_SECURING_SPEL.contains(s);
+    }
+
+    /** True when the node carries any (literal or composed) method-security annotation — so it OVERRIDES the class
+     *  default even when its resolved expression is open (e.g. method @PreAuthorize("permitAll()") on a secured class). */
+    private boolean hasSecurityAnnotation(NodeWithAnnotations<?> n, Map<String, TypeDeclaration<?>> types) {
+        if (has(n, "PreAuthorize") || has(n, "Secured") || has(n, "RolesAllowed")) {
+            return true;
+        }
+        for (AnnotationExpr a : n.getAnnotations()) {
+            if (types.get(a.getNameAsString()) instanceof AnnotationDeclaration decl
+                    && (has(decl, "PreAuthorize") || has(decl, "Secured") || has(decl, "RolesAllowed"))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Spring binding-param required flag: default true, but false when required=false or a defaultValue is set. */
