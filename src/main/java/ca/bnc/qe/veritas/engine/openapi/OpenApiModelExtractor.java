@@ -472,6 +472,13 @@ public class OpenApiModelExtractor {
             blindSpots.add("Spec schema '" + name + "' uses " + compositionKinds(schema, unflattenedAllOf)
                     + " composition; its composed structure is not fully compared (field-level diff may be incomplete).");
         }
+        // nullable:true (value may be null) is orthogonal to required (key must be present) and has no model channel,
+        // so a non-null code field vs a nullable spec field is not compared — surface it rather than silently drop it.
+        if (schema.getProperties() != null && schema.getProperties().values().stream()
+                .anyMatch(p -> p instanceof Schema s && Boolean.TRUE.equals(s.getNullable()))) {
+            blindSpots.add("Spec schema '" + name + "' declares nullable propert(ies); nullability (a non-null code "
+                    + "field vs a nullable spec field) is not compared — verify it.");
+        }
         return new SchemaModel(name, schema.getType(), fields, enumStrings(schema),
                 SourceRef.spec(specId, "/components/schemas/" + name, null));
     }
