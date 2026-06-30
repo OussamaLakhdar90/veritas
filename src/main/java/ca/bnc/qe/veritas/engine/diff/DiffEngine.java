@@ -11,6 +11,7 @@ import ca.bnc.qe.veritas.engine.model.ApiModel;
 import ca.bnc.qe.veritas.engine.model.ConstraintSet;
 import ca.bnc.qe.veritas.engine.model.Endpoint;
 import ca.bnc.qe.veritas.engine.model.FieldModel;
+import ca.bnc.qe.veritas.engine.model.HttpMethod;
 import ca.bnc.qe.veritas.engine.model.ParamLocation;
 import ca.bnc.qe.veritas.engine.model.ParamModel;
 import ca.bnc.qe.veritas.engine.model.ResponseModel;
@@ -37,6 +38,17 @@ public class DiffEngine {
         Map<String, Endpoint> specByKey = indexByKey(spec);
         Map<String, Endpoint> codeByPath = indexByPath(code);
         Map<String, Endpoint> specByPath = indexByPath(spec);
+        Map<String, java.util.Set<HttpMethod>> codeVerbsByPath = verbsByPath(code);
+        Map<String, java.util.Set<HttpMethod>> specVerbsByPath = verbsByPath(spec);
+        java.util.Set<String> verbMismatchPaths = new java.util.HashSet<>();   // report a path's verb divergence once
+        // Distinct spec operations can collapse to the same normalized key (e.g. /orders/{orderId} and /orders/{id} →
+        // "GET /orders/{}"); last-wins indexByKey then silently drops one. Surface the ambiguity rather than hide it.
+        if (spec.endpoints().size() > specByKey.size()) {
+            findings.add(finding(FindingType.EXTRA_ENDPOINT, "spec-key-collision", spec.source(),
+                    "Two or more spec operations collapse to the same normalized signature (distinct path-variable "
+                            + "names or letter-casing); code-vs-spec matching is ambiguous for them and they may not be "
+                            + "compared reliably.", null, Confidence.LOW));
+        }
 
         // L1 — a real spec must carry info.title + info.version (only checked for actual parsed specs).
         if (spec.openApiVersion() != null) {
@@ -58,11 +70,14 @@ public class DiffEngine {
                 continue;
             }
             // same path, different verb → verb mismatch rather than "missing"
-            Endpoint sByPath = specByPath.get(normPath(ce.pathTemplate()));
+            String np = normPath(ce.pathTemplate());
+            Endpoint sByPath = specByPath.get(np);
             if (sByPath != null) {
+                verbMismatchPaths.add(np);
                 findings.add(finding(FindingType.VERB_MISMATCH, label(ce), spec.source(),
                         "Code exposes " + ce.method() + " " + ce.pathTemplate()
-                                + " but the spec defines " + sByPath.method() + " for that path",
+                                + " but the spec defines " + specVerbsByPath.getOrDefault(np, java.util.Set.of())
+                                + " for that path",
                         ce, Confidence.HIGH));
             } else {
                 findings.add(finding(FindingType.MISSING_ENDPOINT, label(ce), spec.source(),
@@ -77,14 +92,27 @@ public class DiffEngine {
         boolean codeIncomplete = codeExtractionIncomplete(code);
         int unverifiable = 0;
         for (Endpoint se : spec.endpoints()) {
-            if (!codeByKey.containsKey(key(se)) && !codeByPath.containsKey(normPath(se.pathTemplate()))) {
-                if (codeIncomplete) {
-                    unverifiable++;
-                } else {
-                    findings.add(finding(FindingType.EXTRA_ENDPOINT, se.signature(), spec.source(),
-                            "Endpoint " + se.signature() + " is in the spec but not found in code (dead spec?)",
-                            null, Confidence.MEDIUM));
+            if (codeByKey.containsKey(key(se))) {
+                continue;   // matched by verb+path → already compared in the code-iteration loop
+            }
+            String np = normPath(se.pathTemplate());
+            if (codeByPath.containsKey(np)) {
+                // The PATH exists in code but not under this verb — the spec documents an operation the code does not
+                // implement. Previously this was silently dropped (the path-only guard suppressed it even when the code
+                // GET already matched a spec GET, hiding an unimplemented spec POST). Report it once per path (the code
+                // iteration may already have flagged the converse direction for the same path).
+                if (verbMismatchPaths.add(np)) {
+                    findings.add(finding(FindingType.VERB_MISMATCH, se.signature(), spec.source(),
+                            "Spec documents " + se.method() + " " + se.pathTemplate() + " but the code exposes "
+                                    + codeVerbsByPath.getOrDefault(np, java.util.Set.of()) + " on that path",
+                            null, Confidence.HIGH));
                 }
+            } else if (codeIncomplete) {
+                unverifiable++;
+            } else {
+                findings.add(finding(FindingType.EXTRA_ENDPOINT, se.signature(), spec.source(),
+                        "Endpoint " + se.signature() + " is in the spec but not found in code (dead spec?)",
+                        null, Confidence.MEDIUM));
             }
         }
         if (unverifiable > 0) {
@@ -361,7 +389,8 @@ public class DiffEngine {
         // same response divergence — otherwise one schema defect would be penalised twice (the coarse mismatch AND its
         // per-field findings), depressing the FidelityScore for a single underlying defect. The coarse finding is still
         // the only signal for array-vs-object (fieldDiffByBinding returns early there) and is retained for it.
-        if (codeRef != null && specRef != null && !fieldLevelEmitted && !normRef(codeRef).equals(normRef(specRef))
+        if (codeRef != null && specRef != null && !fieldLevelEmitted
+                && (arrayRef(codeRef) != arrayRef(specRef) || !normRef(codeRef).equals(normRef(specRef)))
                 && structuralVerdict(code, spec, codeRef, specRef) == SchemaVerdict.DIFFER) {
             findings.add(finding(FindingType.RESPONSE_SCHEMA_MISMATCH, label(ce), spec.source(),
                     "Success response schema — code returns '" + codeRef + "' but the spec declares '" + specRef + "'",
@@ -740,6 +769,14 @@ public class DiffEngine {
     private Map<String, Endpoint> indexByPath(ApiModel m) {
         Map<String, Endpoint> map = new LinkedHashMap<>();
         m.endpoints().forEach(e -> map.putIfAbsent(normPath(e.pathTemplate()), e));
+        return map;
+    }
+
+    /** All HTTP verbs declared on each normalized path — so a verb-mismatch message names the full set, not one. */
+    private Map<String, java.util.Set<HttpMethod>> verbsByPath(ApiModel m) {
+        Map<String, java.util.Set<HttpMethod>> map = new LinkedHashMap<>();
+        m.endpoints().forEach(e ->
+                map.computeIfAbsent(normPath(e.pathTemplate()), k -> new java.util.TreeSet<>()).add(e.method()));
         return map;
     }
 
