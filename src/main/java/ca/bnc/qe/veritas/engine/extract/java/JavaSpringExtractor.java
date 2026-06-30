@@ -794,6 +794,18 @@ public class JavaSpringExtractor {
                 blindSpots.add("Controller " + controllerClass + "." + m.getNameAsString() + " binds a "
                         + simpleTypeName(p.getType()) + " (pagination); its page/size/sort query params are resolved by "
                         + "Spring and not modelled — verify them against the spec.");
+            } else if (hasMeta(p, "MatrixVariable", types)) {
+                // A matrix URI segment param (;k=v) — OpenAPI models it (style:matrix), but we don't, so surface it
+                // rather than let a spec param it corresponds to false-diff (parity with the other resolver bindings).
+                blindSpots.add("Controller " + controllerClass + "." + m.getNameAsString() + " binds a @MatrixVariable '"
+                        + p.getNameAsString() + "' — matrix URI segment params are not modelled; verify them.");
+            } else if (isImplicitModelAttribute(p, types)) {
+                // An unannotated command-object (scanned DTO) param is bound by Spring as an IMPLICIT @ModelAttribute,
+                // flattening its fields to query/form params at runtime — same as the explicit @ModelAttribute branch.
+                // Surface it so those spec-side params don't each false-diff as PARAM_EXTRA.
+                blindSpots.add("Controller " + controllerClass + "." + m.getNameAsString() + " binds an (implicit "
+                        + "@ModelAttribute) " + simpleTypeName(p.getType()) + " command object — its form/query fields "
+                        + "are not expanded; verify them.");
             }
         }
         // A multipart handler (@RequestPart) HAS a body even without @RequestBody — model it as multipart/form-data so
@@ -1818,6 +1830,30 @@ public class JavaSpringExtractor {
         }
         // primitive/wrapper or DTO return — still a body (openApiType decides scalar vs object schema).
         return new BodyType(simple, false, false, false);
+    }
+
+    /** Framework-injected or simple/value parameter types that Spring resolves directly — never a command object. */
+    private static final Set<String> INJECTED_OR_SIMPLE = Set.of(
+            "HttpServletRequest", "HttpServletResponse", "ServletRequest", "ServletResponse", "Principal",
+            "Authentication", "Model", "ModelMap", "BindingResult", "Errors", "Locale", "TimeZone", "ZoneId",
+            "WebRequest", "NativeWebRequest", "HttpSession", "HttpMethod", "UriComponentsBuilder", "InputStream",
+            "OutputStream", "Reader", "Writer", "RedirectAttributes", "SessionStatus", "MultipartFile",
+            "MultipartHttpServletRequest", "HttpEntity", "RequestEntity", "Object",
+            "String", "CharSequence", "Integer", "Long", "Short", "Byte", "Boolean", "Double", "Float", "BigDecimal",
+            "BigInteger", "Character", "UUID", "Date", "LocalDate", "LocalDateTime", "LocalTime", "Instant",
+            "OffsetDateTime", "ZonedDateTime");
+
+    /** True when an UNANNOTATED parameter is a command object Spring binds as an implicit @ModelAttribute: a scanned
+     *  DTO class (not an interface), excluding injected/simple types and params that carry a (non-marker) annotation. */
+    private boolean isImplicitModelAttribute(Parameter p, Map<String, TypeDeclaration<?>> types) {
+        boolean onlyMarkers = p.getAnnotations().stream().allMatch(a ->
+                a.getNameAsString().equals("Valid") || a.getNameAsString().equals("Validated"));
+        if (!onlyMarkers) {
+            return false;   // an annotated param is resolved by something specific (e.g. @AuthenticationPrincipal)
+        }
+        String simple = simpleTypeName(p.getType());
+        return simple != null && !INJECTED_OR_SIMPLE.contains(simple)
+                && types.get(simple) instanceof ClassOrInterfaceDeclaration cid && !cid.isInterface();
     }
 
     /** Dictionary types whose body is a free-form object — never emitted as a named schema. */
