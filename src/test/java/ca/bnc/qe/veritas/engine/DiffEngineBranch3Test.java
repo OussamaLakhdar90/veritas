@@ -377,9 +377,9 @@ class DiffEngineBranch3Test {
 
     @Test
     void nestedArrayVsObjectBindingFieldIsAStructuralDiff() {
-        // binding field "child" is an array ref on the code side but an object ref on the spec side → propsEqual
-        // returns false at arrayRef(c)!=arrayRef(s) → DIFFER → coarse mismatch (fieldDiffByBinding bails on the
-        // array-vs-object outer pair? No — outer refs are object/object; the divergence is one level down).
+        // binding field "child" is an array ref on the code side but an object ref on the spec side → the per-field
+        // array-flip check emits a precise SCHEMA_FIELD_TYPE_MISMATCH at "child" (outer refs are object/object; the
+        // divergence is one level down, so it is reported at the field locus rather than the coarse response level).
         Map<String, SchemaModel> codeSchemas = Map.of(
                 "Root", refField("Root", "child", "ChildA[]"),
                 "ChildA", objField("ChildA", "v", "string"));
@@ -394,7 +394,7 @@ class DiffEngineBranch3Test {
                         List.of(new ResponseModel(200, "RootS", null, "SPEC", src)))), specSchemas);
 
         assertThat(diff.diffCodeVsSpec(code, spec).stream().map(Finding::getType))
-                .contains(FindingType.RESPONSE_SCHEMA_MISMATCH);
+                .contains(FindingType.SCHEMA_FIELD_TYPE_MISMATCH);
     }
 
     // ---- constraintMismatchDesc: each keyword branch reached individually ----

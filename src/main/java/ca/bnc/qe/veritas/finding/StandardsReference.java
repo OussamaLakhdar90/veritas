@@ -25,7 +25,7 @@ public final class StandardsReference {
                     "RFC 9110 — HTTP methods";
             case PARAM_MISSING, PARAM_EXTRA, PARAM_TYPE_MISMATCH, PARAM_REQUIRED_MISMATCH ->
                     "OpenAPI Specification — Parameter Object";
-            case REQUEST_BODY_PRESENCE_MISMATCH ->
+            case REQUEST_BODY_PRESENCE_MISMATCH, REQUEST_BODY_SCHEMA_MISMATCH ->
                     "OpenAPI Specification — Request Body Object";
             case STATUS_CODE_MISSING, STATUS_CODE_EXTRA ->
                     "RFC 9110 — HTTP status codes";

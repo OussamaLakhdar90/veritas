@@ -17,6 +17,7 @@ public enum FindingType {
     PARAM_TYPE_MISMATCH,
     PARAM_REQUIRED_MISMATCH,
     REQUEST_BODY_PRESENCE_MISMATCH,
+    REQUEST_BODY_SCHEMA_MISMATCH,    // body present on both sides but a different wire shape (e.g. array vs object)
     STATUS_CODE_MISSING,
     STATUS_CODE_EXTRA,
     RESPONSE_SCHEMA_MISMATCH,
