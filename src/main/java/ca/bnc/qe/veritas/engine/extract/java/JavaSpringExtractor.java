@@ -61,6 +61,7 @@ import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
 import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
+import com.github.javaparser.ast.expr.ThisExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithAnnotations;
 import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.stmt.ThrowStmt;
@@ -1942,29 +1943,43 @@ public class JavaSpringExtractor {
      *  so a stray ResponseEntity built in a never-invoked fallback lambda or passed to a side-call is NOT harvested —
      *  that would fabricate a phantom status and a scored false STATUS_CODE_MISSING on an endpoint that never returns it. */
     private List<Integer> allEntityStatuses(MethodDeclaration m) {
+        // Every value assigned to a NAME — declarator initializer, or assignment RHS (incl. `this.<name> = ...`).
+        // Used both to FOLLOW aliasing (a returned name initialised from another name) and to harvest statuses.
+        Map<String, List<Expression>> assignedValues = new HashMap<>();
+        for (VariableDeclarator vd : m.findAll(VariableDeclarator.class)) {
+            vd.getInitializer().ifPresent(init ->
+                    assignedValues.computeIfAbsent(vd.getNameAsString(), k -> new ArrayList<>()).add(init));
+        }
+        for (AssignExpr ae : m.findAll(AssignExpr.class)) {
+            String target = assignTargetName(ae.getTarget());
+            if (target != null) {
+                assignedValues.computeIfAbsent(target, k -> new ArrayList<>()).add(ae.getValue());
+            }
+        }
         List<ReturnStmt> returns = m.findAll(ReturnStmt.class);
         Set<String> returnedNames = new HashSet<>();
         for (ReturnStmt ret : returns) {
             if (ret.getExpression().orElse(null) instanceof NameExpr ne) {
-                returnedNames.add(ne.getNameAsString());   // `return r;` — r's declarator initializer is the returned value
+                returnedNames.add(ne.getNameAsString());   // `return r;`
             }
         }
+        // Transitively expand through plain-name aliasing: `built = status(CREATED); r = built; return r;` — `built`'s
+        // value also flows to the return, so follow `r -> built` and harvest built's status too.
+        Deque<String> queue = new ArrayDeque<>(returnedNames);
+        while (!queue.isEmpty()) {
+            for (Expression val : assignedValues.getOrDefault(queue.poll(), List.of())) {
+                if (val instanceof NameExpr alias && returnedNames.add(alias.getNameAsString())) {
+                    queue.add(alias.getNameAsString());
+                }
+            }
+        }
+        // Harvest from every value the method actually RETURNS — return-expression subtrees plus the values assigned
+        // to a returned name. A ResponseEntity built into a NON-returned local (a never-invoked fallback lambda, a probe
+        // passed to a side-call) is excluded — harvesting it would fabricate a phantom status + a false STATUS finding.
         List<Expression> returned = new ArrayList<>();
         returns.forEach(ret -> ret.getExpression().ifPresent(returned::add));
-        if (!returnedNames.isEmpty()) {
-            // A returned local's VALUE may be set in its declarator initializer OR in a later assignment
-            // (`ResponseEntity<T> r; if (...) r = ResponseEntity.ok(x); else r = ResponseEntity.status(CREATED)...; return r;`)
-            // — harvest both so the if/else-assign-then-return shape doesn't silently drop a real status.
-            for (VariableDeclarator vd : m.findAll(VariableDeclarator.class)) {
-                if (returnedNames.contains(vd.getNameAsString())) {
-                    vd.getInitializer().ifPresent(returned::add);
-                }
-            }
-            for (AssignExpr ae : m.findAll(AssignExpr.class)) {
-                if (ae.getTarget() instanceof NameExpr target && returnedNames.contains(target.getNameAsString())) {
-                    returned.add(ae.getValue());
-                }
-            }
+        for (String name : returnedNames) {
+            returned.addAll(assignedValues.getOrDefault(name, List.of()));
         }
         LinkedHashSet<Integer> out = new LinkedHashSet<>();
         for (Expression expr : returned) {
@@ -1982,6 +1997,18 @@ public class JavaSpringExtractor {
             }
         }
         return new ArrayList<>(out);
+    }
+
+    /** The assignable NAME an assignment targets: a bare local ({@code r = ...}) or a this-qualified field
+     *  ({@code this.r = ...}) — both set the name {@code r}. Returns null for other targets (array/index, other scope). */
+    private static String assignTargetName(Expression target) {
+        if (target instanceof NameExpr ne) {
+            return ne.getNameAsString();
+        }
+        if (target instanceof FieldAccessExpr fae && fae.getScope() instanceof ThisExpr) {
+            return fae.getNameAsString();
+        }
+        return null;
     }
 
     private List<Integer> responseEntityStatuses(MethodDeclaration m) {

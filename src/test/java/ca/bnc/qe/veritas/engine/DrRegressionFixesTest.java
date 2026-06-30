@@ -183,6 +183,107 @@ class DrRegressionFixesTest {
         assertThat(m.endpoints().get(0).responses()).extracting(r -> r.statusCode()).contains(200, 201);
     }
 
+    // (4c) Return-scoping must follow plain-name ALIASING (built -> r -> return r), not drop the real status.
+    @Test
+    void aliasedReturnedLocalStatusIsHarvested(@TempDir Path dir) throws Exception {
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.http.*;
+            @RestController class C {
+                @PostMapping("/a") public ResponseEntity<String> create() {
+                    ResponseEntity<String> built = ResponseEntity.status(HttpStatus.CREATED).body("x");
+                    ResponseEntity<String> r = built;
+                    return r;
+                }
+            }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(m.endpoints().get(0).responses()).anySatisfy(r -> assertThat(r.statusCode()).isEqualTo(201));
+        assertThat(m.endpoints().get(0).responses()).noneSatisfy(r -> assertThat(r.statusCode()).isEqualTo(200));
+    }
+
+    // (4d) Return-scoping must harvest a status assigned to a returned FIELD via `this.r = ...`.
+    @Test
+    void thisFieldAssignedReturnedStatusIsHarvested(@TempDir Path dir) throws Exception {
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.http.*;
+            @RestController class C {
+                private ResponseEntity<String> r;
+                @PostMapping("/a") public ResponseEntity<String> create() {
+                    this.r = ResponseEntity.status(HttpStatus.CREATED).body("x");
+                    return r;
+                }
+            }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(m.endpoints().get(0).responses()).anySatisfy(r -> assertThat(r.statusCode()).isEqualTo(201));
+        assertThat(m.endpoints().get(0).responses()).noneSatisfy(r -> assertThat(r.statusCode()).isEqualTo(200));
+    }
+
+    // (5b) Array-of-DTO-vs-scalar flip must STILL fire when the enclosing pair differs only by case (compareSchema gate
+    // is now case-sensitive, mirroring the components loop — neither path covered the case-skew pair before).
+    @Test
+    void arrayOfDtoVsScalarFlipFiresForCaseSkewEnclosingPair(@TempDir Path dir) throws Exception {
+        write(dir, "Item.java", "public class Item { public String sku; }");
+        write(dir, "OrderResponse.java", "import java.util.*; public class OrderResponse { public List<Item> items; }");
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            @RestController class C { @GetMapping("/o") public OrderResponse g() { return null; } }
+            """);
+        ApiModel code = new JavaSpringExtractor().extract(dir);
+        // spec component is the SAME name but lower-cased — the components loop (exact key) never reaches it.
+        ApiModel spec = spec("""
+            openapi: 3.0.1
+            info: { title: t, version: '1' }
+            paths:
+              /o:
+                get:
+                  responses:
+                    '200':
+                      description: ok
+                      content: { application/json: { schema: { $ref: '#/components/schemas/orderresponse' } } }
+            components:
+              schemas:
+                orderresponse: { type: object, properties: { items: { type: string } } }
+            """);
+        assertThat(new DiffEngine().diffCodeVsSpec(code, spec))
+                .anyMatch(f -> f.getType() == FindingType.SCHEMA_FIELD_TYPE_MISMATCH
+                        && f.getSummary() != null && f.getSummary().contains("items"));
+    }
+
+    // (6b) A fractional field (BigDecimal -> number) must NOT be folded as integer just because the spec carries an
+    // int32/int64 format — @Positive (>0) vs spec minimum:1 (>=1) is a REAL divergence on a number (0.5 passes one).
+    @Test
+    void numberFieldWithIntFormatIsNotFoldedAsInteger(@TempDir Path dir) throws Exception {
+        write(dir, "Account.java", """
+            import jakarta.validation.constraints.Positive;
+            import java.math.BigDecimal;
+            public class Account { @Positive public BigDecimal balance; }
+            """);
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            @RestController class C { @PostMapping("/a") public Account create(@RequestBody Account a) { return a; } }
+            """);
+        ApiModel code = new JavaSpringExtractor().extract(dir);
+        ApiModel spec = spec("""
+            openapi: 3.0.1
+            info: { title: t, version: '1' }
+            paths:
+              /a:
+                post:
+                  requestBody:
+                    content: { application/json: { schema: { $ref: '#/components/schemas/Account' } } }
+                  responses: { '200': { description: ok } }
+            components:
+              schemas:
+                Account: { type: object, properties: { balance: { type: number, format: int64, minimum: 1 } } }
+            """);
+        assertThat(new DiffEngine().diffCodeVsSpec(code, spec))
+                .anyMatch(f -> f.getType() == FindingType.CONSTRAINT_GAP
+                        && f.getSummary() != null && f.getSummary().contains("balance"));
+    }
+
     // (5) An array-of-DTO field vs a scalar must be reported ONCE, not double-counted with compareSchema.
     @Test
     void arrayOfDtoVsScalarFieldFlipFiresExactlyOnce(@TempDir Path dir) throws Exception {

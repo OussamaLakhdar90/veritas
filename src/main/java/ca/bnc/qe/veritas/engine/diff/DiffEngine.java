@@ -255,7 +255,7 @@ public class DiffEngine {
                     findings.add(finding(FindingType.CONSTRAINT_GAP, label(ce), spec.source(),
                             "Parameter '" + cp.name() + "' has code constraints not exposed in the spec", ce, Confidence.MEDIUM));
                 } else {
-                    boolean integerParam = isIntegerTyped(cp.type(), cp.format()) || isIntegerTyped(sp.type(), sp.format());
+                    boolean integerParam = isIntegerTyped(cp.type()) && isIntegerTyped(sp.type());
                     String diff = constraintMismatchDesc(cp.constraints(), sp.constraints(), integerParam);
                     if (diff != null) {
                         findings.add(finding(FindingType.CONSTRAINT_GAP, label(ce), spec.source(),
@@ -466,8 +466,11 @@ public class DiffEngine {
         }
         try {
             // Same-name pairs are already field-diffed by the components-schema loop (dedup collapses any overlap),
-            // so only run the diff here for the differently-named bound pairs that loop never reaches.
-            if (!baseName(codeRef).equalsIgnoreCase(baseName(specRef))) {
+            // so only run the diff here for the differently-named bound pairs that loop never reaches. The match must
+            // be CASE-SENSITIVE to mirror that loop's exact-key `spec.schemas().get(name)`: a case-skew pair
+            // (code `OrderResponse` vs spec `orderresponse`) is NOT covered by the components loop, so it must run here
+            // — otherwise an array-of-DTO-vs-scalar field flip (now delegated to compareSchema) would be dropped.
+            if (!baseName(codeRef).equals(baseName(specRef))) {
                 compareSchema(findings, spec.source(), locus, cs, ss);
             }
             if (depth <= 0) {
@@ -816,10 +819,12 @@ public class DiffEngine {
         return integerField && Boolean.TRUE.equals(c.exclusiveMax()) ? c.maximum() - 1 : c.maximum();
     }
 
-    /** True when a field/param is integer-typed (JSON {@code type: integer} or an int32/int64 format) — the only case
-     *  where the exclusive↔inclusive bound folding above is sound. */
-    private static boolean isIntegerTyped(String type, String format) {
-        return "integer".equals(type) || "int32".equals(format) || "int64".equals(format);
+    /** True when a field/param's VALUE SPACE is the integers (JSON {@code type: integer}) — the only case where the
+     *  exclusive↔inclusive bound folding above is sound. Deliberately ignores {@code format}: an int32/int64 format can
+     *  legally sit on {@code type: number} (swagger accepts it), and folding a fractional field's {@code >0} into
+     *  {@code >=1} would silently drop a real bound divergence (0.5 passes one, not the other). */
+    private static boolean isIntegerTyped(String type) {
+        return "integer".equals(type);
     }
 
     /** First constraint keyword whose value differs between two non-empty sets, or null if equivalent. */
@@ -924,7 +929,7 @@ public class DiffEngine {
                     findings.add(finding(FindingType.CONSTRAINT_GAP, name + "." + cf.jsonName(), specSource,
                             "Field '" + cf.jsonName() + "' has code constraints not exposed in the spec", null, Confidence.MEDIUM));
                 } else {
-                    boolean integerField = isIntegerTyped(cf.type(), cf.format()) || isIntegerTyped(sf.type(), sf.format());
+                    boolean integerField = isIntegerTyped(cf.type()) && isIntegerTyped(sf.type());
                     String diff = constraintMismatchDesc(cf.constraints(), sf.constraints(), integerField);
                     if (diff != null) {
                         findings.add(finding(FindingType.CONSTRAINT_GAP, name + "." + cf.jsonName(), specSource,
