@@ -831,6 +831,12 @@ public class JavaSpringExtractor {
                 boolean withBody = success != null && s.equals(success) && !ret.noBody();
                 responses.add(new ResponseModel(s, withBody ? ret.schemaRef() : null, null, "RESPONSE_ENTITY", retSrc));
             }
+        } else if (ret.responseEntity() && getAnnotation(m, "ResponseStatus").isEmpty() && hasUnresolvedStatusCall(m)) {
+            // A ResponseEntity.status(...) whose code couldn't be resolved (a non-literal var, or HttpStatusCode.valueOf(n))
+            // — don't fabricate a phantom 200 (which would emit a false STATUS_CODE_MISSING(200) and drop the real
+            // status). Record an honest gap instead, mirroring the @ExceptionHandler unresolved-status blind spot.
+            blindSpots.add("Controller " + controllerClass + "." + m.getNameAsString() + " builds a ResponseEntity whose "
+                    + "status could not be resolved statically; its real status is not compared to the spec.");
         } else {
             int status = responseStatus(m);
             responses.add(new ResponseModel(status, ret.noBody() ? null : ret.schemaRef(), null,
@@ -1729,6 +1735,21 @@ public class JavaSpringExtractor {
         return statusFromText(call.getArgument(0).toString().trim());
     }
 
+    /** True when the method has a {@code ResponseEntity.status(arg)} call whose argument is present but did not resolve
+     *  to a numeric code (a non-literal var, or {@code HttpStatusCode.valueOf(n)}) — used to surface an honest gap
+     *  instead of defaulting that endpoint to a phantom 200. */
+    private boolean hasUnresolvedStatusCall(MethodDeclaration m) {
+        for (MethodCallExpr call : m.findAll(MethodCallExpr.class)) {
+            String scope = call.getScope().map(Object::toString).orElse("");
+            if ((scope.equals("ResponseEntity") || scope.endsWith(".ResponseEntity"))
+                    && call.getNameAsString().equals("status")
+                    && !call.getArguments().isEmpty() && statusFromArg(call) == null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** Map an int literal or an {@code HttpStatus.X} expression's text to a numeric status code, or null. */
     private Integer statusFromText(String arg) {
         if (arg == null) {
@@ -1739,21 +1760,17 @@ public class JavaSpringExtractor {
         } catch (NumberFormatException ignore) {
             // not a literal — fall through to HttpStatus name mapping
         }
-        String u = arg.toUpperCase(Locale.ROOT);
-        if (u.contains("NO_CONTENT")) return 204;
-        if (u.contains("CREATED")) return 201;
-        if (u.contains("ACCEPTED")) return 202;
-        if (u.contains("BAD_REQUEST")) return 400;
-        if (u.contains("UNAUTHORIZED")) return 401;
-        if (u.contains("FORBIDDEN")) return 403;
-        if (u.contains("NOT_FOUND")) return 404;
-        if (u.contains("NOT_ACCEPTABLE")) return 406;
-        if (u.contains("CONFLICT")) return 409;
-        if (u.contains("UNPROCESSABLE")) return 422;
-        if (u.contains("INTERNAL_SERVER_ERROR")) return 500;
-        if (u.contains("BAD_GATEWAY")) return 502;
-        if (u.contains("SERVICE_UNAVAILABLE")) return 503;
-        if (u.endsWith("OK")) return 200;
+        // Resolve the trailing enum name (HttpStatus.SEE_OTHER / org...HttpStatus.SEE_OTHER / SEE_OTHER) against the
+        // REAL Spring HttpStatus enum — the old hardcoded 14-entry ladder collapsed every other value (3xx redirects,
+        // 205/206/207, 405/410/429, …) to null → a fabricated 200. HttpStatus has ~60 values; this resolves them all.
+        String name = arg.substring(arg.lastIndexOf('.') + 1).trim();
+        if (name.matches("[A-Z][A-Z0-9_]*")) {
+            try {
+                return org.springframework.http.HttpStatus.valueOf(name).value();
+            } catch (IllegalArgumentException notAnHttpStatusName) {
+                return null;
+            }
+        }
         return null;
     }
 

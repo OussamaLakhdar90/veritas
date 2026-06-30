@@ -276,9 +276,10 @@ class JavaSpringExtractorBranch3Test {
     // Unusual status sources falling back to the 200 default.
     // ---------------------------------------------------------------------------------------------------------
 
-    /** An unmapped HttpStatus (I_AM_A_TEAPOT) in ResponseEntity.status(...) resolves to no code → 200 default. */
+    /** Any real HttpStatus (incl. I_AM_A_TEAPOT) in ResponseEntity.status(...) now resolves via the full enum → 418,
+     *  not a fabricated 200 (the old hardcoded ladder only knew ~14 names). */
     @Test
-    void unmappedHttpStatusFallsBackToDefaultSuccess(@TempDir Path dir) throws Exception {
+    void anyRealHttpStatusResolvesThroughTheFullEnum(@TempDir Path dir) throws Exception {
         Files.writeString(dir.resolve("Ctrl.java"), WEB
                 + "import org.springframework.http.ResponseEntity;\n"
                 + "import org.springframework.http.HttpStatus;\n"
@@ -289,8 +290,7 @@ class JavaSpringExtractorBranch3Test {
 
         Endpoint e = only(extract(dir));
 
-        // The teapot status is not in statusFromText's map → no entityStatuses → the endpoint defaults to 200.
-        assertThat(e.responses()).extracting(ResponseModel::statusCode).containsExactly(200);
+        assertThat(e.responses()).extracting(ResponseModel::statusCode).containsExactly(418);
     }
 
     /** An unknown ResponseEntity factory (e.g. .ok() with only a header builder) yields no recognised status → 200. */
