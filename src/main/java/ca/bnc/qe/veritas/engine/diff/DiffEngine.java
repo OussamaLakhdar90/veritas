@@ -255,8 +255,8 @@ public class DiffEngine {
                     findings.add(finding(FindingType.CONSTRAINT_GAP, label(ce), spec.source(),
                             "Parameter '" + cp.name() + "' has code constraints not exposed in the spec", ce, Confidence.MEDIUM));
                 } else {
-                    boolean integerParam = isIntegerTyped(cp.type());
-                    String diff = constraintMismatchDesc(cp.constraints(), sp.constraints(), integerParam);
+                    String diff = constraintMismatchDesc(cp.constraints(), sp.constraints(),
+                            isIntegerTyped(cp.type()), isIntegerTyped(sp.type()));
                     if (diff != null) {
                         findings.add(finding(FindingType.CONSTRAINT_GAP, label(ce), spec.source(),
                                 "Parameter '" + cp.name() + "' constraint mismatch — " + diff, ce, Confidence.MEDIUM));
@@ -819,12 +819,17 @@ public class DiffEngine {
         return integerField && Boolean.TRUE.equals(c.exclusiveMax()) ? c.maximum() - 1 : c.maximum();
     }
 
-    /** True when a field/param's VALUE SPACE is the integers (JSON {@code type: integer}). The bound fold above is keyed
-     *  on the CODE side only: the Java type is the source of truth for the runtime value space, so a code integer field
-     *  whose values are all {@code >0} is exactly {@code >=1} regardless of whether a (possibly type-less / loose) spec
-     *  declares the type. Deliberately ignores {@code format}: an int32/int64 format can legally sit on
-     *  {@code type: number} (swagger accepts it), and folding a fractional field's {@code >0} into {@code >=1} would
-     *  silently drop a real bound divergence (0.5 passes one, not the other). */
+    /** Effective exclusivity of a bound: an integer side's exclusivity is folded into its effective inclusive bound
+     *  (so it reads as inclusive here); a non-integer side keeps its declared exclusivity. */
+    private static boolean effectiveExclusive(Boolean exclusive, boolean integerField) {
+        return !integerField && Boolean.TRUE.equals(exclusive);
+    }
+
+    /** True when a side's VALUE SPACE is the integers (JSON {@code type: integer}). The bound fold is applied PER SIDE
+     *  by that side's own integer-ness: a code integer field whose values are all {@code >0} is exactly {@code >=1}, but
+     *  the spec side is only foldable when the spec itself declares integer — folding a (type-less / number) spec bound
+     *  off the code's integer-ness would mis-equate {@code >1} with {@code >=2} and drop a real divergence. Deliberately
+     *  ignores {@code format}: an int32/int64 format can legally sit on {@code type: number} (swagger accepts it). */
     private static boolean isIntegerTyped(String type) {
         return "integer".equals(type);
     }
@@ -835,7 +840,7 @@ public class DiffEngine {
         return cs != null && cs.enumValues() != null && !cs.enumValues().isEmpty();
     }
 
-    private String constraintMismatchDesc(ConstraintSet c, ConstraintSet s, boolean integerField) {
+    private String constraintMismatchDesc(ConstraintSet c, ConstraintSet s, boolean codeInteger, boolean specInteger) {
         if (c == null || s == null) {
             return null;
         }
@@ -845,25 +850,25 @@ public class DiffEngine {
         if (!Objects.equals(c.maxLength(), s.maxLength())) {
             return "maxLength code=" + c.maxLength() + " spec=" + s.maxLength();
         }
-        // For an INTEGER field an exclusive bound folds into the next inclusive integer (>0 ≡ >=1, <0 ≡ <=-1), so a
-        // code @Positive (minimum 0, exclusive) and a spec `minimum: 1` express the SAME constraint — compare on the
-        // effective inclusive bound to avoid a false CONSTRAINT_GAP. For non-integers >0 ≠ >=1, so the raw value stands.
-        if (!Objects.equals(effectiveMin(c, integerField), effectiveMin(s, integerField))) {
-            return "minimum code=" + effectiveMin(c, integerField) + " spec=" + effectiveMin(s, integerField);
+        // For an INTEGER side an exclusive bound folds into the next inclusive integer (>0 ≡ >=1, <0 ≡ <=-1), so a
+        // code @Positive (minimum 0, exclusive) and a spec `minimum: 1` express the SAME constraint. The fold is keyed
+        // PER SIDE by that side's own integer-ness — never the other's. Folding the spec's bound off the CODE being
+        // integer would mis-equate a code `>=2` integer with a spec `>1` on a (type-less / number) field that actually
+        // admits 1.5, silently dropping a real divergence.
+        if (!Objects.equals(effectiveMin(c, codeInteger), effectiveMin(s, specInteger))) {
+            return "minimum code=" + effectiveMin(c, codeInteger) + " spec=" + effectiveMin(s, specInteger);
         }
-        if (!Objects.equals(effectiveMax(c, integerField), effectiveMax(s, integerField))) {
-            return "maximum code=" + effectiveMax(c, integerField) + " spec=" + effectiveMax(s, integerField);
+        if (!Objects.equals(effectiveMax(c, codeInteger), effectiveMax(s, specInteger))) {
+            return "maximum code=" + effectiveMax(c, codeInteger) + " spec=" + effectiveMax(s, specInteger);
         }
         // exclusiveMinimum/Maximum: null and false both mean "inclusive", so compare on TRUE-ness only (else a code
-        // null vs a spec explicit-false would false-diff). For integer fields the exclusivity is already folded into
-        // the effective inclusive bound above, so skip it here (else {0, exclusive} vs {1, inclusive} would re-diff).
-        if (!integerField) {
-            if (Boolean.TRUE.equals(c.exclusiveMin()) != Boolean.TRUE.equals(s.exclusiveMin())) {
-                return "exclusiveMinimum code=" + c.exclusiveMin() + " spec=" + s.exclusiveMin();
-            }
-            if (Boolean.TRUE.equals(c.exclusiveMax()) != Boolean.TRUE.equals(s.exclusiveMax())) {
-                return "exclusiveMaximum code=" + c.exclusiveMax() + " spec=" + s.exclusiveMax();
-            }
+        // null vs a spec explicit-false would false-diff). An integer side's exclusivity is already folded into its
+        // effective bound above, so it reads as inclusive here (else {0, exclusive} vs {1, inclusive} would re-diff).
+        if (effectiveExclusive(c.exclusiveMin(), codeInteger) != effectiveExclusive(s.exclusiveMin(), specInteger)) {
+            return "exclusiveMinimum code=" + c.exclusiveMin() + " spec=" + s.exclusiveMin();
+        }
+        if (effectiveExclusive(c.exclusiveMax(), codeInteger) != effectiveExclusive(s.exclusiveMax(), specInteger)) {
+            return "exclusiveMaximum code=" + c.exclusiveMax() + " spec=" + s.exclusiveMax();
         }
         if (!Objects.equals(c.pattern(), s.pattern())) {
             return "pattern code=" + c.pattern() + " spec=" + s.pattern();
@@ -931,8 +936,8 @@ public class DiffEngine {
                     findings.add(finding(FindingType.CONSTRAINT_GAP, name + "." + cf.jsonName(), specSource,
                             "Field '" + cf.jsonName() + "' has code constraints not exposed in the spec", null, Confidence.MEDIUM));
                 } else {
-                    boolean integerField = isIntegerTyped(cf.type());
-                    String diff = constraintMismatchDesc(cf.constraints(), sf.constraints(), integerField);
+                    String diff = constraintMismatchDesc(cf.constraints(), sf.constraints(),
+                            isIntegerTyped(cf.type()), isIntegerTyped(sf.type()));
                     if (diff != null) {
                         findings.add(finding(FindingType.CONSTRAINT_GAP, name + "." + cf.jsonName(), specSource,
                                 "Field '" + cf.jsonName() + "' constraint mismatch — " + diff, null, Confidence.MEDIUM));
