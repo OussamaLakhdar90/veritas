@@ -250,12 +250,15 @@ class JavaSpringExtractorBranchTest {
     }
 
     @Test
-    void pageWrapperBecomesArrayOfInner(@TempDir Path dir) throws Exception {
+    void pageWrapperIsAnObjectEnvelopeNotAnArray(@TempDir Path dir) throws Exception {
         Files.writeString(dir.resolve("User.java"), "package demo; public class User { public String id; }");
         Files.writeString(dir.resolve("C.java"), HDR + "import org.springframework.data.domain.Page;\n@RestController class C {"
                 + " @GetMapping(\"/u\") Page<User> g(){return null;} }");
 
-        assertThat(extract(dir).endpoints().get(0).responses().get(0).schemaRef()).isEqualTo("User[]");
+        // Page<User> serializes as an OBJECT envelope, not a bare User[] — no array ref leaks; surfaced as a blind spot.
+        ApiModel m = extract(dir);
+        assertThat(m.endpoints().get(0).responses().get(0).schemaRef()).isNull();
+        assertThat(m.blindSpots().toString()).contains("paged");
     }
 
     @Test

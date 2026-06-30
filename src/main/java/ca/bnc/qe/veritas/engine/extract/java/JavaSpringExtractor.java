@@ -772,7 +772,7 @@ public class JavaSpringExtractor {
             } else if (hasMeta(p, "CookieValue", types)) {
                 params.add(param(file, p, ParamLocation.COOKIE, bindingRequired(p, "CookieValue"), types));
             } else if (hasMeta(p, "RequestBody", types)) {
-                BodyType bt = unwrap(p.getType());
+                BodyType bt = unwrap(p.getType(), blindSpots);
                 if (bt.typeName() != null) {
                     referenced.add(bt.typeName());
                 }
@@ -803,7 +803,7 @@ public class JavaSpringExtractor {
                     SourceRef.code(file, line(m), line(m), "multipart request"));
         }
 
-        BodyType ret = unwrap(m.getType());
+        BodyType ret = unwrap(m.getType(), blindSpots);
         if (ret.typeName() != null) {
             referenced.add(ret.typeName());
         }
@@ -1342,7 +1342,7 @@ public class JavaSpringExtractor {
                                 + "is not compared to the spec.");
                         continue;
                     }
-                    BodyType bt = unwrap(m.getType());
+                    BodyType bt = unwrap(m.getType(), blindSpots);
                     if (bt.typeName() != null) {
                         referenced.add(bt.typeName());
                     }
@@ -1767,7 +1767,17 @@ public class JavaSpringExtractor {
         }
     }
 
-    private BodyType unwrap(Type type) {
+    private BodyType unwrap(Type type, List<String> blindSpots) {
+        // A Java array return: byte[]/Byte[] is a BINARY payload (OpenAPI string/binary), not a JSON array — letting the
+        // literal "byte[]" leak would make DiffEngine.arrayRef read it as an array and false-diff vs a string spec.
+        if (type instanceof com.github.javaparser.ast.type.ArrayType at) {
+            String elem = simpleTypeName(at.getComponentType());
+            if ("byte".equals(elem) || "Byte".equals(elem)) {
+                return new BodyType("string", false, false, false);
+            }
+            BodyType e = unwrap(at.getComponentType(), blindSpots);
+            return new BodyType(e.typeName(), true, e.typeName() == null, false);
+        }
         String simple = simpleTypeName(type);
         if (simple == null || "void".equals(simple) || "Void".equals(simple)) {
             return new BodyType(null, false, true, false);
@@ -1780,13 +1790,21 @@ public class JavaSpringExtractor {
             // Transparent wrappers — unwrap to the inner body type (envelope/async/reactive-single).
             // ENVELOPE_WRAPPERS only unwrap when parameterized (e.g. ApiResponse<User>); a bare type is left as-is.
             if (re || TRANSPARENT_WRAPPERS.contains(outer) || ENVELOPE_WRAPPERS.contains(outer)) {
-                BodyType b = unwrap(inner);
+                BodyType b = unwrap(inner, blindSpots);
                 return new BodyType(b.typeName(), b.array(), b.noBody(), re || b.responseEntity());
             }
-            // Collection-like — the body is an array of the inner type (incl. paged wrappers).
+            // Bare-array wrappers — the body is a JSON array of the inner type.
             if (ARRAY_WRAPPERS.contains(outer)) {
-                BodyType b = unwrap(inner);
+                BodyType b = unwrap(inner, blindSpots);
                 return new BodyType(b.typeName(), true, b.typeName() == null, false);
+            }
+            // Spring Data Page/Slice + HATEOAS PagedModel/CollectionModel serialize as an OBJECT envelope
+            // ({content:[...], totalElements, ...} / {_embedded, page}), NOT a bare array — modelling them as T[]
+            // forces a false array-vs-object RESPONSE_SCHEMA_MISMATCH against the (correct) paged-object spec.
+            if (PAGED_OBJECT_WRAPPERS.contains(outer)) {
+                blindSpots.add("Return type " + outer + "<" + simpleTypeName(inner) + "> is a paged/HATEOAS object "
+                        + "envelope; its field-by-field shape is not modelled — verify the paged wrapper against the spec.");
+                return new BodyType(null, false, false, false);   // unknown object body → no array-vs-object diff
             }
         }
         // Raw ResponseEntity/HttpEntity with no generics → genuinely unknown body, NOT a 'ResponseEntity' schema.
@@ -1814,9 +1832,12 @@ public class JavaSpringExtractor {
     private static final Set<String> ENVELOPE_WRAPPERS = Set.of(
             "ApiResponse", "ApiResult", "Result", "Response", "RestResponse", "DataResponse", "ResponseWrapper",
             "ResponseDTO", "ResponseDto", "Envelope", "BaseResponse", "GenericResponse", "ServiceResponse", "Wrapper");
-    /** Wrappers that mean "a collection of the inner type" (incl. Spring Data paged wrappers). */
+    /** Wrappers that serialize as a bare JSON array of the inner type. */
     private static final Set<String> ARRAY_WRAPPERS = Set.of(
-            "List", "Set", "Collection", "Flux", "Page", "Slice", "PagedModel", "CollectionModel");
+            "List", "Set", "Collection", "Flux");
+    /** Paged/HATEOAS wrappers that serialize as an OBJECT envelope, not a bare array (Page<X> = {content,total,...}). */
+    private static final Set<String> PAGED_OBJECT_WRAPPERS = Set.of(
+            "Page", "Slice", "PagedModel", "CollectionModel");
 
     // ---- annotation helpers ----
 
