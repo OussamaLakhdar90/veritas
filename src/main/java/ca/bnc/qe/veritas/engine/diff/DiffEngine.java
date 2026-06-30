@@ -138,7 +138,14 @@ public class DiffEngine {
     /** Stable key so a parameter is matched only against the spec parameter in the SAME location. */
     private static String paramKey(ParamModel p) {
         String loc = p.location() == null ? "?" : p.location().name();
-        return loc + ":" + (p.name() == null ? "" : p.name());
+        String name = p.name() == null ? "" : p.name();
+        // HTTP header field names are case-INSENSITIVE (RFC 9110 §5.1; Spring resolves them against a case-insensitive
+        // map), so X-Trace-ID and X-Trace-Id are the same header — fold the key for HEADER only (query/path/cookie
+        // names stay case-sensitive). The displayed name in messages still prints the raw casing.
+        if (p.location() == ParamLocation.HEADER) {
+            name = name.toLowerCase(Locale.ROOT);
+        }
+        return loc + ":" + name;
     }
 
     private static boolean isBlank(String s) {
