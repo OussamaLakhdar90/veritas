@@ -279,8 +279,15 @@ public class DiffEngine {
                 findings.add(finding(FindingType.CONSTRAINT_GAP, label(ce), spec.source(), enumMsg, ce, Confidence.LOW));
             }
         }
+        // The code binds query params loosely (a @ModelAttribute/command object, Pageable, @RequestParam Map bind-all,
+        // or @MatrixVariable) — the extractor emits ZERO params + a blind spot for these, so every flattened spec query
+        // param would otherwise false-diff as PARAM_EXTRA. Suppress that (the extractor's own intent).
+        boolean codeFlattensQueryParams = bindsAllQueryParams(code, ce);
         for (ParamModel sp : se.params()) {
             if (sp.location() == ParamLocation.PATH) {
+                continue;
+            }
+            if (codeFlattensQueryParams && (sp.location() == ParamLocation.QUERY || sp.location() == null)) {
                 continue;
             }
             if (!codeParams.containsKey(paramKey(sp))) {
@@ -465,7 +472,25 @@ public class DiffEngine {
             for (Map.Entry<String, FieldModel> e : cf.entrySet()) {
                 FieldModel c = e.getValue();
                 FieldModel s = sf.get(e.getKey());
-                if (s == null || c.refSchema() == null || s.refSchema() == null) {
+                if (s == null) {
+                    continue;
+                }
+                // One side binds a nested object/array DTO (refSchema != null), the other is a bare SCALAR — a provable
+                // wire-shape break (a JSON object/array can never equal a scalar). The compareSchema type guard lets
+                // "object" through, so this nested object-vs-scalar flip would otherwise be silently dropped.
+                if ((c.refSchema() != null) != (s.refSchema() != null)) {
+                    String scalarType = c.refSchema() != null ? s.type() : c.type();
+                    if (scalarType != null && !"object".equals(scalarType)) {
+                        findings.add(finding(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, locus + "." + e.getKey(),
+                                spec.source(), "Field '" + e.getKey() + "' of " + locus + " is "
+                                        + (c.refSchema() != null
+                                            ? "a nested object/array in code but a scalar (" + s.type() + ") in the spec"
+                                            : "a scalar (" + c.type() + ") in code but a nested object/array in the spec"),
+                                null, Confidence.HIGH));
+                    }
+                    continue;
+                }
+                if (c.refSchema() == null || s.refSchema() == null) {
                     continue;   // pair nested DTOs only where the binding field exists on both sides
                 }
                 if (arrayRef(c.refSchema()) != arrayRef(s.refSchema())) {
@@ -736,6 +761,19 @@ public class DiffEngine {
     private boolean centralizesSecurity(ApiModel code) {
         return code.blindSpots() != null && code.blindSpots().stream()
                 .anyMatch(b -> b != null && (b.contains("SecurityFilterChain") || b.contains("HttpSecurity")));
+    }
+
+    /** True when the code endpoint binds query params loosely (a @ModelAttribute/command object, Pageable, @RequestParam
+     *  Map bind-all, or @MatrixVariable) — the extractor emits no params + a blind spot for these, so the spec's
+     *  flattened query params must NOT each be reported as PARAM_EXTRA. */
+    private boolean bindsAllQueryParams(ApiModel code, Endpoint ce) {
+        if (code.blindSpots() == null || ce.controllerClass() == null || ce.operationId() == null) {
+            return false;
+        }
+        String marker = ce.controllerClass() + "." + ce.operationId();
+        return code.blindSpots().stream().anyMatch(b -> b != null && b.contains(marker)
+                && (b.contains("binds all query params") || b.contains("@ModelAttribute") || b.contains("command object")
+                    || b.contains("pagination") || b.contains("@MatrixVariable")));
     }
 
     /** First constraint keyword whose value differs between two non-empty sets, or null if equivalent. */
