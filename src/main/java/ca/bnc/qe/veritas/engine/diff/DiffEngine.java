@@ -255,7 +255,7 @@ public class DiffEngine {
                     findings.add(finding(FindingType.CONSTRAINT_GAP, label(ce), spec.source(),
                             "Parameter '" + cp.name() + "' has code constraints not exposed in the spec", ce, Confidence.MEDIUM));
                 } else {
-                    boolean integerParam = isIntegerTyped(cp.type()) && isIntegerTyped(sp.type());
+                    boolean integerParam = isIntegerTyped(cp.type());
                     String diff = constraintMismatchDesc(cp.constraints(), sp.constraints(), integerParam);
                     if (diff != null) {
                         findings.add(finding(FindingType.CONSTRAINT_GAP, label(ce), spec.source(),
@@ -819,10 +819,12 @@ public class DiffEngine {
         return integerField && Boolean.TRUE.equals(c.exclusiveMax()) ? c.maximum() - 1 : c.maximum();
     }
 
-    /** True when a field/param's VALUE SPACE is the integers (JSON {@code type: integer}) — the only case where the
-     *  exclusive↔inclusive bound folding above is sound. Deliberately ignores {@code format}: an int32/int64 format can
-     *  legally sit on {@code type: number} (swagger accepts it), and folding a fractional field's {@code >0} into
-     *  {@code >=1} would silently drop a real bound divergence (0.5 passes one, not the other). */
+    /** True when a field/param's VALUE SPACE is the integers (JSON {@code type: integer}). The bound fold above is keyed
+     *  on the CODE side only: the Java type is the source of truth for the runtime value space, so a code integer field
+     *  whose values are all {@code >0} is exactly {@code >=1} regardless of whether a (possibly type-less / loose) spec
+     *  declares the type. Deliberately ignores {@code format}: an int32/int64 format can legally sit on
+     *  {@code type: number} (swagger accepts it), and folding a fractional field's {@code >0} into {@code >=1} would
+     *  silently drop a real bound divergence (0.5 passes one, not the other). */
     private static boolean isIntegerTyped(String type) {
         return "integer".equals(type);
     }
@@ -929,7 +931,7 @@ public class DiffEngine {
                     findings.add(finding(FindingType.CONSTRAINT_GAP, name + "." + cf.jsonName(), specSource,
                             "Field '" + cf.jsonName() + "' has code constraints not exposed in the spec", null, Confidence.MEDIUM));
                 } else {
-                    boolean integerField = isIntegerTyped(cf.type()) && isIntegerTyped(sf.type());
+                    boolean integerField = isIntegerTyped(cf.type());
                     String diff = constraintMismatchDesc(cf.constraints(), sf.constraints(), integerField);
                     if (diff != null) {
                         findings.add(finding(FindingType.CONSTRAINT_GAP, name + "." + cf.jsonName(), specSource,
