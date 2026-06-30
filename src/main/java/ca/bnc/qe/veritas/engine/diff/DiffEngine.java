@@ -722,7 +722,7 @@ public class DiffEngine {
         if (path == null) {
             return "/";
         }
-        String p = path.toLowerCase(Locale.ROOT).replaceAll("\\{[^}]*\\}", "{}");
+        String p = path.toLowerCase(Locale.ROOT).replaceAll("\\{[^}]*\\}", "{}").replaceAll("/+", "/");
         if (p.length() > 1 && p.endsWith("/")) {
             p = p.substring(0, p.length() - 1);
         }

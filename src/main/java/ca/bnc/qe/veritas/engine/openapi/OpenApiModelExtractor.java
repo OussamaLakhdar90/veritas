@@ -91,7 +91,21 @@ public class OpenApiModelExtractor {
         if (openApi.getServers() == null || openApi.getServers().isEmpty()) {
             return "";
         }
-        String url = openApi.getServers().get(0).getUrl();
+        // Aggregate the literal base path of EVERY server, not just servers[0]. If they disagree, apply none — mirror
+        // the code side, which refuses a prefix when the app config declares more than one base, rather than guessing
+        // servers[0]. (A templated/unresolvable server contributes nothing, so a resolvable sibling still wins.)
+        java.util.LinkedHashSet<String> bases = new java.util.LinkedHashSet<>();
+        for (io.swagger.v3.oas.models.servers.Server server : openApi.getServers()) {
+            String b = basePathOf(server.getUrl());
+            if (!b.isEmpty()) {
+                bases.add(b);
+            }
+        }
+        return bases.size() == 1 ? bases.iterator().next() : "";
+    }
+
+    /** The normalized literal base path of a single {@code servers[].url}, or "" when none/root/unresolvable. */
+    private static String basePathOf(String url) {
         if (url == null || url.isBlank()) {
             return "";
         }
@@ -144,7 +158,22 @@ public class OpenApiModelExtractor {
         } else {
             return "";  // no scheme and not path-rooted (e.g. "{server}") — nothing to recover
         }
-        return path.contains("{") ? "" : path;
+        if (path.contains("{")) {
+            return "";
+        }
+        return percentDecode(path);   // match the non-templated URI.create branch, which decodes %xx
+    }
+
+    /** Decode {@code %xx} escapes in a path so the templated and non-templated branches agree; '+' stays literal. */
+    private static String percentDecode(String path) {
+        if (path.indexOf('%') < 0) {
+            return path;
+        }
+        try {
+            return java.net.URLDecoder.decode(path.replace("+", "%2B"), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (RuntimeException e) {
+            return path;   // malformed escape — keep the raw literal rather than fail
+        }
     }
 
     /** Prepend {@code base} to a spec {@code path} (base already has no trailing slash; path may be "" or "/"). */
