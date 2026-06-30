@@ -754,7 +754,7 @@ public class JavaSpringExtractor {
                 params.add(param(file, p, ParamLocation.PATH, true, types));
             } else if (hasMeta(p, "RequestParam", types)) {
                 boolean required = getAnnotation(p, "RequestParam")
-                        .map(a -> !"false".equals(firstString(a, "required")) && firstString(a, "defaultValue") == null)
+                        .map(a -> !"false".equals(namedMember(a, "required")) && namedMember(a, "defaultValue") == null)
                         .orElse(true);
                 params.add(param(file, p, ParamLocation.QUERY, required, types));
             } else if (hasMeta(p, "RequestHeader", types)) {
@@ -1070,14 +1070,14 @@ public class JavaSpringExtractor {
 
     private void addSecurity(NodeWithAnnotations<?> n, List<String> out) {
         getAnnotation(n, "PreAuthorize").map(a -> firstString(a, "value")).filter(s -> s != null).ifPresent(out::add);
-        getAnnotation(n, "Secured").map(a -> firstString(a, "value")).filter(s -> s != null).ifPresent(out::add);
-        getAnnotation(n, "RolesAllowed").map(a -> firstString(a, "value")).filter(s -> s != null).ifPresent(out::add);
+        getAnnotation(n, "Secured").ifPresent(a -> out.addAll(stringValues(a, "value")));
+        getAnnotation(n, "RolesAllowed").ifPresent(a -> out.addAll(stringValues(a, "value")));
     }
 
     /** Spring binding-param required flag: default true, but false when required=false or a defaultValue is set. */
     private boolean bindingRequired(Parameter p, String annName) {
         return getAnnotation(p, annName)
-                .map(a -> !"false".equals(firstString(a, "required")) && firstString(a, "defaultValue") == null)
+                .map(a -> !"false".equals(namedMember(a, "required")) && namedMember(a, "defaultValue") == null)
                 .orElse(true);
     }
 
@@ -1168,8 +1168,8 @@ public class JavaSpringExtractor {
         }
         if (td instanceof RecordDeclaration rec) {
             for (Parameter c : rec.getParameters()) {
-                if (has(c, "JsonIgnore")) {
-                    continue;   // not serialized → not part of the JSON contract
+                if (isJsonIgnored(c)) {
+                    continue;   // not serialized → not part of the JSON contract (but @JsonIgnore(false) stays on the wire)
                 }
                 addField(out, seenNames, fieldOf(c.getNameAsString(), c.getType(), c, types));
             }
@@ -1177,7 +1177,7 @@ public class JavaSpringExtractor {
             for (FieldDeclaration fd : td.getFields()) {
                 // Skip statics and fields excluded from JSON (@JsonIgnore) — including them produces false
                 // SCHEMA_FIELD_MISSING/EXTRA diffs against a spec that (correctly) omits them.
-                if (fd.isStatic() || has(fd, "JsonIgnore")) {
+                if (fd.isStatic() || isJsonIgnored(fd)) {
                     continue;
                 }
                 fd.getVariables().forEach(v -> addField(out, seenNames, fieldOf(v.getNameAsString(), v.getType(), fd, types)));
@@ -1788,6 +1788,48 @@ public class JavaSpringExtractor {
             }
         }
         return null;
+    }
+
+    /**
+     * Value of an EXPLICITLY-named member ({@code @Ann(member=...)}); null for the single-member/marker forms. Unlike
+     * {@link #firstString}, {@code @RequestParam("q")} does NOT answer here — its value is the implicit {@code value},
+     * never {@code required}/{@code defaultValue}. (firstString would wrongly return "q" for any member, making
+     * {@code @RequestParam("q")} look required=false → a false PARAM_REQUIRED_MISMATCH.)
+     */
+    private String namedMember(AnnotationExpr a, String member) {
+        if (a instanceof NormalAnnotationExpr na) {
+            for (var pair : na.getPairs()) {
+                if (pair.getNameAsString().equals(member)) {
+                    return literal(pair.getValue().toString());
+                }
+            }
+        }
+        return null;
+    }
+
+    /** All string values of a member, handling the array form {@code @Ann({"A","B"})} (firstString truncates to "A"). */
+    private List<String> stringValues(AnnotationExpr a, String... members) {
+        Expression e = memberExpr(a, members);
+        if (e == null) {
+            return List.of();
+        }
+        List<Expression> elems = e instanceof ArrayInitializerExpr arr ? arr.getValues() : List.of(e);
+        List<String> out = new ArrayList<>();
+        for (Expression x : elems) {
+            String v = literal(x.toString());
+            if (v != null && !v.isBlank()) {
+                out.add(v);
+            }
+        }
+        return out;
+    }
+
+    /** True when {@code @JsonIgnore} excludes the property — present and not {@code @JsonIgnore(false)}. */
+    private boolean isJsonIgnored(NodeWithAnnotations<?> n) {
+        return getAnnotation(n, "JsonIgnore")
+                .map(a -> !(a instanceof SingleMemberAnnotationExpr sm)
+                        || !"false".equals(literal(sm.getMemberValue().toString())))
+                .orElse(false);
     }
 
     private String literal(String raw) {
