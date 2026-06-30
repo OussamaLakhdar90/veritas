@@ -183,9 +183,10 @@ class DrRegressionFixesTest {
         assertThat(m.endpoints().get(0).responses()).extracting(r -> r.statusCode()).contains(200, 201);
     }
 
-    // (4c) Return-scoping must follow plain-name ALIASING (built -> r -> return r), not drop the real status.
+    // (4c) An ALIASED returned local (built -> r -> return r) can't be followed syntactically without order-blind
+    // mis-attribution — so it must surface a BLIND SPOT, never a phantom 200 and never a guessed status.
     @Test
-    void aliasedReturnedLocalStatusIsHarvested(@TempDir Path dir) throws Exception {
+    void aliasedReturnedLocalSurfacesBlindSpotNotPhantom(@TempDir Path dir) throws Exception {
         write(dir, "C.java", """
             import org.springframework.web.bind.annotation.*;
             import org.springframework.http.*;
@@ -198,13 +199,14 @@ class DrRegressionFixesTest {
             }
             """);
         ApiModel m = new JavaSpringExtractor().extract(dir);
-        assertThat(m.endpoints().get(0).responses()).anySatisfy(r -> assertThat(r.statusCode()).isEqualTo(201));
         assertThat(m.endpoints().get(0).responses()).noneSatisfy(r -> assertThat(r.statusCode()).isEqualTo(200));
+        assertThat(m.blindSpots().toString()).contains("status could not be resolved");
     }
 
-    // (4d) Return-scoping must harvest a status assigned to a returned FIELD via `this.r = ...`.
+    // (4d) A returned FIELD set via `this.r = ...` is likewise unresolvable syntactically (a field write can collide
+    // with a same-named local) — surface a BLIND SPOT, not a phantom 200.
     @Test
-    void thisFieldAssignedReturnedStatusIsHarvested(@TempDir Path dir) throws Exception {
+    void thisFieldReturnedSurfacesBlindSpotNotPhantom(@TempDir Path dir) throws Exception {
         write(dir, "C.java", """
             import org.springframework.web.bind.annotation.*;
             import org.springframework.http.*;
@@ -217,8 +219,49 @@ class DrRegressionFixesTest {
             }
             """);
         ApiModel m = new JavaSpringExtractor().extract(dir);
-        assertThat(m.endpoints().get(0).responses()).anySatisfy(r -> assertThat(r.statusCode()).isEqualTo(201));
         assertThat(m.endpoints().get(0).responses()).noneSatisfy(r -> assertThat(r.statusCode()).isEqualTo(200));
+        assertThat(m.blindSpots().toString()).contains("status could not be resolved");
+    }
+
+    // (4e) A `this.<field>` write must NOT be harvested as a status of a same-named shadowing LOCAL that is returned —
+    // the local's status wins; the unrelated field write (a cached error) must not become a phantom response.
+    @Test
+    void thisFieldWriteDoesNotPhantomShadowingLocalReturn(@TempDir Path dir) throws Exception {
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.http.*;
+            @RestController class C {
+                private ResponseEntity<String> response;
+                @PostMapping("/x") public ResponseEntity<String> create() {
+                    this.response = ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+                    ResponseEntity<String> response = ResponseEntity.status(HttpStatus.CREATED).body("x");
+                    return response;
+                }
+            }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(m.endpoints().get(0).responses()).anySatisfy(r -> assertThat(r.statusCode()).isEqualTo(201));
+        assertThat(m.endpoints().get(0).responses()).noneSatisfy(r -> assertThat(r.statusCode()).isEqualTo(503));
+    }
+
+    // (4f) Order-blind aliasing must not fabricate a status: a post-copy reassignment of the alias SOURCE does not
+    // change the returned variable, so harvesting it would be a phantom — surface a blind spot instead.
+    @Test
+    void orderBlindAliasReassignmentDoesNotPhantom(@TempDir Path dir) throws Exception {
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.http.*;
+            @RestController class C {
+                @PostMapping("/x") public ResponseEntity<String> create() {
+                    ResponseEntity<String> built = ResponseEntity.status(HttpStatus.CREATED).body("x");
+                    ResponseEntity<String> r = built;
+                    built = ResponseEntity.status(HttpStatus.GONE).build();
+                    return r;
+                }
+            }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(m.endpoints().get(0).responses()).noneSatisfy(r -> assertThat(r.statusCode()).isEqualTo(410));
     }
 
     // (5b) Array-of-DTO-vs-scalar flip must STILL fire when the enclosing pair differs only by case (compareSchema gate
@@ -282,6 +325,38 @@ class DrRegressionFixesTest {
         assertThat(new DiffEngine().diffCodeVsSpec(code, spec))
                 .anyMatch(f -> f.getType() == FindingType.CONSTRAINT_GAP
                         && f.getSummary() != null && f.getSummary().contains("balance"));
+    }
+
+    // (6c) A genuine integer CODE field whose spec OMITS `type` (only declares `minimum`) must still fold: the code's
+    // value space is the integers, so @Positive (>0) conforms to spec minimum:1 — no false CONSTRAINT_GAP.
+    @Test
+    void integerCodeFieldVsTypelessSpecMinimumIsNotAFalseGap(@TempDir Path dir) throws Exception {
+        write(dir, "Order.java", """
+            import jakarta.validation.constraints.Positive;
+            public class Order { @Positive public Integer qty; }
+            """);
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            @RestController class C { @PostMapping("/o") public Order create(@RequestBody Order o) { return o; } }
+            """);
+        ApiModel code = new JavaSpringExtractor().extract(dir);
+        // spec property declares minimum but NO type (common in loose / hand-written specs).
+        ApiModel spec = spec("""
+            openapi: 3.0.1
+            info: { title: t, version: '1' }
+            paths:
+              /o:
+                post:
+                  requestBody:
+                    content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } }
+                  responses: { '200': { description: ok } }
+            components:
+              schemas:
+                Order: { type: object, properties: { qty: { minimum: 1 } } }
+            """);
+        assertThat(new DiffEngine().diffCodeVsSpec(code, spec))
+                .noneMatch(f -> f.getType() == FindingType.CONSTRAINT_GAP
+                        && f.getSummary() != null && f.getSummary().contains("qty"));
     }
 
     // (5) An array-of-DTO field vs a scalar must be reported ONCE, not double-counted with compareSchema.

@@ -1926,12 +1926,20 @@ public class JavaSpringExtractor {
                 return true;   // ResponseEntity.status(<non-literal>)
             }
         }
-        for (com.github.javaparser.ast.stmt.ReturnStmt ret : m.findAll(com.github.javaparser.ast.stmt.ReturnStmt.class)) {
-            if (ret.getExpression().orElse(null) instanceof MethodCallExpr mc) {
+        for (ReturnStmt ret : m.findAll(ReturnStmt.class)) {
+            Expression expr = ret.getExpression().orElse(null);
+            if (expr instanceof MethodCallExpr mc) {
                 String scope = mc.getScope().map(Object::toString).orElse("");
                 if (!scope.isEmpty() && !scope.equals("ResponseEntity") && !scope.endsWith(".ResponseEntity")) {
                     return true;   // return delegates to a helper/factory that produces the ResponseEntity
                 }
+            }
+            // Reached only when allEntityStatuses resolved NOTHING: a returned local we DID write but couldn't read a
+            // status from (aliased to another local, set via this.<field>, or assigned a non-factory value) — surface a
+            // blind spot rather than fabricate a phantom 200. A bare pass-through (`return paramNeverWrittenHere`) is
+            // NOT locally written, so it still defaults to 200.
+            if (expr instanceof NameExpr ne && isLocallyWritten(m, ne.getNameAsString())) {
+                return true;
             }
         }
         return false;
@@ -1943,19 +1951,6 @@ public class JavaSpringExtractor {
      *  so a stray ResponseEntity built in a never-invoked fallback lambda or passed to a side-call is NOT harvested —
      *  that would fabricate a phantom status and a scored false STATUS_CODE_MISSING on an endpoint that never returns it. */
     private List<Integer> allEntityStatuses(MethodDeclaration m) {
-        // Every value assigned to a NAME — declarator initializer, or assignment RHS (incl. `this.<name> = ...`).
-        // Used both to FOLLOW aliasing (a returned name initialised from another name) and to harvest statuses.
-        Map<String, List<Expression>> assignedValues = new HashMap<>();
-        for (VariableDeclarator vd : m.findAll(VariableDeclarator.class)) {
-            vd.getInitializer().ifPresent(init ->
-                    assignedValues.computeIfAbsent(vd.getNameAsString(), k -> new ArrayList<>()).add(init));
-        }
-        for (AssignExpr ae : m.findAll(AssignExpr.class)) {
-            String target = assignTargetName(ae.getTarget());
-            if (target != null) {
-                assignedValues.computeIfAbsent(target, k -> new ArrayList<>()).add(ae.getValue());
-            }
-        }
         List<ReturnStmt> returns = m.findAll(ReturnStmt.class);
         Set<String> returnedNames = new HashSet<>();
         for (ReturnStmt ret : returns) {
@@ -1963,23 +1958,26 @@ public class JavaSpringExtractor {
                 returnedNames.add(ne.getNameAsString());   // `return r;`
             }
         }
-        // Transitively expand through plain-name aliasing: `built = status(CREATED); r = built; return r;` — `built`'s
-        // value also flows to the return, so follow `r -> built` and harvest built's status too.
-        Deque<String> queue = new ArrayDeque<>(returnedNames);
-        while (!queue.isEmpty()) {
-            for (Expression val : assignedValues.getOrDefault(queue.poll(), List.of())) {
-                if (val instanceof NameExpr alias && returnedNames.add(alias.getNameAsString())) {
-                    queue.add(alias.getNameAsString());
-                }
-            }
-        }
-        // Harvest from every value the method actually RETURNS — return-expression subtrees plus the values assigned
-        // to a returned name. A ResponseEntity built into a NON-returned local (a never-invoked fallback lambda, a probe
-        // passed to a side-call) is excluded — harvesting it would fabricate a phantom status + a false STATUS finding.
+        // Harvest from every value the method actually RETURNS — return-expression subtrees, plus a returned LOCAL's
+        // declarator initializer and any BARE-NAME (`r = ...`) assignment. Deliberately NOT `this.<field>` (a field
+        // write can collide with a same-named shadowing local) and NOT transitive name aliasing (order-blind — a
+        // post-copy reassignment of the alias source would be mis-attributed). Those indirections are surfaced as a
+        // blind spot by responseEntityStatusUnresolvable instead of guessed. A ResponseEntity built into a NON-returned
+        // local (a never-invoked fallback lambda, a probe passed to a side-call) is excluded — harvesting it would
+        // fabricate a phantom status + a scored false STATUS_CODE_MISSING on an endpoint that never returns it.
         List<Expression> returned = new ArrayList<>();
         returns.forEach(ret -> ret.getExpression().ifPresent(returned::add));
-        for (String name : returnedNames) {
-            returned.addAll(assignedValues.getOrDefault(name, List.of()));
+        if (!returnedNames.isEmpty()) {
+            for (VariableDeclarator vd : m.findAll(VariableDeclarator.class)) {
+                if (returnedNames.contains(vd.getNameAsString())) {
+                    vd.getInitializer().ifPresent(returned::add);
+                }
+            }
+            for (AssignExpr ae : m.findAll(AssignExpr.class)) {
+                if (ae.getTarget() instanceof NameExpr target && returnedNames.contains(target.getNameAsString())) {
+                    returned.add(ae.getValue());
+                }
+            }
         }
         LinkedHashSet<Integer> out = new LinkedHashSet<>();
         for (Expression expr : returned) {
@@ -2000,7 +1998,7 @@ public class JavaSpringExtractor {
     }
 
     /** The assignable NAME an assignment targets: a bare local ({@code r = ...}) or a this-qualified field
-     *  ({@code this.r = ...}) — both set the name {@code r}. Returns null for other targets (array/index, other scope). */
+     *  ({@code this.r = ...}). Returns null for other targets (array/index, other scope). */
     private static String assignTargetName(Expression target) {
         if (target instanceof NameExpr ne) {
             return ne.getNameAsString();
@@ -2009,6 +2007,24 @@ public class JavaSpringExtractor {
             return fae.getNameAsString();
         }
         return null;
+    }
+
+    /** True when {@code name} is written inside this method body — a local declarator WITH an initializer, or any
+     *  assignment to it (bare {@code r = ...} or {@code this.r = ...}). Used to tell an UNRESOLVABLE returned local
+     *  (assigned via an alias / {@code this.<field>} / indirection we couldn't read → a blind spot) apart from a
+     *  genuine pass-through ({@code return paramNeverWrittenHere}), which legitimately defaults to 200. */
+    private boolean isLocallyWritten(MethodDeclaration m, String name) {
+        for (VariableDeclarator vd : m.findAll(VariableDeclarator.class)) {
+            if (vd.getNameAsString().equals(name) && vd.getInitializer().isPresent()) {
+                return true;
+            }
+        }
+        for (AssignExpr ae : m.findAll(AssignExpr.class)) {
+            if (name.equals(assignTargetName(ae.getTarget()))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private List<Integer> responseEntityStatuses(MethodDeclaration m) {
