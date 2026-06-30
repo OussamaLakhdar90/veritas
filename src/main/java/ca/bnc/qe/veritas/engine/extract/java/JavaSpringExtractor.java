@@ -128,6 +128,9 @@ public class JavaSpringExtractor {
                         int before = endpoints.size();
                         // For a plain @Controller, only @ResponseBody methods are REST endpoints; the rest return views.
                         boolean bodyByDefault = producesBodyByDefault(ctrl, types);
+                        // Error statuses a controller-LOCAL @ExceptionHandler produces apply to that controller's own
+                        // endpoints (Spring scopes them there) — resolve once and attach to each endpoint below.
+                        Set<Integer> localHandlerStatuses = localExceptionHandlerStatuses(ctrl, types);
                         Set<String> seenSignatures = new java.util.HashSet<>();
                         for (Object mo : ctrl.getMethods()) {
                             MethodDeclaration method = (MethodDeclaration) mo;
@@ -136,7 +139,8 @@ public class JavaSpringExtractor {
                                 continue;   // @Controller handler without @ResponseBody → returns a view, not an API response
                             }
                             endpoints.addAll(toEndpoints(file, ctrl.getNameAsString(), bases, method, types, referenced,
-                                    classSecurity, blindSpots, constants, serviceStatuses));
+                                    classSecurity, blindSpots, constants, serviceStatuses, adviceExStatus,
+                                    localHandlerStatuses));
                         }
                         // Mappings inherited from an abstract/base class the controller EXTENDS are real routes at
                         // runtime — emit them (subclass overrides win). Use the subclass's class-level bases + security.
@@ -147,7 +151,8 @@ public class JavaSpringExtractor {
                                     continue;   // inherited view handler on a plain @Controller — not an API endpoint
                                 }
                                 endpoints.addAll(toEndpoints(file, ctrl.getNameAsString(), bases, inherited, types,
-                                        referenced, classSecurity, blindSpots, constants, serviceStatuses));
+                                        referenced, classSecurity, blindSpots, constants, serviceStatuses,
+                                        adviceExStatus, localHandlerStatuses));
                             }
                             // A base we can't see can't be analysed — record an honest blind spot, never drop silently.
                             for (ClassOrInterfaceType ext : coid.getExtendedTypes()) {
@@ -708,13 +713,22 @@ public class JavaSpringExtractor {
         if (rm.isPresent()) {
             return annotationPaths(rm.get(), constants, blindSpots);
         }
-        // composed stereotype meta-annotated with @RequestMapping (e.g. @ApiV1Controller) — base path on the meta decl
-        for (AnnotationExpr a : ctrl.getAnnotations()) {
+        // Composed stereotype meta-annotated with @RequestMapping (e.g. @ApiV1Controller, or a deeper chain
+        // @ApiV1 -> @ApiBase -> @RequestMapping). Walk the meta-annotation chain TRANSITIVELY (BFS, cycle-guarded by
+        // name) so a 2+ level stereotype's base path is resolved instead of silently dropped → phantom-root endpoints.
+        java.util.Deque<AnnotationExpr> queue = new java.util.ArrayDeque<>(ctrl.getAnnotations());
+        java.util.Set<String> visited = new java.util.HashSet<>();
+        while (!queue.isEmpty()) {
+            AnnotationExpr a = queue.poll();
+            if (!visited.add(a.getNameAsString())) {
+                continue;
+            }
             if (types.get(a.getNameAsString()) instanceof AnnotationDeclaration decl) {
                 Optional<AnnotationExpr> metaRm = getAnnotation(decl, "RequestMapping");
                 if (metaRm.isPresent()) {
                     return annotationPaths(metaRm.get(), constants, blindSpots);
                 }
+                queue.addAll(decl.getAnnotations());   // descend into this meta-annotation's own annotations
             }
         }
         return List.of("");
@@ -740,7 +754,8 @@ public class JavaSpringExtractor {
     private List<Endpoint> toEndpoints(String file, String controllerClass, List<String> bases, MethodDeclaration m,
                                        Map<String, TypeDeclaration<?>> types, List<String> referenced,
                                        List<String> classSecurity, List<String> blindSpots,
-                                       Map<String, String> constants, Map<String, Set<Integer>> serviceStatuses) {
+                                       Map<String, String> constants, Map<String, Set<Integer>> serviceStatuses,
+                                       Map<String, Integer> adviceExStatus, Set<Integer> localHandlerStatuses) {
         MethodMapping mm = methodMappingOf(m, types);
         if (mm == null) {
             return List.of();
@@ -865,6 +880,21 @@ public class JavaSpringExtractor {
         }
         for (int s : reachable) {
             if (responses.stream().noneMatch(r -> r.statusCode() == s)) {
+                responses.add(new ResponseModel(s, null, null, "EXCEPTION_HANDLER_REACHABLE", retSrc));
+            }
+        }
+        // An error status the endpoint method THROWS DIRECTLY (e.g. `throw new DuplicateSkuException()` whose class
+        // carries @ResponseStatus(CONFLICT)) is reachable from this endpoint — resolve via the same exception->status
+        // map and attach it (it was previously dropped: serviceMethodStatuses skips controllers' own throws).
+        for (String ex : thrownExceptionNames(m)) {
+            Integer s = exceptionStatusOf(ex, adviceExStatus, types);
+            if (s != null && s >= 400 && responses.stream().noneMatch(r -> r.statusCode() == s)) {
+                responses.add(new ResponseModel(s, null, null, "EXCEPTION_HANDLER_REACHABLE", retSrc));
+            }
+        }
+        // Error statuses produced by a controller-LOCAL @ExceptionHandler apply to every endpoint of that controller.
+        for (int s : localHandlerStatuses) {
+            if (s >= 400 && responses.stream().noneMatch(r -> r.statusCode() == s)) {
                 responses.add(new ResponseModel(s, null, null, "EXCEPTION_HANDLER_REACHABLE", retSrc));
             }
         }
@@ -1532,6 +1562,24 @@ public class JavaSpringExtractor {
     }
 
     /** Simple names of the exception types a handler covers — from @ExceptionHandler(value), else its parameters. */
+    /** Error (>=400) statuses produced by a controller's OWN @ExceptionHandler methods — Spring scopes these to that
+     *  controller's endpoints (a stronger signal than global @ControllerAdvice), but they were previously never
+     *  scanned (extractAdvice is gated to @ControllerAdvice types). */
+    private Set<Integer> localExceptionHandlerStatuses(TypeDeclaration<?> ctrl, Map<String, TypeDeclaration<?>> types) {
+        Set<Integer> out = new java.util.LinkedHashSet<>();
+        for (Object mo : ctrl.getMethods()) {
+            MethodDeclaration m = (MethodDeclaration) mo;
+            if (has(m, "ExceptionHandler")) {
+                for (int s : errorStatuses(m, types)) {
+                    if (s >= 400) {
+                        out.add(s);
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
     private List<String> handledExceptionNames(MethodDeclaration m) {
         List<String> names = new ArrayList<>();
         getAnnotation(m, "ExceptionHandler").ifPresent(a -> {
