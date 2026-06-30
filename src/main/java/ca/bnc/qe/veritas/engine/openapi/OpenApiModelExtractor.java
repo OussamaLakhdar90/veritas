@@ -4,6 +4,10 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.Locale;
+import java.util.Set;
 import ca.bnc.qe.veritas.engine.model.ApiModel;
 import ca.bnc.qe.veritas.engine.model.ConstraintSet;
 import ca.bnc.qe.veritas.engine.model.Endpoint;
@@ -99,7 +103,7 @@ public class OpenApiModelExtractor {
         // Aggregate the literal base path of EVERY server, not just servers[0]. If they disagree, apply none — mirror
         // the code side, which refuses a prefix when the app config declares more than one base, rather than guessing
         // servers[0]. (A templated/unresolvable server contributes nothing, so a resolvable sibling still wins.)
-        java.util.LinkedHashSet<String> bases = new java.util.LinkedHashSet<>();
+        LinkedHashSet<String> bases = new LinkedHashSet<>();
         for (io.swagger.v3.oas.models.servers.Server server : openApi.getServers()) {
             String b = basePathOf(server.getUrl());
             if (!b.isEmpty()) {
@@ -294,7 +298,7 @@ public class OpenApiModelExtractor {
         // mediaTypes(...) is null when a body/response has no content, so coalesce to empty everywhere.
         List<String> consumes = op.getRequestBody() == null ? List.of()
                 : orEmpty(mediaTypes(op.getRequestBody().getContent()));
-        java.util.LinkedHashSet<String> producesSet = new java.util.LinkedHashSet<>();
+        LinkedHashSet<String> producesSet = new LinkedHashSet<>();
         List<ResponseModel> responses = new ArrayList<>();
         if (op.getResponses() != null) {
             for (Map.Entry<String, ApiResponse> r : op.getResponses().entrySet()) {
@@ -352,7 +356,7 @@ public class OpenApiModelExtractor {
         // accepting values the spec never documents) is silently missed. Stays name-preserving — no
         // setResolveFully, which would inline named DTOs and break schema-name matching elsewhere.
         // Follow the parameter $ref chain (a component param may itself $ref another), cycle-guarded.
-        java.util.Set<String> seenParamRefs = new java.util.HashSet<>();
+        Set<String> seenParamRefs = new HashSet<>();
         while (p.get$ref() != null && components != null && components.getParameters() != null
                 && seenParamRefs.add(p.get$ref())) {
             Parameter resolvedParam = components.getParameters().get(refName(p.get$ref()));
@@ -386,7 +390,7 @@ public class OpenApiModelExtractor {
         // Follow the schema $ref chain TRANSITIVELY (schema:{$ref:A}, A:{$ref:B}, B:{enum:[…]}) — a reusable enum is
         // often reached through more than one hop — with a cycle guard. Otherwise the enum stays invisible and the
         // value-level drift is missed.
-        java.util.Set<String> seenSchemaRefs = new java.util.HashSet<>();
+        Set<String> seenSchemaRefs = new HashSet<>();
         while (schema != null && schema.get$ref() != null && components != null && components.getSchemas() != null
                 && seenSchemaRefs.add(schema.get$ref())) {
             Schema resolvedSchema = components.getSchemas().get(refName(schema.get$ref()));
@@ -460,7 +464,7 @@ public class OpenApiModelExtractor {
                     List<String> mreq = member.getRequired() == null ? required : member.getRequired();
                     collectSchemaProps(specId, name, member.getProperties(), mreq, fields, allSchemas);
                 } else if (member.get$ref() != null) {
-                    if (!flattenRefInto(specId, name, member.get$ref(), allSchemas, fields, new java.util.HashSet<>())) {
+                    if (!flattenRefInto(specId, name, member.get$ref(), allSchemas, fields, new HashSet<>())) {
                         unflattenedAllOf = true;
                     }
                 } else if (member.getAllOf() != null) {
@@ -487,7 +491,7 @@ public class OpenApiModelExtractor {
      *  cannot be resolved from components (external/dangling) so the caller records an honest blind spot. */
     @SuppressWarnings("rawtypes")
     private boolean flattenRefInto(String specId, String holder, String ref, Map<String, Schema> allSchemas,
-                                   List<FieldModel> fields, java.util.Set<String> visited) {
+                                   List<FieldModel> fields, Set<String> visited) {
         if (allSchemas == null) {
             return false;
         }
@@ -669,7 +673,7 @@ public class OpenApiModelExtractor {
             if (chosen == null) {
                 chosen = e.getValue();
             }
-            if (e.getKey() != null && e.getKey().toLowerCase(java.util.Locale.ROOT).contains("json")) {
+            if (e.getKey() != null && e.getKey().toLowerCase(Locale.ROOT).contains("json")) {
                 chosen = e.getValue();
                 break;
             }

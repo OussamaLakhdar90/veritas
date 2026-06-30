@@ -1,12 +1,18 @@
 package ca.bnc.qe.veritas.engine.diff;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import org.springframework.http.MediaType;
 import ca.bnc.qe.veritas.engine.model.ApiModel;
 import ca.bnc.qe.veritas.engine.model.ConstraintSet;
 import ca.bnc.qe.veritas.engine.model.Endpoint;
@@ -38,9 +44,9 @@ public class DiffEngine {
         Map<String, Endpoint> specByKey = indexByKey(spec);
         Map<String, Endpoint> codeByPath = indexByPath(code);
         Map<String, Endpoint> specByPath = indexByPath(spec);
-        Map<String, java.util.Set<HttpMethod>> codeVerbsByPath = verbsByPath(code);
-        Map<String, java.util.Set<HttpMethod>> specVerbsByPath = verbsByPath(spec);
-        java.util.Set<String> verbMismatchPaths = new java.util.HashSet<>();   // report a path's verb divergence once
+        Map<String, Set<HttpMethod>> codeVerbsByPath = verbsByPath(code);
+        Map<String, Set<HttpMethod>> specVerbsByPath = verbsByPath(spec);
+        Set<String> verbMismatchPaths = new HashSet<>();   // report a path's verb divergence once
         // Distinct spec operations can collapse to the same normalized key (e.g. /orders/{orderId} and /orders/{id} →
         // "GET /orders/{}"); last-wins indexByKey then silently drops one. Surface the ambiguity rather than hide it.
         if (spec.endpoints().size() > specByKey.size()) {
@@ -76,7 +82,7 @@ public class DiffEngine {
                 verbMismatchPaths.add(np);
                 findings.add(finding(FindingType.VERB_MISMATCH, label(ce), spec.source(),
                         "Code exposes " + ce.method() + " " + ce.pathTemplate()
-                                + " but the spec defines " + specVerbsByPath.getOrDefault(np, java.util.Set.of())
+                                + " but the spec defines " + specVerbsByPath.getOrDefault(np, Set.of())
                                 + " for that path",
                         ce, Confidence.HIGH));
             } else {
@@ -104,7 +110,7 @@ public class DiffEngine {
                 if (verbMismatchPaths.add(np)) {
                     findings.add(finding(FindingType.VERB_MISMATCH, se.signature(), spec.source(),
                             "Spec documents " + se.method() + " " + se.pathTemplate() + " but the code exposes "
-                                    + codeVerbsByPath.getOrDefault(np, java.util.Set.of()) + " on that path",
+                                    + codeVerbsByPath.getOrDefault(np, Set.of()) + " on that path",
                             null, Confidence.HIGH));
                 }
             } else if (codeIncomplete) {
@@ -298,7 +304,7 @@ public class DiffEngine {
             if (codeBodyRef != null && specBodyRef != null) {
                 int before = findings.size();
                 fieldDiffByBinding(findings, code, spec, codeBodyRef, specBodyRef, label(ce) + " request body",
-                        new java.util.HashSet<>(), MAX_SCHEMA_DEPTH);
+                        new HashSet<>(), MAX_SCHEMA_DEPTH);
                 // Coarse fallback mirroring the response path: an array-vs-object (or otherwise diverging) BODY shape is
                 // a hard consumer break (POST a JSON array to an object endpoint → 400). fieldDiffByBinding returns
                 // early on an array-vs-object top-level body, so without this the cardinality mismatch was dropped.
@@ -386,19 +392,19 @@ public class DiffEngine {
         // to JSON and declare nothing — comparing those would be noise). Compatibility-aware (wildcards/+suffix).
         // A code `produces` media type the spec documents on an ERROR response (e.g. application/problem+json on a 500)
         // is benign — the spec `produces` set is success-only by design, so it must not count as a mismatch.
-        java.util.Set<String> specErrorMedia = se.responses().stream()
+        Set<String> specErrorMedia = se.responses().stream()
                 .filter(r -> r.statusCode() >= 300)
-                .flatMap(r -> r.mediaTypes() == null ? java.util.stream.Stream.<String>empty() : r.mediaTypes().stream())
-                .map(DiffEngine::baseMedia).filter(java.util.Objects::nonNull)
-                .collect(java.util.stream.Collectors.toSet());
+                .flatMap(r -> r.mediaTypes() == null ? Stream.<String>empty() : r.mediaTypes().stream())
+                .map(DiffEngine::baseMedia).filter(Objects::nonNull)
+                .collect(Collectors.toSet());
         mediaTypeMismatch(findings, ce, spec, "produces", ce.produces(), se.produces(), specErrorMedia);
-        mediaTypeMismatch(findings, ce, spec, "consumes", ce.consumes(), se.consumes(), java.util.Set.of());
+        mediaTypeMismatch(findings, ce, spec, "consumes", ce.consumes(), se.consumes(), Set.of());
         // Request-body content type (e.g. a multipart/form-data upload whose @RequestPart media type lives on the
         // requestBody, not consumes) — ONLY when the code declared no `consumes` (else the consumes check above already
         // covered it; running both double-counts the same defect since both derive from the same spec content map).
         if ((ce.consumes() == null || ce.consumes().isEmpty()) && ce.requestBody() != null && se.requestBody() != null) {
             mediaTypeMismatch(findings, ce, spec, "request body content",
-                    ce.requestBody().mediaTypes(), se.requestBody().mediaTypes(), java.util.Set.of());
+                    ce.requestBody().mediaTypes(), se.requestBody().mediaTypes(), Set.of());
         }
 
         // success-response body schema differs between code and spec. Compare the RESOLVED STRUCTURE, not the
@@ -415,7 +421,7 @@ public class DiffEngine {
         if (codeRef != null && specRef != null) {
             int before = findings.size();
             fieldDiffByBinding(findings, code, spec, codeRef, specRef, label(ce) + " response",
-                    new java.util.HashSet<>(), MAX_SCHEMA_DEPTH);
+                    new HashSet<>(), MAX_SCHEMA_DEPTH);
             fieldLevelEmitted = findings.size() > before;
         }
         // Emit the COARSE RESPONSE_SCHEMA_MISMATCH only when the precise field-level diff did NOT already describe the
@@ -432,7 +438,7 @@ public class DiffEngine {
     }
 
     private void fieldDiffByBinding(List<Finding> findings, ApiModel code, ApiModel spec, String codeRef, String specRef,
-                                    String locus, java.util.Set<String> visited, int depth) {
+                                    String locus, Set<String> visited, int depth) {
         if (arrayRef(codeRef) != arrayRef(specRef)) {
             return;   // array-vs-object is the structuralVerdict's call, not a field diff
         }
@@ -515,7 +521,7 @@ public class DiffEngine {
         if (cs == null || ss == null || structureless(cs) || suppressStructurelessSpec(spec, ss)) {
             return SchemaVerdict.UNRESOLVED;
         }
-        return propsEqual(code, spec, cs, ss, MAX_SCHEMA_DEPTH, new java.util.HashSet<>())
+        return propsEqual(code, spec, cs, ss, MAX_SCHEMA_DEPTH, new HashSet<>())
                 ? SchemaVerdict.MATCH : SchemaVerdict.DIFFER;
     }
 
@@ -525,7 +531,7 @@ public class DiffEngine {
 
     /** Known scalar/primitive ref names (Java type names + OpenAPI scalar types) — used to tell a provable
      *  scalar-vs-object response break apart from a genuinely-unresolvable external DTO. */
-    private static final java.util.Set<String> SCALAR_REF_NAMES = java.util.Set.of(
+    private static final Set<String> SCALAR_REF_NAMES = Set.of(
             "string", "integer", "int", "long", "short", "byte", "boolean", "double", "float", "number",
             "bigdecimal", "biginteger", "character", "char", "uuid", "date", "localdate", "localdatetime",
             "instant", "offsetdatetime", "zoneddatetime", "void");
@@ -571,7 +577,7 @@ public class DiffEngine {
     /** Structural equality: enum value sets, or same field-name set with compatible field types, recursing into nested
      * $ref'd schemas up to {@link #MAX_SCHEMA_DEPTH} (a visited-pair set guards cyclic DTO graphs). */
     private boolean propsEqual(ApiModel code, ApiModel spec, SchemaModel cs, SchemaModel ss, int depth,
-                               java.util.Set<String> visited) {
+                               Set<String> visited) {
         String key = cs.name() + "|" + ss.name();
         if (!visited.add(key)) {
             return true;   // this pair is already being compared higher up the stack — break the cycle
@@ -643,12 +649,12 @@ public class DiffEngine {
 
     /** Flag a consumes/produces divergence only when the code side declares media types (else it's noise). */
     private void mediaTypeMismatch(List<Finding> findings, Endpoint ce, ApiModel spec, String which,
-                                   java.util.List<String> code, java.util.List<String> specMt,
-                                   java.util.Set<String> benignExtra) {
+                                   List<String> code, List<String> specMt,
+                                   Set<String> benignExtra) {
         if (code == null || code.isEmpty() || specMt == null || specMt.isEmpty()) {
             return;
         }
-        java.util.List<String> effCode = code.stream()
+        List<String> effCode = code.stream()
                 .filter(c -> !benignExtra.contains(baseMedia(c))).toList();
         if (effCode.isEmpty() || mediaCompatible(effCode, specMt)) {
             return;
@@ -660,10 +666,10 @@ public class DiffEngine {
     /** Media-type compatibility per Spring's MediaType semantics (a star/star or application-star wildcard, and an
      *  application-star-plus-json range matching application/json) — replaces literal set-equality so a wildcard or
      *  +suffix range is not a false CONSUMES_PRODUCES_MISMATCH. Falls back to base-string equality on a parse failure. */
-    private boolean mediaCompatible(java.util.List<String> code, java.util.List<String> specMt) {
+    private boolean mediaCompatible(List<String> code, List<String> specMt) {
         try {
-            java.util.List<org.springframework.http.MediaType> cs = parseMedia(code);
-            java.util.List<org.springframework.http.MediaType> ss = parseMedia(specMt);
+            List<MediaType> cs = parseMedia(code);
+            List<MediaType> ss = parseMedia(specMt);
             if (cs.isEmpty() || ss.isEmpty()) {
                 return mediaSet(code).equals(mediaSet(specMt));
             }
@@ -674,11 +680,11 @@ public class DiffEngine {
         }
     }
 
-    private java.util.List<org.springframework.http.MediaType> parseMedia(java.util.List<String> v) {
-        java.util.List<org.springframework.http.MediaType> out = new ArrayList<>();
+    private List<MediaType> parseMedia(List<String> v) {
+        List<MediaType> out = new ArrayList<>();
         for (String x : v) {
             if (x != null && !x.isBlank()) {
-                out.add(org.springframework.http.MediaType.parseMediaType(x.trim()));
+                out.add(MediaType.parseMediaType(x.trim()));
             }
         }
         return out;
@@ -696,8 +702,8 @@ public class DiffEngine {
     }
 
     /** Media types compared by base type, case-insensitive, ignoring parameters (e.g. {@code ;charset=utf-8}). */
-    private java.util.Set<String> mediaSet(java.util.List<String> v) {
-        java.util.Set<String> out = new java.util.HashSet<>();
+    private Set<String> mediaSet(List<String> v) {
+        Set<String> out = new HashSet<>();
         for (String x : v) {
             String base = baseMedia(x);
             if (base != null) {
@@ -764,12 +770,12 @@ public class DiffEngine {
     }
 
     /** Enum equivalence is by VALUE SET, case-insensitive — declaration order and casing differences are not drift. */
-    private boolean sameValueSet(java.util.List<String> a, java.util.List<String> b) {
+    private boolean sameValueSet(List<String> a, List<String> b) {
         return normSet(a).equals(normSet(b));
     }
 
-    private java.util.Set<String> normSet(java.util.List<String> v) {
-        java.util.Set<String> out = new java.util.HashSet<>();
+    private Set<String> normSet(List<String> v) {
+        Set<String> out = new HashSet<>();
         if (v != null) {
             for (String x : v) {
                 if (x != null) {
@@ -902,10 +908,10 @@ public class DiffEngine {
     }
 
     /** All HTTP verbs declared on each normalized path — so a verb-mismatch message names the full set, not one. */
-    private Map<String, java.util.Set<HttpMethod>> verbsByPath(ApiModel m) {
-        Map<String, java.util.Set<HttpMethod>> map = new LinkedHashMap<>();
+    private Map<String, Set<HttpMethod>> verbsByPath(ApiModel m) {
+        Map<String, Set<HttpMethod>> map = new LinkedHashMap<>();
         m.endpoints().forEach(e ->
-                map.computeIfAbsent(normPath(e.pathTemplate()), k -> new java.util.TreeSet<>()).add(e.method()));
+                map.computeIfAbsent(normPath(e.pathTemplate()), k -> new TreeSet<>()).add(e.method()));
         return map;
     }
 

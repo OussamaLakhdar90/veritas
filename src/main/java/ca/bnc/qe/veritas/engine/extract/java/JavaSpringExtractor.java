@@ -9,6 +9,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.ArrayDeque;
+import java.util.Deque;
+import java.util.LinkedHashSet;
+import java.util.Properties;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import ca.bnc.qe.veritas.engine.model.ApiModel;
 import ca.bnc.qe.veritas.engine.model.ConstraintSet;
@@ -59,7 +64,9 @@ import com.github.javaparser.ast.stmt.ThrowStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.Type;
 import com.github.javaparser.ast.type.WildcardType;
+import com.github.javaparser.ast.type.ArrayType;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.AntPathMatcher;
 
@@ -122,7 +129,7 @@ public class JavaSpringExtractor {
                     .forEach(ctrl -> {
                         List<String> bases = classPaths(ctrl, types, constants, blindSpots);
                         if (!springBase.isEmpty()) {
-                            bases = bases.stream().map(b -> joinPath(springBase, b)).collect(java.util.stream.Collectors.toList());
+                            bases = bases.stream().map(b -> joinPath(springBase, b)).collect(Collectors.toList());
                         }
                         List<String> classSecurity = securityOf(ctrl, types);
                         int before = endpoints.size();
@@ -131,7 +138,7 @@ public class JavaSpringExtractor {
                         // Error statuses a controller-LOCAL @ExceptionHandler produces apply to that controller's own
                         // endpoints (Spring scopes them there) — resolve once and attach to each endpoint below.
                         Map<Integer, String> localHandlerStatuses = localExceptionHandlerStatuses(ctrl, types);
-                        Set<String> seenSignatures = new java.util.HashSet<>();
+                        Set<String> seenSignatures = new HashSet<>();
                         for (Object mo : ctrl.getMethods()) {
                             MethodDeclaration method = (MethodDeclaration) mo;
                             seenSignatures.add(signatureKey(method));
@@ -146,7 +153,7 @@ public class JavaSpringExtractor {
                         // runtime — emit them (subclass overrides win). Use the subclass's class-level bases + security.
                         if (ctrl instanceof ClassOrInterfaceDeclaration coid) {
                             for (MethodDeclaration inherited :
-                                    inheritedMappedMethods(coid, types, seenSignatures, new java.util.HashSet<>())) {
+                                    inheritedMappedMethods(coid, types, seenSignatures, new HashSet<>())) {
                                 if (!bodyByDefault && !has(inherited, "ResponseBody")) {
                                     continue;   // inherited view handler on a plain @Controller — not an API endpoint
                                 }
@@ -222,11 +229,11 @@ public class JavaSpringExtractor {
         }
 
         Map<String, SchemaModel> schemas = new LinkedHashMap<>();
-        Set<String> unresolved = new java.util.LinkedHashSet<>();
+        Set<String> unresolved = new LinkedHashSet<>();
         // Worklist over referenced DTOs AND, transitively, the DTO types of their fields — so a nested DTO
         // (e.g. PasswordPolicy.complexity : PasswordComplexity) gets its own schema built and can be field-diffed,
         // not just left as a dangling refSchema pointer the comparison can't resolve.
-        java.util.Deque<String> queue = new java.util.ArrayDeque<>();
+        Deque<String> queue = new ArrayDeque<>();
         referenced.forEach(n -> queue.add(n.replace("[]", "")));
         Set<String> processed = new HashSet<>();
         while (!queue.isEmpty()) {
@@ -391,7 +398,7 @@ public class JavaSpringExtractor {
 
     /** Flatten a fluent {@code a.f1().f2().f3()} chain into source order [f1, f2, f3] (innermost call → terminal). */
     private List<MethodCallExpr> flattenChain(MethodCallExpr outer) {
-        java.util.Deque<MethodCallExpr> chain = new java.util.ArrayDeque<>();
+        Deque<MethodCallExpr> chain = new ArrayDeque<>();
         Expression cur = outer;
         while (cur instanceof MethodCallExpr mc) {
             chain.push(mc);
@@ -584,7 +591,7 @@ public class JavaSpringExtractor {
             return single + "('" + roles.get(0) + "')";
         }
         return multi + "(" + roles.stream().map(x -> "'" + x + "'")
-                .collect(java.util.stream.Collectors.joining(", ")) + ")";
+                .collect(Collectors.joining(", ")) + ")";
     }
 
     private static Endpoint withSecurity(Endpoint e, List<String> security) {
@@ -716,8 +723,8 @@ public class JavaSpringExtractor {
         // Composed stereotype meta-annotated with @RequestMapping (e.g. @ApiV1Controller, or a deeper chain
         // @ApiV1 -> @ApiBase -> @RequestMapping). Walk the meta-annotation chain TRANSITIVELY (BFS, cycle-guarded by
         // name) so a 2+ level stereotype's base path is resolved instead of silently dropped → phantom-root endpoints.
-        java.util.Deque<AnnotationExpr> queue = new java.util.ArrayDeque<>(ctrl.getAnnotations());
-        java.util.Set<String> visited = new java.util.HashSet<>();
+        Deque<AnnotationExpr> queue = new ArrayDeque<>(ctrl.getAnnotations());
+        Set<String> visited = new HashSet<>();
         while (!queue.isEmpty()) {
             AnnotationExpr a = queue.poll();
             if (!visited.add(a.getNameAsString())) {
@@ -866,7 +873,7 @@ public class JavaSpringExtractor {
         // stronger than a blanket advice status. Attach it as EXCEPTION_HANDLER_REACHABLE (scored MEDIUM by the diff)
         // and BEFORE the blanket advice merge, so its noneMatch guard keeps this stronger origin.
         Map<String, String> fieldTypes = controllerFieldTypes(m);
-        java.util.LinkedHashSet<Integer> reachable = new java.util.LinkedHashSet<>();
+        LinkedHashSet<Integer> reachable = new LinkedHashSet<>();
         for (MethodCallExpr call : m.findAll(MethodCallExpr.class)) {
             String scope = call.getScope().map(Object::toString).orElse("");
             String svcType = fieldTypes.get(scope);
@@ -1171,7 +1178,7 @@ public class JavaSpringExtractor {
         if (spel == null) {
             return false;
         }
-        String s = spel.trim().toLowerCase(java.util.Locale.ROOT).replace("()", "").replace(" ", "");
+        String s = spel.trim().toLowerCase(Locale.ROOT).replace("()", "").replace(" ", "");
         return !NON_SECURING_SPEL.contains(s);
     }
 
@@ -1342,7 +1349,7 @@ public class JavaSpringExtractor {
 
     /** Element type of a collection/array field (List/Set/Collection/…&lt;E&gt; or E[]), else null. */
     private String collectionElement(Type type) {
-        if (type instanceof com.github.javaparser.ast.type.ArrayType at) {
+        if (type instanceof ArrayType at) {
             return simpleTypeName(at.getComponentType());
         }
         if (type instanceof ClassOrInterfaceType cit && COLLECTION_TYPES.contains(cit.getNameAsString())
@@ -1448,7 +1455,7 @@ public class JavaSpringExtractor {
 
     /** Media types an @ExceptionHandler sets on its response via {@code .contentType(MediaType.X)} / a string literal. */
     private List<String> adviceMediaTypes(MethodDeclaration m) {
-        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        LinkedHashSet<String> out = new LinkedHashSet<>();
         for (MethodCallExpr call : m.findAll(MethodCallExpr.class)) {
             if (!call.getNameAsString().equals("contentType") || call.getArguments().isEmpty()) {
                 continue;
@@ -1492,7 +1499,7 @@ public class JavaSpringExtractor {
         if (ann != null) {
             return List.of(ann);
         }
-        java.util.LinkedHashSet<Integer> body = new java.util.LinkedHashSet<>();
+        LinkedHashSet<Integer> body = new LinkedHashSet<>();
         for (Integer s : responseEntityStatuses(m)) {     // ResponseEntity.status(...) / factories
             if (s != null && s >= 400) {
                 body.add(s);
@@ -1515,7 +1522,7 @@ public class JavaSpringExtractor {
 
     /** Statuses from {@code ProblemDetail.forStatus(...)} / {@code forStatusAndDetail(...)} calls in the body. */
     private List<Integer> problemDetailStatuses(MethodDeclaration m) {
-        java.util.LinkedHashSet<Integer> out = new java.util.LinkedHashSet<>();
+        LinkedHashSet<Integer> out = new LinkedHashSet<>();
         for (MethodCallExpr call : m.findAll(MethodCallExpr.class)) {
             String scope = call.getScope().map(Object::toString).orElse("");
             if (!scope.equals("ProblemDetail") && !scope.endsWith(".ProblemDetail")) {
@@ -1533,7 +1540,7 @@ public class JavaSpringExtractor {
 
     /** Error statuses from {@code new ResponseEntity<>(..., HttpStatus.X)} constructions in the body. */
     private List<Integer> newResponseEntityStatuses(MethodDeclaration m) {
-        java.util.LinkedHashSet<Integer> out = new java.util.LinkedHashSet<>();
+        LinkedHashSet<Integer> out = new LinkedHashSet<>();
         for (ObjectCreationExpr oce : m.findAll(ObjectCreationExpr.class)) {
             if (!oce.getType().getNameAsString().equals("ResponseEntity") || oce.getArguments().isEmpty()) {
                 continue;
@@ -1572,7 +1579,7 @@ public class JavaSpringExtractor {
      *  scanned (extractAdvice is gated to @ControllerAdvice types). */
     private Map<Integer, String> localExceptionHandlerStatuses(TypeDeclaration<?> ctrl,
                                                                Map<String, TypeDeclaration<?>> types) {
-        Map<Integer, String> out = new java.util.LinkedHashMap<>();
+        Map<Integer, String> out = new LinkedHashMap<>();
         for (Object mo : ctrl.getMethods()) {
             MethodDeclaration m = (MethodDeclaration) mo;
             if (has(m, "ExceptionHandler")) {
@@ -1681,7 +1688,7 @@ public class JavaSpringExtractor {
                     continue;   // a controller's own throws are handled by its endpoint, not a service hop
                 }
                 for (MethodDeclaration m : td.getMethods()) {
-                    Set<Integer> statuses = new java.util.LinkedHashSet<>();
+                    Set<Integer> statuses = new LinkedHashSet<>();
                     for (String ex : thrownExceptionNames(m)) {
                         Integer s = exceptionStatusOf(ex, adviceExStatus, types);
                         if (s != null && s >= 400) {
@@ -1776,7 +1783,7 @@ public class JavaSpringExtractor {
 
     /** Status codes inferred from {@code ResponseEntity.<factory>(...)} builder calls in the method body. */
     private List<Integer> responseEntityStatuses(MethodDeclaration m) {
-        java.util.LinkedHashSet<Integer> out = new java.util.LinkedHashSet<>();
+        LinkedHashSet<Integer> out = new LinkedHashSet<>();
         for (MethodCallExpr call : m.findAll(MethodCallExpr.class)) {
             String scope = call.getScope().map(Object::toString).orElse("");
             if (!scope.equals("ResponseEntity") && !scope.endsWith(".ResponseEntity")) {
@@ -1840,7 +1847,7 @@ public class JavaSpringExtractor {
         String name = arg.substring(arg.lastIndexOf('.') + 1).trim();
         if (name.matches("[A-Z][A-Z0-9_]*")) {
             try {
-                return org.springframework.http.HttpStatus.valueOf(name).value();
+                return HttpStatus.valueOf(name).value();
             } catch (IllegalArgumentException notAnHttpStatusName) {
                 return null;
             }
@@ -1873,7 +1880,7 @@ public class JavaSpringExtractor {
     private BodyType unwrap(Type type, List<String> blindSpots) {
         // A Java array return: byte[]/Byte[] is a BINARY payload (OpenAPI string/binary), not a JSON array — letting the
         // literal "byte[]" leak would make DiffEngine.arrayRef read it as an array and false-diff vs a string spec.
-        if (type instanceof com.github.javaparser.ast.type.ArrayType at) {
+        if (type instanceof ArrayType at) {
             String elem = simpleTypeName(at.getComponentType());
             if ("byte".equals(elem) || "Byte".equals(elem)) {
                 return new BodyType("string", false, false, false);
@@ -2168,17 +2175,17 @@ public class JavaSpringExtractor {
      */
     private String springBasePath(Path sourceRoot, List<String> blindSpots) {
         AppConfigs cfgs = findAppConfigs(sourceRoot);
-        java.util.Set<String> defaultBases = new java.util.LinkedHashSet<>();
+        Set<String> defaultBases = new LinkedHashSet<>();
         // profile -> base, for a base configured under a Spring profile (a profile file, or a profile-gated document
         // inside a multi-doc application.yml). The active profile is environment-defined, so these never produce a
         // prefix — only a blind spot. LinkedHashMap keeps a stable order for the message.
-        java.util.Map<String, String> profileBases = new java.util.LinkedHashMap<>();
+        Map<String, String> profileBases = new LinkedHashMap<>();
 
         // Parse each YAML DOCUMENT separately (loadConfigDocuments) so an `on-profile` marker only gates a base in the
         // SAME document — a flattened merge would otherwise let a trailing profile document's marker poison a genuine
         // unconditional base from the default document.
         for (Path cfg : cfgs.defaults()) {
-            for (java.util.Properties props : loadConfigDocuments(cfg)) {
+            for (Properties props : loadConfigDocuments(cfg)) {
                 String base = basePathFrom(props);
                 if (base.isEmpty()) {
                     continue;
@@ -2192,7 +2199,7 @@ public class JavaSpringExtractor {
             }
         }
         for (Path cfg : cfgs.profiles()) {
-            for (java.util.Properties props : loadConfigDocuments(cfg)) {
+            for (Properties props : loadConfigDocuments(cfg)) {
                 String base = basePathFrom(props);
                 if (!base.isEmpty()) {
                     profileBases.putIfAbsent(profileNameOf(cfg), base);
@@ -2222,7 +2229,7 @@ public class JavaSpringExtractor {
      * (+ {@code spring.mvc.servlet.path}) for MVC, or {@code spring.webflux.base-path} for WebFlux. Templated/root
      * segments are skipped via {@link #appendSegment}. Returns "" when none is configured.
      */
-    private String basePathFrom(java.util.Properties props) {
+    private String basePathFrom(Properties props) {
         String base = "";
         base = appendSegment(base, props.getProperty("server.servlet.context-path"));
         base = appendSegment(base, props.getProperty("spring.mvc.servlet.path"));
@@ -2235,10 +2242,10 @@ public class JavaSpringExtractor {
         return m.matches() ? m.group(1) : cfg.getFileName().toString();
     }
 
-    private String formatProfileBases(java.util.Map<String, String> profileBases) {
+    private String formatProfileBases(Map<String, String> profileBases) {
         return profileBases.entrySet().stream()
                 .map(e -> e.getValue() + " under profile '" + e.getKey() + "'")
-                .collect(java.util.stream.Collectors.joining(", "));
+                .collect(Collectors.joining(", "));
     }
 
     private String appendSegment(String base, String seg) {
@@ -2268,15 +2275,15 @@ public class JavaSpringExtractor {
                         String n = p.getFileName().toString();
                         return appConfigNames().contains(n) || PROFILE_CONFIG.matcher(n).matches();
                     })
-                    .collect(java.util.stream.Collectors.toList());
+                    .collect(Collectors.toList());
             // Narrow each group to src/main/resources independently (so a profile config outside it isn't dropped just
             // because the defaults live under src/main/resources).
             List<Path> defaults = preferMainResources(all.stream()
                     .filter(p -> appConfigNames().contains(p.getFileName().toString()))
-                    .collect(java.util.stream.Collectors.toList()));
+                    .collect(Collectors.toList()));
             List<Path> profiles = preferMainResources(all.stream()
                     .filter(p -> !appConfigNames().contains(p.getFileName().toString()))
-                    .collect(java.util.stream.Collectors.toList()));
+                    .collect(Collectors.toList()));
             return new AppConfigs(defaults, profiles);
         } catch (Exception e) {
             return new AppConfigs(List.of(), List.of());
@@ -2286,26 +2293,26 @@ public class JavaSpringExtractor {
     private List<Path> preferMainResources(List<Path> configs) {
         List<Path> main = configs.stream()
                 .filter(p -> p.toString().replace('\\', '/').contains("/src/main/resources/"))
-                .collect(java.util.stream.Collectors.toList());
+                .collect(Collectors.toList());
         return main.isEmpty() ? configs : main;
     }
 
     /**
-     * Each config DOCUMENT as flattened dot-keyed properties. A multi-document YAML yields ONE {@link java.util.Properties}
+     * Each config DOCUMENT as flattened dot-keyed properties. A multi-document YAML yields ONE {@link Properties}
      * per document (split on {@code ---} separator lines) so a {@code spring.config.activate.on-profile} marker only
      * gates a base in its own document; {@code YamlPropertiesFactoryBean}'s default merge would flatten the boundaries
      * away. A {@code .properties} file (no multi-document concept) yields a single element.
      */
-    private List<java.util.Properties> loadConfigDocuments(Path cfg) {
+    private List<Properties> loadConfigDocuments(Path cfg) {
         try {
             if (cfg.getFileName().toString().endsWith(".properties")) {
-                java.util.Properties p = new java.util.Properties();
+                Properties p = new Properties();
                 try (java.io.InputStream in = Files.newInputStream(cfg)) {
                     p.load(in);
                 }
                 return p.isEmpty() ? List.of() : List.of(p);
             }
-            List<java.util.Properties> docs = new ArrayList<>();
+            List<Properties> docs = new ArrayList<>();
             for (String doc : Files.readString(cfg).split("(?m)^---\\s*$")) {   // a line that is exactly '---'
                 if (doc.isBlank()) {
                     continue;
@@ -2314,7 +2321,7 @@ public class JavaSpringExtractor {
                         new org.springframework.beans.factory.config.YamlPropertiesFactoryBean();
                 y.setResources(new org.springframework.core.io.ByteArrayResource(
                         doc.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
-                java.util.Properties p = y.getObject();
+                Properties p = y.getObject();
                 if (p != null && !p.isEmpty()) {
                     docs.add(p);
                 }
@@ -2332,7 +2339,7 @@ public class JavaSpringExtractor {
      * which flattens to {@code …on-profile[0]}, {@code …on-profile[1]}) — so a profile-only base in list form is never
      * mistaken for an unconditional default.
      */
-    private String onProfileLabel(java.util.Properties props) {
+    private String onProfileLabel(Properties props) {
         // Spring Boot 2.4+ document-activation key, then the deprecated pre-2.4 `spring.profiles:` leaf (NOT
         // spring.profiles.active/.include/.group, which set/compose active profiles rather than gate a document).
         String modern = profileMarker(props, "spring.config.activate.on-profile");
@@ -2340,7 +2347,7 @@ public class JavaSpringExtractor {
     }
 
     /** The profile(s) a document is gated to under {@code key}, scalar or flattened list form, or "" when none. */
-    private String profileMarker(java.util.Properties props, String key) {
+    private String profileMarker(Properties props, String key) {
         String scalar = props.getProperty(key);
         if (scalar != null && !scalar.isBlank()) {
             return scalar.trim();
