@@ -102,6 +102,26 @@ class JavaSpringExtractorControllerStyleTest {
     }
 
     @Test
+    void detectsStaticImportedBareRouterFunctionRouting(@TempDir Path dir) throws Exception {
+        // No `RouterFunction<>` type spelled, no `RouterFunctions.route` scope — just a static-imported bare route().
+        // It must still raise the blind spot, else the DiffEngine guard isn't fed and emits false dead-spec.
+        write(dir, "Routes.java", """
+            import static org.springframework.web.reactive.function.server.RouterFunctions.route;
+            import static org.springframework.web.reactive.function.server.RequestPredicates.GET;
+            class Routes {
+                Object routes(Handler h) {
+                    return route(GET("/health"), h::health);
+                }
+            }
+            """);
+
+        ApiModel model = new JavaSpringExtractor().extract(dir);
+
+        assertThat(model.endpoints()).isEmpty();
+        assertThat(model.blindSpots()).anySatisfy(b -> assertThat(b).contains("Functional routing"));
+    }
+
+    @Test
     void functionalRoutingMentionedOnlyInACommentIsNotFlagged(@TempDir Path dir) throws Exception {
         // Detection is AST-based, not a toString() substring, so a mere mention in a comment must not raise a blind
         // spot (which the DiffEngine guard would otherwise turn into whole-service dead-spec suppression).

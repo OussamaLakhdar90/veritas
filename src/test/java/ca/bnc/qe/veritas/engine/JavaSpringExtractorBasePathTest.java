@@ -153,6 +153,37 @@ class JavaSpringExtractorBasePathTest {
     }
 
     @Test
+    void deprecatedSpringProfilesDocKeyIsTreatedAsProfileGated(@TempDir Path dir) throws Exception {
+        // The pre-2.4 `spring.profiles:` document-activation marker must gate the base exactly like on-profile —
+        // otherwise the gated base leaks as an unconditional prefix (the false-positive class #3 fixed).
+        writeConfig(dir, "application.yml",
+                "server:\n  port: 8080\n"
+                + "---\n"
+                + "spring:\n  profiles: prod\n  webflux:\n    base-path: /ciam\n");
+        writeJava(dir, "PolicyController.java", POLICY_CONTROLLER);
+
+        ApiModel model = new JavaSpringExtractor().extract(dir);
+
+        assertThat(model.endpoints()).extracting(Endpoint::signature)
+                .containsExactlyInAnyOrder("GET /policies", "GET /policies/{app}");
+        assertThat(model.blindSpots()).anySatisfy(b -> assertThat(b).contains("only under a Spring profile"));
+    }
+
+    @Test
+    void multiDotProfileFilenameIsReadAsAProfileConfig(@TempDir Path dir) throws Exception {
+        writeConfig(dir, "application.yml", "server:\n  port: 8080\n");
+        writeConfig(dir, "application-prod.local.yml", "spring:\n  webflux:\n    base-path: /ciam\n");
+        writeJava(dir, "PolicyController.java", POLICY_CONTROLLER);
+
+        ApiModel model = new JavaSpringExtractor().extract(dir);
+
+        assertThat(model.endpoints()).extracting(Endpoint::signature)
+                .containsExactlyInAnyOrder("GET /policies", "GET /policies/{app}");
+        assertThat(model.blindSpots())
+                .anySatisfy(b -> assertThat(b).contains("only under a Spring profile").contains("prod.local"));
+    }
+
+    @Test
     void profileOnlyBaseInOnProfileListFormIsStillProfileDependent(@TempDir Path dir) throws Exception {
         // on-profile as a YAML list flattens to on-profile[0]/[1]; the base under it must still be recognised as
         // profile-gated, never mistaken for an unconditional base and wrongly prefixed.

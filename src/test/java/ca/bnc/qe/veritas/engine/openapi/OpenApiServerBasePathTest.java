@@ -87,6 +87,36 @@ class OpenApiServerBasePathTest {
         assertThat(OpenApiModelExtractor.serverBasePath(server("https://{host}.bnc.ca/"))).isEmpty();     // root only
     }
 
+    @Test
+    void multipleServersSharingOneBaseUseIt() {
+        OpenAPI api = new OpenAPI()
+                .addServersItem(new Server().url("https://a.bnc.ca/ciam"))
+                .addServersItem(new Server().url("https://b.bnc.ca/ciam"));
+        assertThat(OpenApiModelExtractor.serverBasePath(api)).isEqualTo("/ciam");
+    }
+
+    @Test
+    void conflictingServerBasesApplyNoPrefix() {
+        OpenAPI api = new OpenAPI()
+                .addServersItem(new Server().url("https://a.bnc.ca/api/v1"))
+                .addServersItem(new Server().url("https://a.bnc.ca/api/v2"));
+        assertThat(OpenApiModelExtractor.serverBasePath(api)).isEmpty();   // disagree → refuse to guess servers[0]
+    }
+
+    @Test
+    void aTemplatedSiblingDoesNotBlockAResolvableServerBase() {
+        OpenAPI api = new OpenAPI()
+                .addServersItem(new Server().url("https://{env}.bnc.ca/ciam"))   // unresolvable → contributes nothing
+                .addServersItem(new Server().url("https://localhost/ciam"));
+        assertThat(OpenApiModelExtractor.serverBasePath(api)).isEqualTo("/ciam");
+    }
+
+    @Test
+    void percentEncodedPathDecodesConsistentlyAcrossTemplatedAndNonTemplatedServers() {
+        assertThat(OpenApiModelExtractor.serverBasePath(server("https://{host}/ci%2Fam"))).isEqualTo("/ci/am");
+        assertThat(OpenApiModelExtractor.serverBasePath(server("https://host/ci%2Fam"))).isEqualTo("/ci/am");
+    }
+
     private static OpenAPI server(String url) {
         return new OpenAPI().addServersItem(new Server().url(url));
     }

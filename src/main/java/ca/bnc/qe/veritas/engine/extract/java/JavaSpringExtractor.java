@@ -628,12 +628,25 @@ public class JavaSpringExtractor {
         // from the AST (a RouterFunction<> type, or a RouterFunctions.route(...) call), NOT a toString() substring, so a
         // mere mention in a comment/string never triggers it — that would otherwise over-suppress dead-spec via the
         // DiffEngine guard. These routes are surfaced as an honest blind spot rather than guessed at or fabricated.
-        boolean functional = units.stream().anyMatch(cu ->
-                cu.findAll(ClassOrInterfaceType.class).stream()
-                        .anyMatch(t -> t.getNameAsString().equals("RouterFunction"))
-                || cu.findAll(MethodCallExpr.class).stream().anyMatch(mc ->
-                        mc.getNameAsString().equals("route")
-                        && mc.getScope().map(s -> s.toString().equals("RouterFunctions")).orElse(false)));
+        boolean functional = units.stream().anyMatch(cu -> {
+            boolean byType = cu.findAll(ClassOrInterfaceType.class).stream()
+                    .anyMatch(t -> t.getNameAsString().equals("RouterFunction"));
+            boolean byScopedCall = cu.findAll(MethodCallExpr.class).stream().anyMatch(mc ->
+                    mc.getNameAsString().equals("route")
+                    && mc.getScope().map(s -> s.toString().equals("RouterFunctions")).orElse(false));
+            // A statically-imported bare route()/nest() (no RouterFunctions scope, no RouterFunction<> type spelled) is
+            // still functional routing — gate on importing the WebFlux/Web functional-server package so an unrelated
+            // route()/nest() call can't trigger it.
+            boolean importsRouterDsl = cu.getImports().stream().anyMatch(i -> {
+                String n = i.getNameAsString();
+                return n.contains("web.reactive.function.server") || n.contains("web.servlet.function");
+            });
+            boolean byBareCall = importsRouterDsl && cu.findAll(MethodCallExpr.class).stream().anyMatch(mc -> {
+                String n = mc.getNameAsString();
+                return n.equals("route") || n.equals("nest");
+            });
+            return byType || byScopedCall || byBareCall;
+        });
         if (functional) {
             blindSpots.add("Functional routing (RouterFunction / RouterFunctions.route) was detected but is not analysed "
                     + "(only annotation-based @RequestMapping endpoints are extracted); those routes are not covered.");
@@ -1875,9 +1888,10 @@ public class JavaSpringExtractor {
         return List.of("application.yml", "application.yaml", "application.properties");
     }
 
-    /** A profile-specific config {@code application-<profile>.{yml,yaml,properties}}; group 1 is the profile name. */
+    /** A profile-specific config {@code application-<profile>.{yml,yaml,properties}}; group 1 is the profile name.
+     *  {@code (.+)} (not {@code [^.]+}) so multi-dot profile names like {@code application-prod.local.yml} are read. */
     private static final java.util.regex.Pattern PROFILE_CONFIG =
-            java.util.regex.Pattern.compile("application-([^.]+)\\.(yml|yaml|properties)");
+            java.util.regex.Pattern.compile("application-(.+)\\.(yml|yaml|properties)");
 
     /** Discovered application configs, split into default (profile-less) and profile-specific files. */
     private record AppConfigs(List<Path> defaults, List<Path> profiles) {}
@@ -1955,13 +1969,21 @@ public class JavaSpringExtractor {
      * mistaken for an unconditional default.
      */
     private String onProfileLabel(java.util.Properties props) {
-        String scalar = props.getProperty("spring.config.activate.on-profile");
+        // Spring Boot 2.4+ document-activation key, then the deprecated pre-2.4 `spring.profiles:` leaf (NOT
+        // spring.profiles.active/.include/.group, which set/compose active profiles rather than gate a document).
+        String modern = profileMarker(props, "spring.config.activate.on-profile");
+        return modern.isEmpty() ? profileMarker(props, "spring.profiles") : modern;
+    }
+
+    /** The profile(s) a document is gated to under {@code key}, scalar or flattened list form, or "" when none. */
+    private String profileMarker(java.util.Properties props, String key) {
+        String scalar = props.getProperty(key);
         if (scalar != null && !scalar.isBlank()) {
             return scalar.trim();
         }
         List<String> vals = new ArrayList<>();
         for (int i = 0; ; i++) {
-            String v = props.getProperty("spring.config.activate.on-profile[" + i + "]");
+            String v = props.getProperty(key + "[" + i + "]");
             if (v == null) {
                 break;
             }
