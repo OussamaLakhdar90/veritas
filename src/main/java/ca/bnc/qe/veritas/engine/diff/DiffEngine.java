@@ -255,7 +255,8 @@ public class DiffEngine {
                     findings.add(finding(FindingType.CONSTRAINT_GAP, label(ce), spec.source(),
                             "Parameter '" + cp.name() + "' has code constraints not exposed in the spec", ce, Confidence.MEDIUM));
                 } else {
-                    String diff = constraintMismatchDesc(cp.constraints(), sp.constraints());
+                    boolean integerParam = isIntegerTyped(cp.type(), cp.format()) || isIntegerTyped(sp.type(), sp.format());
+                    String diff = constraintMismatchDesc(cp.constraints(), sp.constraints(), integerParam);
                     if (diff != null) {
                         findings.add(finding(FindingType.CONSTRAINT_GAP, label(ce), spec.source(),
                                 "Parameter '" + cp.name() + "' constraint mismatch — " + diff, ce, Confidence.MEDIUM));
@@ -383,7 +384,12 @@ public class DiffEngine {
         // security: code enforces auth (@PreAuthorize/@Secured/...) but the spec declares none (or vice versa)
         boolean codeSecured = ce.security() != null && !ce.security().isEmpty();
         boolean specSecured = se.security() != null && !se.security().isEmpty();
-        if (codeSecured && !specSecured) {
+        if (codeSecured && !specSecured && hasResolvedSecurity(ce)) {
+            // Only when at least one code-side token is a RESOLVED authorization constraint (a real role, a securing
+            // SpEL, denyAll). A code endpoint whose security is ONLY an "unresolved:" suggestive annotation (e.g. a
+            // custom @AdminApi we couldn't read, or a swagger doc annotation) is uncertain, not provably secured —
+            // the extractor already records a blind spot for manual review; fabricating a CRITICAL here is a false
+            // positive (the unresolved token still makes codeSecured true, so the spec-secured branch stays suppressed).
             findings.add(finding(FindingType.SECURITY_MISMATCH, label(ce), spec.source(),
                     "Code enforces authorization (" + String.join(", ", ce.security())
                             + ") but the spec declares no security for this operation", ce, Confidence.HIGH));
@@ -479,8 +485,13 @@ public class DiffEngine {
                 // wire-shape break (a JSON object/array can never equal a scalar). The compareSchema type guard lets
                 // "object" through, so this nested object-vs-scalar flip would otherwise be silently dropped.
                 if ((c.refSchema() != null) != (s.refSchema() != null)) {
+                    String refType = c.refSchema() != null ? c.type() : s.type();
                     String scalarType = c.refSchema() != null ? s.type() : c.type();
-                    if (scalarType != null && !"object".equals(scalarType)) {
+                    // Emit ONLY for the flip compareSchema silently drops: a single nested OBJECT (type "object", or an
+                    // untyped $ref) vs a concrete SCALAR. An ARRAY-of-DTO (type "array") vs a scalar is already
+                    // reported as an array-vs-scalar type mismatch — by compareSchema for differently-named pairs, or
+                    // by the components-schema loop for same-named — so re-emitting here would double-count one defect.
+                    if (scalarType != null && !"object".equals(scalarType) && !"array".equals(refType)) {
                         findings.add(finding(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, locus + "." + e.getKey(),
                                 spec.source(), "Field '" + e.getKey() + "' of " + locus + " is "
                                         + (c.refSchema() != null
@@ -757,6 +768,14 @@ public class DiffEngine {
                         || b.contains("coRouter")));
     }
 
+    /** True when the code endpoint carries at least one RESOLVED authorization token (a real role, a securing SpEL, or
+     *  denyAll) — i.e. not only "unresolved:" suggestive-but-unread annotations. A scored security mismatch needs a
+     *  constraint we actually read; an unresolved-only endpoint is surfaced as a blind spot, not a CRITICAL finding. */
+    private boolean hasResolvedSecurity(Endpoint ce) {
+        return ce.security() != null && ce.security().stream()
+                .anyMatch(t -> t != null && !t.startsWith("unresolved:"));
+    }
+
     /** True when the code model flagged that authorization is centralized in a SecurityFilterChain/HttpSecurity bean. */
     private boolean centralizesSecurity(ApiModel code) {
         return code.blindSpots() != null && code.blindSpots().stream()
@@ -770,10 +789,37 @@ public class DiffEngine {
         if (code.blindSpots() == null || ce.controllerClass() == null || ce.operationId() == null) {
             return false;
         }
-        String marker = ce.controllerClass() + "." + ce.operationId();
-        return code.blindSpots().stream().anyMatch(b -> b != null && b.contains(marker)
+        // The extractor's flatten blind spots all begin with `Controller <Class>.<method> ` — match that exact prefix
+        // (with the trailing space as a right word boundary) rather than a loose contains(). A bare contains() lets a
+        // method name that is a PREFIX of a sibling's (list ⊂ listByStatus) inherit the sibling's flatten-suppression
+        // and silently drop a real PARAM_EXTRA on the shorter-named endpoint.
+        String marker = "Controller " + ce.controllerClass() + "." + ce.operationId() + " ";
+        return code.blindSpots().stream().anyMatch(b -> b != null && b.startsWith(marker)
                 && (b.contains("binds all query params") || b.contains("@ModelAttribute") || b.contains("command object")
                     || b.contains("pagination") || b.contains("@MatrixVariable")));
+    }
+
+    /** Effective INCLUSIVE lower bound: an exclusive minimum on an integer field is the next integer up (>m ≡ >=m+1).
+     *  For non-integers, or an inclusive/absent bound, the raw minimum stands. */
+    private static Double effectiveMin(ConstraintSet c, boolean integerField) {
+        if (c == null || c.minimum() == null) {
+            return null;
+        }
+        return integerField && Boolean.TRUE.equals(c.exclusiveMin()) ? c.minimum() + 1 : c.minimum();
+    }
+
+    /** Effective INCLUSIVE upper bound: an exclusive maximum on an integer field is the next integer down (<m ≡ <=m-1). */
+    private static Double effectiveMax(ConstraintSet c, boolean integerField) {
+        if (c == null || c.maximum() == null) {
+            return null;
+        }
+        return integerField && Boolean.TRUE.equals(c.exclusiveMax()) ? c.maximum() - 1 : c.maximum();
+    }
+
+    /** True when a field/param is integer-typed (JSON {@code type: integer} or an int32/int64 format) — the only case
+     *  where the exclusive↔inclusive bound folding above is sound. */
+    private static boolean isIntegerTyped(String type, String format) {
+        return "integer".equals(type) || "int32".equals(format) || "int64".equals(format);
     }
 
     /** First constraint keyword whose value differs between two non-empty sets, or null if equivalent. */
@@ -782,7 +828,7 @@ public class DiffEngine {
         return cs != null && cs.enumValues() != null && !cs.enumValues().isEmpty();
     }
 
-    private String constraintMismatchDesc(ConstraintSet c, ConstraintSet s) {
+    private String constraintMismatchDesc(ConstraintSet c, ConstraintSet s, boolean integerField) {
         if (c == null || s == null) {
             return null;
         }
@@ -792,19 +838,25 @@ public class DiffEngine {
         if (!Objects.equals(c.maxLength(), s.maxLength())) {
             return "maxLength code=" + c.maxLength() + " spec=" + s.maxLength();
         }
-        if (!Objects.equals(c.minimum(), s.minimum())) {
-            return "minimum code=" + c.minimum() + " spec=" + s.minimum();
+        // For an INTEGER field an exclusive bound folds into the next inclusive integer (>0 ≡ >=1, <0 ≡ <=-1), so a
+        // code @Positive (minimum 0, exclusive) and a spec `minimum: 1` express the SAME constraint — compare on the
+        // effective inclusive bound to avoid a false CONSTRAINT_GAP. For non-integers >0 ≠ >=1, so the raw value stands.
+        if (!Objects.equals(effectiveMin(c, integerField), effectiveMin(s, integerField))) {
+            return "minimum code=" + effectiveMin(c, integerField) + " spec=" + effectiveMin(s, integerField);
         }
-        if (!Objects.equals(c.maximum(), s.maximum())) {
-            return "maximum code=" + c.maximum() + " spec=" + s.maximum();
+        if (!Objects.equals(effectiveMax(c, integerField), effectiveMax(s, integerField))) {
+            return "maximum code=" + effectiveMax(c, integerField) + " spec=" + effectiveMax(s, integerField);
         }
         // exclusiveMinimum/Maximum: null and false both mean "inclusive", so compare on TRUE-ness only (else a code
-        // null vs a spec explicit-false would false-diff).
-        if (Boolean.TRUE.equals(c.exclusiveMin()) != Boolean.TRUE.equals(s.exclusiveMin())) {
-            return "exclusiveMinimum code=" + c.exclusiveMin() + " spec=" + s.exclusiveMin();
-        }
-        if (Boolean.TRUE.equals(c.exclusiveMax()) != Boolean.TRUE.equals(s.exclusiveMax())) {
-            return "exclusiveMaximum code=" + c.exclusiveMax() + " spec=" + s.exclusiveMax();
+        // null vs a spec explicit-false would false-diff). For integer fields the exclusivity is already folded into
+        // the effective inclusive bound above, so skip it here (else {0, exclusive} vs {1, inclusive} would re-diff).
+        if (!integerField) {
+            if (Boolean.TRUE.equals(c.exclusiveMin()) != Boolean.TRUE.equals(s.exclusiveMin())) {
+                return "exclusiveMinimum code=" + c.exclusiveMin() + " spec=" + s.exclusiveMin();
+            }
+            if (Boolean.TRUE.equals(c.exclusiveMax()) != Boolean.TRUE.equals(s.exclusiveMax())) {
+                return "exclusiveMaximum code=" + c.exclusiveMax() + " spec=" + s.exclusiveMax();
+            }
         }
         if (!Objects.equals(c.pattern(), s.pattern())) {
             return "pattern code=" + c.pattern() + " spec=" + s.pattern();
@@ -872,7 +924,8 @@ public class DiffEngine {
                     findings.add(finding(FindingType.CONSTRAINT_GAP, name + "." + cf.jsonName(), specSource,
                             "Field '" + cf.jsonName() + "' has code constraints not exposed in the spec", null, Confidence.MEDIUM));
                 } else {
-                    String diff = constraintMismatchDesc(cf.constraints(), sf.constraints());
+                    boolean integerField = isIntegerTyped(cf.type(), cf.format()) || isIntegerTyped(sf.type(), sf.format());
+                    String diff = constraintMismatchDesc(cf.constraints(), sf.constraints(), integerField);
                     if (diff != null) {
                         findings.add(finding(FindingType.CONSTRAINT_GAP, name + "." + cf.jsonName(), specSource,
                                 "Field '" + cf.jsonName() + "' constraint mismatch — " + diff, null, Confidence.MEDIUM));

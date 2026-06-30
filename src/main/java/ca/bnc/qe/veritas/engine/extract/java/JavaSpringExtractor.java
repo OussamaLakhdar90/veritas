@@ -41,6 +41,7 @@ import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
 import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
+import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.symbolsolver.JavaSymbolSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.CombinedTypeSolver;
 import com.github.javaparser.symbolsolver.resolution.typesolvers.JavaParserTypeSolver;
@@ -48,6 +49,7 @@ import com.github.javaparser.symbolsolver.resolution.typesolvers.ReflectionTypeS
 import com.github.javaparser.ast.body.AnnotationDeclaration;
 import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.ArrayInitializerExpr;
+import com.github.javaparser.ast.expr.AssignExpr;
 import com.github.javaparser.ast.expr.BinaryExpr;
 import com.github.javaparser.ast.expr.ClassExpr;
 import com.github.javaparser.ast.expr.Expression;
@@ -60,6 +62,7 @@ import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
 import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithAnnotations;
+import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.stmt.ThrowStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.type.Type;
@@ -716,6 +719,11 @@ public class JavaSpringExtractor {
 
     private List<String> classPaths(TypeDeclaration<?> ctrl, Map<String, TypeDeclaration<?>> types,
                                     Map<String, String> constants, List<String> blindSpots) {
+        return classPaths(ctrl, types, constants, blindSpots, new HashSet<>());
+    }
+
+    private List<String> classPaths(TypeDeclaration<?> ctrl, Map<String, TypeDeclaration<?>> types,
+                                    Map<String, String> constants, List<String> blindSpots, Set<String> visitedTypes) {
         Optional<AnnotationExpr> rm = getAnnotation(ctrl, "RequestMapping");
         if (rm.isPresent()) {
             return annotationPaths(rm.get(), constants, blindSpots);
@@ -742,9 +750,18 @@ public class JavaSpringExtractor {
         // (Spring resolves the type-level mapping up the hierarchy via AnnotatedElementUtils find-semantics) — so an
         // inherited handler's base path must come from the base, not be silently dropped to "".
         if (ctrl instanceof ClassOrInterfaceDeclaration coid) {
+            // Cycle guard: a cyclic supertype chain (A extends B extends A) or a simple-name self-reference
+            // (types is keyed by SIMPLE name, so `com.app.Base extends com.lib.Base` resolves Base→itself) would
+            // otherwise recurse forever → StackOverflowError → the whole extraction crashes. Mirror the cycle guard
+            // the sibling inheritedMappedMethods already threads.
+            visitedTypes.add(ctrl.getNameAsString());
             for (ClassOrInterfaceType ext : coid.getExtendedTypes()) {
-                if (types.get(ext.getNameAsString()) instanceof TypeDeclaration<?> base) {
-                    List<String> inherited = classPaths(base, types, constants, blindSpots);
+                String baseName = ext.getNameAsString();
+                if (visitedTypes.contains(baseName)) {
+                    continue;
+                }
+                if (types.get(baseName) instanceof TypeDeclaration<?> base) {
+                    List<String> inherited = classPaths(base, types, constants, blindSpots, visitedTypes);
                     if (!inherited.equals(List.of(""))) {
                         return inherited;
                     }
@@ -1228,10 +1245,19 @@ public class JavaSpringExtractor {
     private static final Set<String> KNOWN_SECURITY_ANNOTATIONS = Set.of(
             "PreAuthorize", "PostAuthorize", "Secured", "RolesAllowed", "PermitAll", "DenyAll", "PreFilter", "PostFilter");
 
+    /** OpenAPI/swagger DOCUMENTATION annotations (io.swagger.v3.oas.annotations.security.*) that contain a security
+     *  token in their name but impose ZERO runtime authorization — they describe the spec, not enforce access. They are
+     *  pervasive on controllers in springdoc projects (e.g. {@code @SecurityRequirement(name="bearerAuth")}); treating
+     *  one as "secured" fabricates a false CRITICAL SECURITY_MISMATCH against a spec that declares no operation security. */
+    private static final Set<String> OPENAPI_DOC_SECURITY_ANNOTATIONS = Set.of(
+            "SecurityRequirement", "SecurityRequirements", "SecurityScheme", "SecuritySchemes");
+
     /** A custom annotation whose simple name SUGGESTS it imposes authorization (so an unresolvable one is treated as
-     *  secured-unknown rather than open). Excludes the framework annotations already read directly. */
+     *  secured-unknown rather than open). Excludes the framework annotations already read directly and the swagger
+     *  documentation annotations that merely describe (not enforce) security. */
     private static boolean looksLikeSecurityAnnotation(String name) {
-        if (name == null || KNOWN_SECURITY_ANNOTATIONS.contains(name)) {
+        if (name == null || KNOWN_SECURITY_ANNOTATIONS.contains(name)
+                || OPENAPI_DOC_SECURITY_ANNOTATIONS.contains(name)) {
             return false;
         }
         // STRONG tokens only — broad ones (auth→@Author, role→@Role) would false-flag benign annotations as secured.
@@ -1647,16 +1673,12 @@ public class JavaSpringExtractor {
         return new ArrayList<>(out);
     }
 
-    /** Error statuses from {@code new ResponseEntity<>(..., HttpStatus.X)} constructions in the body. */
+    /** Error statuses from {@code new ResponseEntity<>(..., HttpStatus.X)} constructions in the body (an exception
+     *  handler's whole body builds the error response, so this path is intentionally not return-scoped). */
     private List<Integer> newResponseEntityStatuses(MethodDeclaration m) {
         LinkedHashSet<Integer> out = new LinkedHashSet<>();
         for (ObjectCreationExpr oce : m.findAll(ObjectCreationExpr.class)) {
-            if (!oce.getType().getNameAsString().equals("ResponseEntity") || oce.getArguments().isEmpty()) {
-                continue;
-            }
-            // The status is the LAST constructor arg (the HttpStatus/HttpStatusCode slot). Scanning all args would
-            // misread a body/header expression whose text merely contains a status keyword (e.g. NOT_FOUND_MESSAGE).
-            Integer s = statusFromText(oce.getArgument(oce.getArguments().size() - 1).toString().trim());
+            Integer s = newResponseEntityStatus(oce);
             if (s != null && s >= 400) {
                 out.add(s);
             }
@@ -1914,17 +1936,49 @@ public class JavaSpringExtractor {
         return false;
     }
 
-    /** Every statically-resolvable ResponseEntity status in the body — factory calls (ResponseEntity.created()) AND
-     *  constructor forms (new ResponseEntity&lt;&gt;(..., HttpStatus.X), any status, not just errors). */
+    /** Every statically-resolvable ResponseEntity status the method actually RETURNS — factory calls
+     *  (ResponseEntity.created()) AND constructor forms (new ResponseEntity&lt;&gt;(..., HttpStatus.X), any status, not
+     *  just errors). Scoped to return-expression subtrees (and the initializer of any local that is returned by name)
+     *  so a stray ResponseEntity built in a never-invoked fallback lambda or passed to a side-call is NOT harvested —
+     *  that would fabricate a phantom status and a scored false STATUS_CODE_MISSING on an endpoint that never returns it. */
     private List<Integer> allEntityStatuses(MethodDeclaration m) {
-        LinkedHashSet<Integer> out = new LinkedHashSet<>(responseEntityStatuses(m));
-        for (ObjectCreationExpr oce : m.findAll(ObjectCreationExpr.class)) {
-            if (!oce.getType().getNameAsString().equals("ResponseEntity") || oce.getArguments().isEmpty()) {
-                continue;
+        List<ReturnStmt> returns = m.findAll(ReturnStmt.class);
+        Set<String> returnedNames = new HashSet<>();
+        for (ReturnStmt ret : returns) {
+            if (ret.getExpression().orElse(null) instanceof NameExpr ne) {
+                returnedNames.add(ne.getNameAsString());   // `return r;` — r's declarator initializer is the returned value
             }
-            Integer s = statusFromText(oce.getArgument(oce.getArguments().size() - 1).toString().trim());
-            if (s != null) {
-                out.add(s);
+        }
+        List<Expression> returned = new ArrayList<>();
+        returns.forEach(ret -> ret.getExpression().ifPresent(returned::add));
+        if (!returnedNames.isEmpty()) {
+            // A returned local's VALUE may be set in its declarator initializer OR in a later assignment
+            // (`ResponseEntity<T> r; if (...) r = ResponseEntity.ok(x); else r = ResponseEntity.status(CREATED)...; return r;`)
+            // — harvest both so the if/else-assign-then-return shape doesn't silently drop a real status.
+            for (VariableDeclarator vd : m.findAll(VariableDeclarator.class)) {
+                if (returnedNames.contains(vd.getNameAsString())) {
+                    vd.getInitializer().ifPresent(returned::add);
+                }
+            }
+            for (AssignExpr ae : m.findAll(AssignExpr.class)) {
+                if (ae.getTarget() instanceof NameExpr target && returnedNames.contains(target.getNameAsString())) {
+                    returned.add(ae.getValue());
+                }
+            }
+        }
+        LinkedHashSet<Integer> out = new LinkedHashSet<>();
+        for (Expression expr : returned) {
+            for (MethodCallExpr call : expr.findAll(MethodCallExpr.class)) {
+                Integer s = responseEntityFactoryStatus(call);
+                if (s != null) {
+                    out.add(s);
+                }
+            }
+            for (ObjectCreationExpr oce : expr.findAll(ObjectCreationExpr.class)) {
+                Integer s = newResponseEntityStatus(oce);
+                if (s != null) {
+                    out.add(s);
+                }
             }
         }
         return new ArrayList<>(out);
@@ -1933,27 +1987,42 @@ public class JavaSpringExtractor {
     private List<Integer> responseEntityStatuses(MethodDeclaration m) {
         LinkedHashSet<Integer> out = new LinkedHashSet<>();
         for (MethodCallExpr call : m.findAll(MethodCallExpr.class)) {
-            String scope = call.getScope().map(Object::toString).orElse("");
-            if (!scope.equals("ResponseEntity") && !scope.endsWith(".ResponseEntity")) {
-                continue;   // only static factory calls ON ResponseEntity, e.g. ResponseEntity.created(...)
-            }
-            Integer s = switch (call.getNameAsString()) {
-                case "ok" -> 200;
-                case "created" -> 201;
-                case "accepted" -> 202;
-                case "noContent" -> 204;
-                case "badRequest" -> 400;
-                case "notFound" -> 404;
-                case "unprocessableEntity" -> 422;
-                case "internalServerError" -> 500;
-                case "status" -> statusFromArg(call);
-                default -> null;
-            };
+            Integer s = responseEntityFactoryStatus(call);
             if (s != null) {
                 out.add(s);
             }
         }
         return new ArrayList<>(out);
+    }
+
+    /** The HTTP status a static {@code ResponseEntity} factory call denotes (ok()/created()/status(X)/...), or null
+     *  when the call is not a ResponseEntity factory. */
+    private Integer responseEntityFactoryStatus(MethodCallExpr call) {
+        String scope = call.getScope().map(Object::toString).orElse("");
+        if (!scope.equals("ResponseEntity") && !scope.endsWith(".ResponseEntity")) {
+            return null;   // only static factory calls ON ResponseEntity, e.g. ResponseEntity.created(...)
+        }
+        return switch (call.getNameAsString()) {
+            case "ok" -> 200;
+            case "created" -> 201;
+            case "accepted" -> 202;
+            case "noContent" -> 204;
+            case "badRequest" -> 400;
+            case "notFound" -> 404;
+            case "unprocessableEntity" -> 422;
+            case "internalServerError" -> 500;
+            case "status" -> statusFromArg(call);
+            default -> null;
+        };
+    }
+
+    /** The HTTP status of a {@code new ResponseEntity<>(.., HttpStatus.X)} construction (the LAST arg is the status
+     *  slot; scanning all args would misread a body/header whose text merely contains a status keyword), or null. */
+    private Integer newResponseEntityStatus(ObjectCreationExpr oce) {
+        if (!oce.getType().getNameAsString().equals("ResponseEntity") || oce.getArguments().isEmpty()) {
+            return null;
+        }
+        return statusFromText(oce.getArgument(oce.getArguments().size() - 1).toString().trim());
     }
 
     /** Resolve the status from a {@code ResponseEntity.status(...)} argument (int literal or {@code HttpStatus.X}). */
