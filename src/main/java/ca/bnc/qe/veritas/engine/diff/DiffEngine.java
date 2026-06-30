@@ -755,11 +755,47 @@ public class DiffEngine {
         if (path == null) {
             return "/";
         }
-        String p = path.toLowerCase(Locale.ROOT).replaceAll("\\{[^}]*\\}", "{}").replaceAll("/+", "/");
+        // Collapse each path variable to {} with a BRACE-BALANCED scan, so a quantifier brace in a regex var
+        // ({id:[0-9]{2}}) is consumed as one token (the old \{[^}]*\} stopped at the first '}' and left a stray '}').
+        String p = collapsePathVars(path.toLowerCase(Locale.ROOT)).replaceAll("/+", "/");
         if (p.length() > 1 && p.endsWith("/")) {
             p = p.substring(0, p.length() - 1);
         }
         return p.isEmpty() ? "/" : p;
+    }
+
+    private static String collapsePathVars(String path) {
+        if (path.indexOf('{') < 0) {
+            return path;
+        }
+        StringBuilder out = new StringBuilder();
+        int i = 0;
+        int n = path.length();
+        while (i < n) {
+            char c = path.charAt(i);
+            if (c != '{') {
+                out.append(c);
+                i++;
+                continue;
+            }
+            int j = i + 1;
+            int depth = 1;
+            while (j < n && depth > 0) {
+                char d = path.charAt(j);
+                if (d == '{') {
+                    depth++;
+                } else if (d == '}') {
+                    depth--;
+                    if (depth == 0) {
+                        break;
+                    }
+                }
+                j++;
+            }
+            out.append("{}");
+            i = j + 1;
+        }
+        return out.toString();
     }
 
     private List<String> pathVars(String path) {
