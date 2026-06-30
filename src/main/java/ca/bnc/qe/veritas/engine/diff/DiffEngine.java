@@ -394,8 +394,9 @@ public class DiffEngine {
         mediaTypeMismatch(findings, ce, spec, "produces", ce.produces(), se.produces(), specErrorMedia);
         mediaTypeMismatch(findings, ce, spec, "consumes", ce.consumes(), se.consumes(), java.util.Set.of());
         // Request-body content type (e.g. a multipart/form-data upload whose @RequestPart media type lives on the
-        // requestBody, not consumes) — compared only when both sides declare it, so a JSON-default body is not noise.
-        if (ce.requestBody() != null && se.requestBody() != null) {
+        // requestBody, not consumes) — ONLY when the code declared no `consumes` (else the consumes check above already
+        // covered it; running both double-counts the same defect since both derive from the same spec content map).
+        if ((ce.consumes() == null || ce.consumes().isEmpty()) && ce.requestBody() != null && se.requestBody() != null) {
             mediaTypeMismatch(findings, ce, spec, "request body content",
                     ce.requestBody().mediaTypes(), se.requestBody().mediaTypes(), java.util.Set.of());
         }
@@ -437,7 +438,7 @@ public class DiffEngine {
         }
         SchemaModel cs = code.schemas().get(baseName(codeRef));
         SchemaModel ss = spec.schemas().get(baseName(specRef));
-        if (cs == null || ss == null || structureless(cs) || (structureless(ss) && specSchemaOpaque(spec, ss))) {
+        if (cs == null || ss == null || structureless(cs) || suppressStructurelessSpec(spec, ss)) {
             return;   // unresolved / opaque — owned by structuralVerdict + extractor blind spots
         }
         String key = baseName(codeRef) + "|" + baseName(specRef);
@@ -500,15 +501,18 @@ public class DiffEngine {
         // A KNOWN scalar (String/Integer/...) on exactly one side, against a structured object on the other, is a
         // PROVABLE shape break — a bare JSON string can never equal an object. Don't fold it into UNRESOLVED (which is
         // reserved for genuinely opaque/external DTOs and would suppress the mismatch).
-        boolean codeScalar = isScalarName(baseName(codeRef));
-        boolean specScalar = isScalarName(baseName(specRef));
+        // A side counts as scalar ONLY when its name is a known scalar AND it is NOT a registered structured schema —
+        // otherwise a code/spec DTO that happens to be named "Instant"/"Date"/"Number" would falsely read as a scalar
+        // and a structurally-equal object pair would DIFFER on the name alone.
+        boolean codeScalar = isScalarName(baseName(codeRef)) && cs == null;
+        boolean specScalar = isScalarName(baseName(specRef)) && ss == null;
         if (codeScalar != specScalar) {
             SchemaModel object = codeScalar ? ss : cs;
             if (object != null && !structureless(object)) {
                 return SchemaVerdict.DIFFER;
             }
         }
-        if (cs == null || ss == null || structureless(cs) || (structureless(ss) && specSchemaOpaque(spec, ss))) {
+        if (cs == null || ss == null || structureless(cs) || suppressStructurelessSpec(spec, ss)) {
             return SchemaVerdict.UNRESOLVED;
         }
         return propsEqual(code, spec, cs, ss, MAX_SCHEMA_DEPTH, new java.util.HashSet<>())
@@ -541,10 +545,21 @@ public class DiffEngine {
         return noFields && noEnum;
     }
 
-    /** True when a structureless SPEC schema is opaque BY DESIGN — the extractor recorded a composition blind spot for
-     *  it (oneOf/anyOf/unresolvable allOf). A genuinely-empty {type:object} (no blind spot) is NOT opaque: it is
-     *  under-documented, and the code's fields SHOULD surface as SCHEMA_FIELD_MISSING rather than be suppressed. */
-    private static boolean specSchemaOpaque(ApiModel spec, SchemaModel ss) {
+    /** Whether to suppress (treat as UNRESOLVED) a structureless SPEC schema. Suppress by default — the ONLY case the
+     *  code's fields should surface as SCHEMA_FIELD_MISSING is a GENUINELY-EMPTY DECLARED object: type:object, no
+     *  properties, and no composition blind spot (i.e. under-documentation). A bare-$ref alias / external $ref (type
+     *  != "object") or a composition-opaque schema (oneOf/anyOf/unresolvable allOf, blind-spotted) stays suppressed,
+     *  so neither produces a false SCHEMA_FIELD_MISSING. */
+    private static boolean suppressStructurelessSpec(ApiModel spec, SchemaModel ss) {
+        if (!structureless(ss)) {
+            return false;
+        }
+        boolean genuinelyEmptyObject = "object".equals(ss.type()) && !specSchemaComposed(spec, ss);
+        return !genuinelyEmptyObject;
+    }
+
+    /** True when the extractor recorded a composition blind spot for a spec schema (oneOf/anyOf/unresolvable allOf). */
+    private static boolean specSchemaComposed(ApiModel spec, SchemaModel ss) {
         if (spec.blindSpots() == null || ss == null || ss.name() == null) {
             return false;
         }

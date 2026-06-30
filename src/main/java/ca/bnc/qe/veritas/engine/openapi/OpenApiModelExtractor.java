@@ -499,6 +499,12 @@ public class OpenApiModelExtractor {
         if (base == null) {
             return false;   // unresolvable (external/dangling) → blind spot
         }
+        if (isScalarLeaf(base)) {
+            // allOf:[$ref <scalar/enum leaf>] (e.g. a schema that IS a string-enum or a constrained primitive) is NOT
+            // an object to merge fields from — flattening it to an empty field set would drop its enum/constraints AND
+            // the composition blind spot, then false-diff as SCHEMA_FIELD_MISSING. Leave it unflattened (→ blind spot).
+            return false;
+        }
         List<String> req = base.getRequired() == null ? List.of() : base.getRequired();
         collectSchemaProps(specId, holder, base.getProperties(), req, fields, allSchemas);
         boolean ok = true;
