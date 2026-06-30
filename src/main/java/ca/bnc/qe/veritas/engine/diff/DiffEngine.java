@@ -383,9 +383,22 @@ public class DiffEngine {
                             + ") but the code enforces none on this endpoint", ce, Confidence.MEDIUM));
         }
         // consumes/produces media-type divergence. Only when the CODE side declares them (most endpoints default
-        // to JSON and declare nothing — comparing those would be noise). Compared as case-insensitive sets.
-        mediaTypeMismatch(findings, ce, spec, "produces", ce.produces(), se.produces());
-        mediaTypeMismatch(findings, ce, spec, "consumes", ce.consumes(), se.consumes());
+        // to JSON and declare nothing — comparing those would be noise). Compatibility-aware (wildcards/+suffix).
+        // A code `produces` media type the spec documents on an ERROR response (e.g. application/problem+json on a 500)
+        // is benign — the spec `produces` set is success-only by design, so it must not count as a mismatch.
+        java.util.Set<String> specErrorMedia = se.responses().stream()
+                .filter(r -> r.statusCode() >= 300)
+                .flatMap(r -> r.mediaTypes() == null ? java.util.stream.Stream.<String>empty() : r.mediaTypes().stream())
+                .map(DiffEngine::baseMedia).filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+        mediaTypeMismatch(findings, ce, spec, "produces", ce.produces(), se.produces(), specErrorMedia);
+        mediaTypeMismatch(findings, ce, spec, "consumes", ce.consumes(), se.consumes(), java.util.Set.of());
+        // Request-body content type (e.g. a multipart/form-data upload whose @RequestPart media type lives on the
+        // requestBody, not consumes) — compared only when both sides declare it, so a JSON-default body is not noise.
+        if (ce.requestBody() != null && se.requestBody() != null) {
+            mediaTypeMismatch(findings, ce, spec, "request body content",
+                    ce.requestBody().mediaTypes(), se.requestBody().mediaTypes(), java.util.Set.of());
+        }
 
         // success-response body schema differs between code and spec. Compare the RESOLVED STRUCTURE, not the
         // type/schema NAME: a code DTO "PasswordPolicyWrapper" and a spec schema "policies" that serialize to the
@@ -603,27 +616,64 @@ public class DiffEngine {
 
     /** Flag a consumes/produces divergence only when the code side declares media types (else it's noise). */
     private void mediaTypeMismatch(List<Finding> findings, Endpoint ce, ApiModel spec, String which,
-                                   java.util.List<String> code, java.util.List<String> specMt) {
+                                   java.util.List<String> code, java.util.List<String> specMt,
+                                   java.util.Set<String> benignExtra) {
         if (code == null || code.isEmpty() || specMt == null || specMt.isEmpty()) {
             return;
         }
-        if (!mediaSet(code).equals(mediaSet(specMt))) {
-            findings.add(finding(FindingType.CONSUMES_PRODUCES_MISMATCH, label(ce), spec.source(),
-                    which + " media types — code " + code + " vs spec " + specMt, ce, Confidence.LOW));
+        java.util.List<String> effCode = code.stream()
+                .filter(c -> !benignExtra.contains(baseMedia(c))).toList();
+        if (effCode.isEmpty() || mediaCompatible(effCode, specMt)) {
+            return;
         }
+        findings.add(finding(FindingType.CONSUMES_PRODUCES_MISMATCH, label(ce), spec.source(),
+                which + " media types — code " + code + " vs spec " + specMt, ce, Confidence.LOW));
+    }
+
+    /** Media-type compatibility per Spring's MediaType semantics (a star/star or application-star wildcard, and an
+     *  application-star-plus-json range matching application/json) — replaces literal set-equality so a wildcard or
+     *  +suffix range is not a false CONSUMES_PRODUCES_MISMATCH. Falls back to base-string equality on a parse failure. */
+    private boolean mediaCompatible(java.util.List<String> code, java.util.List<String> specMt) {
+        try {
+            java.util.List<org.springframework.http.MediaType> cs = parseMedia(code);
+            java.util.List<org.springframework.http.MediaType> ss = parseMedia(specMt);
+            if (cs.isEmpty() || ss.isEmpty()) {
+                return mediaSet(code).equals(mediaSet(specMt));
+            }
+            return cs.stream().allMatch(c -> ss.stream().anyMatch(s -> s.isCompatibleWith(c)))
+                    && ss.stream().allMatch(s -> cs.stream().anyMatch(c -> c.isCompatibleWith(s)));
+        } catch (RuntimeException unparseable) {
+            return mediaSet(code).equals(mediaSet(specMt));
+        }
+    }
+
+    private java.util.List<org.springframework.http.MediaType> parseMedia(java.util.List<String> v) {
+        java.util.List<org.springframework.http.MediaType> out = new ArrayList<>();
+        for (String x : v) {
+            if (x != null && !x.isBlank()) {
+                out.add(org.springframework.http.MediaType.parseMediaType(x.trim()));
+            }
+        }
+        return out;
+    }
+
+    /** Lower-cased base media type, parameters stripped: {@code Application/JSON;charset=UTF-8} → {@code application/json}. */
+    private static String baseMedia(String x) {
+        if (x == null) {
+            return null;
+        }
+        String b = x.toLowerCase(Locale.ROOT);
+        int semi = b.indexOf(';');
+        b = (semi >= 0 ? b.substring(0, semi) : b).trim();
+        return b.isEmpty() ? null : b;
     }
 
     /** Media types compared by base type, case-insensitive, ignoring parameters (e.g. {@code ;charset=utf-8}). */
     private java.util.Set<String> mediaSet(java.util.List<String> v) {
         java.util.Set<String> out = new java.util.HashSet<>();
         for (String x : v) {
-            if (x == null) {
-                continue;
-            }
-            String base = x.toLowerCase(Locale.ROOT);
-            int semi = base.indexOf(';');
-            base = (semi >= 0 ? base.substring(0, semi) : base).trim();
-            if (!base.isEmpty()) {
+            String base = baseMedia(x);
+            if (base != null) {
                 out.add(base);
             }
         }
