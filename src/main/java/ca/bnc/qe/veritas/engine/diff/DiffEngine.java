@@ -347,8 +347,8 @@ public class DiffEngine {
         // specific-exception handler is MEDIUM; a global catch-all handler (e.g. 500 for any RuntimeException) is LOW
         // so it never reads as a hard per-endpoint defect on every operation.
         for (ResponseModel cr : ce.responses()) {
-            if (cr.statusCode() < 400) {
-                continue;
+            if (cr.statusCode() < 300) {
+                continue;   // 2xx is the success band (handled above); 3xx redirects + 4xx/5xx errors are compared here
             }
             ResponseModel specErr = se.responses().stream()
                     .filter(r -> r.statusCode() == cr.statusCode()).findFirst().orElse(null);
@@ -385,6 +385,12 @@ public class DiffEngine {
                     && ce.responses().stream().noneMatch(r -> r.statusCode() == sr.statusCode())) {
                 findings.add(finding(FindingType.STATUS_CODE_EXTRA, label(ce), spec.source(),
                         "Spec documents success status " + sr.statusCode() + " but the code never returns it",
+                        ce, Confidence.LOW));
+            } else if (sr.statusCode() >= 300 && sr.statusCode() < 400
+                    && ce.responses().stream().noneMatch(r -> r.statusCode() == sr.statusCode())) {
+                // A documented 3xx redirect the code never returns — a real (if often contingent) wire divergence.
+                findings.add(finding(FindingType.STATUS_CODE_EXTRA, label(ce), spec.source(),
+                        "Spec documents redirect status " + sr.statusCode() + " but the code never returns it",
                         ce, Confidence.LOW));
             }
         }

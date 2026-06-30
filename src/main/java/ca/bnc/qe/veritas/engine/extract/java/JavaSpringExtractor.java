@@ -881,25 +881,30 @@ public class JavaSpringExtractor {
         // When the method returns a ResponseEntity, its in-body status WINS — over @ResponseStatus too (Spring's
         // HttpEntityMethodProcessor overwrites @ResponseStatus with the ResponseEntity's status; ref SPR-30305).
         List<Integer> entityStatuses = ret.responseEntity() ? allEntityStatuses(m) : List.of();
+        // A ResponseEntity whose status lives somewhere we can't read — a status(non-literal) call, or a helper/factory
+        // delegation like `return factory.created(x)`. Surfaced as a blind spot below EVEN WHEN some returns resolved:
+        // a method mixing a resolvable `return ResponseEntity.ok(x)` with an unresolvable `return factory.notFound()`
+        // must not silently drop the unresolvable status (a partial harvest masking it).
+        boolean unresolvableStatus = ret.responseEntity() && getAnnotation(m, "ResponseStatus").isEmpty()
+                && responseEntityStatusUnresolvable(m);
         if (!entityStatuses.isEmpty()) {
             Integer success = entityStatuses.stream().filter(s -> s >= 200 && s < 300).min(Integer::compareTo).orElse(null);
             for (Integer s : entityStatuses) {
                 boolean withBody = success != null && s.equals(success) && !ret.noBody();
                 responses.add(new ResponseModel(s, withBody ? ret.schemaRef() : null, null, "RESPONSE_ENTITY", retSrc));
             }
-        } else if (ret.responseEntity() && getAnnotation(m, "ResponseStatus").isEmpty()
-                && responseEntityStatusUnresolvable(m)) {
-            // A ResponseEntity whose status lives somewhere we can't read — a status(non-literal) call, or a
-            // helper/factory delegation like `return factory.created(x)`. Don't fabricate a phantom 200 (a false
-            // STATUS_CODE_MISSING(200) that also drops the real status); record an honest gap. (A bare pass-through /
-            // `return null` ResponseEntity legitimately defaults to 200 and is handled by the else below.)
-            blindSpots.add("Controller " + controllerClass + "." + m.getNameAsString() + " builds a ResponseEntity whose "
-                    + "status could not be resolved statically; its real status is not compared to the spec.");
-        } else {
-            // Non-ResponseEntity return, or a ResponseEntity carrying ONLY a @ResponseStatus (no in-body status).
+        } else if (!unresolvableStatus) {
+            // Non-ResponseEntity return, or a ResponseEntity carrying ONLY a @ResponseStatus (no in-body status), or a
+            // bare pass-through / `return null` ResponseEntity that legitimately defaults to 200.
             int status = responseStatus(m);
             responses.add(new ResponseModel(status, ret.noBody() ? null : ret.schemaRef(), null,
                     ret.responseEntity() ? "RESPONSE_ENTITY" : "RETURN", retSrc));
+        }
+        if (unresolvableStatus) {
+            // Don't fabricate a phantom 200 (a false STATUS_CODE_MISSING(200) that also drops the real status); record
+            // an honest gap so the unresolvable status is surfaced for manual review.
+            blindSpots.add("Controller " + controllerClass + "." + m.getNameAsString() + " builds a ResponseEntity whose "
+                    + "status could not be resolved statically; its real status is not compared to the spec.");
         }
 
         // One-hop reachability: an error status a CALLED service method throws is reachable from THIS endpoint —
@@ -1637,25 +1642,30 @@ public class JavaSpringExtractor {
     }
 
     /**
-     * Resolve the HTTP status(es) an @ExceptionHandler produces, in priority order: an explicit @ResponseStatus on
-     * the handler; a status set in the body via {@code ResponseEntity.status(...)}, a ResponseEntity factory,
-     * {@code new ResponseEntity<>(HttpStatus.X)}, or {@code ProblemDetail.forStatus(AndDetail)(HttpStatus.X)}; the
-     * handled exception's own @ResponseStatus; a small map of well-known framework exceptions. Returns an EMPTY list
-     * (never a phantom 500) when nothing resolves, so the caller records an honest blind spot instead of guessing.
+     * Resolve the HTTP status(es) an @ExceptionHandler produces, in priority order: a status set in the body via a
+     * {@code ResponseEntity} (factory, {@code .status(...)}, or {@code new ResponseEntity<>(HttpStatus.X)}) — which
+     * OVERWRITES a method @ResponseStatus at runtime (SPR-30305, mirroring the controller path); then an explicit
+     * @ResponseStatus on the handler; then a {@code ProblemDetail.forStatus(AndDetail)(HttpStatus.X)}; then the handled
+     * exception's own @ResponseStatus / a small framework-exception map. Returns an EMPTY list (never a phantom 500)
+     * when nothing resolves, so the caller records an honest blind spot instead of guessing.
      */
     private List<Integer> errorStatuses(MethodDeclaration m, Map<String, TypeDeclaration<?>> types) {
+        // A ResponseEntity in-body status WINS over a method @ResponseStatus (SPR-30305) — check it FIRST.
+        LinkedHashSet<Integer> entity = new LinkedHashSet<>();
+        for (Integer s : responseEntityStatuses(m)) {     // ResponseEntity.status(...) / factories
+            if (s != null && s >= 400) {
+                entity.add(s);
+            }
+        }
+        entity.addAll(newResponseEntityStatuses(m));
+        if (!entity.isEmpty()) {
+            return new ArrayList<>(entity);
+        }
         Integer ann = responseStatusAnnotation(m);
         if (ann != null) {
             return List.of(ann);
         }
-        LinkedHashSet<Integer> body = new LinkedHashSet<>();
-        for (Integer s : responseEntityStatuses(m)) {     // ResponseEntity.status(...) / factories
-            if (s != null && s >= 400) {
-                body.add(s);
-            }
-        }
-        body.addAll(problemDetailStatuses(m));
-        body.addAll(newResponseEntityStatuses(m));
+        LinkedHashSet<Integer> body = new LinkedHashSet<>(problemDetailStatuses(m));
         if (!body.isEmpty()) {
             return new ArrayList<>(body);
         }
@@ -1728,9 +1738,13 @@ public class JavaSpringExtractor {
         for (Object mo : ctrl.getMethods()) {
             MethodDeclaration m = (MethodDeclaration) mo;
             if (has(m, "ExceptionHandler")) {
-                // A catch-all (Exception/RuntimeException/Throwable) handler is a BLANKET error → LOW, mirroring the
-                // global-advice path; only a specific-exception handler is endpoint-reachable evidence → MEDIUM.
-                String origin = catchAllHandler(m) ? "EXCEPTION_HANDLER_GLOBAL" : "EXCEPTION_HANDLER_REACHABLE";
+                // A controller-LOCAL @ExceptionHandler is controller-scoped, not proven reachable from any SPECIFIC
+                // sibling endpoint (we can't tell which endpoint throws the handled exception), so it is attached to
+                // EVERY endpoint — it must therefore stay LOW (manual review), exactly like a global @ControllerAdvice.
+                // Scoring it MEDIUM fabricated a STATUS_CODE_MISSING on non-throwing siblings. The genuinely
+                // per-endpoint-reachable cases (the endpoint's own throw, or a one-hop service call that throws) are
+                // attached separately at EXCEPTION_HANDLER_REACHABLE with real proof.
+                String origin = catchAllHandler(m) ? "EXCEPTION_HANDLER_GLOBAL" : "EXCEPTION_HANDLER";
                 for (int s : errorStatuses(m, types)) {
                     if (s >= 400) {
                         out.putIfAbsent(s, origin);
