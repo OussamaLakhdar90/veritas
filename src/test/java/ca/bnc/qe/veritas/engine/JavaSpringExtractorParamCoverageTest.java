@@ -62,7 +62,7 @@ class JavaSpringExtractorParamCoverageTest {
     }
 
     @Test
-    void pageableExpandsToPageSizeSortQueryParams(@TempDir Path dir) throws Exception {
+    void pageableSurfacesABlindSpotRatherThanGuessingPageSizeSort(@TempDir Path dir) throws Exception {
         writeJava(dir, "ListController.java", """
             import org.springframework.web.bind.annotation.*;
             import org.springframework.data.domain.Pageable;
@@ -73,9 +73,10 @@ class JavaSpringExtractorParamCoverageTest {
             }
             """);
 
-        Endpoint e = only(new JavaSpringExtractor().extract(dir));
-        assertThat(e.params()).extracting(ParamModel::name).containsExactlyInAnyOrder("page", "size", "sort");
-        assertThat(e.params()).allSatisfy(p -> assertThat(p.required()).isFalse());
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        // We don't fabricate page/size/sort (names are configurable, sort is array) — guessing them mis-diffs.
+        assertThat(only(m).params()).noneSatisfy(p -> assertThat(p.name()).isIn("page", "size", "sort"));
+        assertThat(m.blindSpots()).anySatisfy(b -> assertThat(b).contains("Pageable").contains("page/size/sort"));
     }
 
     @Test

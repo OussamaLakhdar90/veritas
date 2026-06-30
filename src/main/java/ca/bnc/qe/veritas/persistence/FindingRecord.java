@@ -23,9 +23,7 @@ import lombok.Setter;
 public class FindingRecord extends AuditableEntity {
 
     private String scanId;
-    private String fingerprint;     // stable id (type+endpoint+summary+specSource) for exact carry-forward across scans
-    private String locusKey;        // type+endpoint+specSource only — survives a summary change so a disposition isn't
-                                    // lost when a finding's text shifts (e.g. a constraint value); used as a guarded fallback
+    private String fingerprint;     // stable id for status carry-forward across scans
 
     private String type;
     private String layer;

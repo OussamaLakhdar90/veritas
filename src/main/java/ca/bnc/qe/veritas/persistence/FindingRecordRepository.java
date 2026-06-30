@@ -23,16 +23,6 @@ public interface FindingRecordRepository extends JpaRepository<FindingRecord, St
     List<FindingRecord> findPriorDispositions(@Param("fingerprints") Collection<String> fingerprints,
                                               @Param("scanId") String scanId);
 
-    /**
-     * Same prior-disposition lookup keyed by {@code locusKey} (type+endpoint+specSource), so a disposition can carry
-     * forward when a finding's summary (hence fingerprint) changed but it is the same logical defect. The caller only
-     * applies it when the locus is unambiguous (exactly one prior and one current finding share it).
-     */
-    @Query("select f from FindingRecord f where f.locusKey in :locusKeys and f.scanId <> :scanId "
-            + "and f.status is not null and f.status <> 'OPEN' order by f.createdAt desc")
-    List<FindingRecord> findPriorDispositionsByLocus(@Param("locusKeys") Collection<String> locusKeys,
-                                                     @Param("scanId") String scanId);
-
     /** Retention sweep: bulk-delete finding rows older than the cutoff. */
     @Modifying(clearAutomatically = true)
     @Query("delete from FindingRecord f where f.createdAt < :cutoff")

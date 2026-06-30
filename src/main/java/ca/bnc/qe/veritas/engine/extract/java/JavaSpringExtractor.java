@@ -776,13 +776,14 @@ public class JavaSpringExtractor {
                 // them, so surface it rather than silently dropping the bound fields (the project's blind-spot ethos).
                 blindSpots.add("Controller " + controllerClass + "." + m.getNameAsString() + " binds @ModelAttribute '"
                         + simpleTypeName(p.getType()) + "' — its form/query fields are not expanded; verify them.");
-            } else if (isBoundType(p, "Pageable", "PageRequest")) {
-                // Spring's PageableHandlerMethodArgumentResolver binds these standard query params at runtime.
-                params.add(simpleQuery(file, m, "page", "integer", "int32"));
-                params.add(simpleQuery(file, m, "size", "integer", "int32"));
-                params.add(simpleQuery(file, m, "sort", "string", null));
-            } else if (isBoundType(p, "Sort")) {
-                params.add(simpleQuery(file, m, "sort", "string", null));
+            } else if (isBoundType(p, "Pageable", "PageRequest", "Sort")) {
+                // Spring's resolver binds page/size/sort at runtime, but the names are configurable
+                // (spring.data.web.pageable.*-parameter) and sort is a repeatable/array param — emitting the default
+                // page/size/sort would mis-diff (false PARAM_MISSING when the spec omits them, string-vs-array on sort).
+                // Surface a blind spot rather than guess, mirroring the @ModelAttribute treatment.
+                blindSpots.add("Controller " + controllerClass + "." + m.getNameAsString() + " binds a "
+                        + simpleTypeName(p.getType()) + " (pagination); its page/size/sort query params are resolved by "
+                        + "Spring and not modelled — verify them against the spec.");
             }
         }
         // A multipart handler (@RequestPart) HAS a body even without @RequestBody — model it as multipart/form-data so
@@ -1125,12 +1126,6 @@ public class JavaSpringExtractor {
             }
         }
         return false;
-    }
-
-    /** A synthetic, optional query param (used for resolver-bound params like Pageable's page/size/sort). */
-    private ParamModel simpleQuery(String file, MethodDeclaration m, String name, String type, String format) {
-        return new ParamModel(name, ParamLocation.QUERY, type, format, false, ConstraintSet.empty(),
-                SourceRef.code(file, line(m), line(m), name));
     }
 
     /** The primitive inner type of OptionalInt/OptionalLong/OptionalDouble, or null when not a primitive optional. */
