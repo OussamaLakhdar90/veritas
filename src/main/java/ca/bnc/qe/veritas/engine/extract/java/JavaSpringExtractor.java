@@ -1418,6 +1418,7 @@ public class JavaSpringExtractor {
     private ConstraintSet constraintsOf(NodeWithAnnotations<?> n) {
         Integer minLen = null, maxLen = null;
         Double min = null, max = null;
+        Boolean exclusiveMin = null, exclusiveMax = null;
         String pattern = null, format = null;
         // NOTE: @NotBlank is captured via the field's `required` flag, NOT as minLength=1 — synthesizing a
         // length constraint produced spurious CONSTRAINT_GAP findings against specs that (correctly) omit minLength.
@@ -1437,14 +1438,57 @@ public class JavaSpringExtractor {
         if (maxA.isPresent()) {
             max = toDouble(firstString(maxA.get(), "value"));
         }
+        // @DecimalMin/@DecimalMax (String value); inclusive=false makes the bound exclusive. Tighter bound wins.
+        Optional<AnnotationExpr> decMin = getAnnotation(n, "DecimalMin");
+        if (decMin.isPresent()) {
+            Double v = toDouble(firstString(decMin.get(), "value"));
+            if (v != null && (min == null || v > min)) {
+                min = v;
+                exclusiveMin = "false".equals(namedMember(decMin.get(), "inclusive")) ? Boolean.TRUE : null;
+            }
+        }
+        Optional<AnnotationExpr> decMax = getAnnotation(n, "DecimalMax");
+        if (decMax.isPresent()) {
+            Double v = toDouble(firstString(decMax.get(), "value"));
+            if (v != null && (max == null || v < max)) {
+                max = v;
+                exclusiveMax = "false".equals(namedMember(decMax.get(), "inclusive")) ? Boolean.TRUE : null;
+            }
+        }
+        // @Positive(>0) / @PositiveOrZero(>=0) / @Negative(<0) / @NegativeOrZero(<=0) imply a 0 bound.
+        if (has(n, "Positive") && (min == null || min < 0)) {
+            min = 0.0;
+            exclusiveMin = Boolean.TRUE;
+        }
+        if (has(n, "PositiveOrZero") && (min == null || min < 0)) {
+            min = 0.0;
+        }
+        if (has(n, "Negative") && (max == null || max > 0)) {
+            max = 0.0;
+            exclusiveMax = Boolean.TRUE;
+        }
+        if (has(n, "NegativeOrZero") && (max == null || max > 0)) {
+            max = 0.0;
+        }
         Optional<AnnotationExpr> pat = getAnnotation(n, "Pattern");
         if (pat.isPresent()) {
-            pattern = firstString(pat.get(), "regexp");
+            pattern = patternRegexp(pat.get());
         }
         if (has(n, "Email")) {
             format = "email";
         }
-        return new ConstraintSet(minLen, maxLen, min, max, null, null, pattern, null, format);
+        return new ConstraintSet(minLen, maxLen, min, max, exclusiveMin, exclusiveMax, pattern, null, format);
+    }
+
+    /** The @Pattern regexp value, UNESCAPED. firstString → literal(toString()) keeps the source-level double
+     *  backslashes ("\\d" stays "\\d"), which false-diffs against the spec's single-backslash pattern; reading the
+     *  StringLiteralExpr's asString() yields the real value ("\d"). Falls back to literal for non-literal forms. */
+    private String patternRegexp(AnnotationExpr a) {
+        Expression e = memberExpr(a, "regexp");
+        if (e instanceof StringLiteralExpr sl) {
+            return sl.asString();
+        }
+        return e == null ? null : literal(e.toString());
     }
 
     /** Error responses from @ControllerAdvice/@RestControllerAdvice @ExceptionHandler methods (one per status). */

@@ -47,6 +47,7 @@ public record ConstraintSet(
 
     public boolean isEmpty() {
         return minLength == null && maxLength == null && minimum == null && maximum == null
+                && !Boolean.TRUE.equals(exclusiveMin) && !Boolean.TRUE.equals(exclusiveMax)
                 && pattern == null && (enumValues == null || enumValues.isEmpty()) && format == null;
     }
 }
