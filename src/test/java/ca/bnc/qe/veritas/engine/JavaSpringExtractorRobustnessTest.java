@@ -38,14 +38,16 @@ class JavaSpringExtractorRobustnessTest {
     }
 
     @Test
-    void unwrapsPageToInnerDtoArray(@TempDir Path dir) throws Exception {
+    void pageReturnIsAnObjectEnvelopeNotAnArray(@TempDir Path dir) throws Exception {
         Files.writeString(dir.resolve("Widget.java"), "package demo; public class Widget { public String id; }");
         ApiModel m = extract(dir, "PageCtrl",
                 "@RestController class PageCtrl { @GetMapping(\"/w\") Page<Widget> g(){return null;} }");
         Endpoint e = m.endpoints().get(0);
-        // body is a collection of Widget, and Page itself is not emitted as a phantom schema / blind spot
-        assertThat(e.responses().toString()).contains("Widget");
-        assertThat(m.blindSpots().toString()).doesNotContain("Page");
+        // Page<Widget> serializes as an OBJECT envelope ({content,totalElements,...}), NOT a bare Widget[] — modelling
+        // it as an array forced a false array-vs-object mismatch vs the paged-object spec. Now: unknown body + a blind
+        // spot, so no array ref ("Widget[]") leaks and the paged shape is surfaced for review.
+        assertThat(e.responses().toString()).doesNotContain("Widget[]");
+        assertThat(m.blindSpots().toString()).contains("paged");
     }
 
     @Test
