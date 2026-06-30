@@ -1206,6 +1206,11 @@ public class JavaSpringExtractor {
         // false (CRITICAL) SECURITY_MISMATCH. @Secured/@RolesAllowed anonymous sentinels mean OPEN too, so drop them.
         getAnnotation(n, "PreAuthorize").map(a -> firstString(a, "value"))
                 .filter(JavaSpringExtractor::isSecuringSpel).ifPresent(out::add);
+        // @PostAuthorize enforces authorization POST-invocation (throws AccessDeniedException) — it secures the endpoint
+        // exactly like @PreAuthorize. Omitting it read a @PostAuthorize-only endpoint as UNSECURED (a security
+        // false-negative + a fabricated SECURITY_MISMATCH against a secured spec).
+        getAnnotation(n, "PostAuthorize").map(a -> firstString(a, "value"))
+                .filter(JavaSpringExtractor::isSecuringSpel).ifPresent(out::add);
         getAnnotation(n, "Secured").ifPresent(a -> out.addAll(securingRoles(stringValues(a, "value"))));
         getAnnotation(n, "RolesAllowed").ifPresent(a -> out.addAll(securingRoles(stringValues(a, "value"))));
         // JSR-250: @DenyAll LOCKS the endpoint → a securing token; @PermitAll OPENS it → contributes nothing.
@@ -1215,11 +1220,12 @@ public class JavaSpringExtractor {
     }
 
     /** OPEN-access SpEL sentinels that do NOT constrain access (normalized: lower-cased, parens/space stripped).
+     *  The literal {@code true} always permits → OPEN, the boolean counterpart of permitAll().
      *  NOTE: denyAll()/false are deliberately NOT here — they LOCK the endpoint (403 to everyone), the OPPOSITE of open;
      *  treating them as open would read a locked endpoint as unsecured (a security false-negative). They stay as
      *  securing tokens so a denyAll-vs-spec-open divergence is still reported. */
     private static final Set<String> NON_SECURING_SPEL = Set.of(
-            "permitall", "isanonymous", "anonymous");
+            "permitall", "isanonymous", "anonymous", "true");
 
     /** @Secured/@RolesAllowed anonymous sentinels — they grant anonymous access (OPEN), not a real role. */
     private static final Set<String> ANONYMOUS_ROLES = Set.of(
@@ -1271,15 +1277,15 @@ public class JavaSpringExtractor {
      *  — so it OVERRIDES the class default even when its resolved expression is open (method @PermitAll on a secured
      *  class) or unknown. */
     private boolean hasSecurityAnnotation(NodeWithAnnotations<?> n, Map<String, TypeDeclaration<?>> types) {
-        if (has(n, "PreAuthorize") || has(n, "Secured") || has(n, "RolesAllowed")
+        if (has(n, "PreAuthorize") || has(n, "PostAuthorize") || has(n, "Secured") || has(n, "RolesAllowed")
                 || has(n, "PermitAll") || has(n, "DenyAll")) {
             return true;
         }
         for (AnnotationExpr a : n.getAnnotations()) {
             String name = a.getNameAsString();
             if (types.get(name) instanceof AnnotationDeclaration decl
-                    && (has(decl, "PreAuthorize") || has(decl, "Secured") || has(decl, "RolesAllowed")
-                        || has(decl, "PermitAll") || has(decl, "DenyAll"))) {
+                    && (has(decl, "PreAuthorize") || has(decl, "PostAuthorize") || has(decl, "Secured")
+                        || has(decl, "RolesAllowed") || has(decl, "PermitAll") || has(decl, "DenyAll"))) {
                 return true;
             }
             if (types.get(name) == null && looksLikeSecurityAnnotation(name)) {
