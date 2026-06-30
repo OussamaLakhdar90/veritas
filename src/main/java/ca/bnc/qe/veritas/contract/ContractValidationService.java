@@ -368,10 +368,13 @@ public class ContractValidationService {
             }
 
             String html = reportRenderer.renderHtml(scan, findings, fr);
-            String reportPath = writeOut("contract-report-" + scan.getId() + ".html", html);
+            // Human-readable artifact names: contract-report-<service>-<model>-<date> instead of the opaque scan UUID.
+            // ReportController reconstructs the same name (from the scan) for its on-disk fallback.
+            String reportBase = ca.bnc.qe.veritas.report.ReportNaming.baseName(scan);
+            String reportPath = writeOut(reportBase + ".html", html);
             String reportPdfPath = null;
             try {
-                reportPdfPath = writeOutBytes("contract-report-" + scan.getId() + ".pdf",
+                reportPdfPath = writeOutBytes(reportBase + ".pdf",
                         reportRenderer.renderPdf(scan, findings, fr));
             } catch (Exception ex) {
                 log.warn("PDF report skipped: {}", ex.getMessage());

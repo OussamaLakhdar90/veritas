@@ -58,11 +58,24 @@ public class ReportController {
                         .body(renderer.renderHtml(scan, findings, frenchMap(scan)));
             }
         }
-        // Fallback: the as-scanned HTML written at scan time (older scans, or no persisted findings yet).
+        // Fallback: the as-scanned HTML written at scan time (older scans, or no persisted findings yet). Try the
+        // human-readable name (reconstructed from the scan) first, then the legacy UUID name for older reports.
         Path base = Path.of("out").toAbsolutePath().normalize();
-        Path file = base.resolve("contract-report-" + id + ".html").normalize();
+        Path file = null;
+        if (scan != null) {
+            Path named = base.resolve(ca.bnc.qe.veritas.report.ReportNaming.baseName(scan) + ".html").normalize();
+            if (named.startsWith(base) && Files.exists(named)) {
+                file = named;
+            }
+        }
+        if (file == null) {
+            Path legacy = base.resolve("contract-report-" + id + ".html").normalize();   // pre-rename reports
+            if (legacy.startsWith(base) && Files.exists(legacy)) {
+                file = legacy;
+            }
+        }
         // Defence in depth: the resolved file must stay under the report directory even if the charset check changed.
-        if (!file.startsWith(base) || !Files.exists(file)) {
+        if (file == null) {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok().contentType(MediaType.TEXT_HTML).body(Files.readString(file));
