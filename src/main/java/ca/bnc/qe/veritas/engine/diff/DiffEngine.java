@@ -642,6 +642,7 @@ public class DiffEngine {
         }
         return code.blindSpots().stream().anyMatch(b -> b != null && (
                 b.contains("mappings declared on interfaces are not analysed")
+                        || b.contains("request mappings it declares are not analysed")   // extends an unscanned base
                         || b.contains("RouterFunction")
                         || b.contains("Functional routing")
                         || b.contains("Kotlin source file(s) declare Spring web routing")
