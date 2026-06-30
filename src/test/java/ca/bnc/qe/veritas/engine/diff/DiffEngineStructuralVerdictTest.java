@@ -99,6 +99,18 @@ class DiffEngineStructuralVerdictTest {
     }
 
     @Test
+    void aCodeDtoNamedLikeAScalarButStructurallyEqualDoesNotFalseDiff() {
+        // a code DTO literally named "Instant" (a registered object, not a scalar) vs a differently-named spec object
+        // of identical structure must MATCH — the scalar-vs-object check must not fire on the name collision.
+        SchemaModel codeInstant = schema("Instant", scalar("epochSecond", "integer"), scalar("nano", "integer"));
+        SchemaModel specTs = schema("TimeStamp", scalar("epochSecond", "integer"), scalar("nano", "integer"));
+        ApiModel code = model("code", List.of(get("/t", "Instant")), Map.of("Instant", codeInstant));
+        ApiModel spec = model("repo-spec", List.of(get("/t", "TimeStamp")), Map.of("TimeStamp", specTs));
+
+        assertThat(diff(code, spec)).noneMatch(f -> f.getType() == FindingType.RESPONSE_SCHEMA_MISMATCH);
+    }
+
+    @Test
     void scalarVsScalarResponseProducesNoFalseMismatch() {
         ApiModel code = model("code", List.of(get("/a", "String")), Map.of());
         ApiModel spec = model("repo-spec", List.of(get("/a", "string")), Map.of());

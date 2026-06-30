@@ -130,7 +130,7 @@ public class JavaSpringExtractor {
                         boolean bodyByDefault = producesBodyByDefault(ctrl, types);
                         // Error statuses a controller-LOCAL @ExceptionHandler produces apply to that controller's own
                         // endpoints (Spring scopes them there) — resolve once and attach to each endpoint below.
-                        Set<Integer> localHandlerStatuses = localExceptionHandlerStatuses(ctrl, types);
+                        Map<Integer, String> localHandlerStatuses = localExceptionHandlerStatuses(ctrl, types);
                         Set<String> seenSignatures = new java.util.HashSet<>();
                         for (Object mo : ctrl.getMethods()) {
                             MethodDeclaration method = (MethodDeclaration) mo;
@@ -755,7 +755,7 @@ public class JavaSpringExtractor {
                                        Map<String, TypeDeclaration<?>> types, List<String> referenced,
                                        List<String> classSecurity, List<String> blindSpots,
                                        Map<String, String> constants, Map<String, Set<Integer>> serviceStatuses,
-                                       Map<String, Integer> adviceExStatus, Set<Integer> localHandlerStatuses) {
+                                       Map<String, Integer> adviceExStatus, Map<Integer, String> localHandlerStatuses) {
         MethodMapping mm = methodMappingOf(m, types);
         if (mm == null) {
             return List.of();
@@ -892,10 +892,12 @@ public class JavaSpringExtractor {
                 responses.add(new ResponseModel(s, null, null, "EXCEPTION_HANDLER_REACHABLE", retSrc));
             }
         }
-        // Error statuses produced by a controller-LOCAL @ExceptionHandler apply to every endpoint of that controller.
-        for (int s : localHandlerStatuses) {
+        // Error statuses produced by a controller-LOCAL @ExceptionHandler apply to every endpoint of that controller
+        // (a catch-all handler is attached at the blanket-LOW origin, a specific-exception handler at MEDIUM).
+        for (Map.Entry<Integer, String> e : localHandlerStatuses.entrySet()) {
+            int s = e.getKey();
             if (s >= 400 && responses.stream().noneMatch(r -> r.statusCode() == s)) {
-                responses.add(new ResponseModel(s, null, null, "EXCEPTION_HANDLER_REACHABLE", retSrc));
+                responses.add(new ResponseModel(s, null, null, e.getValue(), retSrc));
             }
         }
 
@@ -1157,11 +1159,14 @@ public class JavaSpringExtractor {
         getAnnotation(n, "RolesAllowed").ifPresent(a -> out.addAll(stringValues(a, "value")));
     }
 
-    /** Open/deny SpEL sentinels that do NOT constrain access (normalized: lower-cased, parens/space stripped). */
+    /** OPEN-access SpEL sentinels that do NOT constrain access (normalized: lower-cased, parens/space stripped).
+     *  NOTE: denyAll()/false are deliberately NOT here — they LOCK the endpoint (403 to everyone), the OPPOSITE of open;
+     *  treating them as open would read a locked endpoint as unsecured (a security false-negative). They stay as
+     *  securing tokens so a denyAll-vs-spec-open divergence is still reported. */
     private static final Set<String> NON_SECURING_SPEL = Set.of(
-            "permitall", "isanonymous", "anonymous", "denyall", "false");
+            "permitall", "isanonymous", "anonymous");
 
-    /** True when a @PreAuthorize SpEL actually constrains access (hasRole/hasAuthority/isAuthenticated/...). */
+    /** True when a @PreAuthorize SpEL actually constrains access (hasRole/hasAuthority/isAuthenticated/denyAll/...). */
     private static boolean isSecuringSpel(String spel) {
         if (spel == null) {
             return false;
@@ -1565,14 +1570,18 @@ public class JavaSpringExtractor {
     /** Error (>=400) statuses produced by a controller's OWN @ExceptionHandler methods — Spring scopes these to that
      *  controller's endpoints (a stronger signal than global @ControllerAdvice), but they were previously never
      *  scanned (extractAdvice is gated to @ControllerAdvice types). */
-    private Set<Integer> localExceptionHandlerStatuses(TypeDeclaration<?> ctrl, Map<String, TypeDeclaration<?>> types) {
-        Set<Integer> out = new java.util.LinkedHashSet<>();
+    private Map<Integer, String> localExceptionHandlerStatuses(TypeDeclaration<?> ctrl,
+                                                               Map<String, TypeDeclaration<?>> types) {
+        Map<Integer, String> out = new java.util.LinkedHashMap<>();
         for (Object mo : ctrl.getMethods()) {
             MethodDeclaration m = (MethodDeclaration) mo;
             if (has(m, "ExceptionHandler")) {
+                // A catch-all (Exception/RuntimeException/Throwable) handler is a BLANKET error → LOW, mirroring the
+                // global-advice path; only a specific-exception handler is endpoint-reachable evidence → MEDIUM.
+                String origin = catchAllHandler(m) ? "EXCEPTION_HANDLER_GLOBAL" : "EXCEPTION_HANDLER_REACHABLE";
                 for (int s : errorStatuses(m, types)) {
                     if (s >= 400) {
-                        out.add(s);
+                        out.putIfAbsent(s, origin);
                     }
                 }
             }

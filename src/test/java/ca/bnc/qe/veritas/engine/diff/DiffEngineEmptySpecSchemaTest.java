@@ -55,6 +55,18 @@ class DiffEngineEmptySpecSchemaTest {
     }
 
     @Test
+    void aliasOrExternalStructurelessSpecSchemaStaysSuppressed() {
+        // A bare-$ref alias / external $ref resolves to a structureless schema with type=null (NOT a declared empty
+        // object) and no blind spot — it must stay suppressed, NOT emit a false SCHEMA_FIELD_MISSING for the code fields.
+        ApiModel code = new ApiModel("code", null, null, null, List.of(get("/r", "Resp")),
+                Map.of("Resp", schema("Resp", field("id"), field("amount"))));
+        ApiModel spec = new ApiModel("repo-spec", null, null, null, List.of(get("/r", "Alias")),
+                Map.of("Alias", new SchemaModel("Alias", null, List.of(), null, SRC)), List.of());
+
+        assertThat(diff(code, spec)).noneMatch(f -> f.getType() == FindingType.SCHEMA_FIELD_MISSING);
+    }
+
+    @Test
     void opaqueByCompositionSpecSchemaStaysSuppressed() {
         ApiModel code = new ApiModel("code", null, null, null, List.of(get("/r", "Resp")),
                 Map.of("Resp", schema("Resp", field("id"), field("amount"))));

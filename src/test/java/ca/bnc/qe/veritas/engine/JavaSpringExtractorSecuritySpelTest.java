@@ -87,7 +87,8 @@ class JavaSpringExtractorSecuritySpelTest {
     }
 
     @Test
-    void isAnonymousAndDenyAllAreNotSecuring(@TempDir Path dir) throws Exception {
+    void isAnonymousIsOpenButDenyAllIsLockedNotOpen(@TempDir Path dir) throws Exception {
+        // isAnonymous() = open → unsecured
         assertThat(extractOne(dir, """
             import org.springframework.web.bind.annotation.*;
             import org.springframework.security.access.prepost.PreAuthorize;
@@ -97,6 +98,7 @@ class JavaSpringExtractorSecuritySpelTest {
             }
             """).security()).isEmpty();
 
+        // denyAll() = LOCKED (403 to everyone), the OPPOSITE of open → must NOT read as unsecured (security false-neg)
         assertThat(extractOne(dir, """
             import org.springframework.web.bind.annotation.*;
             import org.springframework.security.access.prepost.PreAuthorize;
@@ -104,6 +106,6 @@ class JavaSpringExtractorSecuritySpelTest {
                 @PreAuthorize("denyAll()")
                 @GetMapping("/d") public String d() { return "d"; }
             }
-            """).security()).isEmpty();
+            """).security()).isNotEmpty();
     }
 }
