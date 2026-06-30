@@ -753,10 +753,20 @@ public class JavaSpringExtractor {
             if (hasMeta(p, "PathVariable", types)) {
                 params.add(param(file, p, ParamLocation.PATH, true, types));
             } else if (hasMeta(p, "RequestParam", types)) {
-                boolean required = getAnnotation(p, "RequestParam")
-                        .map(a -> !"false".equals(namedMember(a, "required")) && namedMember(a, "defaultValue") == null)
-                        .orElse(true);
-                params.add(param(file, p, ParamLocation.QUERY, required, types));
+                boolean unnamed = getAnnotation(p, "RequestParam")
+                        .map(a -> firstString(a, "value", "name")).orElse(null) == null;
+                if (unnamed && MAP_LIKE.contains(simpleTypeName(p.getType()))) {
+                    // @RequestParam Map/MultiValueMap (no name) binds ALL query params at runtime — the variable name
+                    // is not a real param name, so emitting it as an "object" param would false-diff. Surface it.
+                    blindSpots.add("Controller " + controllerClass + "." + m.getNameAsString() + " binds all query params"
+                            + " via a " + simpleTypeName(p.getType()) + " (@RequestParam) — the individual params are not"
+                            + " modelled; verify them against the spec.");
+                } else {
+                    boolean required = getAnnotation(p, "RequestParam")
+                            .map(a -> !"false".equals(namedMember(a, "required")) && namedMember(a, "defaultValue") == null)
+                            .orElse(true);
+                    params.add(param(file, p, ParamLocation.QUERY, required, types));
+                }
             } else if (hasMeta(p, "RequestHeader", types)) {
                 params.add(param(file, p, ParamLocation.HEADER, bindingRequired(p, "RequestHeader"), types));
             } else if (hasMeta(p, "CookieValue", types)) {
@@ -1106,10 +1116,14 @@ public class JavaSpringExtractor {
         String[] tf = openApiType(simple);
         String type = tf[0];
         ConstraintSet cs = constraintsOf(p);
-        // A param typed as a Java enum constrains the allowed values. Surface them as the param's enum constraint
-        // (the spec often models this as a bare string with the allowed set only in the description prose), so an
-        // enum drift becomes a contract-testable CONSTRAINT_GAP instead of an invisible string-vs-string match.
-        if (types.get(simple) instanceof EnumDeclaration ed) {
+        if (collectionElement(pt) != null) {
+            // A multi-value param (List/Set/Collection<E> or E[]) binds as an array (matching the spec's type=array),
+            // not the {type:object} the catch-all openApiType assigns; @Size on it is an item-count bound, not length.
+            type = "array";
+            cs = cs.withoutLength();
+        } else if (types.get(simple) instanceof EnumDeclaration ed) {
+            // A param typed as a Java enum constrains the allowed values. Surface them as the param's enum constraint
+            // so an enum drift becomes a contract-testable CONSTRAINT_GAP instead of an invisible string-vs-string match.
             type = "string";
             cs = cs.withEnumValues(enumValuesOf(ed));
         }
@@ -1208,7 +1222,9 @@ public class JavaSpringExtractor {
         String element = collectionElement(type);
         if (element != null) {
             String elemRef = types.containsKey(element) ? element + "[]" : null;
-            return new FieldModel(jsonName, "array", null, required, cs, elemRef, null);
+            // @Size on a collection is an item-count (minItems) bound, not string length — drop it so it doesn't
+            // false-diff as a minLength CONSTRAINT_GAP against a spec that (correctly) uses minItems.
+            return new FieldModel(jsonName, "array", null, required, cs.withoutLength(), elemRef, null);
         }
         // Enum-typed field → a string with an inline enum, not a phantom {type:object} ref.
         if (types.get(simple) instanceof EnumDeclaration ed) {
@@ -1752,7 +1768,8 @@ public class JavaSpringExtractor {
 
     /** Dictionary types whose body is a free-form object — never emitted as a named schema. */
     private static final Set<String> MAP_LIKE = Set.of(
-            "Map", "HashMap", "LinkedHashMap", "TreeMap", "SortedMap", "NavigableMap", "ConcurrentHashMap", "Properties");
+            "Map", "HashMap", "LinkedHashMap", "TreeMap", "SortedMap", "NavigableMap", "ConcurrentHashMap", "Properties",
+            "MultiValueMap", "LinkedMultiValueMap");
 
     /** Wrappers whose single type argument IS the response body (Spring envelopes, reactive-single, async). */
     private static final Set<String> TRANSPARENT_WRAPPERS = Set.of(
@@ -1909,9 +1926,50 @@ public class JavaSpringExtractor {
         if (joined.length() > 1 && joined.endsWith("/")) {
             joined = joined.substring(0, joined.length() - 1);
         }
-        // Normalize regex path-variable constraints to the bare name: {id:\d+} -> {id} (Spring/OpenAPI match).
-        joined = joined.replaceAll("\\{([^}:]+):[^}]*\\}", "{$1}");
+        // Normalize regex path-variable constraints to the bare name: {id:\d+} -> {id} (Spring/OpenAPI match), with a
+        // BRACE-BALANCED scan so a quantifier brace in the regex ({id:[0-9]{2}}) doesn't corrupt the token.
+        joined = stripPathVarRegex(joined);
         return joined.isEmpty() ? "/" : joined;
+    }
+
+    /** Collapse each {@code {name:regex}} path variable to {@code {name}}, scanning matched braces so a nested brace
+     *  in the regex (e.g. {@code {id:[0-9]{2}}}) is consumed as one unit instead of leaving a stray '}'. */
+    static String stripPathVarRegex(String path) {
+        if (path == null || path.indexOf('{') < 0) {
+            return path;
+        }
+        StringBuilder out = new StringBuilder();
+        int i = 0;
+        int n = path.length();
+        while (i < n) {
+            char c = path.charAt(i);
+            if (c != '{') {
+                out.append(c);
+                i++;
+                continue;
+            }
+            int j = i + 1;
+            int depth = 1;
+            int colon = -1;
+            while (j < n && depth > 0) {
+                char d = path.charAt(j);
+                if (d == '{') {
+                    depth++;
+                } else if (d == '}') {
+                    depth--;
+                    if (depth == 0) {
+                        break;
+                    }
+                } else if (d == ':' && depth == 1 && colon < 0) {
+                    colon = j;
+                }
+                j++;
+            }
+            String name = colon >= 0 ? path.substring(i + 1, colon) : path.substring(i + 1, Math.min(j, n));
+            out.append('{').append(name).append('}');
+            i = j + 1;
+        }
+        return out.toString();
     }
 
     private String nz(String s) {

@@ -38,6 +38,13 @@ public record ConstraintSet(
                 pattern, values, format, true);
     }
 
+    /** Copy with the length bounds dropped — for an array/collection, {@code @Size} is an item-count (minItems) bound,
+     *  not string length, and there is no minItems channel, so carrying minLength/maxLength would false-diff. */
+    public ConstraintSet withoutLength() {
+        return new ConstraintSet(null, null, minimum, maximum, exclusiveMin, exclusiveMax, pattern, enumValues, format,
+                enumFromDescription);
+    }
+
     public boolean isEmpty() {
         return minLength == null && maxLength == null && minimum == null && maximum == null
                 && pattern == null && (enumValues == null || enumValues.isEmpty()) && format == null;
