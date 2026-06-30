@@ -810,9 +810,16 @@ public class JavaSpringExtractor {
             if (hasMeta(p, "PathVariable", types)) {
                 params.add(param(file, p, ParamLocation.PATH, true, types));
             } else if (hasMeta(p, "RequestParam", types)) {
+                String paramType = simpleTypeName(p.getType());
+                String elem = collectionElement(p.getType());
                 boolean unnamed = getAnnotation(p, "RequestParam")
                         .map(a -> firstString(a, "value", "name")).orElse(null) == null;
-                if (unnamed && MAP_LIKE.contains(simpleTypeName(p.getType()))) {
+                if ("MultipartFile".equals(paramType) || "MultipartFile".equals(elem)) {
+                    // A @RequestParam MultipartFile (or List<MultipartFile>) is a multipart/form-data file PART, not a
+                    // query param — Spring binds it from the body. Emitting it as a QUERY param fabricated a false
+                    // PARAM_MISSING (+ REQUEST_BODY_PRESENCE_MISMATCH); model it as a multipart body like @RequestPart.
+                    multipart = true;
+                } else if (unnamed && MAP_LIKE.contains(paramType)) {
                     // @RequestParam Map/MultiValueMap (no name) binds ALL query params at runtime — the variable name
                     // is not a real param name, so emitting it as an "object" param would false-diff. Surface it.
                     blindSpots.add("Controller " + controllerClass + "." + m.getNameAsString() + " binds all query params"
@@ -1542,13 +1549,13 @@ public class JavaSpringExtractor {
 
     /** The @Pattern regexp value, UNESCAPED. firstString → literal(toString()) keeps the source-level double
      *  backslashes ("\\d" stays "\\d"), which false-diffs against the spec's single-backslash pattern; reading the
-     *  StringLiteralExpr's asString() yields the real value ("\d"). Falls back to literal for non-literal forms. */
+     *  StringLiteralExpr's asString() yields the real value ("\d"). For a NON-literal regexp (a constant reference
+     *  like {@code @Pattern(regexp = RegexConstants.PHONE)}) the source text is the constant NAME, not the regex — we
+     *  cannot resolve it here, so return null rather than emit "RegexConstants.PHONE" as the pattern (a guaranteed
+     *  false CONSTRAINT_GAP against the spec's real regex). */
     private String patternRegexp(AnnotationExpr a) {
         Expression e = memberExpr(a, "regexp");
-        if (e instanceof StringLiteralExpr sl) {
-            return sl.asString();
-        }
-        return e == null ? null : literal(e.toString());
+        return e instanceof StringLiteralExpr sl ? sl.asString() : null;
     }
 
     /** Error responses from @ControllerAdvice/@RestControllerAdvice @ExceptionHandler methods (one per status). */
