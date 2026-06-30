@@ -847,23 +847,25 @@ public class JavaSpringExtractor {
         }
         SourceRef retSrc = SourceRef.code(file, line(m), line(m), m.getDeclarationAsString(false, false, false));
         List<ResponseModel> responses = new ArrayList<>();
-        // When the method builds a ResponseEntity (and has no explicit @ResponseStatus), read the real status
-        // code(s) from the builder calls in the body — otherwise a 201/202/204 endpoint looked like 200.
-        List<Integer> entityStatuses = ret.responseEntity() && getAnnotation(m, "ResponseStatus").isEmpty()
-                ? responseEntityStatuses(m) : List.of();
+        // When the method returns a ResponseEntity, its in-body status WINS — over @ResponseStatus too (Spring's
+        // HttpEntityMethodProcessor overwrites @ResponseStatus with the ResponseEntity's status; ref SPR-30305).
+        List<Integer> entityStatuses = ret.responseEntity() ? allEntityStatuses(m) : List.of();
         if (!entityStatuses.isEmpty()) {
             Integer success = entityStatuses.stream().filter(s -> s >= 200 && s < 300).min(Integer::compareTo).orElse(null);
             for (Integer s : entityStatuses) {
                 boolean withBody = success != null && s.equals(success) && !ret.noBody();
                 responses.add(new ResponseModel(s, withBody ? ret.schemaRef() : null, null, "RESPONSE_ENTITY", retSrc));
             }
-        } else if (ret.responseEntity() && getAnnotation(m, "ResponseStatus").isEmpty() && hasUnresolvedStatusCall(m)) {
-            // A ResponseEntity.status(...) whose code couldn't be resolved (a non-literal var, or HttpStatusCode.valueOf(n))
-            // — don't fabricate a phantom 200 (which would emit a false STATUS_CODE_MISSING(200) and drop the real
-            // status). Record an honest gap instead, mirroring the @ExceptionHandler unresolved-status blind spot.
+        } else if (ret.responseEntity() && getAnnotation(m, "ResponseStatus").isEmpty()
+                && responseEntityStatusUnresolvable(m)) {
+            // A ResponseEntity whose status lives somewhere we can't read — a status(non-literal) call, or a
+            // helper/factory delegation like `return factory.created(x)`. Don't fabricate a phantom 200 (a false
+            // STATUS_CODE_MISSING(200) that also drops the real status); record an honest gap. (A bare pass-through /
+            // `return null` ResponseEntity legitimately defaults to 200 and is handled by the else below.)
             blindSpots.add("Controller " + controllerClass + "." + m.getNameAsString() + " builds a ResponseEntity whose "
                     + "status could not be resolved statically; its real status is not compared to the spec.");
         } else {
+            // Non-ResponseEntity return, or a ResponseEntity carrying ONLY a @ResponseStatus (no in-body status).
             int status = responseStatus(m);
             responses.add(new ResponseModel(status, ret.noBody() ? null : ret.schemaRef(), null,
                     ret.responseEntity() ? "RESPONSE_ENTITY" : "RETURN", retSrc));
@@ -1876,6 +1878,45 @@ public class JavaSpringExtractor {
     }
 
     /** Status codes inferred from {@code ResponseEntity.<factory>(...)} builder calls in the method body. */
+    /** True when a ResponseEntity's status is present but NOT statically readable here — a ResponseEntity.status(arg)
+     *  whose arg didn't resolve, or a helper/factory delegation ({@code return factory.created(x)}) whose status lives
+     *  in the callee. A bare pass-through / {@code return null} ResponseEntity is NOT unresolvable — it defaults to 200. */
+    private boolean responseEntityStatusUnresolvable(MethodDeclaration m) {
+        for (MethodCallExpr call : m.findAll(MethodCallExpr.class)) {
+            String scope = call.getScope().map(Object::toString).orElse("");
+            if ((scope.equals("ResponseEntity") || scope.endsWith(".ResponseEntity"))
+                    && call.getNameAsString().equals("status")
+                    && !call.getArguments().isEmpty() && statusFromArg(call) == null) {
+                return true;   // ResponseEntity.status(<non-literal>)
+            }
+        }
+        for (com.github.javaparser.ast.stmt.ReturnStmt ret : m.findAll(com.github.javaparser.ast.stmt.ReturnStmt.class)) {
+            if (ret.getExpression().orElse(null) instanceof MethodCallExpr mc) {
+                String scope = mc.getScope().map(Object::toString).orElse("");
+                if (!scope.isEmpty() && !scope.equals("ResponseEntity") && !scope.endsWith(".ResponseEntity")) {
+                    return true;   // return delegates to a helper/factory that produces the ResponseEntity
+                }
+            }
+        }
+        return false;
+    }
+
+    /** Every statically-resolvable ResponseEntity status in the body — factory calls (ResponseEntity.created()) AND
+     *  constructor forms (new ResponseEntity&lt;&gt;(..., HttpStatus.X), any status, not just errors). */
+    private List<Integer> allEntityStatuses(MethodDeclaration m) {
+        LinkedHashSet<Integer> out = new LinkedHashSet<>(responseEntityStatuses(m));
+        for (ObjectCreationExpr oce : m.findAll(ObjectCreationExpr.class)) {
+            if (!oce.getType().getNameAsString().equals("ResponseEntity") || oce.getArguments().isEmpty()) {
+                continue;
+            }
+            Integer s = statusFromText(oce.getArgument(oce.getArguments().size() - 1).toString().trim());
+            if (s != null) {
+                out.add(s);
+            }
+        }
+        return new ArrayList<>(out);
+    }
+
     private List<Integer> responseEntityStatuses(MethodDeclaration m) {
         LinkedHashSet<Integer> out = new LinkedHashSet<>();
         for (MethodCallExpr call : m.findAll(MethodCallExpr.class)) {
@@ -1908,21 +1949,6 @@ public class JavaSpringExtractor {
             return null;
         }
         return statusFromText(call.getArgument(0).toString().trim());
-    }
-
-    /** True when the method has a {@code ResponseEntity.status(arg)} call whose argument is present but did not resolve
-     *  to a numeric code (a non-literal var, or {@code HttpStatusCode.valueOf(n)}) — used to surface an honest gap
-     *  instead of defaulting that endpoint to a phantom 200. */
-    private boolean hasUnresolvedStatusCall(MethodDeclaration m) {
-        for (MethodCallExpr call : m.findAll(MethodCallExpr.class)) {
-            String scope = call.getScope().map(Object::toString).orElse("");
-            if ((scope.equals("ResponseEntity") || scope.endsWith(".ResponseEntity"))
-                    && call.getNameAsString().equals("status")
-                    && !call.getArguments().isEmpty() && statusFromArg(call) == null) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /** Map an int literal or an {@code HttpStatus.X} expression's text to a numeric status code, or null. */
