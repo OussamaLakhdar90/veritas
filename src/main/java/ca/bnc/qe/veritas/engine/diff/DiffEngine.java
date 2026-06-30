@@ -131,10 +131,13 @@ public class DiffEngine {
                     null, Confidence.LOW));
         }
 
-        // schema field-level diff for schemas present (by name) on both sides
+        // schema field-level diff for schemas present (by name) on both sides. Skip a spec schema that is structureless
+        // by composition (oneOf/anyOf/unresolvable allOf — the extractor recorded a blind spot for it): field-diffing
+        // an opaque union against the code DTO would emit a false SCHEMA_FIELD_MISSING for every code field. This mirrors
+        // the differently-named binding path's suppressStructurelessSpec gate (compareMatched/fieldDiffByBinding).
         for (Map.Entry<String, SchemaModel> e : code.schemas().entrySet()) {
             SchemaModel specSchema = spec.schemas().get(e.getKey());
-            if (specSchema != null) {
+            if (specSchema != null && !suppressStructurelessSpec(spec, specSchema)) {
                 compareSchema(findings, spec.source(), e.getKey(), e.getValue(), specSchema);
             }
         }
@@ -228,11 +231,15 @@ public class DiffEngine {
                         ce, Confidence.HIGH));
                 continue;
             }
-            if (cp.type() != null && sp.type() != null && !cp.type().equals(sp.type())) {
+            // "object" is the extractor's honest "unknown/unmapped" marker (a Converter<String,T>-bound value type,
+            // char, Locale, MultipartFile, …) — treat it as a wildcard, exactly as compareSchema/typeCompatible do for
+            // schema fields. Comparing it against a concrete spec scalar would be a false PARAM_TYPE_MISMATCH.
+            boolean typeWildcard = "object".equals(cp.type()) || "object".equals(sp.type());
+            if (!typeWildcard && cp.type() != null && sp.type() != null && !cp.type().equals(sp.type())) {
                 findings.add(finding(FindingType.PARAM_TYPE_MISMATCH, label(ce), spec.source(),
                         "Parameter '" + cp.name() + "' type — code " + cp.type() + " vs spec " + sp.type(),
                         ce, Confidence.MEDIUM));
-            } else if (cp.type() != null && sp.type() == null) {
+            } else if (!typeWildcard && cp.type() != null && sp.type() == null) {
                 // The spec declares the parameter but omits its type — under-specification, not a clean match.
                 findings.add(finding(FindingType.PARAM_TYPE_MISMATCH, label(ce), spec.source(),
                         "Parameter '" + cp.name() + "' type — code declares " + cp.type()
@@ -350,7 +357,7 @@ public class DiffEngine {
                 // application/problem+json against a spec error declared as application/json is a real content drift.
                 if (cr.mediaTypes() != null && !cr.mediaTypes().isEmpty()
                         && specErr.mediaTypes() != null && !specErr.mediaTypes().isEmpty()
-                        && !mediaSet(cr.mediaTypes()).equals(mediaSet(specErr.mediaTypes()))) {
+                        && !mediaCompatible(cr.mediaTypes(), specErr.mediaTypes())) {
                     boolean advice = cr.origin() != null && cr.origin().startsWith("EXCEPTION_HANDLER");
                     findings.add(finding(FindingType.CONSUMES_PRODUCES_MISMATCH, label(ce), spec.source(),
                             "Error " + cr.statusCode() + " media type — code " + cr.mediaTypes() + " vs spec "
@@ -869,6 +876,12 @@ public class DiffEngine {
         }
         if (effectiveExclusive(c.exclusiveMax(), codeInteger) != effectiveExclusive(s.exclusiveMax(), specInteger)) {
             return "exclusiveMaximum code=" + c.exclusiveMax() + " spec=" + s.exclusiveMax();
+        }
+        // ConstraintSet.format carries a semantic format the FieldModel/ParamModel.format slot does not — e.g. @Email
+        // sets it to "email". Only when BOTH sides declare one (else a code null vs a spec format would double-fire with
+        // the field/param-level format check, which reads the OTHER format slot).
+        if (c.format() != null && s.format() != null && !c.format().equals(s.format())) {
+            return "format code=" + c.format() + " spec=" + s.format();
         }
         if (!Objects.equals(c.pattern(), s.pattern())) {
             return "pattern code=" + c.pattern() + " spec=" + s.pattern();

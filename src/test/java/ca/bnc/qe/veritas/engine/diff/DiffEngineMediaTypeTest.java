@@ -84,4 +84,16 @@ class DiffEngineMediaTypeTest {
         assertThat(diff(code, spec)).anyMatch(f -> f.getType() == FindingType.CONSUMES_PRODUCES_MISMATCH
                 && f.getSummary() != null && f.getSummary().contains("request body content"));
     }
+
+    // Error-response media must be compared compatibility-aware (like produces/consumes), not by exact set-equality —
+    // a spec wildcard/+suffix RANGE (application/*+json) covers code application/problem+json, so no false mismatch.
+    @Test
+    void errorResponseMediaUsesCompatibilityNotExactEquality() {
+        ApiModel code = model("code", get("/e", null,
+                List.of(resp(200, List.of("application/json")), resp(400, List.of("application/problem+json")))));
+        ApiModel spec = model("repo-spec", get("/e", null,
+                List.of(resp(200, List.of("application/json")), resp(400, List.of("application/*+json")))));
+
+        assertThat(diff(code, spec)).noneMatch(f -> f.getType() == FindingType.CONSUMES_PRODUCES_MISMATCH);
+    }
 }
