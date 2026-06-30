@@ -319,8 +319,23 @@ public class OpenApiModelExtractor {
         List<io.swagger.v3.oas.models.security.SecurityRequirement> sec =
                 op.getSecurity() != null ? op.getSecurity() : globalSecurity;
         List<String> security = new ArrayList<>();
+        boolean optionalAuth = false;
         if (sec != null) {
-            sec.forEach(r -> security.addAll(r.keySet()));
+            for (var r : sec) {
+                if (r == null || r.keySet() == null || r.keySet().isEmpty()) {
+                    optionalAuth = true;   // an empty {} requirement is the OpenAPI sentinel for "anonymous permitted"
+                } else {
+                    security.addAll(r.keySet());
+                }
+            }
+        }
+        if (optionalAuth && !security.isEmpty()) {
+            // The operation lists schemes but ALSO permits anonymous access (an empty {} alternative). Reporting it as
+            // "requires X" would false-flag unsecured code as a SECURITY_MISMATCH, so model it as unsecured for the diff
+            // and surface the optional schemes as a blind spot instead.
+            blindSpots.add("Spec " + method.name() + " " + path + " declares OPTIONAL security (an empty {} alternative "
+                    + "alongside " + security + ") — anonymous access is permitted, so it is not compared as required.");
+            security = new ArrayList<>();
         }
         return new Endpoint(method, path, op.getOperationId(), params, body, responses,
                 consumes, new ArrayList<>(producesSet), security,
@@ -463,9 +478,23 @@ public class OpenApiModelExtractor {
         for (Map.Entry<String, Schema> prop : props.entrySet()) {
             Schema ps = prop.getValue();
             fields.add(new FieldModel(prop.getKey(), ps.getType(), ps.getFormat(),
-                    required.contains(prop.getKey()), constraints(ps), refName(ps.get$ref()),
+                    required.contains(prop.getKey()), constraints(ps), propRefSchema(ps),
                     SourceRef.spec(specId, "/components/schemas/" + name + "/properties/" + prop.getKey(), null)));
         }
+    }
+
+    /** The named schema a property binds to: a direct $ref, or "Foo[]" for an array-of-$ref (mirrors the code side's
+     *  collection convention). Was {@code refName(ps.get$ref())}, which is null for arrays — silently dropping the
+     *  element DTO so an array-of-DTO property couldn't be field-compared. */
+    @SuppressWarnings("rawtypes")
+    private String propRefSchema(Schema ps) {
+        if (ps.get$ref() != null) {
+            return refName(ps.get$ref());
+        }
+        if (ps.getItems() != null && ps.getItems().get$ref() != null) {
+            return refName(ps.getItems().get$ref()) + "[]";
+        }
+        return null;
     }
 
     @SuppressWarnings("rawtypes")
