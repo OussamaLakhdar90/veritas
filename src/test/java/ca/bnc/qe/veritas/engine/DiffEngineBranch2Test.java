@@ -247,8 +247,8 @@ class DiffEngineBranch2Test {
     @Test
     void nestedArrayVsObjectInsideStructureMakesVerdictDiffer() {
         // Differently named top schemas; their field sets are equal; the SAME-named nested binding field points to an
-        // array ref on one side and a plain object ref on the other -> propsEqual hits
-        // `arrayRef(c.refSchema()) != arrayRef(s.refSchema())` -> return false -> DIFFER -> coarse mismatch.
+        // array ref on one side and a plain object ref on the other -> the per-field array-flip check now emits a
+        // PRECISE SCHEMA_FIELD_TYPE_MISMATCH at "child" (replacing the coarser response-level mismatch).
         FieldModel codeChild = new FieldModel("child", "object", null, false, none(), "Kid[]", src);
         FieldModel specChild = new FieldModel("child", "object", null, false, none(), "Kid", src);
         Map<String, SchemaModel> codeSchemas = Map.of(
@@ -258,7 +258,7 @@ class DiffEngineBranch2Test {
                 "TopS", schema("TopS", List.of(specChild)),
                 "Kid", schema("Kid", List.of(field("a", "string"))));
         assertThat(types(diff.diffCodeVsSpec(codeWithResponse("Top", codeSchemas), specWithResponse("TopS", specSchemas))))
-                .contains(FindingType.RESPONSE_SCHEMA_MISMATCH);
+                .contains(FindingType.SCHEMA_FIELD_TYPE_MISMATCH);
     }
 
     @Test

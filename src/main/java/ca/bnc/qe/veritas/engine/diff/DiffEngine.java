@@ -289,8 +289,20 @@ public class DiffEngine {
             String codeBodyRef = ce.requestBody().schemaRef();
             String specBodyRef = se.requestBody().schemaRef();
             if (codeBodyRef != null && specBodyRef != null) {
+                int before = findings.size();
                 fieldDiffByBinding(findings, code, spec, codeBodyRef, specBodyRef, label(ce) + " request body",
                         new java.util.HashSet<>(), MAX_SCHEMA_DEPTH);
+                // Coarse fallback mirroring the response path: an array-vs-object (or otherwise diverging) BODY shape is
+                // a hard consumer break (POST a JSON array to an object endpoint → 400). fieldDiffByBinding returns
+                // early on an array-vs-object top-level body, so without this the cardinality mismatch was dropped.
+                boolean bodyFieldEmitted = findings.size() > before;
+                if (!bodyFieldEmitted
+                        && (arrayRef(codeBodyRef) != arrayRef(specBodyRef) || !normRef(codeBodyRef).equals(normRef(specBodyRef)))
+                        && structuralVerdict(code, spec, codeBodyRef, specBodyRef) == SchemaVerdict.DIFFER) {
+                    findings.add(finding(FindingType.REQUEST_BODY_SCHEMA_MISMATCH, label(ce), spec.source(),
+                            "Request body shape — code expects '" + codeBodyRef + "' but the spec declares '"
+                                    + specBodyRef + "'", ce, Confidence.HIGH));
+                }
             }
         }
         // success status code — code returns it but spec omits it
@@ -429,6 +441,16 @@ public class DiffEngine {
                 if (s == null || c.refSchema() == null || s.refSchema() == null) {
                     continue;   // pair nested DTOs only where the binding field exists on both sides
                 }
+                if (arrayRef(c.refSchema()) != arrayRef(s.refSchema())) {
+                    // A nested field that is an array on one side and a single object on the other — a real wire-shape
+                    // break the recursion would otherwise drop (fieldDiffByBinding returns early on array-vs-object).
+                    findings.add(finding(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, locus + "." + e.getKey(), spec.source(),
+                            "Field '" + e.getKey() + "' of " + locus + " is "
+                                    + (arrayRef(c.refSchema()) ? "an array in code but a single object in the spec"
+                                                               : "a single object in code but an array in the spec"),
+                            null, Confidence.HIGH));
+                    continue;
+                }
                 fieldDiffByBinding(findings, code, spec, c.refSchema(), s.refSchema(),
                         locus + "." + e.getKey(), visited, depth - 1);
             }
@@ -455,6 +477,17 @@ public class DiffEngine {
         }
         SchemaModel cs = code.schemas().get(baseName(codeRef));
         SchemaModel ss = spec.schemas().get(baseName(specRef));
+        // A KNOWN scalar (String/Integer/...) on exactly one side, against a structured object on the other, is a
+        // PROVABLE shape break — a bare JSON string can never equal an object. Don't fold it into UNRESOLVED (which is
+        // reserved for genuinely opaque/external DTOs and would suppress the mismatch).
+        boolean codeScalar = isScalarName(baseName(codeRef));
+        boolean specScalar = isScalarName(baseName(specRef));
+        if (codeScalar != specScalar) {
+            SchemaModel object = codeScalar ? ss : cs;
+            if (object != null && !structureless(object)) {
+                return SchemaVerdict.DIFFER;
+            }
+        }
         if (cs == null || ss == null || structureless(cs) || structureless(ss)) {
             return SchemaVerdict.UNRESOLVED;
         }
@@ -464,6 +497,17 @@ public class DiffEngine {
 
     private static boolean arrayRef(String ref) {
         return ref != null && ref.endsWith("[]");
+    }
+
+    /** Known scalar/primitive ref names (Java type names + OpenAPI scalar types) — used to tell a provable
+     *  scalar-vs-object response break apart from a genuinely-unresolvable external DTO. */
+    private static final java.util.Set<String> SCALAR_REF_NAMES = java.util.Set.of(
+            "string", "integer", "int", "long", "short", "byte", "boolean", "double", "float", "number",
+            "bigdecimal", "biginteger", "character", "char", "uuid", "date", "localdate", "localdatetime",
+            "instant", "offsetdatetime", "zoneddatetime", "void");
+
+    private static boolean isScalarName(String ref) {
+        return ref != null && SCALAR_REF_NAMES.contains(ref.toLowerCase(Locale.ROOT));
     }
 
     private static String baseName(String ref) {
@@ -751,8 +795,8 @@ public class DiffEngine {
             case OPENAPI_PARSE_ERROR, UNRESOLVED_REF -> Severity.BLOCKER;
             case MISSING_ENDPOINT, VERB_MISMATCH, SECURITY_MISMATCH -> Severity.CRITICAL;
             case PARAM_MISSING, PARAM_TYPE_MISMATCH, PARAM_REQUIRED_MISMATCH, REQUEST_BODY_PRESENCE_MISMATCH,
-                 STATUS_CODE_MISSING, RESPONSE_SCHEMA_MISMATCH, SCHEMA_FIELD_MISSING, SCHEMA_FIELD_TYPE_MISMATCH,
-                 CONSTRAINT_GAP -> Severity.MAJOR;
+                 REQUEST_BODY_SCHEMA_MISMATCH, STATUS_CODE_MISSING, RESPONSE_SCHEMA_MISMATCH, SCHEMA_FIELD_MISSING,
+                 SCHEMA_FIELD_TYPE_MISMATCH, CONSTRAINT_GAP -> Severity.MAJOR;
             case MISSING_INFO_FIELD, DESIGN_QUALITY, TEST_BASIS_GAP -> Severity.INFO;
             // EXTRA_ENDPOINT, PATH_VAR_NAME_MISMATCH, SPEC_DRIFT, PARAM_EXTRA, STATUS_CODE_EXTRA,
             // SCHEMA_FIELD_EXTRA, CONSUMES_PRODUCES_MISMATCH — dead-spec / additive / naming drift, non-breaking
