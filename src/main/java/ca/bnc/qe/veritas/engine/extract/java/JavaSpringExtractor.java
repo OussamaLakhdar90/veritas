@@ -738,6 +738,19 @@ public class JavaSpringExtractor {
                 queue.addAll(decl.getAnnotations());   // descend into this meta-annotation's own annotations
             }
         }
+        // A class-level @RequestMapping on a scanned ABSTRACT/base class applies to a subclass that declares none
+        // (Spring resolves the type-level mapping up the hierarchy via AnnotatedElementUtils find-semantics) — so an
+        // inherited handler's base path must come from the base, not be silently dropped to "".
+        if (ctrl instanceof ClassOrInterfaceDeclaration coid) {
+            for (ClassOrInterfaceType ext : coid.getExtendedTypes()) {
+                if (types.get(ext.getNameAsString()) instanceof TypeDeclaration<?> base) {
+                    List<String> inherited = classPaths(base, types, constants, blindSpots);
+                    if (!inherited.equals(List.of(""))) {
+                        return inherited;
+                    }
+                }
+            }
+        }
         return List.of("");
     }
 
