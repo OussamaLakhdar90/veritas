@@ -49,32 +49,11 @@ public class ScanPersistence {
                 priorByFingerprint.putIfAbsent(prior.getFingerprint(), prior);
             }
         }
-        // Locus fallback: carry a disposition forward when a finding's summary (hence fingerprint) changed but the
-        // logical defect (type+endpoint+specSource) is the same — but ONLY when the locus is unambiguous on BOTH sides
-        // (exactly one current finding and one prior disposition share it), so it can never land on the wrong finding.
-        Map<String, Long> currentLocusCounts = new HashMap<>();
-        for (Finding f : findings) {
-            currentLocusCounts.merge(locusKey(f), 1L, Long::sum);
-        }
-        Map<String, FindingRecord> priorByLocus = new HashMap<>();
-        java.util.Set<String> ambiguousLocus = new java.util.HashSet<>();
-        List<String> locusKeys = findings.stream().map(this::locusKey).distinct().toList();
-        if (!locusKeys.isEmpty()) {
-            for (FindingRecord prior : findingRepository.findPriorDispositionsByLocus(locusKeys, scanId)) {
-                if (prior.getLocusKey() == null) {
-                    continue;
-                }
-                if (priorByLocus.putIfAbsent(prior.getLocusKey(), prior) != null) {
-                    ambiguousLocus.add(prior.getLocusKey());   // 2+ prior dispositions share this locus → can't choose
-                }
-            }
-        }
         List<FindingRecord> records = new ArrayList<>();
         for (Finding f : findings) {
             FindingRecord r = new FindingRecord();
             r.setScanId(scanId);
             r.setFingerprint(f.getFindingId());
-            r.setLocusKey(locusKey(f));
             r.setType(f.getType().name());
             r.setLayer(f.getLayer() != null ? f.getLayer().name() : null);
             r.setSeverity(f.getSeverity().name());
@@ -106,26 +85,10 @@ public class ScanPersistence {
                 }
                 // citation is set deterministically (StandardsReference) — never from the LLM.
             }
-            FindingRecord prior = priorByFingerprint.get(r.getFingerprint());
-            if (prior == null) {
-                // No exact match — try the locus fallback, but only when it's unambiguous on both sides.
-                String lk = r.getLocusKey();
-                if (currentLocusCounts.getOrDefault(lk, 0L) == 1L && !ambiguousLocus.contains(lk)) {
-                    prior = priorByLocus.get(lk);
-                }
-            }
-            carryForwardStatus(r, prior);
+            carryForwardStatus(r, priorByFingerprint.get(r.getFingerprint()));
             records.add(r);
         }
         return records;
-    }
-
-    /** The logical-defect locus (type + endpoint + specSource) — the fingerprint minus the volatile summary. */
-    private String locusKey(Finding f) {
-        return Integer.toHexString(Objects.hash(
-                f.getType() == null ? "" : f.getType().name(),
-                f.getEndpoint() == null ? "" : f.getEndpoint(),
-                f.getSpecSource() == null ? "" : f.getSpecSource()));
     }
 
     /** Carry a prior finding's disposition (status + who/when/why audit) forward to the same fingerprint on a re-scan. */

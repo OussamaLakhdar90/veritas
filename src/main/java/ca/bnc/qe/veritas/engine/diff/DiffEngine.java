@@ -641,11 +641,14 @@ public class DiffEngine {
                         "Field '" + cf.jsonName() + "' type — code " + cf.type() + " vs spec " + sf.type(),
                         null, Confidence.MEDIUM));
             }
-            // required drift (required in code, optional in spec or vice versa) — a real client-contract break the
-            // field diff never checked, the body analogue of PARAM_REQUIRED_MISMATCH.
-            if (cf.required() != sf.required()) {
+            // required drift — ONLY the faithful direction: the code POSITIVELY asserts the field is required
+            // (@NotNull/@NotBlank/@NotEmpty) but the spec marks it optional. The reverse (code false, spec required)
+            // is NOT reliable drift — code-side `required=false` means "no bean-validation annotation here", not
+            // "optional" (the field may be validated in the service/constructor), so flagging it would be a false
+            // positive on every conforming spec-required field that the code doesn't annotate (esp. response DTOs).
+            if (cf.required() && !sf.required()) {
                 findings.add(finding(FindingType.CONSTRAINT_GAP, name + "." + cf.jsonName(), specSource,
-                        "Field '" + cf.jsonName() + "' required — code " + cf.required() + " vs spec " + sf.required(),
+                        "Field '" + cf.jsonName() + "' is required in code but optional in the spec",
                         null, Confidence.MEDIUM));
             }
             // format divergence (date vs date-time, int32 vs int64, …) — only when both declare a format.

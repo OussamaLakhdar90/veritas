@@ -70,6 +70,20 @@ class DiffEngineFieldCoverageTest {
     }
 
     @Test
+    void schemaFieldRequiredIsNotFlaggedWhenCodeLacksTheAnnotation() {
+        // code field is NOT @NotNull (required=false) while the spec lists it required — this is NOT reliable drift
+        // (the code may validate in the service/constructor), so it must stay silent, not false-flag every conforming
+        // spec-required field. Only the faithful direction (code required, spec optional) fires.
+        ApiModel code = new ApiModel("code", null, null, null, List.of(post("/x", "CodeReq")),
+                Map.of("CodeReq", schema("CodeReq", field("email", "string", null, false))));
+        ApiModel spec = new ApiModel("repo-spec", null, null, null, List.of(post("/x", "SpecReq")),
+                Map.of("SpecReq", schema("SpecReq", field("email", "string", null, true))));
+
+        assertThat(diff(code, spec)).noneMatch(f -> f.getSummary() != null
+                && f.getSummary().contains("email") && f.getSummary().contains("required"));
+    }
+
+    @Test
     void schemaFieldFormatDriftIsFlagged() {
         ApiModel code = new ApiModel("code", null, null, null, List.of(post("/x", "CodeReq")),
                 Map.of("CodeReq", schema("CodeReq", field("id", "integer", "int64", false))));
