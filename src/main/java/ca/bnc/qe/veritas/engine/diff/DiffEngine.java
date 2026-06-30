@@ -437,7 +437,7 @@ public class DiffEngine {
         }
         SchemaModel cs = code.schemas().get(baseName(codeRef));
         SchemaModel ss = spec.schemas().get(baseName(specRef));
-        if (cs == null || ss == null || structureless(cs) || structureless(ss)) {
+        if (cs == null || ss == null || structureless(cs) || (structureless(ss) && specSchemaOpaque(spec, ss))) {
             return;   // unresolved / opaque — owned by structuralVerdict + extractor blind spots
         }
         String key = baseName(codeRef) + "|" + baseName(specRef);
@@ -508,7 +508,7 @@ public class DiffEngine {
                 return SchemaVerdict.DIFFER;
             }
         }
-        if (cs == null || ss == null || structureless(cs) || structureless(ss)) {
+        if (cs == null || ss == null || structureless(cs) || (structureless(ss) && specSchemaOpaque(spec, ss))) {
             return SchemaVerdict.UNRESOLVED;
         }
         return propsEqual(code, spec, cs, ss, MAX_SCHEMA_DEPTH, new java.util.HashSet<>())
@@ -539,6 +539,18 @@ public class DiffEngine {
         boolean noFields = s.fields() == null || s.fields().isEmpty();
         boolean noEnum = s.enumValues() == null || s.enumValues().isEmpty();
         return noFields && noEnum;
+    }
+
+    /** True when a structureless SPEC schema is opaque BY DESIGN — the extractor recorded a composition blind spot for
+     *  it (oneOf/anyOf/unresolvable allOf). A genuinely-empty {type:object} (no blind spot) is NOT opaque: it is
+     *  under-documented, and the code's fields SHOULD surface as SCHEMA_FIELD_MISSING rather than be suppressed. */
+    private static boolean specSchemaOpaque(ApiModel spec, SchemaModel ss) {
+        if (spec.blindSpots() == null || ss == null || ss.name() == null) {
+            return false;
+        }
+        String marker = "'" + ss.name() + "'";
+        return spec.blindSpots().stream()
+                .anyMatch(b -> b != null && b.contains(marker) && b.contains("composition"));
     }
 
     /** Structural equality: enum value sets, or same field-name set with compatible field types, recursing into nested
