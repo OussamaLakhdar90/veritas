@@ -32,6 +32,54 @@ class JavaSpringExtractorSecuritySpelTest {
     }
 
     @Test
+    void jsr250PermitAllMethodOverridesASecuredClass(@TempDir Path dir) throws Exception {
+        // @PermitAll (JSR-250) on a @RolesAllowed class opens that method — must NOT inherit the class roles.
+        assertThat(extractOne(dir, """
+            import org.springframework.web.bind.annotation.*;
+            import jakarta.annotation.security.RolesAllowed;
+            import jakarta.annotation.security.PermitAll;
+            @RestController @RolesAllowed("ADMIN")
+            class C { @PermitAll @GetMapping("/health") public String h() { return "ok"; } }
+            """).security()).isEmpty();
+    }
+
+    @Test
+    void jsr250DenyAllStaysSecured(@TempDir Path dir) throws Exception {
+        assertThat(extractOne(dir, """
+            import org.springframework.web.bind.annotation.*;
+            import jakarta.annotation.security.DenyAll;
+            @RestController class C { @DenyAll @GetMapping("/x") public String x() { return "x"; } }
+            """).security()).isNotEmpty();
+    }
+
+    @Test
+    void anonymousRoleSentinelsAreNotSecuring(@TempDir Path dir) throws Exception {
+        assertThat(extractOne(dir, """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.security.access.annotation.Secured;
+            @RestController class C {
+                @Secured("IS_AUTHENTICATED_ANONYMOUSLY")
+                @GetMapping("/a") public String a() { return "a"; }
+            }
+            """).security()).isEmpty();
+    }
+
+    @Test
+    void unresolvedComposedSecurityAnnotationReadsAsSecuredWithABlindSpot(@TempDir Path dir) throws Exception {
+        // @AdminOnly is NOT defined in the scanned sources (it lives in a shared jar) — a security-suggestive annotation
+        // we can't resolve must read as secured-unknown (not OPEN, a security false-negative) + surface a blind spot.
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            @RestController class C {
+                @AdminOnly @DeleteMapping("/users/{id}") public void del(@PathVariable String id) {}
+            }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(only(m).security()).isNotEmpty();
+        assertThat(m.blindSpots().toString()).contains("AdminOnly").contains("could not be resolved");
+    }
+
+    @Test
     void permitAllMethodIsNotModelledAsSecured(@TempDir Path dir) throws Exception {
         Endpoint e = extractOne(dir, """
             import org.springframework.web.bind.annotation.*;
