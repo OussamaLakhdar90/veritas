@@ -914,6 +914,11 @@ public class JavaSpringExtractor {
         List<String> security = hasSecurityAnnotation(m, types)
                 ? securityOf(m, types)
                 : new ArrayList<>(classSecurity);
+        // Surface the honest gap when authorization comes from an annotation we couldn't resolve from sources.
+        security.stream().filter(s -> s.startsWith("unresolved:")).findFirst().ifPresent(tok ->
+                blindSpots.add("Controller " + controllerClass + "." + m.getNameAsString() + " is guarded by "
+                        + tok.substring("unresolved:".length()) + ", which could not be resolved from the scanned "
+                        + "sources — its authorization is treated as present-but-unknown, not analysed."));
 
         SourceRef src = SourceRef.code(file, line(m), line(m), m.getDeclarationAsString(false, false, false));
         List<Endpoint> out = new ArrayList<>();
@@ -1147,23 +1152,33 @@ public class JavaSpringExtractor {
      */
     private List<String> securityOf(NodeWithAnnotations<?> n, Map<String, TypeDeclaration<?>> types) {
         List<String> out = new ArrayList<>();
-        addSecurity(n, out);   // literal @PreAuthorize/@Secured/@RolesAllowed on the node itself
+        addSecurity(n, out);   // literal @PreAuthorize/@Secured/@RolesAllowed/@PermitAll/@DenyAll on the node itself
         for (AnnotationExpr a : n.getAnnotations()) {
-            if (types.get(a.getNameAsString()) instanceof AnnotationDeclaration decl) {
+            String name = a.getNameAsString();
+            if (types.get(name) instanceof AnnotationDeclaration decl) {
                 addSecurity(decl, out);   // composed/meta annotation declared in the scanned sources
+            } else if (types.get(name) == null && looksLikeSecurityAnnotation(name)) {
+                // A security-SUGGESTIVE annotation that can't be resolved from the scanned sources (e.g. @AdminOnly in a
+                // shared security jar) likely imposes authorization we cannot read — treat the endpoint as SECURED with
+                // an honest "unresolved" token rather than silently reading it as OPEN (a security false-negative).
+                out.add("unresolved:@" + name);
             }
         }
         return out;
     }
 
     private void addSecurity(NodeWithAnnotations<?> n, List<String> out) {
-        // A @PreAuthorize whose SpEL is an OPEN/DENY sentinel (permitAll/isAnonymous/denyAll/constant-false) is not an
-        // authorization constraint — the SecurityFilterChain path already excludes PERMIT_ALL / blind-spots denyAll, so
-        // mirror that here; otherwise an explicitly-open endpoint fabricates a false (CRITICAL) SECURITY_MISMATCH.
+        // A @PreAuthorize whose SpEL is an OPEN sentinel (permitAll/isAnonymous) is not an authorization constraint —
+        // mirror the SecurityFilterChain path's PERMIT_ALL exclusion; otherwise an explicitly-open endpoint fabricates a
+        // false (CRITICAL) SECURITY_MISMATCH. @Secured/@RolesAllowed anonymous sentinels mean OPEN too, so drop them.
         getAnnotation(n, "PreAuthorize").map(a -> firstString(a, "value"))
                 .filter(JavaSpringExtractor::isSecuringSpel).ifPresent(out::add);
-        getAnnotation(n, "Secured").ifPresent(a -> out.addAll(stringValues(a, "value")));
-        getAnnotation(n, "RolesAllowed").ifPresent(a -> out.addAll(stringValues(a, "value")));
+        getAnnotation(n, "Secured").ifPresent(a -> out.addAll(securingRoles(stringValues(a, "value"))));
+        getAnnotation(n, "RolesAllowed").ifPresent(a -> out.addAll(securingRoles(stringValues(a, "value"))));
+        // JSR-250: @DenyAll LOCKS the endpoint → a securing token; @PermitAll OPENS it → contributes nothing.
+        if (has(n, "DenyAll")) {
+            out.add("denyAll");
+        }
     }
 
     /** OPEN-access SpEL sentinels that do NOT constrain access (normalized: lower-cased, parens/space stripped).
@@ -1172,6 +1187,17 @@ public class JavaSpringExtractor {
      *  securing tokens so a denyAll-vs-spec-open divergence is still reported. */
     private static final Set<String> NON_SECURING_SPEL = Set.of(
             "permitall", "isanonymous", "anonymous");
+
+    /** @Secured/@RolesAllowed anonymous sentinels — they grant anonymous access (OPEN), not a real role. */
+    private static final Set<String> ANONYMOUS_ROLES = Set.of(
+            "is_authenticated_anonymously", "role_anonymous", "anonymous");
+
+    /** Drop the anonymous sentinels from a role list — what's left is the real authorization constraint (possibly none). */
+    private static List<String> securingRoles(List<String> roles) {
+        return roles.stream()
+                .filter(r -> r != null && !ANONYMOUS_ROLES.contains(r.trim().toLowerCase(Locale.ROOT)))
+                .toList();
+    }
 
     /** True when a @PreAuthorize SpEL actually constrains access (hasRole/hasAuthority/isAuthenticated/denyAll/...). */
     private static boolean isSecuringSpel(String spel) {
@@ -1182,15 +1208,39 @@ public class JavaSpringExtractor {
         return !NON_SECURING_SPEL.contains(s);
     }
 
-    /** True when the node carries any (literal or composed) method-security annotation — so it OVERRIDES the class
-     *  default even when its resolved expression is open (e.g. method @PreAuthorize("permitAll()") on a secured class). */
+    /** The Spring/JSR-250 method-security annotations the extractor reads directly (so an UNRESOLVED look-alike isn't
+     *  double-counted as an "unresolved" custom annotation). */
+    private static final Set<String> KNOWN_SECURITY_ANNOTATIONS = Set.of(
+            "PreAuthorize", "PostAuthorize", "Secured", "RolesAllowed", "PermitAll", "DenyAll", "PreFilter", "PostFilter");
+
+    /** A custom annotation whose simple name SUGGESTS it imposes authorization (so an unresolvable one is treated as
+     *  secured-unknown rather than open). Excludes the framework annotations already read directly. */
+    private static boolean looksLikeSecurityAnnotation(String name) {
+        if (name == null || KNOWN_SECURITY_ANNOTATIONS.contains(name)) {
+            return false;
+        }
+        // STRONG tokens only — broad ones (auth→@Author, role→@Role) would false-flag benign annotations as secured.
+        String n = name.toLowerCase(Locale.ROOT);
+        return n.contains("secur") || n.contains("authoriz") || n.contains("rolesallowed")
+                || n.contains("preauth") || n.contains("postauth") || n.contains("permission") || n.contains("admin");
+    }
+
+    /** True when the node carries any (literal, composed, or unresolved-security-suggestive) method-security annotation
+     *  — so it OVERRIDES the class default even when its resolved expression is open (method @PermitAll on a secured
+     *  class) or unknown. */
     private boolean hasSecurityAnnotation(NodeWithAnnotations<?> n, Map<String, TypeDeclaration<?>> types) {
-        if (has(n, "PreAuthorize") || has(n, "Secured") || has(n, "RolesAllowed")) {
+        if (has(n, "PreAuthorize") || has(n, "Secured") || has(n, "RolesAllowed")
+                || has(n, "PermitAll") || has(n, "DenyAll")) {
             return true;
         }
         for (AnnotationExpr a : n.getAnnotations()) {
-            if (types.get(a.getNameAsString()) instanceof AnnotationDeclaration decl
-                    && (has(decl, "PreAuthorize") || has(decl, "Secured") || has(decl, "RolesAllowed"))) {
+            String name = a.getNameAsString();
+            if (types.get(name) instanceof AnnotationDeclaration decl
+                    && (has(decl, "PreAuthorize") || has(decl, "Secured") || has(decl, "RolesAllowed")
+                        || has(decl, "PermitAll") || has(decl, "DenyAll"))) {
+                return true;
+            }
+            if (types.get(name) == null && looksLikeSecurityAnnotation(name)) {
                 return true;
             }
         }
