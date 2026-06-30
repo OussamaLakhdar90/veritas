@@ -1432,6 +1432,13 @@ public class JavaSpringExtractor {
         // only — a scalar element stays a bare array).
         String element = collectionElement(type);
         if (element != null) {
+            // byte[]/Byte[] is a BINARY payload Jackson serializes as a base64 STRING (OpenAPI string/binary), NOT a
+            // JSON array — mirror the return-path unwrap() guard, else it false-diffs (array vs string) against a
+            // faithful springdoc {type:string, format:byte} spec. Scoped to the ARRAY form: List<Byte> stays a real
+            // array of integers.
+            if (type instanceof ArrayType && ("byte".equals(element) || "Byte".equals(element))) {
+                return new FieldModel(jsonName, "string", "byte", required, cs.withoutLength(), null, null);
+            }
             String elemRef = types.containsKey(element) ? element + "[]" : null;
             // @Size on a collection is an item-count (minItems) bound, not string length — drop it so it doesn't
             // false-diff as a minLength CONSTRAINT_GAP against a spec that (correctly) uses minItems.
