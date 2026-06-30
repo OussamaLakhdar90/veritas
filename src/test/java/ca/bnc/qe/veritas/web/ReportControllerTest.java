@@ -50,4 +50,27 @@ class ReportControllerTest {
         when(scanRepository.findById("zzz")).thenReturn(Optional.empty());
         mvc.perform(get("/api/v1/scans/zzz/report")).andExpect(status().isNotFound());
     }
+
+    @Test
+    void fallsBackToTheReadableNamedFileWhenNoLiveFindings() throws Exception {
+        // A clean-contract scan persists no findings → the controller serves the as-scanned file, found by the SAME
+        // readable name the writer used (proving ReportNaming is the single source of truth for both sides).
+        Scan s = new Scan();
+        s.setServiceName("ciam-policies");
+        s.setModel("claude-opus-4-8");
+        s.setStartedAt(java.time.Instant.parse("2026-06-30T14:15:22Z"));
+        when(scanRepository.findById("abc")).thenReturn(Optional.of(s));
+        when(findingRepository.findByScanIdOrderBySeverityAsc("abc")).thenReturn(List.of());   // no live findings
+
+        java.nio.file.Path out = java.nio.file.Files.createDirectories(java.nio.file.Path.of("out"));
+        java.nio.file.Path f = out.resolve(ca.bnc.qe.veritas.report.ReportNaming.baseName(s) + ".html");
+        java.nio.file.Files.writeString(f, "<html>AS-SCANNED</html>");
+        try {
+            mvc.perform(get("/api/v1/scans/abc/report"))
+                    .andExpect(status().isOk())
+                    .andExpect(content().string("<html>AS-SCANNED</html>"));
+        } finally {
+            java.nio.file.Files.deleteIfExists(f);
+        }
+    }
 }
