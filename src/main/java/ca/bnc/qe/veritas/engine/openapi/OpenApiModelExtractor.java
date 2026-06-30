@@ -73,8 +73,9 @@ public class OpenApiModelExtractor {
 
         Map<String, SchemaModel> schemas = new LinkedHashMap<>();
         if (openApi.getComponents() != null && openApi.getComponents().getSchemas() != null) {
-            for (Map.Entry<String, Schema> s : openApi.getComponents().getSchemas().entrySet()) {
-                schemas.put(s.getKey(), toSchema(specId, s.getKey(), s.getValue(), blindSpots));
+            Map<String, Schema> rawSchemas = openApi.getComponents().getSchemas();
+            for (Map.Entry<String, Schema> s : rawSchemas.entrySet()) {
+                schemas.put(s.getKey(), toSchema(specId, s.getKey(), s.getValue(), rawSchemas, blindSpots));
             }
         }
 
@@ -442,21 +443,27 @@ public class OpenApiModelExtractor {
     }
 
     @SuppressWarnings("rawtypes")
-    private SchemaModel toSchema(String specId, String name, Schema schema, List<String> blindSpots) {
+    private SchemaModel toSchema(String specId, String name, Schema schema, Map<String, Schema> allSchemas,
+                                List<String> blindSpots) {
         List<FieldModel> fields = new ArrayList<>();
         List<String> required = schema.getRequired() == null ? List.of() : schema.getRequired();
-        collectSchemaProps(specId, name, schema.getProperties(), required, fields);
-        // allOf (inheritance/mixin): merge each INLINE member's properties so the composed fields are visible to the
-        // diff. A $ref (or nested-allOf) member keeps its own named schema — compared by name elsewhere — but means
-        // this schema's field set here is incomplete, which we surface as a blind spot below.
+        collectSchemaProps(specId, name, schema.getProperties(), required, fields, allSchemas);
+        // allOf (inheritance/mixin): merge each member's properties so the composed fields are visible to the diff.
+        // INLINE members are flattened directly; a $ref member (the canonical inheritance idiom) is RESOLVED from
+        // components and its properties flattened transitively (cycle-guarded). Only a genuinely unresolvable member
+        // (external $ref, or nested oneOf/anyOf) leaves the field set incomplete and is surfaced as a blind spot.
         boolean unflattenedAllOf = false;
         if (schema.getAllOf() != null) {
             for (Object o : schema.getAllOf()) {
                 Schema member = (Schema) o;
                 if (member.getProperties() != null && !member.getProperties().isEmpty()) {
                     List<String> mreq = member.getRequired() == null ? required : member.getRequired();
-                    collectSchemaProps(specId, name, member.getProperties(), mreq, fields);
-                } else if (member.get$ref() != null || member.getAllOf() != null) {
+                    collectSchemaProps(specId, name, member.getProperties(), mreq, fields, allSchemas);
+                } else if (member.get$ref() != null) {
+                    if (!flattenRefInto(specId, name, member.get$ref(), allSchemas, fields, new java.util.HashSet<>())) {
+                        unflattenedAllOf = true;
+                    }
+                } else if (member.getAllOf() != null) {
                     unflattenedAllOf = true;
                 }
             }
@@ -469,23 +476,103 @@ public class OpenApiModelExtractor {
                 SourceRef.spec(specId, "/components/schemas/" + name, null));
     }
 
+    /** Flatten a $ref-ed schema's properties (and its own allOf chain) into {@code fields}. Returns false when the ref
+     *  cannot be resolved from components (external/dangling) so the caller records an honest blind spot. */
+    @SuppressWarnings("rawtypes")
+    private boolean flattenRefInto(String specId, String holder, String ref, Map<String, Schema> allSchemas,
+                                   List<FieldModel> fields, java.util.Set<String> visited) {
+        if (allSchemas == null) {
+            return false;
+        }
+        String target = refName(ref);
+        if (!visited.add(target)) {
+            return true;   // cycle already visited — stop without claiming incompleteness
+        }
+        Schema base = allSchemas.get(target);
+        if (base == null) {
+            return false;   // unresolvable (external/dangling) → blind spot
+        }
+        List<String> req = base.getRequired() == null ? List.of() : base.getRequired();
+        collectSchemaProps(specId, holder, base.getProperties(), req, fields, allSchemas);
+        boolean ok = true;
+        if (base.getAllOf() != null) {
+            for (Object o : base.getAllOf()) {
+                Schema m = (Schema) o;
+                if (m.getProperties() != null && !m.getProperties().isEmpty()) {
+                    collectSchemaProps(specId, holder, m.getProperties(),
+                            m.getRequired() == null ? List.of() : m.getRequired(), fields, allSchemas);
+                } else if (m.get$ref() != null) {
+                    ok &= flattenRefInto(specId, holder, m.get$ref(), allSchemas, fields, visited);
+                } else if (m.getAllOf() != null) {
+                    ok = false;
+                }
+            }
+        }
+        return ok;
+    }
+
     @SuppressWarnings("rawtypes")
     private void collectSchemaProps(String specId, String name, Map<String, Schema> props, List<String> required,
-                                    List<FieldModel> fields) {
+                                    List<FieldModel> fields, Map<String, Schema> allSchemas) {
         if (props == null) {
             return;
         }
         for (Map.Entry<String, Schema> prop : props.entrySet()) {
+            String key = prop.getKey();
+            if (fields.stream().anyMatch(f -> f.jsonName().equals(key))) {
+                continue;   // own property already collected wins over an inherited one of the same name (allOf merge)
+            }
             Schema ps = prop.getValue();
-            fields.add(new FieldModel(prop.getKey(), ps.getType(), ps.getFormat(),
-                    required.contains(prop.getKey()), constraints(ps), propRefSchema(ps),
-                    SourceRef.spec(specId, "/components/schemas/" + name + "/properties/" + prop.getKey(), null)));
+            String type = ps.getType();
+            String format = ps.getFormat();
+            ConstraintSet cs = constraints(ps);
+            String refSchema = propRefSchema(ps);
+            // A property that binds to a $ref-ed SCALAR LEAF (an enum/constrained primitive component, e.g.
+            // status:{$ref:Status} where Status is `type:string, enum:[...]`) must surface that enum/type onto the
+            // field — otherwise a real enum-value drift is mis-reported as a generic "constraints not exposed" gap.
+            // Mirrors toParam's param-$ref enum follow. Object-DTO refs keep refSchema for name-based field-diff.
+            String directRef = directRefName(ps);
+            if (directRef != null && allSchemas != null) {
+                Schema leaf = allSchemas.get(directRef);
+                if (isScalarLeaf(leaf)) {
+                    // Pull the enum/type/constraints onto the field so a value-level drift is precise; KEEP refSchema so
+                    // rendering (corrected YAML) still reuses the named component and name-based diff is unaffected.
+                    type = leaf.getType();
+                    format = leaf.getFormat();
+                    cs = constraints(leaf);
+                }
+            }
+            fields.add(new FieldModel(key, type, format, required.contains(key), cs, refSchema,
+                    SourceRef.spec(specId, "/components/schemas/" + name + "/properties/" + key, null)));
         }
     }
 
-    /** The named schema a property binds to: a direct $ref, or "Foo[]" for an array-of-$ref (mirrors the code side's
-     *  collection convention). Was {@code refName(ps.get$ref())}, which is null for arrays — silently dropping the
-     *  element DTO so an array-of-DTO property couldn't be field-compared. */
+    /** A direct $ref target name on a property, including the single-member {@code allOf:[{$ref}]} (nullable-wrapper)
+     *  idiom — but NOT an array-of-$ref (that stays an array, handled by propRefSchema). */
+    @SuppressWarnings("rawtypes")
+    private String directRefName(Schema ps) {
+        if (ps.get$ref() != null) {
+            return refName(ps.get$ref());
+        }
+        if (ps.getAllOf() != null && ps.getAllOf().size() == 1) {
+            Schema only = (Schema) ps.getAllOf().get(0);
+            if (only.get$ref() != null) {
+                return refName(only.get$ref());
+            }
+        }
+        return null;
+    }
+
+    /** True when a referenced schema is a scalar leaf (no properties, no allOf) carrying an enum or a non-object type. */
+    @SuppressWarnings("rawtypes")
+    private boolean isScalarLeaf(Schema s) {
+        return s != null && s.getProperties() == null && s.getAllOf() == null
+                && (s.getEnum() != null || (s.getType() != null && !"object".equals(s.getType())));
+    }
+
+    /** The named schema a property binds to: a direct $ref, the single-member allOf:[{$ref}] (nullable-wrapper) idiom,
+     *  or "Foo[]" for an array-of-$ref (mirrors the code side's collection convention). Was {@code refName(ps.get$ref())},
+     *  which is null for arrays and for the allOf-wrapped form — silently dropping the bound element DTO. */
     @SuppressWarnings("rawtypes")
     private String propRefSchema(Schema ps) {
         if (ps.get$ref() != null) {
@@ -493,6 +580,12 @@ public class OpenApiModelExtractor {
         }
         if (ps.getItems() != null && ps.getItems().get$ref() != null) {
             return refName(ps.getItems().get$ref()) + "[]";
+        }
+        if (ps.getAllOf() != null && ps.getAllOf().size() == 1) {
+            Schema only = (Schema) ps.getAllOf().get(0);
+            if (only.get$ref() != null) {
+                return refName(only.get$ref());
+            }
         }
         return null;
     }
