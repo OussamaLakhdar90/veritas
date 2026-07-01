@@ -917,44 +917,12 @@ public class JavaSpringExtractor {
                     + "status could not be resolved statically; its real status is not compared to the spec.");
         }
 
-        // One-hop reachability: an error status a CALLED service method throws is reachable from THIS endpoint —
-        // stronger than a blanket advice status. Attach it as EXCEPTION_HANDLER_REACHABLE (scored MEDIUM by the diff)
-        // and BEFORE the blanket advice merge, so its noneMatch guard keeps this stronger origin.
-        Map<String, String> fieldTypes = controllerFieldTypes(m);
-        LinkedHashSet<Integer> reachable = new LinkedHashSet<>();
-        for (MethodCallExpr call : m.findAll(MethodCallExpr.class)) {
-            String scope = call.getScope().map(Object::toString).orElse("");
-            String svcType = fieldTypes.get(scope);
-            if (svcType == null) {
-                continue;
-            }
-            Set<Integer> st = serviceStatuses.get(svcType + "#" + call.getNameAsString());
-            if (st != null) {
-                reachable.addAll(st);
-            }
-        }
-        for (int s : reachable) {
-            if (responses.stream().noneMatch(r -> r.statusCode() == s)) {
-                responses.add(new ResponseModel(s, null, null, "EXCEPTION_HANDLER_REACHABLE", retSrc));
-            }
-        }
-        // An error status the endpoint method THROWS DIRECTLY (e.g. `throw new DuplicateSkuException()` whose class
-        // carries @ResponseStatus(CONFLICT)) is reachable from this endpoint — resolve via the same exception->status
-        // map and attach it (it was previously dropped: serviceMethodStatuses skips controllers' own throws).
-        for (String ex : thrownExceptionNames(m)) {
-            Integer s = exceptionStatusOf(ex, adviceExStatus, types);
-            if (s != null && s >= 400 && responses.stream().noneMatch(r -> r.statusCode() == s)) {
-                responses.add(new ResponseModel(s, null, null, "EXCEPTION_HANDLER_REACHABLE", retSrc));
-            }
-        }
-        // Error statuses produced by a controller-LOCAL @ExceptionHandler apply to every endpoint of that controller
-        // (a catch-all handler is attached at the blanket-LOW origin, a specific-exception handler at MEDIUM).
-        for (Map.Entry<Integer, String> e : localHandlerStatuses.entrySet()) {
-            int s = e.getKey();
-            if (s >= 400 && responses.stream().noneMatch(r -> r.statusCode() == s)) {
-                responses.add(new ResponseModel(s, null, null, e.getValue(), retSrc));
-            }
-        }
+        // Error statuses reachable from this endpoint, in strongest-origin-first order (the noneMatch de-dup keeps the
+        // first/stronger origin): a status a CALLED service method throws, then the endpoint's OWN direct throws, then
+        // the controller-LOCAL @ExceptionHandler statuses.
+        addReachableServiceStatuses(responses, m, serviceStatuses, retSrc);
+        addDirectThrowStatuses(responses, m, adviceExStatus, types, retSrc);
+        addLocalHandlerStatuses(responses, localHandlerStatuses, retSrc);
 
         // Spring method-security is most-specific-wins: a method-level @PreAuthorize/@Secured/@RolesAllowed REPLACES the
         // class default (it does not union). So a method @PreAuthorize("permitAll()") on a secured controller is OPEN —
@@ -1996,6 +1964,61 @@ public class JavaSpringExtractor {
             scope = inner.getScope().orElse(null);
         }
         return scope == null ? "" : scope.toString();
+    }
+
+    /** Add a status ResponseModel only if the list doesn't already carry that status (first/stronger-origin wins). */
+    private static void addIfAbsent(List<ResponseModel> responses, int status, String origin, SourceRef src) {
+        if (responses.stream().noneMatch(r -> r.statusCode() == status)) {
+            responses.add(new ResponseModel(status, null, null, origin, src));
+        }
+    }
+
+    /** One-hop reachability: error statuses a CALLED service method (a controller field) throws are reachable from this
+     *  endpoint — attach as EXCEPTION_HANDLER_REACHABLE (scored MEDIUM) BEFORE the blanket advice merge so the
+     *  first-writer de-dup keeps this stronger origin. */
+    private void addReachableServiceStatuses(List<ResponseModel> responses, MethodDeclaration m,
+                                             Map<String, Set<Integer>> serviceStatuses, SourceRef retSrc) {
+        Map<String, String> fieldTypes = controllerFieldTypes(m);
+        LinkedHashSet<Integer> reachable = new LinkedHashSet<>();
+        for (MethodCallExpr call : m.findAll(MethodCallExpr.class)) {
+            String scope = call.getScope().map(Object::toString).orElse("");
+            String svcType = fieldTypes.get(scope);
+            if (svcType == null) {
+                continue;
+            }
+            Set<Integer> st = serviceStatuses.get(svcType + "#" + call.getNameAsString());
+            if (st != null) {
+                reachable.addAll(st);
+            }
+        }
+        for (int s : reachable) {
+            addIfAbsent(responses, s, "EXCEPTION_HANDLER_REACHABLE", retSrc);
+        }
+    }
+
+    /** An error status the endpoint method THROWS DIRECTLY (a thrown exception whose class carries @ResponseStatus, or a
+     *  known framework exception) is reachable from this endpoint — resolve via the exception→status map and attach it
+     *  (serviceMethodStatuses skips a controller's own throws, so this is the only path for them). */
+    private void addDirectThrowStatuses(List<ResponseModel> responses, MethodDeclaration m,
+                                        Map<String, Integer> adviceExStatus, Map<String, TypeDeclaration<?>> types,
+                                        SourceRef retSrc) {
+        for (String ex : thrownExceptionNames(m)) {
+            Integer s = exceptionStatusOf(ex, adviceExStatus, types);
+            if (s != null && s >= 400) {
+                addIfAbsent(responses, s, "EXCEPTION_HANDLER_REACHABLE", retSrc);
+            }
+        }
+    }
+
+    /** Error statuses produced by a controller-LOCAL @ExceptionHandler apply to every endpoint of that controller;
+     *  their origin (LOW, controller-scoped) is carried in the map value. */
+    private void addLocalHandlerStatuses(List<ResponseModel> responses, Map<Integer, String> localHandlerStatuses,
+                                         SourceRef retSrc) {
+        for (Map.Entry<Integer, String> e : localHandlerStatuses.entrySet()) {
+            if (e.getKey() >= 400) {
+                addIfAbsent(responses, e.getKey(), e.getValue(), retSrc);
+            }
+        }
     }
 
     /** Every statically-resolvable ResponseEntity status the method actually RETURNS — factory calls
