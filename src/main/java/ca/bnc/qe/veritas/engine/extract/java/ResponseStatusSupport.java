@@ -2,7 +2,7 @@ package ca.bnc.qe.veritas.engine.extract.java;
 
 import static ca.bnc.qe.veritas.engine.extract.java.AnnotationSupport.firstString;
 import static ca.bnc.qe.veritas.engine.extract.java.AnnotationSupport.getAnnotation;
-import static ca.bnc.qe.veritas.engine.extract.java.JavaSpringExtractor.simpleTypeName;
+import static ca.bnc.qe.veritas.engine.extract.java.TypeMappingSupport.simpleTypeName;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
