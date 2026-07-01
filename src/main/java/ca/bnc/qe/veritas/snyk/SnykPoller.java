@@ -6,9 +6,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * Background poller that refreshes watched-repo Snyk vulnerabilities on a fixed interval. Off by default — the
- * bean is only created when {@code veritas.snyk.poll-enabled=true}, so tests and dev runs never call Snyk in the
- * background. Manual refresh is always available via {@code POST /api/v1/snyk/refresh}.
+ * Background poller that refreshes watched-repo Snyk vulnerabilities: once shortly after application start, then
+ * once a day. Off by default — the bean is only created when {@code veritas.snyk.poll-enabled=true}, so tests and
+ * dev runs never call Snyk in the background. Manual refresh is always available via {@code POST /api/v1/snyk/refresh}.
  */
 @Component
 @ConditionalOnProperty(name = "veritas.snyk.poll-enabled", havingValue = "true")
@@ -22,8 +22,8 @@ public class SnykPoller {
     }
 
     @Scheduled(
-            fixedDelayString = "${veritas.snyk.poll-interval-ms:300000}",
-            initialDelayString = "${veritas.snyk.poll-interval-ms:300000}")
+            fixedDelayString = "${veritas.snyk.poll-interval-ms:86400000}",
+            initialDelayString = "${veritas.snyk.poll-initial-delay-ms:60000}")
     public void poll() {
         try {
             pollService.pollAll();

@@ -19,12 +19,40 @@ const emptyBase = () => {
 }
 
 describe('Snyk page', () => {
-  it('shows the Snyk-branded header and the add-watch card', async () => {
+  it('shows the Snyk-branded header and the watch-applications card', async () => {
     emptyBase()
     renderSnyk()
-    expect(await screen.findByText('Watch a repository')).toBeInTheDocument()
+    expect(await screen.findByText('Watch applications')).toBeInTheDocument()
     // Snyk brand mark is present (aria-label="Snyk").
     expect(screen.getAllByLabelText('Snyk').length).toBeGreaterThan(0)
+  })
+
+  it('watches selected app-ids via the by-app endpoint (auto application-tests)', async () => {
+    let posted: unknown = null
+    server.use(
+      http.get('*/api/v1/snyk/orgs', () => HttpResponse.json([
+        { id: 'o1', slug: 'app7576', name: 'CIAM Profile' },
+        { id: 'o2', slug: 'app7571', name: 'CIAM Access' },
+      ])),
+      http.get('*/api/v1/snyk/watches', () => HttpResponse.json([])),
+      http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([])),
+      http.post('*/api/v1/snyk/watches/by-app', async ({ request }) => {
+        posted = await request.json()
+        return HttpResponse.json({ id: 'w1', orgId: 'o1', orgSlug: 'app7576', orgName: 'CIAM Profile',
+          targetId: 't1', repoSlug: 'application-tests', enabled: true, critical: 0, high: 0, medium: 0,
+          low: 0, fixable: 0, projectCount: 0 }, { status: 201 })
+      }),
+    )
+    const user = userEvent.setup()
+    renderSnyk()
+
+    // Tick the first application, then "Watch selected".
+    const checkbox = (await screen.findAllByRole('checkbox'))[0]
+    await user.click(checkbox)
+    await user.click(screen.getByRole('button', { name: /Watch selected/ }))
+
+    expect(await screen.findByText('Now watching 1 application.')).toBeInTheDocument()
+    expect(posted).toMatchObject({ orgId: 'o1', orgSlug: 'app7576' })
   })
 
   it('shows the empty state when no repos are watched', async () => {

@@ -61,6 +61,17 @@ class SnykControllerTest {
     }
 
     @Test
+    void addWatchByAppReturns201AndTargetsApplicationTests() throws Exception {
+        when(snyk.addWatchForApp(anyString(), anyString(), anyString()))
+                .thenReturn(new SnykWatchView("w1", "o1", "app7576", "CIAM Profile", "t1",
+                        "application-tests", true, 0, 0, 0, 0, 0, 0, null));
+        mvc.perform(post("/api/v1/snyk/watches/by-app").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"orgId\":\"o1\",\"orgSlug\":\"app7576\",\"orgName\":\"CIAM Profile\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.repoSlug").value("application-tests"));
+    }
+
+    @Test
     void issuesReportSeverityAndFixInfo() throws Exception {
         when(snyk.latestIssues("w1")).thenReturn(List.of(
                 new SnykIssueView("profile-management/pom.xml", "SNYK-1", "critical", "Deserialization",

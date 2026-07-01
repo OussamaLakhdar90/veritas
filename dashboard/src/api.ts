@@ -615,6 +615,9 @@ export const api = {
   snykWatches: () => get<SnykWatchView[]>('/snyk/watches'),
   addSnykWatch: (body: { orgId: string; orgSlug: string; orgName: string; targetId: string; repoSlug: string }) =>
     send<SnykWatchView>('POST', '/snyk/watches', body),
+  // App-id-centric: watch an app-id — the backend auto-targets its application-tests repo.
+  addSnykWatchByApp: (body: { orgId: string; orgSlug: string; orgName: string }) =>
+    send<SnykWatchView>('POST', '/snyk/watches/by-app', body),
   removeSnykWatch: (id: string) => send<void>('DELETE', `/snyk/watches/${encodeURIComponent(id)}`),
   snykIssues: (watchId: string) => get<SnykIssueView[]>(`/snyk/watches/${encodeURIComponent(watchId)}/issues`),
   snykRefresh: () => send<{ polled: number }>('POST', '/snyk/refresh'),
