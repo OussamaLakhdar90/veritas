@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["breaking", "confidence", "reasons"],
+  "properties": {
+    "breaking": { "type": "boolean" },
+    "confidence": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "reasons": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "migrationNotes": { "type": "string" }
+  }
+}
