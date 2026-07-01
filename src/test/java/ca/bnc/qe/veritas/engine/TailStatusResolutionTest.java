@@ -376,6 +376,260 @@ class TailStatusResolutionTest {
         assertThat(m.blindSpots().toString()).doesNotContain("status could not be resolved");
     }
 
+    // (deferred #188 EC1) A ResponseEntity BodyBuilder stored in a local and finished via `builder.body(x)` resolves to
+    // the builder's status (201), no false blind spot.
+    @Test
+    void bodyBuilderStoredInLocalResolvesStatus(@TempDir Path dir) throws Exception {
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.http.ResponseEntity;
+            import java.net.URI;
+            @RestController class C {
+                @PostMapping("/c") public ResponseEntity<String> create() {
+                    var builder = ResponseEntity.created(URI.create("/c/1"));
+                    return builder.body("x");
+                }
+            }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(statusCodes(m)).contains(201);
+        assertThat(m.blindSpots().toString()).doesNotContain("status could not be resolved");
+    }
+
+    // (deferred #188 EC1) The `.build()` terminal on a builder local resolves the same way (204 here).
+    @Test
+    void builderLocalFinishedWithBuildResolvesStatus(@TempDir Path dir) throws Exception {
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.http.*;
+            @RestController class C {
+                @DeleteMapping("/d") public ResponseEntity<Void> del() {
+                    var b = ResponseEntity.status(HttpStatus.NO_CONTENT);
+                    return b.build();
+                }
+            }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(statusCodes(m)).contains(204);
+        assertThat(m.blindSpots().toString()).doesNotContain("status could not be resolved");
+    }
+
+    // (deferred #188 EC1 guard) Transitive ALIASING of a builder local is NOT resolved (one-hop bound) — it must stay an
+    // honest blind spot, never a fabricated status.
+    @Test
+    void aliasedBuilderLocalStaysOpaqueBlindSpot(@TempDir Path dir) throws Exception {
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.http.*;
+            @RestController class C {
+                @GetMapping("/a") public ResponseEntity<String> a() {
+                    var b = ResponseEntity.status(HttpStatus.OK);
+                    var alias = b;
+                    return alias.body("y");
+                }
+            }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(m.blindSpots().toString()).contains("status could not be resolved");
+    }
+
+    // (deferred #188 EC2) A disjoint-block local sharing a returned FIELD's name must NOT suppress the field's real
+    // write (the shadow guard is scope-aware): `this.result` resolves to 202, and the throwaway 503 is not harvested.
+    @Test
+    void disjointBlockLocalDoesNotSuppressReturnedFieldStatus(@TempDir Path dir) throws Exception {
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.http.*;
+            @RestController class C {
+                private ResponseEntity<String> result;
+                @GetMapping("/r/{id}") public ResponseEntity<String> get(@PathVariable String id) {
+                    {
+                        ResponseEntity<String> result = ResponseEntity.status(503).build();
+                        log(result);
+                    }
+                    this.result = ResponseEntity.status(HttpStatus.ACCEPTED).body(id);
+                    return this.result;
+                }
+                private void log(ResponseEntity<String> r) { }
+            }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(statusCodes(m)).contains(202).doesNotContain(503);
+        assertThat(m.blindSpots().toString()).doesNotContain("status could not be resolved");
+    }
+
+    // (EC1 refutation guard) A builder finished into an INTERMEDIATE local (`var e = b.body(x); return e;`) must resolve
+    // the same as returning it directly — the local-builder scope guard keys off the terminal call's block, not a return.
+    @Test
+    void builderLocalFinishedIntoIntermediateLocalResolves(@TempDir Path dir) throws Exception {
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.http.ResponseEntity;
+            @RestController class C {
+                @GetMapping("/w/{id}") public ResponseEntity<String> get(@PathVariable String id) {
+                    var b = ResponseEntity.ok();
+                    var e = b.body("w-" + id);
+                    return e;
+                }
+            }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(statusCodes(m)).contains(200);
+        assertThat(m.blindSpots().toString()).doesNotContain("status could not be resolved");
+    }
+
+    // (EC1 refutation guard) A same-named builder written in a DISJOINT block (never in scope at the returned terminal)
+    // must NOT leak a phantom status: only the in-scope `var body = status(201)` counts → [201], not [200, 201].
+    @Test
+    void disjointBlockBuilderAssignmentDoesNotLeakPhantom(@TempDir Path dir) throws Exception {
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.http.ResponseEntity;
+            @RestController class C {
+                @GetMapping("/x") public ResponseEntity<String> handle(@RequestParam boolean flag, @RequestParam String x) {
+                    if (flag) {
+                        ResponseEntity<String> body;
+                        body = ResponseEntity.ok(x);
+                        System.out.println(body);
+                    }
+                    var body = ResponseEntity.status(201);
+                    return body.build();
+                }
+            }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(statusCodes(m)).contains(201).doesNotContain(200);
+        assertThat(m.blindSpots().toString()).doesNotContain("status could not be resolved");
+    }
+
+    // (EC1 refutation guard) A ResponseEntity built and returned inside a NESTED lambda that is stored but never invoked
+    // is that lambda's return, NOT the endpoint's — it must not leak a phantom status. The endpoint returns only 200.
+    @Test
+    void nestedLambdaReturnDoesNotLeakPhantomStatus(@TempDir Path dir) throws Exception {
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.http.*;
+            import java.util.function.Supplier;
+            @RestController class C {
+                @GetMapping("/x") public ResponseEntity<String> g() {
+                    Supplier<ResponseEntity<String>> teapot = () -> {
+                        var t = ResponseEntity.status(HttpStatus.I_AM_A_TEAPOT);
+                        return t.build();
+                    };
+                    register(teapot);
+                    return ResponseEntity.ok("done");
+                }
+                private void register(Object o) { }
+            }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(statusCodes(m)).contains(200).doesNotContain(418);
+        assertThat(m.blindSpots().toString()).doesNotContain("status could not be resolved");
+    }
+
+    // (refutation guard) A switch-EXPRESSION status dispatch (`return switch (s) { case A -> ok(); … }`) resolves each
+    // arm's status — {200, 409, 404} here — with no phantom 200 and no blind spot.
+    @Test
+    void switchExpressionReturnResolvesAllArmStatuses(@TempDir Path dir) throws Exception {
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.http.*;
+            @RestController class C {
+                enum State { READY, CONFLICTED, MISSING }
+                @GetMapping("/o/{id}") public ResponseEntity<String> get(@PathVariable Long id, @RequestParam State state) {
+                    return switch (state) {
+                        case READY -> ResponseEntity.ok("x");
+                        case CONFLICTED -> ResponseEntity.status(HttpStatus.CONFLICT).build();
+                        default -> ResponseEntity.notFound().build();
+                    };
+                }
+            }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(statusCodes(m)).contains(200, 409, 404);
+        assertThat(m.blindSpots().toString()).doesNotContain("status could not be resolved");
+    }
+
+    // (refutation guard) A switch-expression with an OPAQUE arm (a `yield factory.build()` delegation) resolves the
+    // readable 200 AND surfaces the honest blind spot for the unreadable arm.
+    @Test
+    void switchExpressionOpaqueArmFiresBlindSpot(@TempDir Path dir) throws Exception {
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.http.*;
+            @RestController class C {
+                private Object factory;
+                enum State { A, B }
+                @GetMapping("/o") public ResponseEntity<String> get(@RequestParam State s) {
+                    return switch (s) {
+                        case A -> ResponseEntity.ok("x");
+                        default -> { yield factory.build(); }
+                    };
+                }
+            }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(statusCodes(m)).contains(200);
+        assertThat(m.blindSpots().toString()).contains("status could not be resolved");
+    }
+
+    // (refutation guard) A COLON-form switch arm with a leading side-statement (`case X: log(...); yield ok();`) must
+    // resolve its yields ({200,404,400}) with NO false blind spot — the side-call is not an arm value.
+    @Test
+    void colonFormSwitchArmWithLeadingStatementResolvesNoBlindSpot(@TempDir Path dir) throws Exception {
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.http.*;
+            @RestController class C {
+                @GetMapping("/d/{state}") public ResponseEntity<String> byState(@PathVariable String state) {
+                    return switch (state) {
+                        case "ready":
+                            log(state);
+                            yield ResponseEntity.ok("ready");
+                        case "gone":
+                            yield ResponseEntity.notFound().build();
+                        default:
+                            yield ResponseEntity.badRequest().build();
+                    };
+                }
+                private void log(String s) { }
+            }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(statusCodes(m)).contains(200, 404, 400);
+        assertThat(m.blindSpots().toString()).doesNotContain("status could not be resolved");
+    }
+
+    // (refutation guard) A NESTED switch expression inside a stored (never-returned) lambda must not leak its yields as
+    // the endpoint's statuses — only the outer switch's own arms count ({200, 404}), not the inner {500, 400}.
+    @Test
+    void nestedSwitchInStoredLambdaDoesNotLeakYields(@TempDir Path dir) throws Exception {
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.http.*;
+            import java.util.function.Supplier;
+            @RestController class C {
+                @GetMapping("/o") public ResponseEntity<String> get(@RequestParam int code) {
+                    return switch (code) {
+                        case 1 -> {
+                            Supplier<ResponseEntity<String>> onError = () -> switch (code) {
+                                case 2: yield ResponseEntity.internalServerError().build();
+                                default: yield ResponseEntity.badRequest().build();
+                            };
+                            register(onError);
+                            yield ResponseEntity.ok("x");
+                        }
+                        default -> ResponseEntity.notFound().build();
+                    };
+                }
+                private void register(Object o) { }
+            }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(statusCodes(m)).contains(200, 404).doesNotContain(500, 400);
+        assertThat(m.blindSpots().toString()).doesNotContain("status could not be resolved");
+    }
+
     // A this::render method reference binds exactly the single-arg overload (Function<T,R>). The harvest must match by
     // arity: the never-bound render(String, boolean) overload's resolvable 418 must NOT be attributed to the endpoint,
     // and because the bound render(String) has a dynamic status, the honest blind spot must fire.

@@ -34,11 +34,15 @@ import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.NormalAnnotationExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
+import com.github.javaparser.ast.expr.SwitchExpr;
 import com.github.javaparser.ast.expr.SingleMemberAnnotationExpr;
 import com.github.javaparser.ast.expr.ThisExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithAnnotations;
 import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.ReturnStmt;
+import com.github.javaparser.ast.stmt.SwitchEntry;
+import com.github.javaparser.ast.stmt.YieldStmt;
 import com.github.javaparser.ast.stmt.ThrowStmt;
 import org.springframework.http.HttpStatus;
 
@@ -259,7 +263,7 @@ final class ResponseStatusSupport {
      *  {@code ResponseEntity.status(var)} sitting in a non-returned position (a diagnostic that is only logged) is not a
      *  blind spot, so no blanket body scan is done. */
     static boolean responseEntityStatusUnresolvable(MethodDeclaration m) {
-        for (ReturnStmt ret : m.findAll(ReturnStmt.class)) {
+        for (ReturnStmt ret : ownReturns(m)) {
             Expression raw = ret.getExpression().orElse(null);
             if (raw == null) {
                 continue;
@@ -277,7 +281,7 @@ final class ResponseStatusSupport {
                     return true;
                 }
             } else if (expr instanceof MethodCallExpr || expr instanceof ObjectCreationExpr
-                    || expr instanceof ConditionalExpr) {
+                    || expr instanceof ConditionalExpr || expr instanceof SwitchExpr) {
                 // Decide on the ACTUALLY-RETURNED (tail) value, resolved through the fluent Optional/Stream chain — not a
                 // blanket subtree scan. A direct ResponseEntity builder chain and a chain that BUILDS the ResponseEntity in
                 // a tail position (`service.find(...).map(x -> ResponseEntity.ok(y)).orElseThrow(...)`, or
@@ -351,6 +355,27 @@ final class ResponseStatusSupport {
             r.merge(analyzeReturnTail(c.getElseExpr(), m, resolveHelpers));
             return r;
         }
+        if (e instanceof SwitchExpr sw) {
+            // A switch EXPRESSION (`return switch (x) { case A -> ok(); default -> notFound().build(); }`): each arm's
+            // value is a returned tail. Only an ARROW-EXPRESSION arm's single statement IS the value; a colon-group /
+            // arrow-block arm yields its value via `yield` (Loop 2), and its OTHER statements (an audit/log side-call
+            // before the yield) are NOT tail values and must not be read as opaque. A throwing arm contributes no value.
+            sw.getEntries().forEach(entry -> {
+                if (entry.getType() == SwitchEntry.Type.EXPRESSION) {
+                    entry.getStatements().forEach(st -> {
+                        if (st instanceof ExpressionStmt es) {
+                            r.merge(analyzeReturnTail(es.getExpression(), m, resolveHelpers));
+                        }
+                    });
+                }
+            });
+            sw.findAll(YieldStmt.class).forEach(y -> {
+                if (nearestEnclosingSwitch(y) == sw) {   // exclude yields of a NESTED switch / a stored-lambda switch
+                    r.merge(analyzeReturnTail(y.getExpression(), m, resolveHelpers));
+                }
+            });
+            return r;
+        }
         if (e instanceof ObjectCreationExpr oce) {
             Integer s = newResponseEntityStatus(oce);
             if (s != null) {
@@ -412,7 +437,95 @@ final class ResponseStatusSupport {
                     r.merge(functionResultTail(mc.getArgument(0), 1, m, resolveHelpers));
                 }
             }
-            default -> r.opaque = true;   // a receiver.op(...) we cannot read (factory.build(x), service.foo())
+            default -> {
+                // A ResponseEntity BodyBuilder held in a LOCAL, finished via `builder.body(x)` / `builder.build()`
+                // (a builder stored in a local to add headers, then returned). The root scope is a local, not
+                // ResponseEntity, so it fell here — resolve the local's WRITES (the builder factory it was assigned).
+                // Only the ResponseEntity-producing terminals body/build qualify (intermediate ops like .header() return
+                // the builder, not a ResponseEntity, so a controller never returns them). Non-recursive by construction:
+                // a write is read for its DIRECT factory status only (an aliasing `= otherLocal` or a builder mutation
+                // `= b.header(x)` stays opaque — no transitive dereference, so no cycle).
+                String root = rootScopeName(mc);
+                String name = mc.getNameAsString();
+                if ((name.equals("body") || name.equals("build")) && isLocalVariable(m, root)) {
+                    List<Expression> writes = localBuilderWriteValues(m, root, mc);
+                    if (writes.isEmpty()) {
+                        r.opaque = true;
+                    } else {
+                        writes.forEach(w -> mergeBuilderLocalWriteStatus(w, r));
+                    }
+                } else {
+                    r.opaque = true;   // a receiver.op(...) we cannot read (factory.build(x), service.foo())
+                }
+            }
+        }
+    }
+
+    /** True when {@code name} is a LOCAL variable declared in the method (a `var b = …` / `ResponseEntity<T> b = …`). */
+    private static boolean isLocalVariable(MethodDeclaration m, String name) {
+        return name != null && !name.isEmpty()
+                && m.findAll(VariableDeclarator.class).stream().anyMatch(vd -> vd.getNameAsString().equals(name));
+    }
+
+    /** Values written to a LOCAL builder variable {@code name} whose binding is in scope AT the terminal call
+     *  ({@code builder.body(x)} / {@code .build()}) — its declarator initializer and bare {@code name = …} assignments
+     *  whose enclosing block lexically encloses the terminal. Keying the scope on the TERMINAL's block (not on a
+     *  ReturnStmt) is what lets a builder finished into an intermediate local ({@code var e = b.body(x); return e;})
+     *  still resolve, while a same-named local written in a DISJOINT block (never in scope at the terminal) is rejected.
+     *  A bare assignment is scope-guarded only when the name is DECLARED MORE THAN ONCE (disjoint-scope reuse); with a
+     *  single declaration every assignment targets that one binding, so a branch reassignment that flows to the terminal
+     *  is still harvested (mirrors the returned-local rule). */
+    private static List<Expression> localBuilderWriteValues(MethodDeclaration m, String name, MethodCallExpr terminal) {
+        List<Expression> out = new ArrayList<>();
+        long declCount = m.findAll(VariableDeclarator.class).stream()
+                .filter(vd -> vd.getNameAsString().equals(name)).count();
+        for (VariableDeclarator vd : m.findAll(VariableDeclarator.class)) {
+            if (vd.getNameAsString().equals(name) && vd.getInitializer().isPresent()
+                    && blockEncloses(vd, terminal)) {
+                out.add(vd.getInitializer().get());
+            }
+        }
+        for (AssignExpr ae : m.findAll(AssignExpr.class)) {
+            if (ae.getTarget() instanceof NameExpr ne && ne.getNameAsString().equals(name)
+                    && (declCount <= 1 || blockEncloses(ae, terminal))) {
+                out.add(ae.getValue());
+            }
+        }
+        return out;
+    }
+
+    /** True when {@code node}'s nearest enclosing block lexically encloses {@code target} — a binding written at
+     *  {@code node} is in scope at {@code target}; a write in a DISJOINT sibling block is not. */
+    private static boolean blockEncloses(Node node, Node target) {
+        Node block = node.findAncestor(BlockStmt.class).orElse(null);
+        return block == null || block.isAncestorOf(target);
+    }
+
+    /** Merge the DIRECT ResponseEntity status of a builder-local write value into {@code r} — a ResponseEntity-valued
+     *  factory/builder chain or a {@code new ResponseEntity<>(.., X)}, recursing only through a ternary. NEVER re-enters
+     *  {@code analyzeCallTail}: an aliased local, a service delegation, or a builder mutation ({@code = b.header(x)})
+     *  reads as opaque, so there is no transitive-dereference cycle. */
+    private static void mergeBuilderLocalWriteStatus(Expression w, TailResult r) {
+        Expression u = unwrapExpr(w);
+        if (u instanceof ConditionalExpr c) {
+            mergeBuilderLocalWriteStatus(c.getThenExpr(), r);
+            mergeBuilderLocalWriteStatus(c.getElseExpr(), r);
+        } else if (u instanceof MethodCallExpr wc && isResponseEntityValued(wc)) {
+            Integer s = responseEntityValuedStatus(wc);
+            if (s != null) {
+                r.statuses.add(s);
+            } else {
+                r.opaque = true;
+            }
+        } else if (u instanceof ObjectCreationExpr oce) {
+            Integer s = newResponseEntityStatus(oce);
+            if (s != null) {
+                r.statuses.add(s);
+            } else {
+                r.opaque = true;
+            }
+        } else {
+            r.opaque = true;   // aliased local / service delegation / builder mutation — unreadable
         }
     }
 
@@ -556,6 +669,38 @@ final class ResponseStatusSupport {
         return null;
     }
 
+    /** The RETURN statements that belong DIRECTLY to method {@code m}, excluding returns inside a NESTED FUNCTION (a
+     *  lambda, or an anonymous/local class method) — those are that function's return value, not the endpoint's, so a
+     *  ResponseEntity built and returned inside a stored-but-not-invoked lambda must not be read as the endpoint's own
+     *  returned status. A nested lambda that IS on the returned path is still resolved through the tail walk from the
+     *  endpoint's own return, so nothing reachable is lost. */
+    static List<ReturnStmt> ownReturns(MethodDeclaration m) {
+        List<ReturnStmt> out = new ArrayList<>();
+        for (ReturnStmt ret : m.findAll(ReturnStmt.class)) {
+            if (enclosingFunctionOf(ret) == m) {
+                out.add(ret);
+            }
+        }
+        return out;
+    }
+
+    /** The switch EXPRESSION a {@code yield} belongs to — its nearest enclosing {@link SwitchExpr}, stopping at a
+     *  lambda/method boundary. A NESTED switch's yields belong to the inner switch, and a yield inside a stored (not
+     *  returned) lambda is not the outer switch's tail, so an unguarded {@code findAll(YieldStmt)} would over-harvest. */
+    private static SwitchExpr nearestEnclosingSwitch(YieldStmt y) {
+        Node p = y.getParentNode().orElse(null);
+        while (p != null) {
+            if (p instanceof SwitchExpr s) {
+                return s;
+            }
+            if (p instanceof LambdaExpr || p instanceof MethodDeclaration) {
+                return null;
+            }
+            p = p.getParentNode().orElse(null);
+        }
+        return null;
+    }
+
     /** Unwrap parentheses and casts to the underlying expression. */
     static Expression unwrapExpr(Expression e) {
         while (true) {
@@ -636,7 +781,7 @@ final class ResponseStatusSupport {
      *  local shadows). The no-shadow guard keeps an unrelated same-named field write from being mis-attributed to a
      *  returned LOCAL. Deliberately NOT transitive name aliasing (order-blind); an aliased return stays opaque. */
     static List<Expression> returnedValueExpressions(MethodDeclaration m) {
-        List<ReturnStmt> returns = m.findAll(ReturnStmt.class);
+        List<ReturnStmt> returns = ownReturns(m);
         Set<String> returnedNames = new HashSet<>();
         for (ReturnStmt ret : returns) {
             Expression rex = ret.getExpression().map(ResponseStatusSupport::unwrapExpr).orElse(null);
@@ -662,12 +807,16 @@ final class ResponseStatusSupport {
         List<Expression> out = new ArrayList<>();
         Set<String> localNames = new HashSet<>();
         for (VariableDeclarator vd : m.findAll(VariableDeclarator.class)) {
-            localNames.add(vd.getNameAsString());
             // Only a declarator whose lexical scope encloses a return OF THAT NAME feeds the returned value: a same-named
             // local declared in a DISJOINT block (legally reusing a short name like `resp` for a throwaway that is never
-            // returned) must not have its initializer harvested as a phantom status.
-            if (names.contains(vd.getNameAsString()) && vd.getInitializer().isPresent()
-                    && declaratorInScopeOfReturn(vd, nameReturns)) {
+            // returned) must not have its initializer harvested as a phantom status, NOR shadow a returned this.<field>
+            // write — the shadow guard (below) must use the SAME scope test, else a disjoint-block local named like the
+            // field would wrongly suppress the real field write and drop its status.
+            boolean inScope = declaratorInScopeOfReturn(vd, nameReturns);
+            if (inScope) {
+                localNames.add(vd.getNameAsString());
+            }
+            if (inScope && names.contains(vd.getNameAsString()) && vd.getInitializer().isPresent()) {
                 out.add(vd.getInitializer().get());
             }
         }
@@ -687,7 +836,7 @@ final class ResponseStatusSupport {
      *  one of {@code names} — the returns a declarator of that name must be able to flow to. */
     static List<ReturnStmt> returnsOfNames(MethodDeclaration m, Set<String> names) {
         List<ReturnStmt> out = new ArrayList<>();
-        for (ReturnStmt ret : m.findAll(ReturnStmt.class)) {
+        for (ReturnStmt ret : ownReturns(m)) {
             Expression rex = ret.getExpression().map(ResponseStatusSupport::unwrapExpr).orElse(null);
             if ((rex instanceof NameExpr ne && names.contains(ne.getNameAsString()))
                     || (rex instanceof FieldAccessExpr fae && fae.getScope() instanceof ThisExpr
