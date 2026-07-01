@@ -1209,7 +1209,9 @@ public class JavaSpringExtractor {
                 out.add("unresolved:@" + name);
             }
         }
-        return out;
+        // Dedup: @PreAuthorize + @PostAuthorize with the same SpEL (or a role repeated across @Secured/@RolesAllowed)
+        // would otherwise emit the same token twice, duplicating it in the SECURITY_MISMATCH message and finding id.
+        return out.stream().distinct().toList();
     }
 
     private void addSecurity(NodeWithAnnotations<?> n, List<String> out) {
@@ -1963,8 +1965,12 @@ public class JavaSpringExtractor {
         for (ReturnStmt ret : m.findAll(ReturnStmt.class)) {
             Expression expr = ret.getExpression().orElse(null);
             if (expr instanceof MethodCallExpr mc) {
-                String scope = mc.getScope().map(Object::toString).orElse("");
-                if (!scope.isEmpty() && !scope.equals("ResponseEntity") && !scope.endsWith(".ResponseEntity")) {
+                // Check the ROOT of the call chain, not the immediate scope: a ResponseEntity BUILDER chain
+                // (`ResponseEntity.ok().body(x)`, `ResponseEntity.status(X).body(x)`) has root scope "ResponseEntity" and
+                // is fully resolvable by allEntityStatuses — it is NOT a helper delegation. Only a chain rooted in a
+                // non-ResponseEntity scope (`factory.created(x)`, `helper.build().body(x)`) delegates the real status.
+                String root = rootScopeName(mc);
+                if (!root.isEmpty() && !root.equals("ResponseEntity") && !root.endsWith(".ResponseEntity")) {
                     return true;   // return delegates to a helper/factory that produces the ResponseEntity
                 }
             }
@@ -1977,6 +1983,16 @@ public class JavaSpringExtractor {
             }
         }
         return false;
+    }
+
+    /** The ROOT scope of a (possibly chained) method call: {@code ResponseEntity.ok().body(x)} → "ResponseEntity",
+     *  {@code factory.created(x)} → "factory". Lets a ResponseEntity builder chain be told apart from a helper delegation. */
+    private static String rootScopeName(MethodCallExpr call) {
+        Expression scope = call.getScope().orElse(null);
+        while (scope instanceof MethodCallExpr inner) {
+            scope = inner.getScope().orElse(null);
+        }
+        return scope == null ? "" : scope.toString();
     }
 
     /** Every statically-resolvable ResponseEntity status the method actually RETURNS — factory calls
