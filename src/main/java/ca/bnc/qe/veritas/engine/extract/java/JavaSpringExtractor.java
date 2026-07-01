@@ -34,6 +34,7 @@ import com.github.javaparser.JavaParser;
 import com.github.javaparser.ParserConfiguration;
 import com.github.javaparser.ParserConfiguration.LanguageLevel;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
@@ -63,6 +64,8 @@ import com.github.javaparser.ast.expr.LambdaExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.github.javaparser.ast.expr.ThisExpr;
 import com.github.javaparser.ast.nodeTypes.NodeWithAnnotations;
+import com.github.javaparser.ast.stmt.BlockStmt;
+import com.github.javaparser.ast.stmt.ExpressionStmt;
 import com.github.javaparser.ast.stmt.ReturnStmt;
 import com.github.javaparser.ast.stmt.ThrowStmt;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
@@ -391,10 +394,10 @@ public class JavaSpringExtractor {
     /** The outermost (terminal) call of the fluent authorize chain in the lambda body, expression or block form. */
     private MethodCallExpr outermostChainCall(LambdaExpr lambda) {
         Expression body = lambda.getExpressionBody().orElse(null);
-        if (body == null && lambda.getBody() instanceof com.github.javaparser.ast.stmt.BlockStmt block) {
+        if (body == null && lambda.getBody() instanceof BlockStmt block) {
             body = block.getStatements().stream()
-                    .filter(com.github.javaparser.ast.stmt.ExpressionStmt.class::isInstance)
-                    .map(s -> ((com.github.javaparser.ast.stmt.ExpressionStmt) s).getExpression())
+                    .filter(ExpressionStmt.class::isInstance)
+                    .map(s -> ((ExpressionStmt) s).getExpression())
                     .findFirst().orElse(null);
         }
         return body instanceof MethodCallExpr mc ? mc : null;
@@ -2665,7 +2668,7 @@ public class JavaSpringExtractor {
         return String.join(",", vals);
     }
 
-    private Integer line(com.github.javaparser.ast.Node n) {
+    private Integer line(Node n) {
         return n.getBegin().map(pos -> pos.line).orElse(null);
     }
 
