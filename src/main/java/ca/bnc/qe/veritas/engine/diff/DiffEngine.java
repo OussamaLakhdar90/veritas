@@ -208,6 +208,16 @@ public class DiffEngine {
     // ---- matched endpoint comparison ----
 
     private void compareMatched(List<Finding> findings, ApiModel code, ApiModel spec, Endpoint ce, Endpoint se) {
+        comparePathVarNames(findings, spec, ce, se);
+        compareParams(findings, code, spec, ce, se);
+        compareRequestBody(findings, code, spec, ce, se);
+        compareStatusCodes(findings, spec, ce, se);
+        compareSecurity(findings, code, spec, ce, se);
+        compareMediaTypes(findings, spec, ce, se);
+        compareResponseSchema(findings, code, spec, ce, se);
+    }
+
+    private void comparePathVarNames(List<Finding> findings, ApiModel spec, Endpoint ce, Endpoint se) {
         // path variable names
         List<String> codeVars = pathVars(ce.pathTemplate());
         List<String> specVars = pathVars(se.pathTemplate());
@@ -215,6 +225,9 @@ public class DiffEngine {
             findings.add(finding(FindingType.PATH_VAR_NAME_MISMATCH, label(ce), spec.source(),
                     "Path variable names differ — code " + codeVars + " vs spec " + specVars, ce, Confidence.HIGH));
         }
+    }
+
+    private void compareParams(List<Finding> findings, ApiModel code, ApiModel spec, Endpoint ce, Endpoint se) {
         // params — keyed by location+name so a code query 'id' never matches a spec path 'id' (different params)
         Map<String, ParamModel> specParams = new LinkedHashMap<>();
         se.params().forEach(p -> specParams.put(paramKey(p), p));
@@ -304,6 +317,9 @@ public class DiffEngine {
                         ce, Confidence.MEDIUM));
             }
         }
+    }
+
+    private void compareRequestBody(List<Finding> findings, ApiModel code, ApiModel spec, Endpoint ce, Endpoint se) {
         // request body presence
         boolean codeBody = ce.requestBody() != null;
         boolean specBody = se.requestBody() != null;
@@ -333,6 +349,9 @@ public class DiffEngine {
                 }
             }
         }
+    }
+
+    private void compareStatusCodes(List<Finding> findings, ApiModel spec, Endpoint ce, Endpoint se) {
         // success status code — code returns it but spec omits it
         Integer codeStatus = successStatus(ce);
         if (codeStatus != null) {
@@ -394,6 +413,9 @@ public class DiffEngine {
                         ce, Confidence.LOW));
             }
         }
+    }
+
+    private void compareSecurity(List<Finding> findings, ApiModel code, ApiModel spec, Endpoint ce, Endpoint se) {
         // security: code enforces auth (@PreAuthorize/@Secured/...) but the spec declares none (or vice versa)
         boolean codeSecured = ce.security() != null && !ce.security().isEmpty();
         boolean specSecured = se.security() != null && !se.security().isEmpty();
@@ -414,6 +436,9 @@ public class DiffEngine {
                     "Spec requires security (" + String.join(", ", se.security())
                             + ") but the code enforces none on this endpoint", ce, Confidence.MEDIUM));
         }
+    }
+
+    private void compareMediaTypes(List<Finding> findings, ApiModel spec, Endpoint ce, Endpoint se) {
         // consumes/produces media-type divergence. Only when the CODE side declares them (most endpoints default
         // to JSON and declare nothing — comparing those would be noise). Compatibility-aware (wildcards/+suffix).
         // A code `produces` media type the spec documents on an ERROR response (e.g. application/problem+json on a 500)
@@ -433,6 +458,9 @@ public class DiffEngine {
                     ce.requestBody().mediaTypes(), se.requestBody().mediaTypes(), Set.of());
         }
 
+    }
+
+    private void compareResponseSchema(List<Finding> findings, ApiModel code, ApiModel spec, Endpoint ce, Endpoint se) {
         // success-response body schema differs between code and spec. Compare the RESOLVED STRUCTURE, not the
         // type/schema NAME: a code DTO "PasswordPolicyWrapper" and a spec schema "policies" that serialize to the
         // same property shape are NOT a contract break — the schema name never appears on the wire.
