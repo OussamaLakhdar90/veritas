@@ -17,10 +17,19 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }:
   const titleId = React.useId();
   const { t } = useTranslation();
 
+  // Focus management runs ONCE per open (keyed on `open` only) — so a parent re-render with an inline onClose
+  // never re-steals focus mid-typing. Restores focus to the trigger on close.
   useEffect(() => {
-    if (!open) return;
+    if (!open) return undefined;
     const previouslyFocused = document.activeElement as HTMLElement | null;
+    const node = ref.current;
+    (node?.querySelector<HTMLElement>(FOCUSABLE) ?? node)?.focus();
+    return () => previouslyFocused?.focus?.();
+  }, [open]);
 
+  // Escape-to-close + Tab focus-trap. Re-binds if `onClose` changes; never touches focus, so it can't disrupt typing.
+  useEffect(() => {
+    if (!open) return undefined;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onClose();
@@ -45,14 +54,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }:
       }
     };
     document.addEventListener('keydown', onKey);
-    // Move focus into the dialog (first focusable, else the dialog itself).
-    const node = ref.current;
-    (node?.querySelector<HTMLElement>(FOCUSABLE) ?? node)?.focus();
-
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      previouslyFocused?.focus?.();   // restore focus to the trigger
-    };
+    return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
   if (!open) return null;

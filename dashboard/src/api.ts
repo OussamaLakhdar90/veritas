@@ -453,6 +453,24 @@ export interface SnykAlert {
   seen: boolean; createdAt?: string;
 }
 
+/** The advisory breaking-change verdict (unavailable when Copilot is off — the reactor build is the real gate). */
+export interface BreakingVerdict {
+  available: boolean; breaking: boolean; confidence: number; reasons: string[]; migrationNotes?: string;
+}
+/** One repo's PR in a fix train. */
+export interface SnykFixStepView {
+  order: number; moduleLabel: string; bitbucketProject: string; repoSlug: string; branch: string;
+  pomPath: string; diffPreview: string; newModuleVersion?: string; prUrl?: string; prOpenedBy?: string;
+  status: string; manual: boolean; reason?: string; reviewers: string[];
+}
+/** A release-cascade fix train: the issue, the Jira + verdict, the reactor result, and every PR. */
+export interface SnykFixTrainView {
+  id: string; coordinate: string; oldVersion: string; fixedIn: string; severity: string; appIds: string;
+  jiraKey?: string; status: string; stageDetail?: string; breaking: boolean; reactorPassed?: boolean;
+  reactorFailingLabel?: string; reactorOutputTail?: string; verdict?: BreakingVerdict; startedAt?: string;
+  steps: SnykFixStepView[];
+}
+
 export const api = {
   scans: (service?: string) => get<Scan[]>(`/scans${service ? `?service=${encodeURIComponent(service)}` : ''}`),
   scan: (id: string) => get<Scan>(`/scans/${encodeURIComponent(id)}`),
@@ -624,4 +642,17 @@ export const api = {
   refreshSnykWatch: (id: string) => send<void>('POST', `/snyk/watches/${encodeURIComponent(id)}/refresh`),
   snykAlerts: (unseenOnly = false) => get<SnykAlert[]>(`/snyk/alerts${unseenOnly ? '?unseenOnly=true' : ''}`),
   markSnykAlertSeen: (id: string) => send<void>('POST', `/snyk/alerts/${encodeURIComponent(id)}/seen`),
+
+  // ── Snyk auto-fix release train ──
+  startSnykFix: (body: { watchId?: string; issueId: string; coordinate: string; oldVersion: string;
+    fixedIn: string; severity: string; appIds: string[]; jiraKey?: string; jiraProject?: string;
+    jiraIssueType?: string; reviewers?: string[]; owner?: string }) =>
+    post<{ trainId: string }>('/snyk/fixes', body),
+  snykFixes: () => get<SnykFixTrainView[]>('/snyk/fixes'),
+  snykFix: (id: string) => get<SnykFixTrainView>(`/snyk/fixes/${encodeURIComponent(id)}`),
+  openSnykFixPrs: (id: string) => send<SnykFixTrainView>('POST', `/snyk/fixes/${encodeURIComponent(id)}/open-prs`),
+  recordSnykFixPr: (id: string, order: number, prUrl: string) =>
+    send<SnykFixTrainView>('POST', `/snyk/fixes/${encodeURIComponent(id)}/steps/${order}/pr`, { prUrl }),
+  markSnykFixMerged: (id: string) =>
+    send<SnykFixTrainView>('POST', `/snyk/fixes/${encodeURIComponent(id)}/mark-merged`),
 }

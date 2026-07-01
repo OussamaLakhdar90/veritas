@@ -8,6 +8,7 @@ import {
   Table, Th, Td, Row, PageHeader,
 } from '../components/ui';
 import { SnykLogo } from '../components/SnykLogo';
+import { SnykFixWizard } from '../components/SnykFixWizard';
 import { useToast } from '../components/Toast';
 import { snykSeverityBadge, TONE } from '../theme/tokens';
 
@@ -23,6 +24,7 @@ export function Snyk() {
 
   const [selectedOrgs, setSelectedOrgs] = useState<Set<string>>(new Set());
   const [selectedWatch, setSelectedWatch] = useState<string | null>(null);
+  const [fixIssue, setFixIssue] = useState<SnykIssueView | null>(null);
 
   const orgsQ = useQuery({ queryKey: ['snyk-orgs'], queryFn: api.snykOrgs });
   const watchesQ = useQuery({ queryKey: ['snyk-watches'], queryFn: api.snykWatches });
@@ -224,10 +226,15 @@ export function Snyk() {
                     </Td>
                     <Td className="tabular-nums text-muted">{i.cvss > 0 ? i.cvss.toFixed(1) : '—'}</Td>
                     <Td>
-                      {i.fixable && i.fixedIn
-                        ? <Badge className={TONE.ok}>{t('snyk.fixAvailable', { version: i.fixedIn })}</Badge>
-                        : <span className="inline-flex items-center gap-1 text-[12px] text-muted">
-                            <PackageOpen className="h-3.5 w-3.5" /> {t('snyk.noFix')}</span>}
+                      {i.fixable && i.fixedIn ? (
+                        <div className="flex items-center gap-2">
+                          <Badge className={TONE.ok}>{t('snyk.fixAvailable', { version: i.fixedIn })}</Badge>
+                          <Button size="sm" variant="ghost" onClick={() => setFixIssue(i)}>{t('snyk.fix.button')}</Button>
+                        </div>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[12px] text-muted">
+                          <PackageOpen className="h-3.5 w-3.5" /> {t('snyk.noFix')}</span>
+                      )}
                     </Td>
                   </Row>
                 ))}
@@ -236,6 +243,10 @@ export function Snyk() {
           </CardBody>
         </Card>
       )}
+
+      <SnykFixWizard open={!!fixIssue} onClose={() => setFixIssue(null)} issue={fixIssue} watchId={selectedWatch ?? undefined}
+        apps={Array.from(new Map(watches.map((w) => [w.orgSlug, { slug: w.orgSlug, name: w.orgName }])).values())}
+        defaultApp={watches.find((w) => w.id === selectedWatch)?.orgSlug} />
     </div>
   );
 }
