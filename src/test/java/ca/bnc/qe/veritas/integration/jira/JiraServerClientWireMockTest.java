@@ -1,8 +1,10 @@
 package ca.bnc.qe.veritas.integration.jira;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.containing;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
+import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -107,6 +109,26 @@ class JiraServerClientWireMockTest {
         assertThat(issues).extracting(JiraIssue::key).containsExactly("CIAM-1", "CIAM-2", "CIAM-3");
         wm.verify(2, com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor(
                 urlPathEqualTo("/rest/api/2/search")));
+    }
+
+    @Test
+    void listTransitionsParsesAvailableTransitions() {
+        wm.stubFor(get(urlPathEqualTo("/rest/api/2/issue/CIAM-1/transitions")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"transitions\":[{\"id\":\"11\",\"name\":\"In Progress\"},"
+                        + "{\"id\":\"31\",\"name\":\"Done\"}]}")));
+        List<JiraTransition> ts = client().listTransitions("CIAM-1");
+        assertThat(ts).extracting(JiraTransition::name).containsExactly("In Progress", "Done");
+        assertThat(ts.get(1).id()).isEqualTo("31");
+    }
+
+    @Test
+    void transitionPostsTheTransitionId() {
+        wm.stubFor(post(urlPathEqualTo("/rest/api/2/issue/CIAM-1/transitions"))
+                .willReturn(aResponse().withStatus(204)));
+        client().transition("CIAM-1", "31");
+        wm.verify(1, postRequestedFor(urlPathEqualTo("/rest/api/2/issue/CIAM-1/transitions"))
+                .withRequestBody(containing("\"id\":\"31\"")));
     }
 
     @Test

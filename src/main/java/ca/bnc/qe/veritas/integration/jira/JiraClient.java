@@ -14,6 +14,16 @@ public interface JiraClient {
     /** Current workflow status (name + stable category key) of an issue, for defect status sync. */
     JiraStatus getStatus(String key);
 
+    /** The workflow transitions available from the issue's current status. Empty if unsupported. */
+    default List<JiraTransition> listTransitions(String key) {
+        return List.of();
+    }
+
+    /** Move an issue through a workflow transition (by its transition id). */
+    default void transition(String key, String transitionId) {
+        throw new UnsupportedOperationException("transition not supported by this Jira client");
+    }
+
     /** Add a (wiki-markup) comment to an issue — e.g. a correction-notification when a fix changes. */
     default void addComment(String key, String wikiBody) {
         throw new UnsupportedOperationException("addComment not supported by this Jira client");
