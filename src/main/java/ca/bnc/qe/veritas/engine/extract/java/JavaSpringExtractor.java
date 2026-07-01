@@ -1473,30 +1473,44 @@ public class JavaSpringExtractor {
             "Flux", "Page", "Slice", "PagedModel", "CollectionModel", "Stream");
 
     @SuppressWarnings("unchecked")
+    private record LengthBounds(Integer min, Integer max) {
+    }
+
+    /** A numeric bound value plus whether it is exclusive (null = inclusive/absent). */
+    private record Bound(Double value, Boolean exclusive) {
+    }
+
     private ConstraintSet constraintsOf(NodeWithAnnotations<?> n) {
-        Integer minLen = null, maxLen = null;
-        Double min = null, max = null;
-        Boolean exclusiveMin = null, exclusiveMax = null;
-        String pattern = null, format = null;
-        // NOTE: @NotBlank is captured via the field's `required` flag, NOT as minLength=1 — synthesizing a
-        // length constraint produced spurious CONSTRAINT_GAP findings against specs that (correctly) omit minLength.
-        // Parse DEFENSIVELY: a long-literal (@Min(0L)), underscored (@Size(min=1_000)), or constant (@Size(min=MAX))
-        // value must degrade to "not extracted" (null), NOT throw — an unguarded Integer/Double.valueOf here aborts the
-        // whole scan on idiomatic JSR-380.
+        LengthBounds len = readLengthBounds(n);
+        Bound lower = readLowerBound(n);
+        Bound upper = readUpperBound(n);
+        String pattern = getAnnotation(n, "Pattern").map(this::patternRegexp).orElse(null);
+        String format = has(n, "Email") ? "email" : null;
+        return new ConstraintSet(len.min(), len.max(), lower.value(), upper.value(),
+                lower.exclusive(), upper.exclusive(), pattern, null, format);
+    }
+
+    /** @Size min/max. NOTE: @NotBlank is captured via the field's `required` flag, NOT as minLength=1 — synthesizing a
+     *  length constraint produced spurious CONSTRAINT_GAP findings against specs that (correctly) omit minLength. Parse
+     *  DEFENSIVELY: a long-literal (@Min(0L)), underscored (@Size(min=1_000)), or constant (@Size(min=MAX)) value must
+     *  degrade to null, NOT throw — an unguarded Integer/Double.valueOf here would abort the whole scan on idiomatic JSR-380. */
+    private LengthBounds readLengthBounds(NodeWithAnnotations<?> n) {
         Optional<AnnotationExpr> size = getAnnotation(n, "Size");
-        if (size.isPresent()) {
-            minLen = toInt(firstString(size.get(), "min"));
-            maxLen = toInt(firstString(size.get(), "max"));
+        if (size.isEmpty()) {
+            return new LengthBounds(null, null);
         }
+        return new LengthBounds(toInt(firstString(size.get(), "min")), toInt(firstString(size.get(), "max")));
+    }
+
+    /** Lower numeric bound folding @Min, @DecimalMin (inclusive=false → exclusive; tighter bound wins), and the
+     *  @Positive(>0)/@PositiveOrZero(>=0) sign shorthands (imply a 0 bound). */
+    private Bound readLowerBound(NodeWithAnnotations<?> n) {
+        Double min = null;
+        Boolean exclusiveMin = null;
         Optional<AnnotationExpr> minA = getAnnotation(n, "Min");
         if (minA.isPresent()) {
             min = toDouble(firstString(minA.get(), "value"));
         }
-        Optional<AnnotationExpr> maxA = getAnnotation(n, "Max");
-        if (maxA.isPresent()) {
-            max = toDouble(firstString(maxA.get(), "value"));
-        }
-        // @DecimalMin/@DecimalMax (String value); inclusive=false makes the bound exclusive. Tighter bound wins.
         Optional<AnnotationExpr> decMin = getAnnotation(n, "DecimalMin");
         if (decMin.isPresent()) {
             Double v = toDouble(firstString(decMin.get(), "value"));
@@ -1504,6 +1518,25 @@ public class JavaSpringExtractor {
                 min = v;
                 exclusiveMin = "false".equals(namedMember(decMin.get(), "inclusive")) ? Boolean.TRUE : null;
             }
+        }
+        if (has(n, "Positive") && (min == null || min < 0)) {
+            min = 0.0;
+            exclusiveMin = Boolean.TRUE;
+        }
+        if (has(n, "PositiveOrZero") && (min == null || min < 0)) {
+            min = 0.0;
+        }
+        return new Bound(min, exclusiveMin);
+    }
+
+    /** Upper numeric bound folding @Max, @DecimalMax (inclusive=false → exclusive; tighter bound wins), and the
+     *  @Negative(<0)/@NegativeOrZero(<=0) sign shorthands (imply a 0 bound). */
+    private Bound readUpperBound(NodeWithAnnotations<?> n) {
+        Double max = null;
+        Boolean exclusiveMax = null;
+        Optional<AnnotationExpr> maxA = getAnnotation(n, "Max");
+        if (maxA.isPresent()) {
+            max = toDouble(firstString(maxA.get(), "value"));
         }
         Optional<AnnotationExpr> decMax = getAnnotation(n, "DecimalMax");
         if (decMax.isPresent()) {
@@ -1513,14 +1546,6 @@ public class JavaSpringExtractor {
                 exclusiveMax = "false".equals(namedMember(decMax.get(), "inclusive")) ? Boolean.TRUE : null;
             }
         }
-        // @Positive(>0) / @PositiveOrZero(>=0) / @Negative(<0) / @NegativeOrZero(<=0) imply a 0 bound.
-        if (has(n, "Positive") && (min == null || min < 0)) {
-            min = 0.0;
-            exclusiveMin = Boolean.TRUE;
-        }
-        if (has(n, "PositiveOrZero") && (min == null || min < 0)) {
-            min = 0.0;
-        }
         if (has(n, "Negative") && (max == null || max > 0)) {
             max = 0.0;
             exclusiveMax = Boolean.TRUE;
@@ -1528,14 +1553,7 @@ public class JavaSpringExtractor {
         if (has(n, "NegativeOrZero") && (max == null || max > 0)) {
             max = 0.0;
         }
-        Optional<AnnotationExpr> pat = getAnnotation(n, "Pattern");
-        if (pat.isPresent()) {
-            pattern = patternRegexp(pat.get());
-        }
-        if (has(n, "Email")) {
-            format = "email";
-        }
-        return new ConstraintSet(minLen, maxLen, min, max, exclusiveMin, exclusiveMax, pattern, null, format);
+        return new Bound(max, exclusiveMax);
     }
 
     /** The @Pattern regexp value, UNESCAPED. firstString → literal(toString()) keeps the source-level double
