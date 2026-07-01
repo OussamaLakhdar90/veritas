@@ -92,7 +92,52 @@
     "tipCve": "CVE — l’identifiant public de cette vulnérabilité.",
     "tipCvss": "CVSS — score de gravité de 0 à 10 (plus élevé = pire).",
     "tipFixable": "Indique si Snyk propose une version sûre.",
-    "alertDismiss": "Rejeter"
+    "alertDismiss": "Rejeter",
+    "fix": {
+      "button": "Corriger…",
+      "title": "Corriger {{pkg}} → {{version}}",
+      "intro": "Met à niveau {{pkg}} de {{from}} vers {{to}} dans le cadre (BOM → core → api/web) et les applications sélectionnées.",
+      "appsLabel": "Applications à mettre à jour",
+      "appsHint": "Le dépôt application-tests de chaque app récupère la nouvelle version.",
+      "jiraKeyLabel": "Clé Jira existante",
+      "jiraKeyHint": "Utilisez un ticket que vous avez déjà.",
+      "jiraProjectLabel": "…ou en créer un dans le projet",
+      "jiraProjectHint": "Veritas crée le ticket avec les détails du correctif.",
+      "reviewersLabel": "Réviseurs (facultatif)",
+      "reviewersHint": "Noms d’utilisateur séparés par des virgules ; vide = suggestion via l’historique git.",
+      "start": "Lancer la correction",
+      "starting": "Lancement de la correction…",
+      "openPrs": "Ouvrir les PR",
+      "markMerged": "Marquer tout comme fusionné",
+      "viewPr": "Voir la PR",
+      "recordPr": "Enregistrer ma PR",
+      "prUrlPlaceholder": "Collez l’URL de la PR",
+      "breakingHelp": "Changement cassant signalé — adaptez le code sur les branches poussées et testez, puis ouvrez les PR (vous-même ou via Veritas).",
+      "verdictBreaking": "Vérif IA : changement cassant probable (confiance {{c}} %)",
+      "verdictClean": "Vérif IA : aucun changement cassant attendu (confiance {{c}} %)",
+      "verdictNone": "Vérif IA : indisponible — le build de test est le garde-fou",
+      "reactorPass": "build de test réussi",
+      "reactorFail": "build de test échoué à {{where}}",
+      "status": {
+        "PLANNING": "Planification de la cascade…",
+        "CHECKING": "Vérification des changements cassants…",
+        "VERIFYING": "Exécution du build de test…",
+        "OPENING_PRS": "Ouverture des PR…",
+        "PR_OPEN": "PR ouvertes — en attente de fusion",
+        "AWAITING_MANUAL_FIX": "Nécessite vos modifications",
+        "DONE": "Terminé",
+        "NEEDS_ATTENTION": "Nécessite une attention",
+        "FAILED": "Échec"
+      },
+      "step": {
+        "PLANNED": "Planifié",
+        "BRANCH_PUSHED": "Branche poussée",
+        "PR_OPEN": "PR ouverte",
+        "MERGED": "Fusionné",
+        "MANUAL": "Manuel",
+        "FAILED": "Échec"
+      }
+    }
   },
   "status": {
     "completed": "Terminé",
