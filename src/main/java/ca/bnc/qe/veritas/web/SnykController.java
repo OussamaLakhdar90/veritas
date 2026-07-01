@@ -57,6 +57,13 @@ public class SnykController {
         return snyk.addWatch(req.orgId(), req.orgSlug(), req.orgName(), req.targetId(), req.repoSlug());
     }
 
+    /** Watch an app-id — auto-targets its {@code application-tests} repo (the app-id-centric flow). */
+    @PostMapping("/snyk/watches/by-app")
+    @ResponseStatus(HttpStatus.CREATED)
+    public SnykWatchView addWatchByApp(@RequestBody SnykAppWatchRequest req) {
+        return snyk.addWatchForApp(req.orgId(), req.orgSlug(), req.orgName());
+    }
+
     @DeleteMapping("/snyk/watches/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeWatch(@PathVariable String id) {
@@ -95,4 +102,6 @@ public class SnykController {
     }
 
     public record SnykWatchRequest(String orgId, String orgSlug, String orgName, String targetId, String repoSlug) {}
+
+    public record SnykAppWatchRequest(String orgId, String orgSlug, String orgName) {}
 }

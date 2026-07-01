@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { RefreshCw, Trash2, Eye, ExternalLink, ShieldCheck, PackageOpen, X } from 'lucide-react';
 import { api, type SnykIssueView } from '../api';
 import {
-  Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Field, Select, Spinner,
+  Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Spinner,
   Table, Th, Td, Row, PageHeader,
 } from '../components/ui';
 import { SnykLogo } from '../components/SnykLogo';
@@ -21,14 +21,10 @@ export function Snyk() {
   const toast = useToast();
   const qc = useQueryClient();
 
-  const [orgId, setOrgId] = useState('');
-  const [targetId, setTargetId] = useState('');
+  const [selectedOrgs, setSelectedOrgs] = useState<Set<string>>(new Set());
   const [selectedWatch, setSelectedWatch] = useState<string | null>(null);
 
   const orgsQ = useQuery({ queryKey: ['snyk-orgs'], queryFn: api.snykOrgs });
-  const reposQ = useQuery({
-    queryKey: ['snyk-repos', orgId], queryFn: () => api.snykRepos(orgId), enabled: !!orgId,
-  });
   const watchesQ = useQuery({ queryKey: ['snyk-watches'], queryFn: api.snykWatches });
   const alertsQ = useQuery({ queryKey: ['snyk-alerts', 'unseen'], queryFn: () => api.snykAlerts(true) });
   const issuesQ = useQuery({
@@ -48,17 +44,20 @@ export function Snyk() {
     onError: (e: Error) => toast.push('error', t('snyk.refreshFailed', { message: e.message })),
   });
 
-  const addWatch = useMutation({
-    mutationFn: () => {
-      const org = orgsQ.data?.find((o) => o.id === orgId);
-      const repo = reposQ.data?.find((rp) => rp.id === targetId);
-      return api.addSnykWatch({
-        orgId, orgSlug: org?.slug ?? '', orgName: org?.name ?? '',
-        targetId, repoSlug: repo?.displayName ?? '',
-      });
+  const watchSelected = useMutation({
+    mutationFn: async () => {
+      const orgs = (orgsQ.data ?? []).filter((o) => selectedOrgs.has(o.id));
+      return Promise.allSettled(orgs.map((o) =>
+        api.addSnykWatchByApp({ orgId: o.id, orgSlug: o.slug, orgName: o.name })));
     },
-    onSuccess: (w) => { setTargetId(''); qc.invalidateQueries({ queryKey: ['snyk-watches'] }); toast.push('success', t('snyk.watchAdded', { repo: w.repoSlug })); },
-    onError: (e: Error) => toast.push('error', t('snyk.watchFailed', { message: e.message })),
+    onSuccess: (results) => {
+      const ok = results.filter((r) => r.status === 'fulfilled').length;
+      const failed = results.length - ok;
+      setSelectedOrgs(new Set());
+      qc.invalidateQueries({ queryKey: ['snyk-watches'] });
+      if (ok > 0) toast.push('success', t('snyk.watchedApps', { count: ok }));
+      if (failed > 0) toast.push('error', t('snyk.watchSomeFailed', { count: failed }));
+    },
   });
 
   const removeWatch = useMutation({
@@ -106,29 +105,38 @@ export function Snyk() {
         </div>
       )}
 
-      {/* Add a watch */}
+      {/* Watch applications (app-id-centric — each watch targets that app's application-tests repo) */}
       <Card className="mb-6">
         <CardHeader title={t('snyk.addTitle')} subtitle={t('snyk.addBody')} />
         <CardBody>
           {orgsQ.isError ? (
             <p className="text-[13px] text-muted">{t('snyk.connectHint')}</p>
+          ) : orgsQ.isLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('snyk.loadingApps')}</div>
+          ) : (orgsQ.data ?? []).length === 0 ? (
+            <p className="text-[13px] text-muted">{t('snyk.noApps')}</p>
           ) : (
-            <div className="grid items-end gap-3 sm:grid-cols-[1fr_1fr_auto]">
-              <Field label={t('snyk.orgLabel')}>
-                <Select value={orgId} onChange={(e) => { setOrgId(e.target.value); setTargetId(''); }}>
-                  <option value="">{t('snyk.selectOrg')}</option>
-                  {(orgsQ.data ?? []).map((o) => <option key={o.id} value={o.id}>{o.name || o.slug}</option>)}
-                </Select>
-              </Field>
-              <Field label={t('snyk.repoLabel')}>
-                <Select value={targetId} onChange={(e) => setTargetId(e.target.value)} disabled={!orgId || reposQ.isLoading}>
-                  <option value="">{reposQ.isLoading ? t('snyk.loadingRepos') : t('snyk.selectRepo')}</option>
-                  {(reposQ.data ?? []).map((r) => <option key={r.id} value={r.id}>{r.displayName}</option>)}
-                </Select>
-              </Field>
-              <Button disabled={!orgId || !targetId} loading={addWatch.isPending} onClick={() => addWatch.mutate()}>
-                {t('snyk.watchBtn')}
-              </Button>
+            <div>
+              <div className="grid gap-1 sm:grid-cols-2">
+                {(orgsQ.data ?? []).map((o) => (
+                  <label key={o.id}
+                    className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-ink-50/60">
+                    <input type="checkbox" className="accent-brand" checked={selectedOrgs.has(o.id)}
+                      onChange={(e) => setSelectedOrgs((prev) => {
+                        const next = new Set(prev);
+                        if (e.target.checked) next.add(o.id); else next.delete(o.id);
+                        return next;
+                      })} />
+                    <span className="min-w-0 truncate text-ink-900">{o.name || o.slug}</span>
+                    <span className="ml-auto shrink-0 text-[11px] text-muted">{o.slug}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <Button disabled={selectedOrgs.size === 0} loading={watchSelected.isPending}
+                  onClick={() => watchSelected.mutate()}>{t('snyk.watchSelected')}</Button>
+                <span className="text-[12px] text-muted">{t('snyk.watchHint')}</span>
+              </div>
             </div>
           )}
         </CardBody>

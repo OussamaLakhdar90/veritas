@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import ca.bnc.qe.veritas.integration.snyk.SnykClient;
 import ca.bnc.qe.veritas.integration.snyk.SnykOrg;
 import ca.bnc.qe.veritas.integration.snyk.SnykTarget;
@@ -19,6 +20,7 @@ public class SnykService {
 
     private static final Map<String, Integer> SEVERITY_RANK =
             Map.of("critical", 0, "high", 1, "medium", 2, "low", 3);
+    private static final String APPLICATION_TESTS = "application-tests";
 
     private final SnykClient client;
     private final SnykWatchRepository watches;
@@ -43,6 +45,23 @@ public class SnykService {
 
     public List<SnykTarget> repos(String orgId) {
         return client.listTargets(orgId);
+    }
+
+    /** The canonical {@code application-tests} target for an org (the repo holding the consumer poms). */
+    public Optional<SnykTarget> resolveApplicationTestsTarget(String orgId) {
+        List<SnykTarget> targets = client.listTargets(orgId);
+        return targets.stream().filter(t -> APPLICATION_TESTS.equalsIgnoreCase(t.displayName())).findFirst()
+                .or(() -> targets.stream()
+                        .filter(t -> t.displayName() != null
+                                && t.displayName().toLowerCase(Locale.ROOT).contains(APPLICATION_TESTS))
+                        .findFirst());
+    }
+
+    /** Watch an app-id by auto-targeting its {@code application-tests} repo. */
+    public SnykWatchView addWatchForApp(String orgId, String orgSlug, String orgName) {
+        SnykTarget target = resolveApplicationTestsTarget(orgId).orElseThrow(() -> new IllegalStateException(
+                "No 'application-tests' repository found in " + (orgSlug == null ? orgId : orgSlug) + "."));
+        return addWatch(orgId, orgSlug, orgName, target.id(), target.displayName());
     }
 
     /** Add a watch (idempotent on org+target); returns its view. */
