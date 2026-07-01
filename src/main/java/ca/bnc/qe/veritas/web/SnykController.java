@@ -1,0 +1,98 @@
+package ca.bnc.qe.veritas.web;
+
+import java.util.List;
+import java.util.Map;
+import ca.bnc.qe.veritas.integration.snyk.SnykOrg;
+import ca.bnc.qe.veritas.integration.snyk.SnykTarget;
+import ca.bnc.qe.veritas.snyk.SnykAlert;
+import ca.bnc.qe.veritas.snyk.SnykIssueView;
+import ca.bnc.qe.veritas.snyk.SnykService;
+import ca.bnc.qe.veritas.snyk.SnykWatchView;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestController;
+
+/**
+ * Snyk dependency-security dashboard API: browse orgs/repos, manage watches, read the latest issues + alert feed,
+ * and trigger a manual refresh. All read-only against Snyk; the watch/alert state is Veritas's own.
+ */
+@RestController
+@RequestMapping("/api/v1")
+public class SnykController {
+
+    private final SnykService snyk;
+
+    public SnykController(SnykService snyk) {
+        this.snyk = snyk;
+    }
+
+    /** Orgs (app-ids) the token can see. */
+    @GetMapping("/snyk/orgs")
+    public List<SnykOrg> orgs() {
+        return snyk.orgs();
+    }
+
+    /** Repositories (targets) under an org — the repos a user can watch. */
+    @GetMapping("/snyk/orgs/{orgId}/repos")
+    public List<SnykTarget> repos(@PathVariable String orgId) {
+        return snyk.repos(orgId);
+    }
+
+    /** Watched repos with their latest severity counts — backs the Snyk dashboard. */
+    @GetMapping("/snyk/watches")
+    public List<SnykWatchView> watches() {
+        return snyk.watchViews();
+    }
+
+    @PostMapping("/snyk/watches")
+    @ResponseStatus(HttpStatus.CREATED)
+    public SnykWatchView addWatch(@RequestBody SnykWatchRequest req) {
+        return snyk.addWatch(req.orgId(), req.orgSlug(), req.orgName(), req.targetId(), req.repoSlug());
+    }
+
+    @DeleteMapping("/snyk/watches/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeWatch(@PathVariable String id) {
+        snyk.removeWatch(id);
+    }
+
+    /** The latest snapshot's vulnerabilities for a watch, most-severe first. */
+    @GetMapping("/snyk/watches/{id}/issues")
+    public List<SnykIssueView> issues(@PathVariable String id) {
+        return snyk.latestIssues(id);
+    }
+
+    /** Poll every enabled watch now (manual "refresh"). */
+    @PostMapping("/snyk/refresh")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public Map<String, Integer> refresh() {
+        return Map.of("polled", snyk.refreshAll());
+    }
+
+    @PostMapping("/snyk/watches/{id}/refresh")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void refreshOne(@PathVariable String id) {
+        snyk.refresh(id);
+    }
+
+    /** The alert feed; {@code unseenOnly=true} for the notification bell. */
+    @GetMapping("/snyk/alerts")
+    public List<SnykAlert> alerts(@RequestParam(required = false, defaultValue = "false") boolean unseenOnly) {
+        return snyk.alerts(unseenOnly);
+    }
+
+    @PostMapping("/snyk/alerts/{id}/seen")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void markSeen(@PathVariable String id) {
+        snyk.markSeen(id);
+    }
+
+    public record SnykWatchRequest(String orgId, String orgSlug, String orgName, String targetId, String repoSlug) {}
+}
