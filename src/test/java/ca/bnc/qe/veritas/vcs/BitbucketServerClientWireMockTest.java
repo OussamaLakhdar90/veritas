@@ -1,6 +1,7 @@
 package ca.bnc.qe.veritas.vcs;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.containing;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
@@ -324,6 +325,45 @@ class BitbucketServerClientWireMockTest {
         assertThatThrownBy(() -> client("BEARER").openPullRequest("my-repo", "f", "m", "T", "D"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("Bitbucket Server PR creation failed for 'my-repo'");
+    }
+
+    @Test
+    void buildsPullRequestPayloadWithReviewers() throws Exception {
+        String payload = client("BEARER").buildPullRequestPayload(
+                "veritas/snyk-fix", "develop", "Bump jackson", "Snyk fix", List.of("alice", "bob"));
+        JsonNode node = mapper.readTree(payload);
+        assertThat(node.path("reviewers")).hasSize(2);
+        assertThat(node.path("reviewers").get(0).path("user").path("name").asText()).isEqualTo("alice");
+        assertThat(node.path("reviewers").get(1).path("user").path("name").asText()).isEqualTo("bob");
+    }
+
+    @Test
+    void openPullRequestSpecTargetsGivenProjectAndSendsReviewers() {
+        wm.stubFor(post(urlPathEqualTo("/rest/api/1.0/projects/APP7488/repos/lsist-test-framework-bom/pull-requests"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json")
+                        .withBody("{\"id\":7,\"links\":{\"self\":[{\"href\":\"http://host/pr/7\"}]}}")));
+
+        String result = client("BEARER").openPullRequest(new GitHost.PullRequestSpec(
+                "APP7488", "lsist-test-framework-bom", "veritas/snyk-fix", "develop",
+                "Bump jackson", "Snyk fix", List.of("alice")));
+
+        assertThat(result).isEqualTo("http://host/pr/7");
+        wm.verify(postRequestedFor(
+                urlPathEqualTo("/rest/api/1.0/projects/APP7488/repos/lsist-test-framework-bom/pull-requests"))
+                .withRequestBody(containing("\"reviewers\"")).withRequestBody(containing("alice")));
+    }
+
+    @Test
+    void openPullRequestSpecFallsBackToConfiguredProjectWhenBlank() {
+        wm.stubFor(post(urlPathEqualTo("/rest/api/1.0/projects/PROJ/repos/my-repo/pull-requests"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json")
+                        .withBody("{\"id\":8,\"links\":{}}")));
+
+        String result = client("BEARER").openPullRequest(new GitHost.PullRequestSpec(
+                "  ", "my-repo", "f", "m", "T", "D", List.of()));
+
+        assertThat(result).isEqualTo("8");
+        wm.verify(postRequestedFor(urlPathEqualTo("/rest/api/1.0/projects/PROJ/repos/my-repo/pull-requests")));
     }
 
     // ---------------------------------------------------------------- whoAmI

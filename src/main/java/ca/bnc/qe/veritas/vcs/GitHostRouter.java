@@ -52,6 +52,11 @@ public class GitHostRouter implements GitHost {
     }
 
     @Override
+    public String openPullRequest(PullRequestSpec spec) {
+        return active().openPullRequest(spec);
+    }
+
+    @Override
     public String whoAmI() {
         return active().whoAmI();
     }
