@@ -84,6 +84,17 @@ veritas:
       base-url: "https://jira.bnc.ca"          # Server/DC: Raven REST on the Jira host
       edition: SERVER_DC        # SERVER_DC (Raven REST on Jira host, matches BNC) | CLOUD (GraphQL)
       auth-type: BEARER         # SERVER_DC: BEARER (Xray/Jira token) | CLOUD: CLIENT_CREDENTIALS
+    snyk:
+      base-url: "https://api.snyk.io"          # Snyk SaaS REST/v1 API; auth = personal API token / PAT ("token <key>")
+      auth-type: BEARER
+  # Snyk dependency-security module (Automation). Poller is OFF by default (no background network calls in tests);
+  # enable it in the Settings/Snyk UI or via veritas.snyk.poll-enabled=true.
+  snyk:
+    api-version: "2024-10-15"     # Snyk REST API version date (?version=); v1 aggregated-issues needs no version
+    poll-enabled: false
+    poll-interval-ms: 300000      # 5 min between watched-repo vulnerability polls
+    framework:
+      project: "APP7488"          # Bitbucket project holding the lsist-test-framework bom/core/api/web repos
 
 logging:
   level:

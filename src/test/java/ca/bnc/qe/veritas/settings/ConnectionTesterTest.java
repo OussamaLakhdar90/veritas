@@ -10,6 +10,7 @@ import java.util.Optional;
 import ca.bnc.qe.veritas.config.ConnectionsProperties;
 import ca.bnc.qe.veritas.integration.confluence.ConfluenceClient;
 import ca.bnc.qe.veritas.integration.jira.JiraClient;
+import ca.bnc.qe.veritas.integration.snyk.SnykClient;
 import ca.bnc.qe.veritas.llm.copilot.CopilotAuthService;
 import ca.bnc.qe.veritas.secret.SecretProvider;
 import ca.bnc.qe.veritas.vcs.GitHost;
@@ -21,12 +22,14 @@ class ConnectionTesterTest {
     private final GitHost git = mock(GitHost.class);
     private final ConfluenceClient confluence = mock(ConfluenceClient.class);
     private final CopilotAuthService copilot = mock(CopilotAuthService.class);
+    private final SnykClient snyk = mock(SnykClient.class);
 
     private ConnectionTester tester(Map<String, String> secretMap, String jiraBaseUrl) {
         ConnectionsProperties props = new ConnectionsProperties();
         props.getJira().setBaseUrl(jiraBaseUrl);
+        props.getSnyk().setBaseUrl("https://api.snyk.io");
         SecretProvider secrets = key -> Optional.ofNullable(secretMap.get(key));
-        return new ConnectionTester(jira, git, confluence, copilot, props, secrets);
+        return new ConnectionTester(jira, git, confluence, copilot, snyk, props, secrets);
     }
 
     @Test
@@ -62,6 +65,22 @@ class ConnectionTesterTest {
         ConnectionTestResult r = tester(Map.of(), "https://jira.bnc").test("jira");   // base set, no token
         assertThat(r.reachable()).isFalse();
         assertThat(r.status()).isZero();
+        assertThat(r.message()).contains("Not configured");
+    }
+
+    @Test
+    void snykSuccessIsReachableAndAuthenticated() {
+        when(snyk.whoAmI()).thenReturn("Oussama Lakhdar");
+        ConnectionTestResult r = tester(Map.of("SNYK_API_TOKEN", "token-abc"), "https://jira.bnc").test("snyk");
+        assertThat(r.reachable()).isTrue();
+        assertThat(r.authenticated()).isTrue();
+        assertThat(r.message()).contains("Oussama Lakhdar");
+    }
+
+    @Test
+    void snykNotConfiguredWhenTokenMissing() {
+        ConnectionTestResult r = tester(Map.of(), "https://jira.bnc").test("snyk");   // base set, no token
+        assertThat(r.reachable()).isFalse();
         assertThat(r.message()).contains("Not configured");
     }
 

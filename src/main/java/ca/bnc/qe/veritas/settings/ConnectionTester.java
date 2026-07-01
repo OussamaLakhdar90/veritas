@@ -6,6 +6,7 @@ import java.util.regex.Pattern;
 import ca.bnc.qe.veritas.config.ConnectionsProperties;
 import ca.bnc.qe.veritas.integration.confluence.ConfluenceClient;
 import ca.bnc.qe.veritas.integration.jira.JiraClient;
+import ca.bnc.qe.veritas.integration.snyk.SnykClient;
 import ca.bnc.qe.veritas.llm.copilot.CopilotAuthService;
 import ca.bnc.qe.veritas.secret.SecretProvider;
 import ca.bnc.qe.veritas.vcs.GitHost;
@@ -25,15 +26,18 @@ public class ConnectionTester {
     private final GitHost git;
     private final ConfluenceClient confluence;
     private final CopilotAuthService copilot;
+    private final SnykClient snyk;
     private final ConnectionsProperties connections;
     private final SecretProvider secrets;
 
     public ConnectionTester(JiraClient jira, GitHost git, ConfluenceClient confluence,
-                            CopilotAuthService copilot, ConnectionsProperties connections, SecretProvider secrets) {
+                            CopilotAuthService copilot, SnykClient snyk, ConnectionsProperties connections,
+                            SecretProvider secrets) {
         this.jira = jira;
         this.git = git;
         this.confluence = confluence;
         this.copilot = copilot;
+        this.snyk = snyk;
         this.connections = connections;
         this.secrets = secrets;
     }
@@ -54,9 +58,11 @@ public class ConnectionTester {
             case "xray" -> probe("xray",
                     notBlank(connections.getJira().getBaseUrl()) && (present("XRAY_API_TOKEN") || present("JIRA_API_TOKEN")),
                     jira::whoAmI);
+            case "snyk" -> probe("snyk",
+                    notBlank(connections.getSnyk().getBaseUrl()) && present("SNYK_API_TOKEN"), snyk::whoAmI);
             case "copilot" -> probeCopilot();
             default -> throw new IllegalArgumentException("Unknown service '" + service
-                    + "'. Expected: jira, bitbucket, confluence, xray, copilot.");
+                    + "'. Expected: jira, bitbucket, confluence, xray, snyk, copilot.");
         };
     }
 

@@ -19,6 +19,7 @@ public class ConnectionsProperties {
     private Endpoint jira = new Endpoint();
     private Endpoint confluence = new Endpoint();
     private Endpoint xray = new Endpoint();
+    private Endpoint snyk = new Endpoint();
 
     @Getter
     @Setter

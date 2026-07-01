@@ -9,7 +9,8 @@ public final class KnownSecretKeys {
             "GIT_TOKEN", "GIT_USERNAME",
             "JIRA_API_TOKEN", "JIRA_USERNAME",
             "CONFLUENCE_API_TOKEN",
-            "XRAY_API_TOKEN", "XRAY_CLIENT_ID", "XRAY_CLIENT_SECRET");
+            "XRAY_API_TOKEN", "XRAY_CLIENT_ID", "XRAY_CLIENT_SECRET",
+            "SNYK_API_TOKEN");
 
     private KnownSecretKeys() {
     }
