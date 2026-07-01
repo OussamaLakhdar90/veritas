@@ -129,6 +129,7 @@ public class JavaSpringExtractor {
 
         List<Endpoint> endpoints = new ArrayList<>();
         List<String> referenced = new ArrayList<>();
+        ExtractCtx ctx = new ExtractCtx(types, constants, serviceStatuses, adviceExStatus, referenced, blindSpots);
         for (CompilationUnit cu : units) {
             String file = cu.getStorage().map(s -> relPath(sourceRoot, s.getPath())).orElse("?");
             cu.findAll(TypeDeclaration.class).stream()
@@ -145,6 +146,8 @@ public class JavaSpringExtractor {
                         // Error statuses a controller-LOCAL @ExceptionHandler produces apply to that controller's own
                         // endpoints (Spring scopes them there) — resolve once and attach to each endpoint below.
                         Map<Integer, String> localHandlerStatuses = localExceptionHandlerStatuses(ctrl, types);
+                        ControllerCtx cc = new ControllerCtx(file, ctrl.getNameAsString(), bases, classSecurity,
+                                localHandlerStatuses);
                         Set<String> seenSignatures = new HashSet<>();
                         for (Object mo : ctrl.getMethods()) {
                             MethodDeclaration method = (MethodDeclaration) mo;
@@ -152,9 +155,7 @@ public class JavaSpringExtractor {
                             if (!bodyByDefault && !has(method, "ResponseBody")) {
                                 continue;   // @Controller handler without @ResponseBody → returns a view, not an API response
                             }
-                            endpoints.addAll(toEndpoints(file, ctrl.getNameAsString(), bases, method, types, referenced,
-                                    classSecurity, blindSpots, constants, serviceStatuses, adviceExStatus,
-                                    localHandlerStatuses));
+                            endpoints.addAll(toEndpoints(ctx, cc, method));
                         }
                         // Mappings inherited from an abstract/base class the controller EXTENDS are real routes at
                         // runtime — emit them (subclass overrides win). Use the subclass's class-level bases + security.
@@ -164,9 +165,7 @@ public class JavaSpringExtractor {
                                 if (!bodyByDefault && !has(inherited, "ResponseBody")) {
                                     continue;   // inherited view handler on a plain @Controller — not an API endpoint
                                 }
-                                endpoints.addAll(toEndpoints(file, ctrl.getNameAsString(), bases, inherited, types,
-                                        referenced, classSecurity, blindSpots, constants, serviceStatuses,
-                                        adviceExStatus, localHandlerStatuses));
+                                endpoints.addAll(toEndpoints(ctx, cc, inherited));
                             }
                             // A base we can't see can't be analysed — record an honest blind spot, never drop silently.
                             for (ClassOrInterfaceType ext : coid.getExtendedTypes()) {
@@ -792,11 +791,30 @@ public class JavaSpringExtractor {
         }
     }
 
-    private List<Endpoint> toEndpoints(String file, String controllerClass, List<String> bases, MethodDeclaration m,
-                                       Map<String, TypeDeclaration<?>> types, List<String> referenced,
-                                       List<String> classSecurity, List<String> blindSpots,
-                                       Map<String, String> constants, Map<String, Set<Integer>> serviceStatuses,
-                                       Map<String, Integer> adviceExStatus, Map<Integer, String> localHandlerStatuses) {
+    /** Scan-wide shared state threaded through endpoint extraction (the mutable referenced/blindSpots accumulators are
+     *  held by reference, so appends still mutate the originals). Bundles what were 6 positional params. */
+    private record ExtractCtx(Map<String, TypeDeclaration<?>> types, Map<String, String> constants,
+                              Map<String, Set<Integer>> serviceStatuses, Map<String, Integer> adviceExStatus,
+                              List<String> referenced, List<String> blindSpots) {
+    }
+
+    /** Per-controller state: the class path bases, class-level security, and local @ExceptionHandler statuses. */
+    private record ControllerCtx(String file, String controllerClass, List<String> bases, List<String> classSecurity,
+                                 Map<Integer, String> localHandlerStatuses) {
+    }
+
+    private List<Endpoint> toEndpoints(ExtractCtx ctx, ControllerCtx cc, MethodDeclaration m) {
+        Map<String, TypeDeclaration<?>> types = ctx.types();
+        List<String> referenced = ctx.referenced();
+        List<String> blindSpots = ctx.blindSpots();
+        Map<String, String> constants = ctx.constants();
+        Map<String, Set<Integer>> serviceStatuses = ctx.serviceStatuses();
+        Map<String, Integer> adviceExStatus = ctx.adviceExStatus();
+        String file = cc.file();
+        String controllerClass = cc.controllerClass();
+        List<String> bases = cc.bases();
+        List<String> classSecurity = cc.classSecurity();
+        Map<Integer, String> localHandlerStatuses = cc.localHandlerStatuses();
         MethodMapping mm = methodMappingOf(m, types);
         if (mm == null) {
             return List.of();
