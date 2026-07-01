@@ -8,6 +8,8 @@ import java.util.List;
  */
 public class PreconditionException extends RuntimeException {
 
+    private static final long serialVersionUID = 1L;
+
     private final transient List<String> problems;
 
     public PreconditionException(String skill, List<String> problems) {

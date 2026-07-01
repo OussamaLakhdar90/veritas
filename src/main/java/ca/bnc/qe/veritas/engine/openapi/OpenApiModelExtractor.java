@@ -37,6 +37,8 @@ import org.springframework.stereotype.Component;
  * the canonical {@link ApiModel}. Parser messages are returned for L1 structural findings.
  */
 @Component
+// Swagger's OpenAPI model exposes the Schema type raw; typing every use is impractical
+@SuppressWarnings({"unchecked", "rawtypes"})
 public class OpenApiModelExtractor {
 
     public SpecParse extract(String specId, String content) {

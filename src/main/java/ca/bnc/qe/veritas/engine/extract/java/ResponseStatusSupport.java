@@ -53,6 +53,8 @@ import org.springframework.http.HttpStatus;
  * threshold) into a collaborator that static-imports {@link AnnotationSupport}; call sites in the extractor are
  * unchanged (they static-import these).
  */
+// JavaParser findAncestor(Class...) varargs unchecked-array wart
+@SuppressWarnings("unchecked")
 final class ResponseStatusSupport {
 
     private ResponseStatusSupport() {

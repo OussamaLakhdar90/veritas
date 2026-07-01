@@ -155,6 +155,23 @@
 
     <build>
         <plugins>
+            <!-- Strict compiler lint gate: fail the build on any javac -Xlint warning (portable, offline-safe; no
+                 external ruleset/server). Version + annotation processing (Lombok) inherited from the parent.
+                 failOnWarning=true turns every surviving lint into a hard build failure (cleaner than -Werror, which
+                 would need to ride inside compilerArgs). -processing is the ONLY excluded lint category: Lombok is the
+                 sole annotation processor and it legitimately does not claim the Spring/JPA/picocli annotations (those
+                 are processed at RUNTIME, not at compile time), so javac's "[processing] No processor claimed any of
+                 these annotations" is pure noise. Every other lint category stays active and hard-fails. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <failOnWarning>true</failOnWarning>
+                    <compilerArgs>
+                        <arg>-Xlint:all,-processing</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
             <!-- Reset the file-based SQLite test DB before each test run. It lives at target/veritas-test.db and is
                  NOT recreated between runs, so rows accumulate across days and make time-based repository tests
                  (e.g. retention-sweep deleteByCreatedAtBefore) flake locally. Deleting only the db files (not target/)

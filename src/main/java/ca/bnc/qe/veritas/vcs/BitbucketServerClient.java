@@ -104,6 +104,8 @@ public class BitbucketServerClient implements GitHost {
     }
 
     @Override
+    // try-with-resources opens Git purely to auto-close; the handle is intentionally unused
+    @SuppressWarnings("try")
     public Path clone(RepoInfo repo, String branch, Path destinationParent) {
         Path target = destinationParent.resolve(repo.slug());
         CloneCommand cmd = Git.cloneRepository()

@@ -5,6 +5,9 @@ package ca.bnc.qe.veritas.skill;
  * Distinct from a generic {@link IllegalStateException} (which stays a 500) so the REST layer can map it precisely.
  */
 public class ConflictException extends RuntimeException {
+
+    private static final long serialVersionUID = 1L;
+
     public ConflictException(String message) {
         super(message);
     }

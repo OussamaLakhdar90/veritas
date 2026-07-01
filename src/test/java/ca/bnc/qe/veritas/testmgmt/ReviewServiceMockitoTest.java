@@ -204,6 +204,8 @@ class ReviewServiceMockitoTest {
     }
 
     @Test
+    // ArgumentCaptor.forClass(List.class) cannot carry the XrayStep type param — Mockito generics wart
+    @SuppressWarnings("unchecked")
     void apply_whenGateApproved_updatesXrayWithParsedStepsAndMarksApplied() {
         when(xray.getTestsByJql("jql")).thenReturn(List.of(test("CIAM-5")));
         stubReviewPipeline(FULL_JSON, 0.04);
@@ -257,6 +259,8 @@ class ReviewServiceMockitoTest {
     }
 
     @Test
+    // ArgumentCaptor.forClass(List.class) cannot carry the XrayStep type param — Mockito generics wart
+    @SuppressWarnings("unchecked")
     void apply_withEmptyCorrectedSteps_writesEmptyStepListToXray() {
         String json = "{\"score\":80.0,\"verdict\":\"Good\",\"gaps\":[],\"correctedSteps\":[]}";
         when(xray.getTestsByJql("jql")).thenReturn(List.of(test("CIAM-11")));
