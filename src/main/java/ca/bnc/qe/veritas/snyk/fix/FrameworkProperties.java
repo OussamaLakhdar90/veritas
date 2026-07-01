@@ -33,6 +33,9 @@ public class FrameworkProperties {
     private String apiVersionProperty = "lsist-api.version";
     private String webVersionProperty = "lsist-web.version";
 
+    /** Fallback PR reviewers (Bitbucket usernames) used when git history yields no suggestion. */
+    private List<String> defaultReviewers = List.of();
+
     /** All four framework version properties — the planner bumps whichever are present in a given pom. */
     public List<String> frameworkVersionProperties() {
         return List.of(bomVersionProperty, coreVersionProperty, apiVersionProperty, webVersionProperty);

@@ -13,6 +13,7 @@ import ca.bnc.qe.veritas.integration.Retries;
 import ca.bnc.qe.veritas.secret.SecretProvider;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.jgit.api.Git;
@@ -133,6 +134,27 @@ public class BitbucketCloudClient implements GitHost {
         }
     }
 
+    @Override
+    public String openPullRequest(PullRequestSpec spec) {
+        // Cloud addresses repos by workspace, not project — spec.project() is not used in the URL. Reviewers are
+        // best-effort (Cloud wants account UUIDs); BNC uses Server/DC, where reviewers are honored by username.
+        String uri = buildPullRequestUri(spec.repoSlug());
+        try {
+            String payload = buildPullRequestPayload(spec.sourceBranch(), spec.targetBranch(),
+                    spec.title(), spec.description(), spec.reviewers());
+            String body = retries.callWrite(() -> http.post().uri(URI.create(uri))
+                    .header("Authorization", authHeader())
+                    .header("Content-Type", "application/json")
+                    .body(payload)
+                    .retrieve().body(String.class));
+            JsonNode root = mapper.readTree(body == null ? "{}" : body);
+            String html = root.path("links").path("html").path("href").asText("");
+            return html.isBlank() ? root.path("id").asText("") : html;
+        } catch (Exception e) {
+            throw new IllegalStateException("Bitbucket PR creation failed for '" + spec.repoSlug() + "': " + e.getMessage(), e);
+        }
+    }
+
     // ---- testable building blocks ----
 
     String buildPullRequestUri(String repoSlug) {
@@ -141,6 +163,11 @@ public class BitbucketCloudClient implements GitHost {
 
     String buildPullRequestPayload(String sourceBranch, String targetBranch, String title, String description)
             throws Exception {
+        return buildPullRequestPayload(sourceBranch, targetBranch, title, description, List.of());
+    }
+
+    String buildPullRequestPayload(String sourceBranch, String targetBranch, String title, String description,
+                                   List<String> reviewers) throws Exception {
         ObjectNode root = mapper.createObjectNode();
         root.put("title", title);
         if (description != null && !description.isBlank()) {
@@ -151,6 +178,14 @@ public class BitbucketCloudClient implements GitHost {
         if (targetBranch != null && !targetBranch.isBlank()) {
             root.set("destination",
                     mapper.createObjectNode().set("branch", mapper.createObjectNode().put("name", targetBranch)));
+        }
+        if (reviewers != null && !reviewers.isEmpty()) {
+            ArrayNode revs = root.putArray("reviewers");
+            for (String r : reviewers) {
+                if (r != null && !r.isBlank()) {
+                    revs.add(mapper.createObjectNode().put("uuid", r.trim()));
+                }
+            }
         }
         return mapper.writeValueAsString(root);
     }

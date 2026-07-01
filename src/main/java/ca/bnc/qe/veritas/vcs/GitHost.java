@@ -22,8 +22,26 @@ public interface GitHost {
     String openPullRequest(String repoSlug, String sourceBranch, String targetBranch,
                            String title, String description);
 
+    /**
+     * Open a pull request with an explicit target project and reviewers — needed by the Snyk fix cascade, which
+     * opens PRs in different projects (the framework project vs each app-id) and attaches suggested reviewers.
+     * The default delegates to the simpler overload (project + reviewers ignored) for hosts that don't override.
+     */
+    default String openPullRequest(PullRequestSpec spec) {
+        return openPullRequest(spec.repoSlug(), spec.sourceBranch(), spec.targetBranch(),
+                spec.title(), spec.description());
+    }
+
     /** Cheap authenticated identity probe (current user) for Test Connection; returns the username or throws. */
     default String whoAmI() {
         throw new UnsupportedOperationException("whoAmI not supported by this git host");
+    }
+
+    /**
+     * A pull request to open. {@code project} targets a specific Bitbucket project (Server/DC) — blank uses the
+     * configured default; {@code reviewers} are host usernames (Server/DC) or account UUIDs (Cloud), possibly empty.
+     */
+    record PullRequestSpec(String project, String repoSlug, String sourceBranch, String targetBranch,
+                           String title, String description, List<String> reviewers) {
     }
 }

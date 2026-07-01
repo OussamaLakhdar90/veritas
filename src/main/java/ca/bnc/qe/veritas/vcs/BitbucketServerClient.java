@@ -13,6 +13,7 @@ import ca.bnc.qe.veritas.integration.Retries;
 import ca.bnc.qe.veritas.secret.SecretProvider;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.jgit.api.CloneCommand;
@@ -160,6 +161,30 @@ public class BitbucketServerClient implements GitHost {
     }
 
     @Override
+    public String openPullRequest(PullRequestSpec spec) {
+        String project = (spec.project() != null && !spec.project().isBlank()) ? spec.project() : project();
+        try {
+            String payload = buildPullRequestPayload(spec.sourceBranch(), spec.targetBranch(),
+                    spec.title(), spec.description(), spec.reviewers());
+            String uri = base() + "/rest/api/1.0/projects/" + project + "/repos/" + spec.repoSlug() + "/pull-requests";
+            String body = retries.callWrite(() -> http.post().uri(URI.create(uri))
+                    .header("Authorization", authHeader())
+                    .header("Content-Type", "application/json")
+                    .body(payload)
+                    .retrieve().body(String.class));
+            JsonNode root = mapper.readTree(body == null ? "{}" : body);
+            JsonNode self = root.path("links").path("self");
+            if (self.isArray() && !self.isEmpty()) {
+                return self.get(0).path("href").asText(root.path("id").asText(""));
+            }
+            return root.path("id").asText("");
+        } catch (Exception e) {
+            throw new IllegalStateException("Bitbucket Server PR creation failed for '" + spec.repoSlug()
+                    + "' in project '" + project + "': " + e.getMessage(), e);
+        }
+    }
+
+    @Override
     public String whoAmI() {
         try {
             // Any authenticated Server/DC request echoes the user in the X-AUSERNAME response header.
@@ -187,6 +212,11 @@ public class BitbucketServerClient implements GitHost {
 
     String buildPullRequestPayload(String sourceBranch, String targetBranch, String title, String description)
             throws Exception {
+        return buildPullRequestPayload(sourceBranch, targetBranch, title, description, java.util.List.of());
+    }
+
+    String buildPullRequestPayload(String sourceBranch, String targetBranch, String title, String description,
+                                   java.util.List<String> reviewers) throws Exception {
         ObjectNode root = mapper.createObjectNode();
         root.put("title", title);
         if (description != null && !description.isBlank()) {
@@ -195,6 +225,14 @@ public class BitbucketServerClient implements GitHost {
         root.set("fromRef", mapper.createObjectNode().put("id", "refs/heads/" + sourceBranch));
         if (targetBranch != null && !targetBranch.isBlank()) {
             root.set("toRef", mapper.createObjectNode().put("id", "refs/heads/" + targetBranch));
+        }
+        if (reviewers != null && !reviewers.isEmpty()) {
+            ArrayNode revs = root.putArray("reviewers");
+            for (String r : reviewers) {
+                if (r != null && !r.isBlank()) {
+                    revs.add(mapper.createObjectNode().set("user", mapper.createObjectNode().put("name", r.trim())));
+                }
+            }
         }
         return mapper.writeValueAsString(root);
     }
