@@ -67,6 +67,20 @@ class FreshReviewSecurityTest {
     }
 
     @Test
+    void preAndPostAuthorizeSameExpressionEmitsOneToken(@TempDir Path dir) throws Exception {
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.security.access.prepost.*;
+            @RestController class C {
+                @PreAuthorize("hasRole('ADMIN')") @PostAuthorize("hasRole('ADMIN')")
+                @GetMapping("/x") public String x() { return "x"; }
+            }
+            """);
+        ApiModel code = new JavaSpringExtractor().extract(dir);
+        assertThat(code.endpoints().get(0).security()).containsExactly("hasRole('ADMIN')");
+    }
+
+    @Test
     void preAuthorizeTrueIsOpenNotSecured(@TempDir Path dir) throws Exception {
         write(dir, "C.java", """
             import org.springframework.web.bind.annotation.*;

@@ -98,6 +98,29 @@ class FreshReviewStatusTest {
                         && f.getSummary() != null && f.getSummary().contains("301"));
     }
 
+    // (#5b regression guard) The ubiquitous builder-then-body idiom `ResponseEntity.ok().body(x)` is a RESOLVABLE
+    // ResponseEntity chain (root scope = ResponseEntity), NOT a helper delegation — it must resolve 200 with NO
+    // "status could not be resolved" blind spot.
+    @Test
+    void builderChainOkBodyResolvesWithoutFalseBlindSpot(@TempDir Path dir) throws Exception {
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            import org.springframework.http.*;
+            @RestController class C {
+                @GetMapping("/u") public ResponseEntity<String> g() { return ResponseEntity.ok().body("x"); }
+                @PostMapping("/c") public ResponseEntity<String> c() {
+                    return ResponseEntity.status(HttpStatus.CREATED).body("y");
+                }
+            }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        assertThat(m.endpoints()).anySatisfy(e -> assertThat(e.responses())
+                .anySatisfy(r -> assertThat(r.statusCode()).isEqualTo(200)));
+        assertThat(m.endpoints()).anySatisfy(e -> assertThat(e.responses())
+                .anySatisfy(r -> assertThat(r.statusCode()).isEqualTo(201)));
+        assertThat(m.blindSpots().toString()).doesNotContain("status could not be resolved");
+    }
+
     // (#15 LOW) An @ExceptionHandler with BOTH @ResponseStatus and a ResponseEntity must resolve to the ResponseEntity's
     // in-body status (SPR-30305), not the annotation's.
     @Test
