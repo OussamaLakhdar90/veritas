@@ -27,31 +27,30 @@ public class PrPublisher {
         this.secrets = secrets;
     }
 
-    public PrResult publish(PrRequest req) {
-        try (Git git = Git.open(req.workingCopy().toFile())) {
-            git.checkout()
-                    .setCreateBranch(!branchExists(git, req.branch()))
-                    .setName(req.branch())
-                    .call();
+    /**
+     * Branch + commit + push a working copy WITHOUT opening a PR. Used by the Snyk fix cascade, which must push the
+     * version-bump branch even when a breaking change is flagged (the PR is then opened later, by the user or Veritas).
+     */
+    public void pushBranch(Path workingCopy, String repoSlug, String branch, String commitMessage) {
+        try (Git git = Git.open(workingCopy.toFile())) {
+            git.checkout().setCreateBranch(!branchExists(git, branch)).setName(branch).call();
             git.add().addFilepattern(".").call();
             if (!git.status().call().isClean()) {
-                git.commit()
-                        .setMessage(req.commitMessage())
-                        .setAuthor("Veritas", "veritas@bnc.ca")
-                        .setCommitter("Veritas", "veritas@bnc.ca")
-                        .call();
+                git.commit().setMessage(commitMessage)
+                        .setAuthor("Veritas", "veritas@bnc.ca").setCommitter("Veritas", "veritas@bnc.ca").call();
             }
-            git.push()
-                    .setRemote("origin")
+            git.push().setRemote("origin")
                     .setCredentialsProvider(new UsernamePasswordCredentialsProvider(
                             secrets.get("GIT_USERNAME").orElse(""), secrets.get("GIT_TOKEN").orElse("")))
-                    .add(req.branch())
-                    .setForce(true)
-                    .call();
-            log.info("Pushed branch {} to {}", req.branch(), req.repoSlug());
+                    .add(branch).setForce(true).call();
+            log.info("Pushed branch {} to {}", branch, repoSlug);
         } catch (Exception e) {
-            throw new IllegalStateException("Push failed for '" + req.repoSlug() + "': " + e.getMessage(), e);
+            throw new IllegalStateException("Push failed for '" + repoSlug + "': " + e.getMessage(), e);
         }
+    }
+
+    public PrResult publish(PrRequest req) {
+        pushBranch(req.workingCopy(), req.repoSlug(), req.branch(), req.commitMessage());
         String prUrl;
         try {
             prUrl = gitHost.openPullRequest(
