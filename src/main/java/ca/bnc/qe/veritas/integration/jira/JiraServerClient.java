@@ -115,6 +115,32 @@ public class JiraServerClient implements JiraClient {
     }
 
     @Override
+    public List<JiraTransition> listTransitions(String key) {
+        try {
+            String resp = corp.get(base() + "/rest/api/2/issue/" + key + "/transitions", authHeaders());
+            JsonNode root = mapper.readTree(resp == null ? "{}" : resp);
+            List<JiraTransition> out = new ArrayList<>();
+            for (JsonNode t : root.path("transitions")) {
+                out.add(new JiraTransition(t.path("id").asText(""), t.path("name").asText("")));
+            }
+            return out;
+        } catch (Exception e) {
+            throw new IllegalStateException("Jira listTransitions failed for " + key + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void transition(String key, String transitionId) {
+        try {
+            String body = mapper.writeValueAsString(Map.of("transition", Map.of("id", transitionId)));
+            corp.postWrite(base() + "/rest/api/2/issue/" + key + "/transitions", authHeaders(), body, "application/json");
+        } catch (Exception e) {
+            throw new IllegalStateException("Jira transition failed for " + key + " (id " + transitionId + "): "
+                    + e.getMessage(), e);
+        }
+    }
+
+    @Override
     public JiraStatus getStatus(String key) {
         try {
             String resp = corp.get(base() + "/rest/api/2/issue/" + key + "?fields=status", authHeaders());
