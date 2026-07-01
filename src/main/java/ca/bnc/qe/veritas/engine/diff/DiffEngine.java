@@ -12,7 +12,6 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-import org.springframework.http.MediaType;
 import ca.bnc.qe.veritas.engine.model.ApiModel;
 import ca.bnc.qe.veritas.engine.model.ConstraintSet;
 import ca.bnc.qe.veritas.engine.model.Endpoint;
@@ -275,8 +274,8 @@ public class DiffEngine {
                     findings.add(finding(FindingType.CONSTRAINT_GAP, label(ce), spec.source(),
                             "Parameter '" + cp.name() + "' has code constraints not exposed in the spec", ce, Confidence.MEDIUM));
                 } else {
-                    String diff = constraintMismatchDesc(cp.constraints(), sp.constraints(),
-                            isIntegerTyped(cp.type()), isIntegerTyped(sp.type()));
+                    String diff = ConstraintComparator.mismatchDesc(cp.constraints(), sp.constraints(),
+                            ConstraintComparator.isIntegerTyped(cp.type()), ConstraintComparator.isIntegerTyped(sp.type()));
                     if (diff != null) {
                         findings.add(finding(FindingType.CONSTRAINT_GAP, label(ce), spec.source(),
                                 "Parameter '" + cp.name() + "' constraint mismatch — " + diff, ce, Confidence.MEDIUM));
@@ -376,7 +375,7 @@ public class DiffEngine {
                 // application/problem+json against a spec error declared as application/json is a real content drift.
                 if (cr.mediaTypes() != null && !cr.mediaTypes().isEmpty()
                         && specErr.mediaTypes() != null && !specErr.mediaTypes().isEmpty()
-                        && !mediaCompatible(cr.mediaTypes(), specErr.mediaTypes())) {
+                        && !MediaTypeComparator.compatible(cr.mediaTypes(), specErr.mediaTypes())) {
                     boolean advice = cr.origin() != null && cr.origin().startsWith("EXCEPTION_HANDLER");
                     findings.add(finding(FindingType.CONSUMES_PRODUCES_MISMATCH, label(ce), spec.source(),
                             "Error " + cr.statusCode() + " media type — code " + cr.mediaTypes() + " vs spec "
@@ -446,7 +445,7 @@ public class DiffEngine {
         Set<String> specErrorMedia = se.responses().stream()
                 .filter(r -> r.statusCode() >= 300)
                 .flatMap(r -> r.mediaTypes() == null ? Stream.<String>empty() : r.mediaTypes().stream())
-                .map(DiffEngine::baseMedia).filter(Objects::nonNull)
+                .map(MediaTypeComparator::base).filter(Objects::nonNull)
                 .collect(Collectors.toSet());
         mediaTypeMismatch(findings, ce, spec, "produces", ce.produces(), se.produces(), specErrorMedia);
         mediaTypeMismatch(findings, ce, spec, "consumes", ce.consumes(), se.consumes(), Set.of());
@@ -735,62 +734,12 @@ public class DiffEngine {
             return;
         }
         List<String> effCode = code.stream()
-                .filter(c -> !benignExtra.contains(baseMedia(c))).toList();
-        if (effCode.isEmpty() || mediaCompatible(effCode, specMt)) {
+                .filter(c -> !benignExtra.contains(MediaTypeComparator.base(c))).toList();
+        if (effCode.isEmpty() || MediaTypeComparator.compatible(effCode, specMt)) {
             return;
         }
         findings.add(finding(FindingType.CONSUMES_PRODUCES_MISMATCH, label(ce), spec.source(),
                 which + " media types — code " + code + " vs spec " + specMt, ce, Confidence.LOW));
-    }
-
-    /** Media-type compatibility per Spring's MediaType semantics (a star/star or application-star wildcard, and an
-     *  application-star-plus-json range matching application/json) — replaces literal set-equality so a wildcard or
-     *  +suffix range is not a false CONSUMES_PRODUCES_MISMATCH. Falls back to base-string equality on a parse failure. */
-    private boolean mediaCompatible(List<String> code, List<String> specMt) {
-        try {
-            List<MediaType> cs = parseMedia(code);
-            List<MediaType> ss = parseMedia(specMt);
-            if (cs.isEmpty() || ss.isEmpty()) {
-                return mediaSet(code).equals(mediaSet(specMt));
-            }
-            return cs.stream().allMatch(c -> ss.stream().anyMatch(s -> s.isCompatibleWith(c)))
-                    && ss.stream().allMatch(s -> cs.stream().anyMatch(c -> c.isCompatibleWith(s)));
-        } catch (RuntimeException unparseable) {
-            return mediaSet(code).equals(mediaSet(specMt));
-        }
-    }
-
-    private List<MediaType> parseMedia(List<String> v) {
-        List<MediaType> out = new ArrayList<>();
-        for (String x : v) {
-            if (x != null && !x.isBlank()) {
-                out.add(MediaType.parseMediaType(x.trim()));
-            }
-        }
-        return out;
-    }
-
-    /** Lower-cased base media type, parameters stripped: {@code Application/JSON;charset=UTF-8} → {@code application/json}. */
-    private static String baseMedia(String x) {
-        if (x == null) {
-            return null;
-        }
-        String b = x.toLowerCase(Locale.ROOT);
-        int semi = b.indexOf(';');
-        b = (semi >= 0 ? b.substring(0, semi) : b).trim();
-        return b.isEmpty() ? null : b;
-    }
-
-    /** Media types compared by base type, case-insensitive, ignoring parameters (e.g. {@code ;charset=utf-8}). */
-    private Set<String> mediaSet(List<String> v) {
-        Set<String> out = new HashSet<>();
-        for (String x : v) {
-            String base = baseMedia(x);
-            if (base != null) {
-                out.add(base);
-            }
-        }
-        return out;
     }
 
     /**
@@ -843,100 +792,9 @@ public class DiffEngine {
                     || b.contains("pagination") || b.contains("@MatrixVariable")));
     }
 
-    /** Effective INCLUSIVE lower bound: an exclusive minimum on an integer field is the next integer up (>m ≡ >=m+1).
-     *  For non-integers, or an inclusive/absent bound, the raw minimum stands. */
-    private static Double effectiveMin(ConstraintSet c, boolean integerField) {
-        if (c == null || c.minimum() == null) {
-            return null;
-        }
-        return integerField && Boolean.TRUE.equals(c.exclusiveMin()) ? c.minimum() + 1 : c.minimum();
-    }
-
-    /** Effective INCLUSIVE upper bound: an exclusive maximum on an integer field is the next integer down (<m ≡ <=m-1). */
-    private static Double effectiveMax(ConstraintSet c, boolean integerField) {
-        if (c == null || c.maximum() == null) {
-            return null;
-        }
-        return integerField && Boolean.TRUE.equals(c.exclusiveMax()) ? c.maximum() - 1 : c.maximum();
-    }
-
-    /** Effective exclusivity of a bound: an integer side's exclusivity is folded into its effective inclusive bound
-     *  (so it reads as inclusive here); a non-integer side keeps its declared exclusivity. */
-    private static boolean effectiveExclusive(Boolean exclusive, boolean integerField) {
-        return !integerField && Boolean.TRUE.equals(exclusive);
-    }
-
-    /** True when a side's VALUE SPACE is the integers (JSON {@code type: integer}). The bound fold is applied PER SIDE
-     *  by that side's own integer-ness: a code integer field whose values are all {@code >0} is exactly {@code >=1}, but
-     *  the spec side is only foldable when the spec itself declares integer — folding a (type-less / number) spec bound
-     *  off the code's integer-ness would mis-equate {@code >1} with {@code >=2} and drop a real divergence. Deliberately
-     *  ignores {@code format}: an int32/int64 format can legally sit on {@code type: number} (swagger accepts it). */
-    private static boolean isIntegerTyped(String type) {
-        return "integer".equals(type);
-    }
-
-    /** First constraint keyword whose value differs between two non-empty sets, or null if equivalent. */
     /** True if the constraint set declares a non-empty enum (allowed-value set). */
     private static boolean hasEnum(ConstraintSet cs) {
         return cs != null && cs.enumValues() != null && !cs.enumValues().isEmpty();
-    }
-
-    private String constraintMismatchDesc(ConstraintSet c, ConstraintSet s, boolean codeInteger, boolean specInteger) {
-        if (c == null || s == null) {
-            return null;
-        }
-        if (!Objects.equals(c.minLength(), s.minLength())) {
-            return "minLength code=" + c.minLength() + " spec=" + s.minLength();
-        }
-        if (!Objects.equals(c.maxLength(), s.maxLength())) {
-            return "maxLength code=" + c.maxLength() + " spec=" + s.maxLength();
-        }
-        // For an INTEGER side an exclusive bound folds into the next inclusive integer (>0 ≡ >=1, <0 ≡ <=-1), so a
-        // code @Positive (minimum 0, exclusive) and a spec `minimum: 1` express the SAME constraint. The fold is keyed
-        // PER SIDE by that side's own integer-ness — never the other's. Folding the spec's bound off the CODE being
-        // integer would mis-equate a code `>=2` integer with a spec `>1` on a (type-less / number) field that actually
-        // admits 1.5, silently dropping a real divergence.
-        // Only when the CODE declares the bound: a null code minimum/maximum (no @Min/@Max, or a constant reference the
-        // extractor couldn't resolve to a number) is NOT reliable drift — the bound may be enforced elsewhere — so don't
-        // false-diff "code=null spec=18" (mirror of the required-drift rule). Code stricter than the spec (a non-null
-        // code bound vs a looser/absent spec bound) still fires.
-        Double cMin = effectiveMin(c, codeInteger);
-        if (cMin != null && !Objects.equals(cMin, effectiveMin(s, specInteger))) {
-            return "minimum code=" + cMin + " spec=" + effectiveMin(s, specInteger);
-        }
-        Double cMax = effectiveMax(c, codeInteger);
-        if (cMax != null && !Objects.equals(cMax, effectiveMax(s, specInteger))) {
-            return "maximum code=" + cMax + " spec=" + effectiveMax(s, specInteger);
-        }
-        // exclusiveMinimum/Maximum: null and false both mean "inclusive", so compare on TRUE-ness only (else a code
-        // null vs a spec explicit-false would false-diff). An integer side's exclusivity is already folded into its
-        // effective bound above, so it reads as inclusive here (else {0, exclusive} vs {1, inclusive} would re-diff).
-        if (effectiveExclusive(c.exclusiveMin(), codeInteger) != effectiveExclusive(s.exclusiveMin(), specInteger)) {
-            return "exclusiveMinimum code=" + c.exclusiveMin() + " spec=" + s.exclusiveMin();
-        }
-        if (effectiveExclusive(c.exclusiveMax(), codeInteger) != effectiveExclusive(s.exclusiveMax(), specInteger)) {
-            return "exclusiveMaximum code=" + c.exclusiveMax() + " spec=" + s.exclusiveMax();
-        }
-        // ConstraintSet.format carries a semantic format the FieldModel/ParamModel.format slot does not — e.g. @Email
-        // sets it to "email". Only when BOTH sides declare one (else a code null vs a spec format would double-fire with
-        // the field/param-level format check, which reads the OTHER format slot).
-        if (c.format() != null && s.format() != null && !c.format().equals(s.format())) {
-            return "format code=" + c.format() + " spec=" + s.format();
-        }
-        // Only when the CODE declares a pattern: a null code pattern (no @Pattern, or a constant-reference regexp the
-        // extractor couldn't resolve to a literal) is not reliable drift — don't false-diff "code=null spec=<regex>".
-        if (c.pattern() != null && !c.pattern().equals(s.pattern())) {
-            return "pattern code=" + c.pattern() + " spec=" + s.pattern();
-        }
-        if (!sameValueSet(c.enumValues(), s.enumValues())) {
-            return "enum code=" + c.enumValues() + " spec=" + s.enumValues();
-        }
-        return null;
-    }
-
-    /** Enum equivalence is by VALUE SET, case-insensitive — declaration order and casing differences are not drift. */
-    private boolean sameValueSet(List<String> a, List<String> b) {
-        return normSet(a).equals(normSet(b));
     }
 
     private Set<String> normSet(List<String> v) {
@@ -991,8 +849,8 @@ public class DiffEngine {
                     findings.add(finding(FindingType.CONSTRAINT_GAP, name + "." + cf.jsonName(), specSource,
                             "Field '" + cf.jsonName() + "' has code constraints not exposed in the spec", null, Confidence.MEDIUM));
                 } else {
-                    String diff = constraintMismatchDesc(cf.constraints(), sf.constraints(),
-                            isIntegerTyped(cf.type()), isIntegerTyped(sf.type()));
+                    String diff = ConstraintComparator.mismatchDesc(cf.constraints(), sf.constraints(),
+                            ConstraintComparator.isIntegerTyped(cf.type()), ConstraintComparator.isIntegerTyped(sf.type()));
                     if (diff != null) {
                         findings.add(finding(FindingType.CONSTRAINT_GAP, name + "." + cf.jsonName(), specSource,
                                 "Field '" + cf.jsonName() + "' constraint mismatch — " + diff, null, Confidence.MEDIUM));
