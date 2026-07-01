@@ -14,6 +14,7 @@ import java.util.Optional;
 import ca.bnc.qe.veritas.config.ConnectionsProperties;
 import ca.bnc.qe.veritas.integration.confluence.ConfluenceClient;
 import ca.bnc.qe.veritas.integration.jira.JiraClient;
+import ca.bnc.qe.veritas.integration.snyk.SnykClient;
 import ca.bnc.qe.veritas.llm.copilot.CopilotAuthService;
 import ca.bnc.qe.veritas.secret.SecretProvider;
 import ca.bnc.qe.veritas.vcs.GitHost;
@@ -32,6 +33,7 @@ class ConnectionTesterBranchTest {
     private final GitHost git = mock(GitHost.class);
     private final ConfluenceClient confluence = mock(ConfluenceClient.class);
     private final CopilotAuthService copilot = mock(CopilotAuthService.class);
+    private final SnykClient snyk = mock(SnykClient.class);
 
     /** Build a tester with full control over each endpoint base URL and the secret map. */
     private ConnectionTester tester(Map<String, String> secretMap,
@@ -41,7 +43,7 @@ class ConnectionTesterBranchTest {
         props.getBitbucket().setBaseUrl(bitbucketBase);
         props.getConfluence().setBaseUrl(confluenceBase);
         SecretProvider secrets = key -> Optional.ofNullable(secretMap.get(key));
-        return new ConnectionTester(jira, git, confluence, copilot, props, secrets);
+        return new ConnectionTester(jira, git, confluence, copilot, snyk, props, secrets);
     }
 
     private static Map<String, String> secrets(String... kv) {
@@ -70,7 +72,7 @@ class ConnectionTesterBranchTest {
         assertThatThrownBy(() -> tester(Map.of(), null, null, null).test("github"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Unknown service")
-                .hasMessageContaining("jira, bitbucket, confluence, xray, copilot");
+                .hasMessageContaining("jira, bitbucket, confluence, xray, snyk, copilot");
     }
 
     @Test
