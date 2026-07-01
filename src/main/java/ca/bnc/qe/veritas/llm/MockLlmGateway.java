@@ -27,6 +27,13 @@ public class MockLlmGateway implements LlmGateway {
             // the cheapest Copilot model). Keeps the report bilingual-capable without a real LLM in tests.
             return "Translations (mock).\n```json\n{}\n```\n";
         }
+        if (prompt != null && prompt.contains("[BREAKING-CHANGE-JUDGE]")) {
+            // Mock can't read a changelog; return a schema-valid non-breaking verdict so the Snyk fix flow runs in
+            // mock mode (a real run uses Copilot; the reactor build is the real gate either way).
+            return "Breaking-change verdict (mock).\n```json\n{\"breaking\":false,\"confidence\":70,"
+                    + "\"reasons\":[\"Mock verdict — no changelog visible; the test build is the real gate.\"],"
+                    + "\"migrationNotes\":\"\"}\n```\n";
+        }
         if (prompt != null && prompt.contains("[FEATURE-TAGGER]")) {
             // Mock can't do semantic clustering; return no merge groups so the deterministic seed stands unchanged.
             return "Feature tags (mock).\n```json\n{\"features\":[]}\n```\n";
