@@ -15,6 +15,20 @@ export function severityBadge(sev?: string): string {
   return SEVERITY_BADGE[(sev || 'INFO').toUpperCase()] ?? SEVERITY_BADGE.INFO;
 }
 
+/**
+ * Snyk severity pill styling. Snyk uses critical/high/medium/low; we reuse the same colour ramp as the
+ * finding severities so Critical is unmistakably red.
+ */
+export const SNYK_SEVERITY_BADGE: Record<string, string> = {
+  critical: SEVERITY_BADGE.CRITICAL,
+  high: SEVERITY_BADGE.MAJOR,
+  medium: SEVERITY_BADGE.MINOR,
+  low: SEVERITY_BADGE.INFO,
+};
+export function snykSeverityBadge(sev?: string): string {
+  return SNYK_SEVERITY_BADGE[(sev || 'low').toLowerCase()] ?? SNYK_SEVERITY_BADGE.low;
+}
+
 /** Plain-language labels for the analysis "layer" codes — users should never see L1–L6. */
 export const LAYER_LABEL: Record<string, string> = {
   L1: 'Specification structure',

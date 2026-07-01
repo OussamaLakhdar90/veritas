@@ -17,6 +17,7 @@ import { TestCases } from './pages/TestCases';
 import { Reviews } from './pages/Reviews';
 import { Codegen } from './pages/Codegen';
 import { GenerateApiTests } from './pages/GenerateApiTests';
+import { Snyk } from './pages/Snyk';
 import { EngineBadge } from './components/EngineBadge';
 import { Costs } from './pages/Costs';
 import { Defects } from './pages/Defects';
@@ -183,6 +184,7 @@ function RoutedMain() {
       <Route path="/review-test-cases" element={<Reviews />} />
       <Route path="/generate-tests" element={<Codegen />} />
       <Route path="/generate-api-tests" element={<GenerateApiTests />} />
+      <Route path="/snyk" element={<Snyk />} />
       <Route path="/gates" element={<Gates />} />
       <Route path="/costs" element={<Costs />} />
       <Route path="/glossary" element={<Glossary />} />

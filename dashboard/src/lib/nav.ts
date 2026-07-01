@@ -2,9 +2,10 @@ import {
   LayoutDashboard, ShieldCheck, Bug, ClipboardList, ListChecks, Code2, GitPullRequestArrow,
   Coins, Settings, Target, ClipboardCheck, Rocket, BookOpen, Layers, Sparkles,
 } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import type { ComponentType } from 'react';
+import { SnykNavIcon } from '../components/SnykLogo';
 
-export interface NavItem { to: string; key: string; icon: LucideIcon; end?: boolean; adv?: boolean }
+export interface NavItem { to: string; key: string; icon: ComponentType<{ className?: string }>; end?: boolean; adv?: boolean }
 export interface NavGroup { section: string; items: NavItem[] }
 
 /** Sidebar grouped into labeled sections so 15 destinations read as a hierarchy, not a flat wall of links. */
@@ -26,6 +27,7 @@ export const NAV_GROUPS: NavGroup[] = [
   ] },
   { section: 'secAutomation', items: [
     { to: '/generate-api-tests', key: 'generateApiTests', icon: Sparkles },
+    { to: '/snyk', key: 'snyk', icon: SnykNavIcon },
     { to: '/generate-tests', key: 'localGeneration', icon: Code2, adv: true },
   ] },
   { section: 'secGovern', items: [
