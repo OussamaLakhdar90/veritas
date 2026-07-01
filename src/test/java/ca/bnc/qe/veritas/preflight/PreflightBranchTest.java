@@ -140,7 +140,7 @@ class PreflightBranchTest {
                 .isInstanceOf(PreconditionException.class)
                 .extracting(e -> ((PreconditionException) e).problems())
                 .satisfies(p -> {
-                    assertThat((List<String>) p).containsExactly(
+                    assertThat(p).containsExactly(
                             "Finding id is required.", "Jira project key is required.");
                 });
     }
@@ -169,7 +169,7 @@ class PreflightBranchTest {
                 .isInstanceOf(PreconditionException.class)
                 .extracting(e -> ((PreconditionException) e).problems())
                 .satisfies(p -> {
-                    assertThat((List<String>) p).containsExactly("Test basis is required.");
+                    assertThat(p).containsExactly("Test basis is required.");
                 });
     }
 

@@ -10,6 +10,8 @@ import java.util.List;
  */
 public class CopilotAuthRequiredException extends PreconditionException {
 
+    private static final long serialVersionUID = 1L;
+
     /** Stable discriminator the frontend matches on (RFC-7807 problem {@code code}). */
     public static final String CODE = "copilot-auth-required";
 
