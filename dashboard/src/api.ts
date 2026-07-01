@@ -431,6 +431,28 @@ export interface Deliverable {
   markdown?: string
 }
 
+// ── Snyk dependency-security module ───────────────────────────────────────────
+/** A Snyk org — one per BNC app-id (slug e.g. app7576). */
+export interface SnykOrg { id: string; slug: string; name: string }
+/** A Snyk target — a source repo under an org (the repo to watch). */
+export interface SnykTarget { id: string; displayName: string }
+/** A watched repo with its latest severity counts. */
+export interface SnykWatchView {
+  id: string; orgId: string; orgSlug: string; orgName: string; targetId: string; repoSlug: string;
+  enabled: boolean; critical: number; high: number; medium: number; low: number;
+  fixable: number; projectCount: number; lastPolled?: string;
+}
+/** One vulnerability; `fixedIn` is the safe version, or null when Snyk has no supported fix (tracked only). */
+export interface SnykIssueView {
+  projectName: string; issueId: string; severity: string; title: string; pkgName: string; pkgVersion: string;
+  cve: string; cwe: string; cvss: number; riskScore: number; fixable: boolean; fixedIn?: string | null;
+}
+/** A dashboard notification raised when a watched repo's status worsens. */
+export interface SnykAlert {
+  id: string; watchId: string; orgSlug: string; repoSlug: string; severity: string; message: string;
+  seen: boolean; createdAt?: string;
+}
+
 export const api = {
   scans: (service?: string) => get<Scan[]>(`/scans${service ? `?service=${encodeURIComponent(service)}` : ''}`),
   scan: (id: string) => get<Scan>(`/scans/${encodeURIComponent(id)}`),
@@ -586,4 +608,17 @@ export const api = {
   copilotLoginStart: () => send<CopilotLoginStart>('POST', '/settings/copilot/login/start'),
   copilotLoginStatus: (id: string) => get<CopilotLoginStatus>(`/settings/copilot/login/status?id=${encodeURIComponent(id)}`),
   copilotSignout: () => send<void>('POST', '/settings/copilot/signout'),
+
+  // ── Snyk dependency-security module ──
+  snykOrgs: () => get<SnykOrg[]>('/snyk/orgs'),
+  snykRepos: (orgId: string) => get<SnykTarget[]>(`/snyk/orgs/${encodeURIComponent(orgId)}/repos`),
+  snykWatches: () => get<SnykWatchView[]>('/snyk/watches'),
+  addSnykWatch: (body: { orgId: string; orgSlug: string; orgName: string; targetId: string; repoSlug: string }) =>
+    send<SnykWatchView>('POST', '/snyk/watches', body),
+  removeSnykWatch: (id: string) => send<void>('DELETE', `/snyk/watches/${encodeURIComponent(id)}`),
+  snykIssues: (watchId: string) => get<SnykIssueView[]>(`/snyk/watches/${encodeURIComponent(watchId)}/issues`),
+  snykRefresh: () => send<{ polled: number }>('POST', '/snyk/refresh'),
+  refreshSnykWatch: (id: string) => send<void>('POST', `/snyk/watches/${encodeURIComponent(id)}/refresh`),
+  snykAlerts: (unseenOnly = false) => get<SnykAlert[]>(`/snyk/alerts${unseenOnly ? '?unseenOnly=true' : ''}`),
+  markSnykAlertSeen: (id: string) => send<void>('POST', `/snyk/alerts/${encodeURIComponent(id)}/seen`),
 }

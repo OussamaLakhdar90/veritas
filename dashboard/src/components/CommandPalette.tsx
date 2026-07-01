@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ComponentType } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
@@ -8,7 +8,7 @@ import { api } from '../api';
 import { NAV_ITEMS } from '../lib/nav';
 import { cn } from './cn';
 
-interface Cmd { id: string; label: string; group: string; to: string; Icon?: typeof Search }
+interface Cmd { id: string; label: string; group: string; to: string; Icon?: ComponentType<{ className?: string }> }
 
 /** ⌘K palette — fuzzy-jump to any page or service. Keyboard-driven (↑↓ / Enter / Esc), localized. */
 export function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void }) {
