@@ -61,10 +61,14 @@ import com.github.javaparser.ast.expr.AnnotationExpr;
 import com.github.javaparser.ast.expr.ArrayInitializerExpr;
 import com.github.javaparser.ast.expr.AssignExpr;
 import com.github.javaparser.ast.expr.BinaryExpr;
+import com.github.javaparser.ast.expr.CastExpr;
 import com.github.javaparser.ast.expr.ClassExpr;
+import com.github.javaparser.ast.expr.ConditionalExpr;
+import com.github.javaparser.ast.expr.EnclosedExpr;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.MethodCallExpr;
+import com.github.javaparser.ast.expr.MethodReferenceExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.expr.NormalAnnotationExpr;
@@ -917,7 +921,17 @@ public class JavaSpringExtractor {
         List<ResponseModel> responses = new ArrayList<>();
         // When the method returns a ResponseEntity, its in-body status WINS — over @ResponseStatus too (Spring's
         // HttpEntityMethodProcessor overwrites @ResponseStatus with the ResponseEntity's status; ref SPR-30305).
-        List<Integer> entityStatuses = ret.responseEntity() ? allEntityStatuses(m) : List.of();
+        // UNION the direct harvest (allEntityStatuses: return-expression factories + returned-local writes) with the
+        // one-hop local-helper harvest (tailResolvableStatuses: `.map(this::helper)` / `return helper(x)`) — NOT an
+        // else-fallback: a direct status sitting BESIDE a helper-delegating tail (e.g. `.map(this::created)
+        // .orElse(ResponseEntity.notFound().build())` yields 201 AND 404) must keep both. Both harvests are tail-precise
+        // (no phantom from an orElseThrow supplier / filter predicate / side-call), so the union adds only real statuses.
+        List<Integer> entityStatuses = new ArrayList<>();
+        if (ret.responseEntity()) {
+            LinkedHashSet<Integer> merged = new LinkedHashSet<>(allEntityStatuses(m));
+            merged.addAll(tailResolvableStatuses(m));
+            entityStatuses.addAll(merged);
+        }
         // A ResponseEntity whose status lives somewhere we can't read — a status(non-literal) call, or a helper/factory
         // delegation like `return factory.created(x)`. Surfaced as a blind spot below EVEN WHEN some returns resolved:
         // a method mixing a resolvable `return ResponseEntity.ok(x)` with an unresolvable `return factory.notFound()`
@@ -1949,38 +1963,45 @@ public class JavaSpringExtractor {
         }
     }
 
-    /** Status codes inferred from {@code ResponseEntity.<factory>(...)} builder calls in the method body. */
-    /** True when a ResponseEntity's status is present but NOT statically readable here — a ResponseEntity.status(arg)
-     *  whose arg didn't resolve, or a helper/factory delegation ({@code return factory.created(x)}) whose status lives
-     *  in the callee. A bare pass-through / {@code return null} ResponseEntity is NOT unresolvable — it defaults to 200. */
+    /** True when a ResponseEntity's status is present but NOT statically readable here — a returned
+     *  {@code ResponseEntity.status(arg)} whose arg didn't resolve, or a helper/factory delegation
+     *  ({@code return factory.created(x)}) whose status lives in the callee. A bare pass-through / {@code return null}
+     *  ResponseEntity is NOT unresolvable — it defaults to 200. The check is RETURN-scoped (the tail walk): a dynamic
+     *  {@code ResponseEntity.status(var)} sitting in a non-returned position (a diagnostic that is only logged) is not a
+     *  blind spot, so no blanket body scan is done. */
     private boolean responseEntityStatusUnresolvable(MethodDeclaration m) {
-        for (MethodCallExpr call : m.findAll(MethodCallExpr.class)) {
-            String scope = call.getScope().map(Object::toString).orElse("");
-            if ((scope.equals("ResponseEntity") || scope.endsWith(".ResponseEntity"))
-                    && call.getNameAsString().equals("status")
-                    && !call.getArguments().isEmpty() && statusFromArg(call) == null) {
-                return true;   // ResponseEntity.status(<non-literal>)
-            }
-        }
         for (ReturnStmt ret : m.findAll(ReturnStmt.class)) {
-            Expression expr = ret.getExpression().orElse(null);
-            if (expr instanceof MethodCallExpr mc) {
-                // Check the ROOT of the call chain, not the immediate scope: a ResponseEntity BUILDER chain
-                // (`ResponseEntity.ok().body(x)`, `ResponseEntity.status(X).body(x)`) has root scope "ResponseEntity" and
-                // is fully resolvable by allEntityStatuses — it is NOT a helper delegation. Only a chain rooted in a
-                // non-ResponseEntity scope (`factory.created(x)`, `helper.build().body(x)`) delegates the real status.
-                String root = rootScopeName(mc);
-                if (!root.isEmpty() && !root.equals("ResponseEntity") && !root.endsWith(".ResponseEntity")) {
-                    return true;   // return delegates to a helper/factory that produces the ResponseEntity
+            Expression raw = ret.getExpression().orElse(null);
+            if (raw == null) {
+                continue;
+            }
+            // Unwrap casts/parentheses first, so a `return (ResponseEntity) factory.build(x);` is analysed as the
+            // delegation it is (not skipped for being a CastExpr) — the cast form must behave like the un-cast form.
+            Expression expr = unwrapExpr(raw);
+            if (expr instanceof NameExpr ne) {
+                // A returned LOCAL only blind-spots when at least one of its WRITES is opaque (aliased to another local,
+                // set via this.<field>, a service delegation, a dynamic status) — the case whose status we truly can't
+                // read. A local written SOLELY by readable factories (`resp = ok(x); if(async) resp = accepted(y);
+                // return resp;` — the ubiquitous imperative conditional-status handler) is fully resolved by
+                // allEntityStatuses and must NOT also be flagged. A bare pass-through (`return param`) has no writes.
+                if (returnedLocalHasOpaqueWrite(m, ne.getNameAsString())) {
+                    return true;
+                }
+            } else if (expr instanceof MethodCallExpr || expr instanceof ObjectCreationExpr
+                    || expr instanceof ConditionalExpr) {
+                // Decide on the ACTUALLY-RETURNED (tail) value, resolved through the fluent Optional/Stream chain — not a
+                // blanket subtree scan. A direct ResponseEntity builder chain and a chain that BUILDS the ResponseEntity in
+                // a tail position (`service.find(...).map(x -> ResponseEntity.ok(y)).orElseThrow(...)`, or
+                // `.map(this::profileResponse)` delegating to a local helper) are fully resolvable. Only an OPAQUE tail —
+                // a `return factory.created(x)`, a `.map(factory.build)` whose status lives in the callee, or a dynamic
+                // `ResponseEntity.status(var)` — is unresolvable. Checking the tail (not the subtree) is what keeps a
+                // ResponseEntity factory in a NON-returned position (an `.orElse(...)` fallback beside an opaque `.map`, a
+                // `log(errorResponse())` side-call argument) from masking the real delegation.
+                if (analyzeReturnTail(expr, m, true).opaque()) {
+                    return true;
                 }
             }
-            // Reached only when allEntityStatuses resolved NOTHING: a returned local we DID write but couldn't read a
-            // status from (aliased to another local, set via this.<field>, or assigned a non-factory value) — surface a
-            // blind spot rather than fabricate a phantom 200. A bare pass-through (`return paramNeverWrittenHere`) is
-            // NOT locally written, so it still defaults to 200.
-            if (expr instanceof NameExpr ne && isLocallyWritten(m, ne.getNameAsString())) {
-                return true;
-            }
+            // A null / literal / lambda return is not a delegation — it defaults to 200, not a blind spot.
         }
         return false;
     }
@@ -1993,6 +2014,276 @@ public class JavaSpringExtractor {
             scope = inner.getScope().orElse(null);
         }
         return scope == null ? "" : scope.toString();
+    }
+
+    /** Outcome of analysing the ACTUALLY-RETURNED (tail) value of a return expression: the statically-resolvable
+     *  ResponseEntity statuses it yields, and whether any tail value is an OPAQUE delegation (its status lives in a
+     *  callee we cannot read → a blind spot). {@code statuses} and {@code opaque} are independent — a return can yield a
+     *  resolvable status on one branch and an opaque delegation on another (e.g. {@code opt.map(factory::build)
+     *  .orElse(ResponseEntity.ok(x))}: status 200 from the fallback, opaque from the map). */
+    private static final class TailResult {
+        private final List<Integer> statuses = new ArrayList<>();
+        private boolean opaque;
+
+        boolean opaque() {
+            return opaque;
+        }
+
+        void merge(TailResult other) {
+            statuses.addAll(other.statuses);
+            opaque |= other.opaque;
+        }
+    }
+
+    /** All resolvable ResponseEntity statuses across every returned value (return expressions AND returned-local/field
+     *  writes), RESOLVING one-hop local helpers — this recovers a status delegated to a local helper even when the
+     *  delegation is bound into a returned LOCAL ({@code resp = svc.find(id).map(this::toCreated).orElseThrow(); return
+     *  resp;}), which {@link #allEntityStatuses} (helpers-off, for recursion safety) cannot read. */
+    private List<Integer> tailResolvableStatuses(MethodDeclaration m) {
+        LinkedHashSet<Integer> out = new LinkedHashSet<>();
+        for (Expression e : returnedValueExpressions(m)) {
+            out.addAll(analyzeReturnTail(e, m, true).statuses);
+        }
+        return new ArrayList<>(out);
+    }
+
+    /** Analyse the actually-returned (tail) value(s) of a return expression, resolving THROUGH the fluent Optional/Stream
+     *  chain — {@code map}/{@code flatMap} yield their function's result, {@code orElse}/{@code orElseGet} add their
+     *  fallback, {@code orElseThrow}/{@code filter}/{@code get} pass the mapped content through — and through ternaries
+     *  and lambda bodies. It deliberately does NOT descend into side-call arguments, filter predicates, or the throwing
+     *  supplier of {@code orElseThrow}, so a ResponseEntity factory or helper call sitting in a non-returned position is
+     *  neither harvested as a status nor allowed to mask a genuine opaque delegation. {@code resolveHelpers} bounds local
+     *  helper resolution to ONE hop: true at the endpoint, false inside a helper's own analysis (no recursion / cycles). */
+    private TailResult analyzeReturnTail(Expression e, MethodDeclaration m, boolean resolveHelpers) {
+        TailResult r = new TailResult();
+        e = unwrapExpr(e);
+        if (e instanceof ConditionalExpr c) {
+            r.merge(analyzeReturnTail(c.getThenExpr(), m, resolveHelpers));
+            r.merge(analyzeReturnTail(c.getElseExpr(), m, resolveHelpers));
+            return r;
+        }
+        if (e instanceof ObjectCreationExpr oce) {
+            Integer s = newResponseEntityStatus(oce);
+            if (s != null) {
+                r.statuses.add(s);
+            } else {
+                r.opaque = true;
+            }
+            return r;
+        }
+        if (e instanceof MethodReferenceExpr mr) {
+            classifyMethodRef(mr, -1, m, resolveHelpers, r);
+            return r;
+        }
+        if (e instanceof MethodCallExpr mc) {
+            analyzeCallTail(mc, m, resolveHelpers, r);
+            return r;
+        }
+        // A NameExpr / literal / other expression is not itself a ResponseEntity we can read a status from; the
+        // returned-local case is handled separately (returnedLocalHasOpaqueWrite), a bare pass-through defaults to 200.
+        r.opaque = true;
+        return r;
+    }
+
+    private void analyzeCallTail(MethodCallExpr mc, MethodDeclaration m, boolean resolveHelpers, TailResult r) {
+        // A ResponseEntity factory/builder chain (root scope ResponseEntity) IS the returned value.
+        if (isResponseEntityValued(mc)) {
+            Integer s = responseEntityValuedStatus(mc);
+            if (s != null) {
+                r.statuses.add(s);
+            } else {
+                r.opaque = true;   // e.g. ResponseEntity.status(<dynamic>) — present but unreadable
+            }
+            return;
+        }
+        // A fluent Optional/Stream operator ALWAYS has a real receiver; an unqualified or this-qualified call is instead a
+        // LOCAL method call — possibly a response helper NAMED like an operator (a sibling `get(id)`/`filter(x)`), which
+        // must be classified as a helper, not mistaken for Optional.get()/Stream.filter().
+        Expression scope = mc.getScope().orElse(null);
+        if (scope == null || scope instanceof ThisExpr) {
+            classifyHelperRef(mc.getNameAsString(), mc.getArguments().size(), m, resolveHelpers, r);
+            return;
+        }
+        switch (mc.getNameAsString()) {
+            case "orElse" -> {
+                r.merge(receiverContentTail(mc, m, resolveHelpers));
+                if (!mc.getArguments().isEmpty()) {
+                    r.merge(analyzeReturnTail(mc.getArgument(0), m, resolveHelpers));
+                }
+            }
+            case "orElseGet" -> {
+                r.merge(receiverContentTail(mc, m, resolveHelpers));
+                if (!mc.getArguments().isEmpty()) {
+                    r.merge(functionResultTail(mc.getArgument(0), 0, m, resolveHelpers));
+                }
+            }
+            case "orElseThrow", "filter", "get", "peek", "cache" -> r.merge(receiverContentTail(mc, m, resolveHelpers));
+            case "map", "flatMap" -> {
+                if (!mc.getArguments().isEmpty()) {
+                    r.merge(functionResultTail(mc.getArgument(0), 1, m, resolveHelpers));
+                }
+            }
+            default -> r.opaque = true;   // a receiver.op(...) we cannot read (factory.build(x), service.foo())
+        }
+    }
+
+    /** The tail value the Optional/Stream content holds when a terminal ({@code orElse*}/{@code orElseThrow}/…) is
+     *  applied: the function result of the nearest preceding {@code map}/{@code flatMap}, recursing past pass-through
+     *  operators. When no {@code map} produced the content (e.g. {@code service.find(id).orElseThrow()}), it is opaque. */
+    private TailResult receiverContentTail(MethodCallExpr terminal, MethodDeclaration m, boolean resolveHelpers) {
+        Expression scope = terminal.getScope().orElse(null);
+        if (scope instanceof MethodCallExpr recv) {
+            String rn = recv.getNameAsString();
+            if ((rn.equals("map") || rn.equals("flatMap")) && !recv.getArguments().isEmpty()) {
+                return functionResultTail(recv.getArgument(0), 1, m, resolveHelpers);
+            }
+            if (rn.equals("filter") || rn.equals("peek") || rn.equals("cache")) {
+                return receiverContentTail(recv, m, resolveHelpers);
+            }
+        }
+        TailResult r = new TailResult();
+        r.opaque = true;
+        return r;
+    }
+
+    /** The tail value a function argument (a lambda or a method reference) PRODUCES. {@code arity} is the arg count the
+     *  functional interface binds ({@code map}→1, {@code orElseGet}→0) — used to pick the right helper overload. */
+    private TailResult functionResultTail(Expression fn, int arity, MethodDeclaration m, boolean resolveHelpers) {
+        fn = unwrapExpr(fn);
+        TailResult r = new TailResult();
+        if (fn instanceof LambdaExpr lambda) {
+            if (lambda.getExpressionBody().isPresent()) {
+                return analyzeReturnTail(lambda.getExpressionBody().get(), m, resolveHelpers);
+            }
+            for (ReturnStmt ret : lambda.findAll(ReturnStmt.class)) {
+                if (enclosingFunctionOf(ret) == lambda) {
+                    ret.getExpression().ifPresent(x -> r.merge(analyzeReturnTail(x, m, resolveHelpers)));
+                }
+            }
+            return r;
+        }
+        if (fn instanceof MethodReferenceExpr mr) {
+            classifyMethodRef(mr, arity, m, resolveHelpers, r);
+            return r;
+        }
+        r.opaque = true;   // an opaque function expression (a field-held Function)
+        return r;
+    }
+
+    /** Classify a method reference used as a produced value: a ResponseEntity FACTORY reference ({@code ResponseEntity::ok}
+     *  → 200, {@code ::noContent} → 204, …) resolves directly; a {@code this::helper} reference resolves one-hop to a
+     *  local ResponseEntity helper (when {@code resolveHelpers}); anything else ({@code SomeType::x}) is opaque. */
+    private void classifyMethodRef(MethodReferenceExpr mr, int arity, MethodDeclaration m, boolean resolveHelpers,
+                                   TailResult r) {
+        Integer factory = factoryRefStatus(mr);
+        if (factory != null) {
+            r.statuses.add(factory);
+            return;
+        }
+        if (resolveHelpers && mr.getScope() instanceof ThisExpr) {
+            List<Integer> hs = localHelperStatusesFor(m, mr.getIdentifier(), arity);
+            if (!hs.isEmpty()) {
+                r.statuses.addAll(hs);
+                return;
+            }
+        }
+        r.opaque = true;
+    }
+
+    /** Classify a candidate LOCAL response helper call named {@code name} (unqualified or {@code this}-qualified): harvest
+     *  its one-hop resolvable statuses (matched by name AND arity) when {@code resolveHelpers}; if none resolve, opaque. */
+    private void classifyHelperRef(String name, int arity, MethodDeclaration m, boolean resolveHelpers, TailResult r) {
+        List<Integer> hs = resolveHelpers && name != null ? localHelperStatusesFor(m, name, arity) : List.of();
+        if (hs.isEmpty()) {
+            r.opaque = true;
+        } else {
+            r.statuses.addAll(hs);
+        }
+    }
+
+    /** The status a ResponseEntity FACTORY method reference denotes ({@code ResponseEntity::ok} → 200,
+     *  {@code ::noContent} → 204, …), or null when it is not a fixed-status ResponseEntity factory reference. */
+    private static Integer factoryRefStatus(MethodReferenceExpr mr) {
+        String scope = mr.getScope().toString();
+        if (!scope.equals("ResponseEntity") && !scope.endsWith(".ResponseEntity")) {
+            return null;
+        }
+        return factoryNameStatus(mr.getIdentifier());
+    }
+
+    /** One-hop resolvable ResponseEntity statuses of a same-class sibling method matched by NAME and (when known) ARITY,
+     *  returning ResponseEntity. {@code arity < 0} matches any arity (a method reference whose bound overload we don't
+     *  pin down); otherwise only the same-parameter-count overload is read, so {@code this::render} binding
+     *  {@code render(String)} never harvests a different {@code render(String, boolean)} overload's status. */
+    private List<Integer> localHelperStatusesFor(MethodDeclaration m, String name, int arity) {
+        ClassOrInterfaceDeclaration owner = m.findAncestor(ClassOrInterfaceDeclaration.class).orElse(null);
+        if (owner == null) {
+            return List.of();
+        }
+        List<Integer> out = new ArrayList<>();
+        for (MethodDeclaration sib : owner.getMethods()) {
+            if (sib != m && sib.getNameAsString().equals(name) && returnsResponseEntity(sib)
+                    && (arity < 0 || sib.getParameters().size() == arity)) {
+                out.addAll(allEntityStatuses(sib));
+            }
+        }
+        return out;
+    }
+
+    /** True when a call's ROOT scope is {@code ResponseEntity} — a static factory or a builder chain on it. */
+    private static boolean isResponseEntityValued(MethodCallExpr mc) {
+        String root = rootScopeName(mc);
+        return root.equals("ResponseEntity") || root.endsWith(".ResponseEntity");
+    }
+
+    /** The status a ResponseEntity-valued call resolves to (the innermost readable factory/ctor in the builder chain),
+     *  or null when the chain is ResponseEntity-rooted but its status is not statically readable ({@code status(var)}). */
+    private Integer responseEntityValuedStatus(MethodCallExpr mc) {
+        Integer found = null;
+        for (MethodCallExpr c : mc.findAll(MethodCallExpr.class)) {
+            Integer s = responseEntityFactoryStatus(c);
+            if (s != null) {
+                found = s;
+            }
+        }
+        for (ObjectCreationExpr oce : mc.findAll(ObjectCreationExpr.class)) {
+            Integer s = newResponseEntityStatus(oce);
+            if (s != null) {
+                found = s;
+            }
+        }
+        return found;
+    }
+
+    /** The lambda or method this return statement belongs to directly (its nearest enclosing function), or null. */
+    private static Node enclosingFunctionOf(ReturnStmt ret) {
+        Node p = ret.getParentNode().orElse(null);
+        while (p != null) {
+            if (p instanceof LambdaExpr || p instanceof MethodDeclaration) {
+                return p;
+            }
+            p = p.getParentNode().orElse(null);
+        }
+        return null;
+    }
+
+    /** Unwrap parentheses and casts to the underlying expression. */
+    private static Expression unwrapExpr(Expression e) {
+        while (true) {
+            if (e instanceof EnclosedExpr en) {
+                e = en.getInner();
+            } else if (e instanceof CastExpr ce) {
+                e = ce.getExpression();
+            } else {
+                return e;
+            }
+        }
+    }
+
+    /** True when a method's declared return type is {@code ResponseEntity} (raw or generic). */
+    private static boolean returnsResponseEntity(MethodDeclaration md) {
+        String t = md.getTypeAsString();
+        return t.equals("ResponseEntity") || t.startsWith("ResponseEntity<");
     }
 
     /** Add a status ResponseModel only if the list doesn't already carry that status (first/stronger-origin wins). */
@@ -2050,89 +2341,111 @@ public class JavaSpringExtractor {
         }
     }
 
-    /** Every statically-resolvable ResponseEntity status the method actually RETURNS — factory calls
-     *  (ResponseEntity.created()) AND constructor forms (new ResponseEntity&lt;&gt;(..., HttpStatus.X), any status, not
-     *  just errors). Scoped to return-expression subtrees (and the initializer of any local that is returned by name)
-     *  so a stray ResponseEntity built in a never-invoked fallback lambda or passed to a side-call is NOT harvested —
-     *  that would fabricate a phantom status and a scored false STATUS_CODE_MISSING on an endpoint that never returns it. */
-    private List<Integer> allEntityStatuses(MethodDeclaration m) {
+    /** The expressions that constitute a method's RETURNED values: every return expression, PLUS — for each name that is
+     *  returned (`return local` / `return this.field`) — the values written to it (its declarator initializer, bare
+     *  {@code name = ...} assignments, and {@code this.name = ...} assignments to a returned FIELD that no same-named
+     *  local shadows). The no-shadow guard keeps an unrelated same-named field write from being mis-attributed to a
+     *  returned LOCAL. Deliberately NOT transitive name aliasing (order-blind); an aliased return stays opaque. */
+    private List<Expression> returnedValueExpressions(MethodDeclaration m) {
         List<ReturnStmt> returns = m.findAll(ReturnStmt.class);
         Set<String> returnedNames = new HashSet<>();
         for (ReturnStmt ret : returns) {
-            if (ret.getExpression().orElse(null) instanceof NameExpr ne) {
-                returnedNames.add(ne.getNameAsString());   // `return r;`
+            Expression rex = ret.getExpression().map(JavaSpringExtractor::unwrapExpr).orElse(null);
+            if (rex instanceof NameExpr ne) {
+                returnedNames.add(ne.getNameAsString());           // `return r;`
+            } else if (rex instanceof FieldAccessExpr fae && fae.getScope() instanceof ThisExpr) {
+                returnedNames.add(fae.getNameAsString());          // `return this.field;`
             }
         }
-        // Harvest from every value the method actually RETURNS — return-expression subtrees, plus a returned LOCAL's
-        // declarator initializer, any BARE-NAME (`r = ...`) assignment, and a `this.<field> = ...` write to a returned
-        // FIELD that no same-named local shadows. The no-shadow guard keeps a field write from colliding with a
-        // shadowing local (whose own value is what is actually returned). Deliberately NOT transitive name aliasing
-        // (order-blind — a post-copy reassignment of the alias source would be mis-attributed); an aliased return is
-        // surfaced as a blind spot by responseEntityStatusUnresolvable instead of guessed. A ResponseEntity built into
-        // a NON-returned local (a never-invoked fallback lambda, a probe passed to a side-call) is excluded — harvesting
-        // it would fabricate a phantom status + a scored false STATUS_CODE_MISSING on an endpoint that never returns it.
-        List<Expression> returned = new ArrayList<>();
-        returns.forEach(ret -> ret.getExpression().ifPresent(returned::add));
-        if (!returnedNames.isEmpty()) {
-            Set<String> localNames = new HashSet<>();
-            for (VariableDeclarator vd : m.findAll(VariableDeclarator.class)) {
-                localNames.add(vd.getNameAsString());
-                if (returnedNames.contains(vd.getNameAsString())) {
-                    vd.getInitializer().ifPresent(returned::add);
-                }
-            }
-            for (AssignExpr ae : m.findAll(AssignExpr.class)) {
-                Expression target = ae.getTarget();
-                if (target instanceof NameExpr ne && returnedNames.contains(ne.getNameAsString())) {
-                    returned.add(ae.getValue());   // `r = ...` (bare local)
-                } else if (target instanceof FieldAccessExpr fae && fae.getScope() instanceof ThisExpr
-                        && returnedNames.contains(fae.getNameAsString()) && !localNames.contains(fae.getNameAsString())) {
-                    returned.add(ae.getValue());   // `this.<field> = ...` for a returned field with NO shadowing local
-                }
+        List<Expression> out = new ArrayList<>();
+        returns.forEach(ret -> ret.getExpression().ifPresent(out::add));
+        out.addAll(returnedNameWrites(m, returnedNames));
+        return out;
+    }
+
+    /** Values written to any of {@code names}: declarator initializers, bare {@code name = ...} assignments, and
+     *  {@code this.name = ...} assignments to a returned field that NO same-named local shadows. */
+    private List<Expression> returnedNameWrites(MethodDeclaration m, Set<String> names) {
+        if (names.isEmpty()) {
+            return List.of();
+        }
+        List<ReturnStmt> nameReturns = returnsOfNames(m, names);
+        List<Expression> out = new ArrayList<>();
+        Set<String> localNames = new HashSet<>();
+        for (VariableDeclarator vd : m.findAll(VariableDeclarator.class)) {
+            localNames.add(vd.getNameAsString());
+            // Only a declarator whose lexical scope encloses a return OF THAT NAME feeds the returned value: a same-named
+            // local declared in a DISJOINT block (legally reusing a short name like `resp` for a throwaway that is never
+            // returned) must not have its initializer harvested as a phantom status.
+            if (names.contains(vd.getNameAsString()) && vd.getInitializer().isPresent()
+                    && declaratorInScopeOfReturn(vd, nameReturns)) {
+                out.add(vd.getInitializer().get());
             }
         }
+        for (AssignExpr ae : m.findAll(AssignExpr.class)) {
+            Expression target = ae.getTarget();
+            if (target instanceof NameExpr ne && names.contains(ne.getNameAsString())) {
+                out.add(ae.getValue());   // `r = ...` (bare local/field)
+            } else if (target instanceof FieldAccessExpr fae && fae.getScope() instanceof ThisExpr
+                    && names.contains(fae.getNameAsString()) && !localNames.contains(fae.getNameAsString())) {
+                out.add(ae.getValue());   // `this.<field> = ...` for a returned field with NO shadowing local
+            }
+        }
+        return out;
+    }
+
+    /** The return statements whose (unwrapped) expression is a bare {@code return name} / {@code return this.name} for
+     *  one of {@code names} — the returns a declarator of that name must be able to flow to. */
+    private static List<ReturnStmt> returnsOfNames(MethodDeclaration m, Set<String> names) {
+        List<ReturnStmt> out = new ArrayList<>();
+        for (ReturnStmt ret : m.findAll(ReturnStmt.class)) {
+            Expression rex = ret.getExpression().map(JavaSpringExtractor::unwrapExpr).orElse(null);
+            if ((rex instanceof NameExpr ne && names.contains(ne.getNameAsString()))
+                    || (rex instanceof FieldAccessExpr fae && fae.getScope() instanceof ThisExpr
+                        && names.contains(fae.getNameAsString()))) {
+                out.add(ret);
+            }
+        }
+        return out;
+    }
+
+    /** True when a declarator's lexical scope (its nearest enclosing block) encloses at least one of {@code returns} —
+     *  i.e. the declared binding can actually reach that return. A declarator in a disjoint sibling block cannot. */
+    private static boolean declaratorInScopeOfReturn(VariableDeclarator vd, List<ReturnStmt> returns) {
+        Node block = vd.findAncestor(BlockStmt.class).orElse(null);
+        if (block == null) {
+            return true;
+        }
+        for (ReturnStmt ret : returns) {
+            if (block.isAncestorOf(ret)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Every statically-resolvable ResponseEntity status the method actually RETURNS — DIRECT factory calls and
+     *  {@code new ResponseEntity<>(.., X)} in a tail position of a returned value (no local-helper hop, so this stays
+     *  one-hop safe when reached recursively via {@link #localHelperStatusesFor}). Each returned value is read with the
+     *  TAIL-precise walk, so a ResponseEntity factory in a non-returned position (an {@code orElseThrow} supplier, a
+     *  {@code filter} predicate, a side-call argument) is NOT harvested — that would fabricate a phantom status. */
+    private List<Integer> allEntityStatuses(MethodDeclaration m) {
         LinkedHashSet<Integer> out = new LinkedHashSet<>();
-        for (Expression expr : returned) {
-            for (MethodCallExpr call : expr.findAll(MethodCallExpr.class)) {
-                Integer s = responseEntityFactoryStatus(call);
-                if (s != null) {
-                    out.add(s);
-                }
-            }
-            for (ObjectCreationExpr oce : expr.findAll(ObjectCreationExpr.class)) {
-                Integer s = newResponseEntityStatus(oce);
-                if (s != null) {
-                    out.add(s);
-                }
-            }
+        for (Expression expr : returnedValueExpressions(m)) {
+            out.addAll(analyzeReturnTail(expr, m, false).statuses);
         }
         return new ArrayList<>(out);
     }
 
-    /** The assignable NAME an assignment targets: a bare local ({@code r = ...}) or a this-qualified field
-     *  ({@code this.r = ...}). Returns null for other targets (array/index, other scope). */
-    private static String assignTargetName(Expression target) {
-        if (target instanceof NameExpr ne) {
-            return ne.getNameAsString();
-        }
-        if (target instanceof FieldAccessExpr fae && fae.getScope() instanceof ThisExpr) {
-            return fae.getNameAsString();
-        }
-        return null;
-    }
-
-    /** True when {@code name} is written inside this method body — a local declarator WITH an initializer, or any
-     *  assignment to it (bare {@code r = ...} or {@code this.r = ...}). Used to tell an UNRESOLVABLE returned local
-     *  (assigned via an alias / {@code this.<field>} / indirection we couldn't read → a blind spot) apart from a
-     *  genuine pass-through ({@code return paramNeverWrittenHere}), which legitimately defaults to 200. */
-    private boolean isLocallyWritten(MethodDeclaration m, String name) {
-        for (VariableDeclarator vd : m.findAll(VariableDeclarator.class)) {
-            if (vd.getNameAsString().equals(name) && vd.getInitializer().isPresent()) {
-                return true;
-            }
-        }
-        for (AssignExpr ae : m.findAll(AssignExpr.class)) {
-            if (name.equals(assignTargetName(ae.getTarget()))) {
+    /** True when a returned LOCAL {@code name} has at least one WRITE (its declarator initializer or a bare
+     *  {@code name = ...} / {@code this.name = ...} assignment) whose value is an OPAQUE ResponseEntity delegation — a
+     *  status we cannot read (aliased to another local, a {@code this.<field>} indirection, a service/factory delegation,
+     *  a dynamic {@code status(var)}). That is the case that IS an honest blind spot. A local written SOLELY by readable
+     *  factories ({@code resp = ok(x); if (async) resp = accepted(y); return resp;}) is fully resolved by
+     *  {@link #allEntityStatuses} and must NOT be flagged; a bare pass-through ({@code return param}) has no writes. */
+    private boolean returnedLocalHasOpaqueWrite(MethodDeclaration m, String name) {
+        for (Expression write : returnedNameWrites(m, Set.of(name))) {
+            if (analyzeReturnTail(write, m, true).opaque()) {
                 return true;
             }
         }
@@ -2157,7 +2470,15 @@ public class JavaSpringExtractor {
         if (!scope.equals("ResponseEntity") && !scope.endsWith(".ResponseEntity")) {
             return null;   // only static factory calls ON ResponseEntity, e.g. ResponseEntity.created(...)
         }
-        return switch (call.getNameAsString()) {
+        String name = call.getNameAsString();
+        return name.equals("status") ? statusFromArg(call) : factoryNameStatus(name);
+    }
+
+    /** The fixed HTTP status a named {@code ResponseEntity} factory denotes ({@code ok} → 200, {@code noContent} → 204,
+     *  …), or null for {@code status} (its status is an argument) and non-factory names. Shared by the call form
+     *  ({@code ResponseEntity.ok(x)}) and the method-reference form ({@code ResponseEntity::ok}). */
+    private static Integer factoryNameStatus(String name) {
+        return switch (name) {
             case "ok" -> 200;
             case "created" -> 201;
             case "accepted" -> 202;
@@ -2166,7 +2487,6 @@ public class JavaSpringExtractor {
             case "notFound" -> 404;
             case "unprocessableEntity" -> 422;
             case "internalServerError" -> 500;
-            case "status" -> statusFromArg(call);
             default -> null;
         };
     }
