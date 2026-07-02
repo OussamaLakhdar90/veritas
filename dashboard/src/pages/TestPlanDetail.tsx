@@ -5,6 +5,7 @@ import { FileText } from 'lucide-react';
 import { api, Deliverable } from '../api';
 import { Badge, Card, CardBody, PageHeader, Spinner, Table, Td, Th, Row } from '../components/ui';
 import { severityBadge, TONE } from '../theme/tokens';
+import { enumLabel } from '../lib/enumLabels';
 
 const RISK_TO_SEV: Record<string, string> = {
   'VERY HIGH': 'BLOCKER', VH: 'BLOCKER', HIGH: 'CRITICAL', H: 'CRITICAL',
@@ -111,7 +112,7 @@ export function TestPlanDetail() {
           {coverage.map((c, i) => (
             <Row key={i}>
               <Td className="text-ink-900">{c.requirementKey ?? '—'}</Td><Td className="text-ink-700">{c.requiredCaseRef}</Td><Td className="text-muted">{c.dimension}</Td>
-              <Td><Badge className={matchTone(c.matchStatus)}>{c.matchStatus}</Badge></Td>
+              <Td><Badge className={matchTone(c.matchStatus)}>{enumLabel(t, 'matchStatus', c.matchStatus)}</Badge></Td>
               <Td className="font-mono text-xs text-muted">{c.matchedTestKey ?? '—'}</Td>
             </Row>
           ))}

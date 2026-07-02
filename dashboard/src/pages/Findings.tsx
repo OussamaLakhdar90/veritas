@@ -9,6 +9,7 @@ import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toast';
 import { severityBadge, layerLabel, confidenceLabel, TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
+import { enumLabel } from '../lib/enumLabels';
 
 const SEV_ORDER = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO'];
 const sevRank = (s?: string) => { const i = SEV_ORDER.indexOf((s || 'INFO').toUpperCase()); return i < 0 ? SEV_ORDER.length : i; };
@@ -127,7 +128,7 @@ export function Findings() {
               <button key={s} onClick={() => setFilter(s)}
                 className={cn('rounded-full px-2.5 py-1 text-2xs font-semibold uppercase tracking-wide transition',
                   filter === s ? severityBadge(s) : 'text-muted ring-1 ring-border hover:bg-ink-50')}>
-                {s} {counts[s]}
+                {enumLabel(t, 'severity', s)} {counts[s]}
               </button>
             ))}
             {selected.size > 0 && (
@@ -161,7 +162,7 @@ export function Findings() {
                           checked={selected.has(f.id)} onChange={() => toggle(f.id)} />
                       )}
                     </Td>
-                    <Td><Badge className={severityBadge(f.severity)}>{f.severity}</Badge></Td>
+                    <Td><Badge className={severityBadge(f.severity)}>{enumLabel(t, 'severity', f.severity)}</Badge></Td>
                     <Td>
                       {f.confidence ? (
                         <span className={cn('inline-flex items-center gap-1 text-sm',

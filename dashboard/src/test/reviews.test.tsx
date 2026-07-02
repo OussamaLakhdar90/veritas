@@ -54,11 +54,11 @@ describe('Reviews page', () => {
     expect(await screen.findByText('Reviewed 2 tests.')).toBeInTheDocument()
     expect(screen.getByText('Results (2)')).toBeInTheDocument()
     expect(screen.getByText('CIAM-101')).toBeInTheDocument()
-    expect(screen.getByText('PASS')).toBeInTheDocument()
+    expect(screen.getByText('Pass')).toBeInTheDocument()
     expect(screen.getByText('87')).toBeInTheDocument()
     expect(screen.getByText('92%')).toBeInTheDocument()
     expect(screen.getByText('CIAM-102')).toBeInTheDocument()
-    expect(screen.getByText('FAIL')).toBeInTheDocument()
+    expect(screen.getByText('Fail')).toBeInTheDocument()
   })
 
   it('singularises the toast when exactly one test is reviewed', async () => {

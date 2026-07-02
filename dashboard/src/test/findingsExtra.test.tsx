@@ -46,9 +46,9 @@ describe('Findings — severity filter chips', () => {
     renderFindings(allThree)
     expect(await screen.findByText(critical.summary)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /All 3/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'BLOCKER 1' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'CRITICAL 1' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'MINOR 1' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Blocker 1' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Critical 1' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Minor 1' })).toBeInTheDocument()
   })
 
   it('clicking a severity chip narrows the table to that severity', async () => {
@@ -59,7 +59,7 @@ describe('Findings — severity filter chips', () => {
     expect(screen.getByText(blocker.summary)).toBeInTheDocument()
     expect(screen.getByText(minor.summary)).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'CRITICAL 1' }))
+    await user.click(screen.getByRole('button', { name: 'Critical 1' }))
 
     expect(screen.getByText(critical.summary)).toBeInTheDocument()
     expect(screen.queryByText(blocker.summary)).not.toBeInTheDocument()

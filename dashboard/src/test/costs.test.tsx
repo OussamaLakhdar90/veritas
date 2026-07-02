@@ -37,7 +37,7 @@ describe('Costs page', () => {
     stubSummary(summary())
     renderCosts()
 
-    expect(await screen.findByRole('heading', { name: 'LLM cost' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'AI spend' })).toBeInTheDocument()
     expect(screen.getByText(/Estimated Copilot spend in this environment/)).toBeInTheDocument()
     expect(screen.getByText('By skill')).toBeInTheDocument()
     expect(screen.getByText('Where the spend goes.')).toBeInTheDocument()
@@ -50,7 +50,7 @@ describe('Costs page', () => {
     // Total est. cost → "$1.2345" (toFixed(4)); LLM actions → 17.
     expect(await screen.findByText('$1.2345')).toBeInTheDocument()
     expect(screen.getByText('Total est. cost')).toBeInTheDocument()
-    expect(screen.getByText('LLM actions')).toBeInTheDocument()
+    expect(screen.getByText('AI calls')).toBeInTheDocument()
     expect(screen.getByText('17')).toBeInTheDocument()
   })
 
@@ -85,7 +85,7 @@ describe('Costs page', () => {
 
     expect(await screen.findByText('No spend yet')).toBeInTheDocument()
     expect(
-      screen.getByText('Run a skill that calls the LLM and its cost will be tracked here.'),
+      screen.getByText('Costs appear here after your first AI-powered run.'),
     ).toBeInTheDocument()
     // KPIs still render their zeroed values, not the table.
     expect(screen.getByText('$0.0000')).toBeInTheDocument()

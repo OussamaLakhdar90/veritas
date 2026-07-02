@@ -107,7 +107,7 @@ describe("App shell — landing route", () => {
     gotoHash("#/costs")
     renderApp()
 
-    expect(await screen.findByRole("heading", { name: "LLM cost" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "AI spend" })).toBeInTheDocument()
   })
 })
 
@@ -158,7 +158,7 @@ describe("App shell — navigation changes the route", () => {
 
     expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument()
     await user.click(screen.getByRole("link", { name: "Cost" }))
-    expect(await screen.findByRole("heading", { name: "LLM cost" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "AI spend" })).toBeInTheDocument()
   })
 
   it("clicking Defects renders the Defects page heading", async () => {
@@ -194,7 +194,7 @@ describe("App shell — navigation changes the route", () => {
     const user = userEvent.setup()
     renderApp()
 
-    expect(await screen.findByRole("heading", { name: "LLM cost" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "AI spend" })).toBeInTheDocument()
     await user.click(screen.getByRole("link", { name: "Overview" }))
     expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument()
   })

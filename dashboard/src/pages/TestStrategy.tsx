@@ -9,6 +9,8 @@ import { useToast } from '../components/Toast';
 import { ServiceField } from '../components/ServiceField';
 import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
+import { enumLabel } from '../lib/enumLabels';
+import { formatDateTime } from '../lib/format';
 
 /** ISTQB Test-Manager strategy wizard: synthesize a structured strategy from a basis, then review versions. */
 export function TestStrategy() {
@@ -77,9 +79,9 @@ export function TestStrategy() {
             <Table head={<><Th>{t('testStrategy.columnStatus')}</Th><Th className="text-right">{t('testStrategy.columnConfidence')}</Th><Th>{t('testStrategy.columnCreated')}</Th><Th /></>}>
               {rows.map((s) => (
                 <Row key={s.id}>
-                  <Td><Badge className={s.status === 'APPROVED' ? TONE.ok : TONE.info}>{s.status ?? 'DRAFT'}</Badge></Td>
+                  <Td><Badge className={s.status === 'APPROVED' ? TONE.ok : TONE.info}>{enumLabel(t, 'strategyStatus', s.status ?? 'DRAFT')}</Badge></Td>
                   <Td className="text-right tabular-nums text-ink-900">{s.confidence != null ? `${Math.round(s.confidence)}%` : '—'}</Td>
-                  <Td className="text-muted">{s.createdAt ? new Date(s.createdAt).toLocaleString() : '—'}</Td>
+                  <Td className="text-muted">{formatDateTime(s.createdAt)}</Td>
                   <Td className="text-right">
                     <div className="inline-flex items-center gap-4">
                       {s.source === 'multi-source' && (

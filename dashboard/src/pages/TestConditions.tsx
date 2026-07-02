@@ -7,6 +7,7 @@ import { api, TestCondition } from '../api';
 import { Badge, Card, CardBody, CardHeader, PageHeader, Spinner, Table, Td, Th, Row, ErrorState } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
+import { enumLabel } from '../lib/enumLabels';
 
 const AUTOMATION = ['AUTOMATED', 'MANUAL', 'CANDIDATE'];
 
@@ -114,14 +115,14 @@ export function TestConditions() {
                   <Td className="text-muted">{c.technique ?? '—'}</Td>
                   <Td>
                     <div className="flex items-center gap-2">
-                      <Badge className={automationTone(c.automation)}>{(c.automation || 'CANDIDATE').toUpperCase()}</Badge>
+                      <Badge className={automationTone(c.automation)}>{enumLabel(t, 'automation', c.automation ?? 'CANDIDATE')}</Badge>
                       <select
                         aria-label={t('testConditions.automationFor', { ref: c.conditionRef })}
                         className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-ink-700"
                         value={(c.automation || 'CANDIDATE').toUpperCase()}
                         disabled={setAutomation.isPending}
                         onChange={(e) => setAutomation.mutate({ condId: c.id, automation: e.target.value })}>
-                        {AUTOMATION.map((a) => <option key={a} value={a}>{a}</option>)}
+                        {AUTOMATION.map((a) => <option key={a} value={a}>{enumLabel(t, 'automation', a)}</option>)}
                       </select>
                     </div>
                   </Td>

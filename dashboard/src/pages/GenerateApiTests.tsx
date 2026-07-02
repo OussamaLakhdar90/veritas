@@ -8,6 +8,7 @@ import { useToast } from '../components/Toast';
 import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
+import { enumLabel } from '../lib/enumLabels';
 
 const STEP_KEYS = ['stepService', 'stepDestination', 'stepPlan', 'stepTokens', 'stepReview'] as const;
 
@@ -381,7 +382,7 @@ export function GenerateApiTests() {
         <Card>
           <CardHeader
             title={<span className="inline-flex items-center gap-2">{t('genApi.step5Title')}
-              <Badge className={buildTone(run.buildStatus)}>{t('genApi.buildBadge', { status: run.buildStatus ?? '—' })}</Badge></span>}
+              <Badge className={buildTone(run.buildStatus)}>{t('genApi.buildBadge', { status: enumLabel(t, 'buildStatus', run.buildStatus) })}</Badge></span>}
             subtitle={t('genApi.step5Subtitle', { name: run.serviceName })} />
           <CardBody className="space-y-5">
             {run.buildStatus === 'SKIPPED' && (

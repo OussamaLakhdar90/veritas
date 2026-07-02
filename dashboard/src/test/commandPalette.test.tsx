@@ -45,7 +45,7 @@ describe('Command palette', () => {
     await user.type(within(dialog).getByPlaceholderText('Search pages and services…'), 'cost')
     await user.keyboard('{Enter}')
 
-    expect(await screen.findByRole('heading', { name: 'LLM cost' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'AI spend' })).toBeInTheDocument()
   })
 
   it('lists services from the catalog as jump targets', async () => {

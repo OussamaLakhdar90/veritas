@@ -7,6 +7,8 @@ import { Donut, Gauge, severitySlices } from '../components/charts';
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
 import { DefectLink } from '../api';
+import { enumLabel } from '../lib/enumLabels';
+import { formatDateTime } from '../lib/format';
 
 const DEFECT_ACCESSORS: Record<string, (d: DefectLink) => string | number> = {
   jiraKey: (d) => d.jiraKey ?? '',
@@ -68,7 +70,7 @@ export function Defects() {
                 <div className="min-w-0 flex-1 space-y-1.5 text-sm">
                   {Object.entries(m.bySeverity).map(([sev, n]) => (
                     <div key={sev} className="flex items-center gap-2">
-                      <Badge className={severityTone(sev)}>{sev}</Badge>
+                      <Badge className={severityTone(sev)}>{enumLabel(t, 'severity', sev)}</Badge>
                       <span className="ml-auto font-semibold tabular-nums text-ink-900">{n}</span>
                     </div>
                   ))}
@@ -110,7 +112,7 @@ export function Defects() {
                   </Td>
                   <Td><Badge className={statusTone(d.jiraStatusCategory)}>{d.jiraStatus ?? (d.createdInJira ? t('defects.statusOpen') : t('defects.statusNotCreated'))}</Badge></Td>
                   <Td className="text-muted">{d.createdBy ?? '—'}</Td>
-                  <Td className="text-muted">{d.lastSyncedAt ? new Date(d.lastSyncedAt).toLocaleString() : '—'}</Td>
+                  <Td className="text-muted">{formatDateTime(d.lastSyncedAt)}</Td>
                 </Row>
               ))}
             </Table>

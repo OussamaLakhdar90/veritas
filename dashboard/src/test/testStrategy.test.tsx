@@ -69,8 +69,8 @@ describe('TestStrategy page', () => {
     expect(await screen.findByText('Strategy generated.')).toBeInTheDocument()
     // The list loads for the service we just generated against.
     expect(await screen.findByText('Strategies — ciam-policies')).toBeInTheDocument()
-    expect(screen.getByText('APPROVED')).toBeInTheDocument()
-    expect(screen.getByText('DRAFT')).toBeInTheDocument()
+    expect(screen.getByText('Approved')).toBeInTheDocument()
+    expect(screen.getByText('Draft')).toBeInTheDocument()
     // Confidence rounds; missing confidence renders an em dash.
     expect(screen.getByText('87%')).toBeInTheDocument()
     // Every row exposes a Rationale link (href from api.strategyRationaleUrl).
@@ -160,6 +160,6 @@ describe('TestStrategy page', () => {
     expect(receivedSource).toBe('JIRA')
     // Sanity: the row table rendered with the single returned strategy.
     const table = await screen.findByRole('table')
-    expect(within(table).getByText('APPROVED')).toBeInTheDocument()
+    expect(within(table).getByText('Approved')).toBeInTheDocument()
   })
 })

@@ -10,6 +10,8 @@ import {
 import { useToast } from '../components/Toast';
 import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
+import { enumLabel } from '../lib/enumLabels';
+import { formatDateTime } from '../lib/format';
 
 /** The six editable strategy sections (keys match TestStrategyService.SECTIONS). */
 const SECTIONS: Array<{ key: string; labelKey: string }> = [
@@ -269,9 +271,9 @@ export function StrategyDetail() {
                 return (
                   <Row key={v.id}>
                     <Td className="font-medium text-ink-900">v{vv.version ?? 1}</Td>
-                    <Td><Badge className={(v.status || '').toUpperCase() === 'APPROVED' ? TONE.ok : TONE.info}>{v.status ?? 'DRAFT'}</Badge></Td>
+                    <Td><Badge className={(v.status || '').toUpperCase() === 'APPROVED' ? TONE.ok : TONE.info}>{enumLabel(t, 'strategyStatus', v.status ?? 'DRAFT')}</Badge></Td>
                     <Td className="text-muted">{vv.revisedBy ?? '—'}</Td>
-                    <Td className="text-muted">{v.createdAt ? new Date(v.createdAt).toLocaleString() : '—'}</Td>
+                    <Td className="text-muted">{formatDateTime(v.createdAt)}</Td>
                     <Td className="text-right">
                       {v.id === s.id ? <span className="text-sm text-muted">{t('strategyDetail.current')}</span> :
                         <Link to={`/test-strategy/${v.id}`} className="text-sm font-medium text-gold hover:underline">{t('strategyDetail.open')}</Link>}
