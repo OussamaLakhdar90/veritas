@@ -110,3 +110,15 @@
 @keyframes ringSweep { from { stroke-dasharray: 0 339.292; } }
 .ring-sweep { animation: ringSweep .7s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
 @media (prefers-reduced-motion: reduce) { .ring-sweep { animation: none; } }
+
+/* Chart draw-ins: arcs reuse the from-only ringSweep keyframe (each circle's own dasharray is the implicit
+   `to`); the sparkline draws via pathLength=1 normalization; the end-dot fades in after the line lands. */
+.arc-sweep { animation: ringSweep .7s cubic-bezier(0.2, 0.7, 0.3, 1) backwards; }
+@keyframes sparkDraw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+.spark-draw { stroke-dasharray: 1; animation: sparkDraw .7s cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+@keyframes toastFadeIn { from { opacity: 0; } }
+.spark-dot { animation: toastFadeIn .3s .6s both; }
+@keyframes toastLife { from { transform: scaleX(1); } to { transform: scaleX(0); } }
+@media (prefers-reduced-motion: reduce) {
+  .arc-sweep, .spark-draw, .spark-dot { animation: none; }
+}

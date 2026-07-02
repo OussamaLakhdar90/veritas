@@ -8,6 +8,7 @@ import { Badge, Button, ErrorState, Field, Input, Spinner } from './ui';
 import { useToast } from './Toast';
 import { TONE } from '../theme/tokens';
 import { FIX_STATUS, IN_FLIGHT } from '../lib/snykStatus';
+import { SuccessCheck } from './SuccessCheck';
 
 const FRAMEWORK_LABELS = ['BOM', 'core', 'api', 'web'];
 
@@ -263,6 +264,7 @@ function TrainHeader({ train }: { train: SnykFixTrainView }) {
       <div className="flex items-center gap-2">
         {inFlight ? <Loader2 className="h-4 w-4 animate-spin text-brand" />
           : train.status === FIX_STATUS.AWAITING_MANUAL_FIX ? <AlertTriangle className="h-4 w-4 text-warning" />
+          : train.status === FIX_STATUS.DONE ? <SuccessCheck className="h-5 w-5" />
           : <CheckCircle2 className="h-4 w-4 text-success" />}
         <Badge className={tone}>{t(`snyk.fix.status.${train.status}`, train.status)}</Badge>
         {train.stageDetail && <span className="text-sm text-muted">{train.stageDetail}</span>}

@@ -7,6 +7,8 @@ import { Search, CornerDownLeft } from 'lucide-react';
 import { api } from '../api';
 import { NAV_ITEMS } from '../lib/nav';
 import { cn } from './cn';
+import { motion } from 'framer-motion';
+import { isTestEnv, overlaySpring } from '../lib/motion';
 
 interface Cmd { id: string; label: string; group: string; to: string; Icon?: ComponentType<{ className?: string }> }
 
@@ -49,7 +51,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     <div className="fixed inset-0 z-[70] flex items-start justify-center p-4 pt-[12vh]"
       role="dialog" aria-modal="true" aria-label={t('palette.title')}>
       <div className="absolute inset-0 bg-ink-900/50 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
-      <div className="relative w-full max-w-lg overflow-hidden rounded-xl bg-surface shadow-pop ring-1 ring-border">
+      <motion.div className="relative w-full max-w-lg overflow-hidden rounded-xl bg-surface shadow-pop ring-1 ring-border"
+        initial={isTestEnv ? false : { opacity: 0, y: -8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={overlaySpring}>
         <div className="flex items-center gap-2 border-b border-border px-4">
           <Search className="h-4 w-4 shrink-0 text-muted" />
           <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={onKey}
@@ -77,7 +81,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           <span>↑↓ {t('palette.toNavigate')}</span>
           <span className="ml-auto">esc</span>
         </div>
-      </div>
+      </motion.div>
     </div>,
     document.body,
   );

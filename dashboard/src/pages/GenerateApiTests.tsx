@@ -9,6 +9,7 @@ import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
 import { enumLabel } from '../lib/enumLabels';
+import { SuccessCheck } from '../components/SuccessCheck';
 
 const STEP_KEYS = ['stepService', 'stepDestination', 'stepPlan', 'stepTokens', 'stepReview'] as const;
 
@@ -381,7 +382,7 @@ export function GenerateApiTests() {
       {step === 5 && run && (
         <Card>
           <CardHeader
-            title={<span className="inline-flex items-center gap-2">{t('genApi.step5Title')}
+            title={<span className="inline-flex items-center gap-2">{(run.buildStatus === 'PASS' || run.buildStatus === 'REPAIRED') && <SuccessCheck className="h-5 w-5" />}{t('genApi.step5Title')}
               <Badge className={buildTone(run.buildStatus)}>{t('genApi.buildBadge', { status: enumLabel(t, 'buildStatus', run.buildStatus) })}</Badge></span>}
             subtitle={t('genApi.step5Subtitle', { name: run.serviceName })} />
           <CardBody className="space-y-5">
