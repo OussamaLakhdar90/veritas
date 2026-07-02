@@ -37,6 +37,11 @@ management:
           include: downstreamIntegrations
 
 veritas:
+  demo:
+    # Seed a realistic 30-day demo portfolio at startup (8 services, scans/findings/defects/Snyk/test assets).
+    # HONEST demo mode: the UI shows a visible "demo data" badge while this is on. Idempotent (skips when data
+    # exists). Keep snyk.poll-enabled=false alongside, or the real poller overwrites the seeded posture.
+    seed: false
   secret:
     auto-passphrase: true   # local-first: auto-generate a machine-bound key (~/.veritas/secret.key) so in-app token
                             # entry works without editing YAML. The `server` (EC2) profile sets this false — a

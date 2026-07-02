@@ -1060,6 +1060,8 @@
     "addScope": "Add scope"
   },
   "engine": {
+    "seededData": "Demo data",
+    "seededTooltip": "This environment runs on a seeded demo portfolio — numbers are illustrative, the product is real.",
     "simulatedData": "Simulated data",
     "mockTooltip": "The active engine is the mock — results are simulated, not real analysis. Switch engines in Settings."
   },
