@@ -33,6 +33,7 @@ import { cn } from './components/cn';
 import { NAV_GROUPS, NAV_ITEMS } from './lib/nav';
 import { CommandPalette } from './components/CommandPalette';
 import { AlertBell } from './components/AlertBell';
+import { VeritasLogo } from './components/VeritasLogo';
 
 /** EN/FR segmented toggle — French is the default (NBC/Québec); the choice persists to localStorage. */
 function LanguageToggle() {
@@ -65,7 +66,9 @@ function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile }:
       collapsed ? 'lg:w-16' : 'lg:w-60',
     )}>
       <div className={cn('flex items-center gap-2 px-5 py-5', collapsed && 'lg:justify-center lg:px-0')}>
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand font-bold text-white">V</span>
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand text-white">
+          <VeritasLogo className="h-5 w-5" />
+        </span>
         <div className={cn(collapsed && 'lg:hidden')}>
           <div className="text-md font-semibold text-white">{t('brand.name')}</div>
           <div className="text-2xs text-white/50">{t('brand.tagline')}</div>

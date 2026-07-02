@@ -7,6 +7,7 @@ import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, Pa
 import { useToast } from '../components/Toast';
 import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
+import { enumLabel } from '../lib/enumLabels';
 
 const verdictTone = (v?: string) => {
   const u = (v || '').toUpperCase();
@@ -199,7 +200,7 @@ function ResultsTable({ results, openId, setOpenId }:
           <Row key={r.id} className="cursor-pointer" onClick={() => setOpenId(open ? null : r.id)}>
             <Td className="text-muted">{open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</Td>
             <Td className="font-mono text-xs text-ink-900">{r.targetKey ?? '—'}</Td>
-            <Td><Badge className={verdictTone(r.verdict)}>{r.verdict ?? '—'}</Badge></Td>
+            <Td><Badge className={verdictTone(r.verdict)}>{enumLabel(t, 'verdict', r.verdict)}</Badge></Td>
             <Td className="text-right tabular-nums text-ink-900">{r.score != null ? r.score : '—'}</Td>
             <Td className="text-right tabular-nums text-muted">{r.confidence != null ? `${Math.round(r.confidence)}%` : '—'}</Td>
           </Row>

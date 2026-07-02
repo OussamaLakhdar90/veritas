@@ -129,12 +129,12 @@ describe('TestPlanDetail (RTM)', () => {
     const matchedRow = screen.getByText('REQ-1').closest('tr')!
     expect(within(matchedRow).getByText('Retrieve policy by id')).toBeInTheDocument()
     expect(within(matchedRow).getByText('Functional')).toBeInTheDocument()
-    expect(within(matchedRow).getByText('MATCHED')).toBeInTheDocument()
+    expect(within(matchedRow).getByText('Covered')).toBeInTheDocument()
     expect(within(matchedRow).getByText('CIAM-T100')).toBeInTheDocument()
 
     // A GAP row has no matched test → falls back to the em-dash.
     const gapRow = screen.getByText('REQ-2').closest('tr')!
-    expect(within(gapRow).getByText('GAP')).toBeInTheDocument()
+    expect(within(gapRow).getByText('Gap')).toBeInTheDocument()
     expect(within(gapRow).getByText('—')).toBeInTheDocument()
   })
 

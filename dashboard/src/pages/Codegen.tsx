@@ -8,6 +8,7 @@ import { useToast } from '../components/Toast';
 import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
+import { enumLabel } from '../lib/enumLabels';
 
 function buildTone(status?: string): string {
   const map: Record<string, string> = { PASS: TONE.ok, REPAIRED: TONE.warn, FAIL: TONE.danger, SKIPPED: TONE.muted };
@@ -91,7 +92,7 @@ export function Codegen() {
                   className={cn('flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm transition',
                     sel?.id === r.id ? 'bg-ink-50 ring-1 ring-border' : 'hover:bg-ink-50/60')}>
                   <span className="truncate font-medium text-ink-900">{r.serviceName}</span>
-                  <Badge className={buildTone(r.buildStatus)}>{r.buildStatus ?? '—'}</Badge>
+                  <Badge className={buildTone(r.buildStatus)}>{enumLabel(t, 'buildStatus', r.buildStatus)}</Badge>
                 </button>
               ))}
             </CardBody>
@@ -102,7 +103,7 @@ export function Codegen() {
             <Card><CardBody><EmptyState icon={FileCode} title={t('codegen.selectRunTitle')} body={t('codegen.selectRunBody')} /></CardBody></Card>
           ) : (
             <Card>
-              <CardHeader title={<span className="inline-flex items-center gap-2">{sel.serviceName}<Badge className={buildTone(sel.buildStatus)}>{t('codegen.buildBadge', { status: sel.buildStatus ?? '—' })}</Badge></span>}
+              <CardHeader title={<span className="inline-flex items-center gap-2">{sel.serviceName}<Badge className={buildTone(sel.buildStatus)}>{t('codegen.buildBadge', { status: enumLabel(t, 'buildStatus', sel.buildStatus) })}</Badge></span>}
                 subtitle={sel.templateSource ? t('codegen.templateSubtitle', { source: sel.templateSource }) : undefined} />
               <CardBody className="space-y-5">
                 <div>

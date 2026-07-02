@@ -1,3 +1,5 @@
+import i18n from './i18n'
+
 const BASE = '/api/v1'
 
 /**
@@ -17,12 +19,13 @@ export interface ApiError extends Error { raw?: string; code?: string; status?: 
  * always preserved on the thrown error as `.raw`; generic HTTP/network failures get a friendlier rewrite.
  */
 function friendlyMessage(detail: string, code: string | undefined, status: number): string {
-  if (code === 'copilot-auth-required') return 'Sign in to Copilot to run AI analysis — open Settings to connect.'
-  if (status === 0) return "Can't reach the Veritas server. Check that it's running, then try again."
-  if (status === 401 || status === 403) return 'Access was denied. Check the connection credentials in Settings.'
-  if (status === 404) return "We couldn't find that — it may have been removed or renamed."
-  if (status === 408 || status === 504) return 'That request took too long and timed out. Try again in a moment.'
-  if (status >= 500) return 'The server hit a problem finishing that. Try again shortly — if it keeps happening, check the server logs.'
+  // The app defaults to French — a mid-demo failure must not suddenly toast in English.
+  if (code === 'copilot-auth-required') return i18n.t('errors.copilotAuth')
+  if (status === 0) return i18n.t('errors.network')
+  if (status === 401 || status === 403) return i18n.t('errors.denied')
+  if (status === 404) return i18n.t('errors.notFound')
+  if (status === 408 || status === 504) return i18n.t('errors.timeout')
+  if (status >= 500) return i18n.t('errors.server')
   // 4xx with a server-provided, human-readable detail: trust it as-is.
   return detail
 }

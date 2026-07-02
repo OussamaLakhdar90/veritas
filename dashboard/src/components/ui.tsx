@@ -112,7 +112,9 @@ export function EmptyState({ icon: Icon, title, body, action }:
 }
 
 /* ── Error state ────────────────────────────────────────────────────────── */
-export function ErrorState({ message }: { message?: string }) {
+/** `detail` (the raw server error) stays one click away behind a "Technical details" disclosure — the
+ *  headline is always the plain-language message. */
+export function ErrorState({ message, detail }: { message?: string; detail?: string }) {
   const { t } = useTranslation();
   return (
     <Card className="border-l-4 border-l-danger">
@@ -120,6 +122,12 @@ export function ErrorState({ message }: { message?: string }) {
         <p className="text-sm text-danger" role="alert">
           {t('common.errorTitle')}{message ? `: ${message}` : '.'} {t('common.errorRetry')}
         </p>
+        {detail && (
+          <details className="mt-2">
+            <summary className="cursor-pointer text-xs text-muted">{t('common.technicalDetails')}</summary>
+            <pre className="mt-1 whitespace-pre-wrap break-all font-mono text-xs text-muted">{detail}</pre>
+          </details>
+        )}
       </CardBody>
     </Card>
   );

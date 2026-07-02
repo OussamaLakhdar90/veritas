@@ -14,10 +14,11 @@ import { SnykImpactCard } from '../components/SnykImpact';
 import { SnykFixWizard } from '../components/SnykFixWizard';
 import { useToast } from '../components/Toast';
 import { snykSeverityBadge, TONE } from '../theme/tokens';
+import { formatDateTime } from '../lib/format';
 
 /** Plain-language "time ago"-ish label using the locale date. */
 function when(iso?: string): string | null {
-  return iso ? new Date(iso).toLocaleString() : null;
+  return iso ? formatDateTime(iso) : null;
 }
 
 /** Snyk sends raw lowercase severities ("critical"…); map to the localized Critical/High/Medium/Low label. */

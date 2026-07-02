@@ -7,6 +7,8 @@ import { Badge, Button, Card, CardBody, EmptyState, ErrorState, PageHeader, Spin
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
+import { enumLabel } from '../lib/enumLabels';
+import { formatDateTime } from '../lib/format';
 
 const FILTERS = ['PENDING', 'APPROVED', 'REJECTED'];
 const tone = (s?: string) => s === 'APPROVED' ? TONE.ok : s === 'REJECTED' ? TONE.danger : TONE.warn;
@@ -46,7 +48,7 @@ export function Gates() {
       ) : q.isError ? (
         <ErrorState message={(q.error as Error).message} />
       ) : rows.length === 0 ? (
-        <EmptyState icon={GitPullRequestArrow} title={t('gates.emptyTitle', { status: status.toLowerCase() })}
+        <EmptyState icon={GitPullRequestArrow} title={t('gates.emptyTitle', { statusLabel: enumLabel(t, 'gateStatus', status).toLowerCase() })}
           body={status === 'PENDING' ? t('gates.emptyBody') : undefined} />
       ) : (
         <Card>
@@ -56,9 +58,9 @@ export function Gates() {
                 <Row key={g.id}>
                   <Td className="font-medium text-ink-900">{g.action}</Td>
                   <Td className="font-mono text-xs text-muted">{g.runId}</Td>
-                  <Td><Badge className={tone(g.status)}>{g.status}</Badge></Td>
+                  <Td><Badge className={tone(g.status)}>{enumLabel(t, 'gateStatus', g.status)}</Badge></Td>
                   <Td className="text-muted">{g.approver ?? '—'}</Td>
-                  <Td className="text-muted">{g.decidedAt ? new Date(g.decidedAt).toLocaleString() : (g.createdAt ? new Date(g.createdAt).toLocaleString() : '—')}</Td>
+                  <Td className="text-muted">{formatDateTime(g.decidedAt ?? g.createdAt)}</Td>
                   <Td className="text-right whitespace-nowrap">
                     {g.status === 'PENDING' && (
                       <span className="inline-flex gap-2">

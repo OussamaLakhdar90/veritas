@@ -48,7 +48,7 @@ describe('Approval gates', () => {
     server.use(http.get('*/api/v1/gates', () => HttpResponse.json([])))
     renderGates()
 
-    expect(await screen.findByText('No pending gates')).toBeInTheDocument()
+    expect(await screen.findByText('No pending approvals')).toBeInTheDocument()
     expect(
       screen.getByText(/When a skill needs approval before writing to Jira/),
     ).toBeInTheDocument()
@@ -71,7 +71,7 @@ describe('Approval gates', () => {
 
     expect(await screen.findByText('Create Jira defect')).toBeInTheDocument()
     expect(screen.getByText('run-abc')).toBeInTheDocument()
-    expect(screen.getByText('PENDING')).toBeInTheDocument()
+    expect(screen.getAllByText('Pending').length).toBeGreaterThan(0)
     expect(screen.getByText('—')).toBeInTheDocument() // no approver yet
     expect(screen.getByRole('button', { name: /^Approve$/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^Reject$/ })).toBeInTheDocument()
@@ -147,7 +147,7 @@ describe('Approval gates', () => {
 
     expect(await screen.findByText('Push Xray test')).toBeInTheDocument()
     expect(screen.getByText('alice')).toBeInTheDocument()
-    expect(screen.getByText('APPROVED')).toBeInTheDocument()
+    expect(screen.getAllByText('Approved').length).toBeGreaterThan(0)
     // Decided gates are not actionable: only the filter toggles remain, no row Approve/Reject.
     expect(screen.queryByRole('button', { name: /^Approve$/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^Reject$/ })).not.toBeInTheDocument()
@@ -161,6 +161,6 @@ describe('Approval gates', () => {
 
     const row = (await screen.findByText('Push Xray test')).closest('tr')!
     expect(within(row).getByText('alice')).toBeInTheDocument()
-    expect(within(row).getByText('APPROVED')).toBeInTheDocument()
+    expect(within(row).getByText('Approved')).toBeInTheDocument()
   })
 })
