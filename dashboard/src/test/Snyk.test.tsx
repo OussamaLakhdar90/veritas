@@ -27,6 +27,18 @@ describe('Snyk page', () => {
     expect(screen.getAllByLabelText('Snyk').length).toBeGreaterThan(0)
   })
 
+  it('shows a guided "Connect Snyk" call-to-action (with a Settings link) when Snyk is not connected', async () => {
+    server.use(
+      http.get('*/api/v1/snyk/orgs', () => new HttpResponse(null, { status: 500 })),   // no token → orgs errors
+      http.get('*/api/v1/snyk/watches', () => HttpResponse.json([])),
+      http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([])),
+    )
+    renderSnyk()
+    expect(await screen.findByText('Connect Snyk to get started')).toBeInTheDocument()
+    const cta = screen.getByRole('link', { name: /Connect Snyk in Settings/ })
+    expect(cta).toHaveAttribute('href', '/settings')
+  })
+
   it('watches selected app-ids via the by-app endpoint (auto application-tests)', async () => {
     let posted: unknown = null
     server.use(
