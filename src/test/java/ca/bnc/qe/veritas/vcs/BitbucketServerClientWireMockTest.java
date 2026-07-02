@@ -73,6 +73,20 @@ class BitbucketServerClientWireMockTest {
     }
 
     @Test
+    void rejectsAPathInjectingProjectKeyOrRepoSlug() {
+        BitbucketServerClient c = client("BEARER");
+        // A valid key builds a normal URL...
+        assertThat(c.buildDiscoveryUri("APP7576", 0)).contains("/projects/APP7576/repos");
+        // ...but a traversal / path-injecting segment is rejected before any authenticated request is made.
+        assertThatThrownBy(() -> c.buildDiscoveryUri("APP7576/../admin", 0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> c.buildPullRequestUri("repo/../../secrets"))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> c.listBranches("APP7576", "repo?x=1"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void bearerAuthHeaderForBearerType() {
         assertThat(client("BEARER").authHeader()).isEqualTo("Bearer tok");
     }

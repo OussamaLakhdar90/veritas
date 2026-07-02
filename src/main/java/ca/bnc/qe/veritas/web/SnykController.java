@@ -4,7 +4,7 @@ import java.util.List;
 import java.util.Map;
 import ca.bnc.qe.veritas.integration.snyk.SnykOrg;
 import ca.bnc.qe.veritas.integration.snyk.SnykTarget;
-import ca.bnc.qe.veritas.snyk.SnykAlert;
+import ca.bnc.qe.veritas.snyk.SnykAlertView;
 import ca.bnc.qe.veritas.snyk.SnykIssueView;
 import ca.bnc.qe.veritas.snyk.SnykService;
 import ca.bnc.qe.veritas.snyk.SnykWatchView;
@@ -91,7 +91,7 @@ public class SnykController {
 
     /** The alert feed; {@code unseenOnly=true} for the notification bell. */
     @GetMapping("/snyk/alerts")
-    public List<SnykAlert> alerts(@RequestParam(required = false, defaultValue = "false") boolean unseenOnly) {
+    public List<SnykAlertView> alerts(@RequestParam(required = false, defaultValue = "false") boolean unseenOnly) {
         return snyk.alerts(unseenOnly);
     }
 

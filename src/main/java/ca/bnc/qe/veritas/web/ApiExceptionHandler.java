@@ -42,6 +42,14 @@ public class ApiExceptionHandler {
         return pd;
     }
 
+    @ExceptionHandler(ca.bnc.qe.veritas.skill.NotFoundException.class)
+    public ProblemDetail onNotFound(ca.bnc.qe.veritas.skill.NotFoundException e) {
+        // A missing resource (unknown id) — 404, not 400/500, so the dashboard shows "it may have been removed".
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());
+        pd.setTitle("Not found");
+        return pd;
+    }
+
     @ExceptionHandler(ca.bnc.qe.veritas.skill.ConflictException.class)
     public ProblemDetail onConflict(ca.bnc.qe.veritas.skill.ConflictException e) {
         // e.g. deciding an already-decided gate (concurrent double-click / re-submit) — a conflict, not a 500.

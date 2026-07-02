@@ -72,7 +72,8 @@ public class BitbucketCloudClient implements GitHost {
     @Override
     public List<String> listBranches(String appId, String repoSlug) {
         List<String> branches = new ArrayList<>();
-        String uri = base() + "/2.0/repositories/" + workspace() + "/" + repoSlug + "/refs/branches?pagelen=100";
+        String uri = base() + "/2.0/repositories/" + workspace() + "/" + seg(repoSlug, "repository slug")
+                + "/refs/branches?pagelen=100";
         try {
             while (uri != null) {
                 final String pageUri = uri;
@@ -158,7 +159,19 @@ public class BitbucketCloudClient implements GitHost {
     // ---- testable building blocks ----
 
     String buildPullRequestUri(String repoSlug) {
-        return base() + "/2.0/repositories/" + workspace() + "/" + repoSlug + "/pullrequests";
+        return base() + "/2.0/repositories/" + workspace() + "/" + seg(repoSlug, "repository slug") + "/pullrequests";
+    }
+
+    /**
+     * Validate a caller-supplied repo slug before it lands raw in a REST path. Bitbucket slugs are
+     * {@code [A-Za-z0-9._-]}; anything else (a {@code /}, {@code ..}, {@code ?}, {@code #}) could rewrite the request
+     * path under Veritas's credentials — an authenticated SSRF/path-injection. Reject it.
+     */
+    private static String seg(String value, String what) {
+        if (value == null || !value.matches("[A-Za-z0-9._-]+")) {
+            throw new IllegalArgumentException("Invalid " + what + ": '" + value + "'");
+        }
+        return value;
     }
 
     String buildPullRequestPayload(String sourceBranch, String targetBranch, String title, String description)

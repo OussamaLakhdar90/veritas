@@ -55,6 +55,12 @@ public class SnykFixController {
     @PostMapping("/snyk/fixes")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Map<String, String> startFix(@RequestBody StartFixRequest req) {
+        // Fail fast with a 400 rather than 202-accepting a malformed request that only surfaces later as a FAILED train.
+        require(req.coordinate(), "coordinate (groupId:artifactId)");
+        require(req.fixedIn(), "fixedIn (the safe version to upgrade to)");
+        if (req.appIds() == null || req.appIds().isEmpty()) {
+            throw new IllegalArgumentException("At least one app-id is required.");
+        }
         String id = runner.submit(new SnykFixRequest(req.watchId(), req.issueId(), req.coordinate(),
                 req.oldVersion(), req.fixedIn(), req.severity(), req.appIds(), req.jiraKey(), req.jiraProject(),
                 req.jiraIssueType(), req.reviewers(), req.owner(), req.autoConfirm()));
@@ -79,7 +85,7 @@ public class SnykFixController {
     @GetMapping("/snyk/fixes/{id}")
     public SnykFixTrainView fix(@PathVariable String id) {
         return trains.findById(id).map(this::toView)
-                .orElseThrow(() -> new IllegalArgumentException("Fix train not found: " + id));
+                .orElseThrow(() -> new ca.bnc.qe.veritas.skill.NotFoundException("Fix train not found: " + id));
     }
 
     /** The planned cascade (steps + diffs + per-repo reviewers) for the confirm step — an alias of {@code GET /{id}}. */
@@ -157,4 +163,10 @@ public class SnykFixController {
                                     Map<Integer, List<String>> reviewerOverrides) {}
 
     public record RecordPrRequest(String prUrl) {}
+
+    private static void require(String value, String what) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(what + " is required.");
+        }
+    }
 }

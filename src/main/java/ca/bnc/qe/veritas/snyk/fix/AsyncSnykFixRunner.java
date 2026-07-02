@@ -139,7 +139,7 @@ public class AsyncSnykFixRunner {
     public void confirm(String trainId, Map<String, String> versionOverrides,
                         Map<Integer, List<String>> reviewerOverrides) {
         SnykFixTrain train = trains.findById(trainId)
-                .orElseThrow(() -> new IllegalArgumentException("Fix train not found: " + trainId));
+                .orElseThrow(() -> new ca.bnc.qe.veritas.skill.NotFoundException("Fix train not found: " + trainId));
         if (!SnykFixStatus.AWAITING_CONFIRM.equals(train.getStatus())) {
             throw new IllegalStateException("Fix train " + trainId + " is not awaiting confirmation.");
         }
