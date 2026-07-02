@@ -87,7 +87,8 @@ describe('Snyk page', () => {
     )
     renderSnyk()
     expect(await screen.findByText(/New critical vulnerability/)).toBeInTheDocument()
-    expect(screen.getByText('critical')).toBeInTheDocument()
+    // The severity badge shows the localized label ("Critical"), not the raw lowercase API value.
+    expect(screen.getByText('Critical')).toBeInTheDocument()
   })
 
   it('loads issues for a watch and shows fix info (upgrade vs no-supported-fix)', async () => {

@@ -42,6 +42,7 @@
   "common": {
     "errorTitle": "Impossible de charger ces données",
     "errorRetry": "Vérifiez vos paramètres de connexion et réessayez.",
+    "retry": "Réessayer",
     "close": "Fermer",
     "dismissToast": "Rejeter la notification"
   },
@@ -58,7 +59,7 @@
       "merged": "correctifs fusionnés",
       "prs": "PR ouvertes",
       "inProgress": "en cours",
-      "aiCost": "vérifs IA"
+      "aiCost": "coût IA"
     },
     "refresh": "Actualiser",
     "refreshed_one": "{{count}} dépôt surveillé actualisé.",
@@ -121,6 +122,7 @@
       "reviewersEditHint": "Séparés par des virgules ; modifiez par dépôt.",
       "start": "Lancer la correction",
       "starting": "Lancement de la correction…",
+      "loadFailed": "Impossible de charger le train de correction.",
       "confirm": "Confirmer et lancer",
       "reviewIntro": "Passez en revue la cascade avant son exécution. Les dépôts du cadre (APP7488) sont fusionnés d’abord, puis une PR par application. Modifiez la nouvelle version de chaque module ou ses réviseurs ; les lignes grisées ne peuvent pas être mises à niveau automatiquement.",
       "newVersionLabel": "Nouvelle version",

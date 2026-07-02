@@ -18,6 +18,11 @@ function when(iso?: string): string | null {
   return iso ? new Date(iso).toLocaleString() : null;
 }
 
+/** Snyk sends raw lowercase severities ("critical"…); map to the localized Critical/High/Medium/Low label. */
+const SEV_KEY: Record<string, string> = {
+  critical: 'snyk.sevCritical', high: 'snyk.sevHigh', medium: 'snyk.sevMedium', low: 'snyk.sevLow',
+};
+
 export function Snyk() {
   const { t } = useTranslation();
   const toast = useToast();
@@ -94,8 +99,9 @@ export function Snyk() {
       <SnykImpactCard showLink={false} />
 
       {/* New-alert notifications. Critical is deliberately alarming (strong red + a pulsing shield); lower severities
-          stay calm. Persistent aria-live region so screen readers announce new arrivals. */}
-      <div className={alerts.length > 0 ? 'mb-6 space-y-2' : ''} aria-live="assertive" aria-atomic="false">
+          stay calm. Each row is role="alert" (an implicit assertive live region) so screen readers announce arrivals
+          — no wrapping aria-live, which would double-announce. */}
+      <div className={alerts.length > 0 ? 'mb-6 space-y-2' : ''}>
         {alerts.map((a) => {
           const critical = a.severity === 'critical';
           return (
@@ -106,7 +112,7 @@ export function Snyk() {
                 {critical
                   ? <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 animate-pulse text-danger" aria-hidden="true" />
                   : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />}
-                <Badge className={snykSeverityBadge(a.severity)}>{a.severity}</Badge>
+                <Badge className={snykSeverityBadge(a.severity)}>{t(SEV_KEY[a.severity] ?? a.severity)}</Badge>
                 <span className={critical ? 'font-semibold text-danger' : 'text-ink-900'}>{a.message}</span>
               </div>
               <button type="button" onClick={() => dismissAlert.mutate(a.id)} aria-label={t('snyk.alertDismiss')}
@@ -221,7 +227,7 @@ export function Snyk() {
               </>}>
                 {(issuesQ.data ?? []).map((i: SnykIssueView) => (
                   <Row key={i.issueId + i.projectName}>
-                    <Td><Badge className={snykSeverityBadge(i.severity)}>{i.severity}</Badge></Td>
+                    <Td><Badge className={snykSeverityBadge(i.severity)}>{t(SEV_KEY[i.severity] ?? i.severity)}</Badge></Td>
                     <Td>
                       <span className="font-medium text-ink-900">{i.pkgName}</span>
                       <span className="text-muted">@{i.pkgVersion}</span>
