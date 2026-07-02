@@ -23,6 +23,14 @@ public interface FindingRecordRepository extends JpaRepository<FindingRecord, St
     List<FindingRecord> findPriorDispositions(@Param("fingerprints") Collection<String> fingerprints,
                                               @Param("scanId") String scanId);
 
+    /**
+     * Executive rollup: every DISTINCT breaking defect ever caught (fingerprints repeat across re-scans —
+     * the carry-forward dedup), minus what a human dismissed as rejected / false positive.
+     */
+    @Query("select count(distinct f.fingerprint) from FindingRecord f where f.type in :types "
+            + "and (f.status is null or f.status not in ('REJECTED', 'FALSE_POSITIVE'))")
+    long countDistinctCaughtByTypes(@Param("types") Collection<String> types);
+
     /** Retention sweep: bulk-delete finding rows older than the cutoff. */
     @Modifying(clearAutomatically = true)
     @Query("delete from FindingRecord f where f.createdAt < :cutoff")
