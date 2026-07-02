@@ -62,6 +62,7 @@ public final class PomVersionEditor {
 
     /** Set the active {@code <properties>} block's {@code <prop>} value. Throws if the property isn't present there. */
     public static String bumpProperty(String pom, String prop, String newVersion) {
+        MavenTokens.version(newVersion);   // never write an unsafe value into a pom that will be built
         Matcher m = activePropertyMatcher(pom, prop);
         if (m == null) {
             throw new IllegalStateException("Property <" + prop + "> not found in <properties>.");
@@ -104,6 +105,7 @@ public final class PomVersionEditor {
 
     /** Set the literal {@code <version>} inside the matched dependency (only when it's a literal, not a ${property}). */
     public static String bumpDependencyVersion(String pom, String groupId, String artifactId, String newVersion) {
+        MavenTokens.version(newVersion);
         Matcher m = DEPENDENCY.matcher(pom);
         while (m.find()) {
             String block = m.group(1);
@@ -128,6 +130,7 @@ public final class PomVersionEditor {
 
     /** Bump the module's own version (release a new artifact version). Throws when it can't be located. */
     public static String bumpProjectVersion(String pom, String newVersion) {
+        MavenTokens.version(newVersion);
         Matcher m = projectVersionMatcher(pom);
         if (m == null) {
             throw new IllegalStateException("Could not locate the module's own <version> to bump.");
@@ -141,6 +144,9 @@ public final class PomVersionEditor {
      * This is the self-contained way to pin a transitive fix in the BOM.
      */
     public static String addManagedDependency(String pom, String groupId, String artifactId, String newVersion) {
+        MavenTokens.coordinate(groupId);
+        MavenTokens.coordinate(artifactId);
+        MavenTokens.version(newVersion);
         String entry = "\n            <dependency>\n"
                 + "                <groupId>" + groupId + "</groupId>\n"
                 + "                <artifactId>" + artifactId + "</artifactId>\n"
@@ -164,7 +170,11 @@ public final class PomVersionEditor {
         return pom.substring(0, end) + block + pom.substring(end);
     }
 
-    /** The first {@code <version>} after {@code </parent>} (or after {@code </modelVersion>} when there's no parent). */
+    /** The module's own {@code <version>} — the first after {@code </parent>}/{@code </modelVersion>} that still sits
+     * in the project header, i.e. before any {@code <dependencies>}/{@code <dependencyManagement>}/{@code <build>}/
+     * {@code <profiles>}/{@code <modules>} section. A {@code <version>} found only inside one of those sections is a
+     * dependency/plugin version, not the module's own, so a module that inherits its version from {@code <parent>}
+     * (no own {@code <version>}) yields {@code null} here rather than mangling a real dependency version. */
     private static Matcher projectVersionMatcher(String pom) {
         int from = pom.indexOf("</parent>");
         if (from < 0) {
@@ -173,11 +183,25 @@ public final class PomVersionEditor {
         if (from < 0) {
             from = 0;
         }
+        int headerEnd = firstIndexOf(pom, from,
+                "<dependencies>", "<dependencyManagement>", "<build>", "<profiles>", "<modules>");
         Matcher m = VERSION.matcher(pom);
-        if (m.find(from) && !m.group(1).contains("${")) {
+        if (m.find(from) && m.start() < headerEnd && !m.group(1).contains("${")) {
             return m;
         }
         return null;
+    }
+
+    /** The earliest index (at or after {@code from}) of any of the markers, or {@code pom.length()} when none appear. */
+    private static int firstIndexOf(String pom, int from, String... markers) {
+        int best = pom.length();
+        for (String marker : markers) {
+            int i = pom.indexOf(marker, from);
+            if (i >= 0 && i < best) {
+                best = i;
+            }
+        }
+        return best;
     }
 
     private static Pattern property(String prop) {
