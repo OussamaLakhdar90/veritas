@@ -195,7 +195,10 @@ public class AsyncSnykFixRunner {
             jiraService.transitionTo(jiraKey, SnykFixJiraService.Phase.IN_PROGRESS);
 
             // 4) VERIFYING — apply the edits to the clones, then the local reactor build (the real gate).
+            // Reset the runtime clock here: the reactor (4x mvn install + N x mvn test) is by far the longest phase,
+            // so the staleness reconciler should measure from its start, not from submit/clone/LLM time.
             stage = SnykFixStatus.VERIFYING;
+            train.setStartedAt(Instant.now());
             stage(train, stage, "Building the upgraded framework + running each app's tests locally…");
             ReactorResult reactor = runReactor(clones, apps);
             train.setReactorPassed(reactor.passed());

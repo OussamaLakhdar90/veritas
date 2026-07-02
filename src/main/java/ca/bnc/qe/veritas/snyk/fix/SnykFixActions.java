@@ -46,9 +46,8 @@ public class SnykFixActions {
         train.setBreaking(train.isBreaking() || Boolean.FALSE.equals(train.getReactorPassed()));
         if (!train.isBreaking()) {
             openAll(train, trainSteps, SnykFixStatus.BY_VERITAS);
-            train.setStatus(SnykFixStatus.PR_OPEN);
-            train.setStageDetail("Clean — PR train opened; reviewers assigned; awaiting human merge.");
-            jiraService.transitionTo(train.getJiraKey(), SnykFixJiraService.Phase.IN_REVIEW);
+            markPrTrainOpenedOrHeld(train, trainSteps,
+                    "Clean — PR train opened; reviewers assigned; awaiting human merge.");
         } else {
             train.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);
             train.setStageDetail("Breaking change — the version-bump branches are pushed. Adapt the code + test, "
@@ -57,19 +56,37 @@ public class SnykFixActions {
         trains.save(train);
     }
 
+    /**
+     * After an {@link #openAll} pass, advance to PR_OPEN + Jira In Review only when every actionable step's PR is
+     * actually open; if some open calls failed (steps left at BRANCH_PUSHED) fall back to AWAITING_MANUAL_FIX so the
+     * user can retry or open them by hand — never claim PR_OPEN (and never move Jira) when zero PRs exist.
+     */
+    private void markPrTrainOpenedOrHeld(SnykFixTrain train, List<SnykFixStep> trainSteps, String openedDetail) {
+        if (allActionableOpen(trainSteps)) {
+            train.setStatus(SnykFixStatus.PR_OPEN);
+            train.setStageDetail(openedDetail);
+            jiraService.transitionTo(train.getJiraKey(), SnykFixJiraService.Phase.IN_REVIEW);
+        } else {
+            train.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);
+            train.setStageDetail("Some PRs could not be opened automatically — the branches are pushed; "
+                    + "retry, or open the remaining PRs yourself.");
+        }
+    }
+
     /** The user asks Veritas to open the held PRs (breaking-change path, after they adapted the branches). */
     public SnykFixTrain openHeldPrs(String trainId) {
         SnykFixTrain train = trains.findById(trainId).orElseThrow(
                 () -> new NotFoundException("Fix train not found: " + trainId));
         requireStatus(train, SnykFixStatus.AWAITING_MANUAL_FIX);
         // Claim the train first (optimistic-lock via @Version) so a concurrent open-prs click can't also open the PRs.
+        // Reset the runtime clock too: the train may have waited days in AWAITING_MANUAL_FIX, and OPENING_PRS is a
+        // MACHINE_DRIVEN state — without this the staleness reconciler would immediately fail the just-resumed train.
         train.setStatus(SnykFixStatus.OPENING_PRS);
+        train.setStartedAt(Instant.now());
         trains.save(train);
         List<SnykFixStep> trainSteps = steps.findByTrainIdOrderByStepOrder(trainId);
         openAll(train, trainSteps, SnykFixStatus.BY_VERITAS);
-        train.setStatus(SnykFixStatus.PR_OPEN);
-        train.setStageDetail("PRs opened by Veritas; awaiting human merge.");
-        jiraService.transitionTo(train.getJiraKey(), SnykFixJiraService.Phase.IN_REVIEW);
+        markPrTrainOpenedOrHeld(train, trainSteps, "PRs opened by Veritas; awaiting human merge.");
         return trains.save(train);
     }
 
@@ -85,7 +102,11 @@ public class SnykFixActions {
         requireStatus(train, SnykFixStatus.AWAITING_MANUAL_FIX, SnykFixStatus.PR_OPEN);
         List<SnykFixStep> trainSteps = steps.findByTrainIdOrderByStepOrder(trainId);
         for (SnykFixStep s : trainSteps) {
-            if (s.getStepOrder() == stepOrder && !s.isManual()) {
+            // Only a step that isn't manual and doesn't already have an open/merged PR: never overwrite a PR
+            // (e.g. one Veritas already opened) with a user-supplied URL.
+            if (s.getStepOrder() == stepOrder && !s.isManual()
+                    && !SnykFixStatus.STEP_PR_OPEN.equals(s.getStatus())
+                    && !SnykFixStatus.MERGED.equals(s.getStatus())) {
                 s.setPrUrl(prUrl);
                 s.setPrOpenedBy(SnykFixStatus.BY_USER);
                 s.setStatus(SnykFixStatus.STEP_PR_OPEN);
@@ -107,7 +128,9 @@ public class SnykFixActions {
         // Only a train whose PRs are actually open can be marked merged — never PLANNING/AWAITING_*/VERIFYING.
         requireStatus(train, SnykFixStatus.PR_OPEN);
         for (SnykFixStep s : steps.findByTrainIdOrderByStepOrder(trainId)) {
-            if (!s.isManual()) {
+            // Only a step whose PR was actually open becomes MERGED — never a push-failed (STEP_FAILED) or
+            // still-BRANCH_PUSHED step that never had a PR, which would falsely record it as shipped.
+            if (SnykFixStatus.STEP_PR_OPEN.equals(s.getStatus())) {
                 s.setStatus(SnykFixStatus.MERGED);
                 steps.save(s);
             }
@@ -158,8 +181,14 @@ public class SnykFixActions {
         }
     }
 
+    /**
+     * True when every <em>actionable</em> step's PR is open (or merged). Manual steps have no PR; a push-failed
+     * (STEP_FAILED) step has no branch to open a PR against, so both are excluded — otherwise a single failed push
+     * would block the whole train from ever completing through the record-your-own-PR / open-held-PRs flows.
+     */
     private boolean allActionableOpen(List<SnykFixStep> trainSteps) {
-        return trainSteps.stream().filter(s -> !s.isManual())
+        return trainSteps.stream()
+                .filter(s -> !s.isManual() && !SnykFixStatus.STEP_FAILED.equals(s.getStatus()))
                 .allMatch(s -> SnykFixStatus.STEP_PR_OPEN.equals(s.getStatus())
                         || SnykFixStatus.MERGED.equals(s.getStatus()));
     }
