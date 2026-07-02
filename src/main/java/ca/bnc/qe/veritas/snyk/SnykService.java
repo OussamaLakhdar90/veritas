@@ -1,7 +1,7 @@
 package ca.bnc.qe.veritas.snyk;
 
-import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -11,6 +11,7 @@ import ca.bnc.qe.veritas.integration.snyk.SnykOrg;
 import ca.bnc.qe.veritas.integration.snyk.SnykTarget;
 import ca.bnc.qe.veritas.snyk.fix.FrameworkProperties;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Application service behind the Snyk dashboard: browse orgs/repos, manage watches, read the latest snapshot's
@@ -81,16 +82,28 @@ public class SnykService {
         return view(watches.save(w));
     }
 
+    /** Remove a watch and its owned snapshots/vulns/alerts (so a deleted watch never orphans rows). */
+    @Transactional
     public void removeWatch(String id) {
+        for (SnykSnapshot s : snapshots.findByWatchId(id)) {
+            vulns.deleteBySnapshotId(s.getId());
+        }
+        snapshots.deleteByWatchId(id);
+        alerts.deleteByWatchId(id);
         watches.deleteById(id);
     }
 
     public List<SnykWatchView> watchViews() {
-        List<SnykWatchView> out = new ArrayList<>();
-        for (SnykWatch w : watches.findAll()) {
-            out.add(view(w));
+        List<SnykWatch> all = watches.findAll();
+        if (all.isEmpty()) {
+            return List.of();
         }
-        return out;
+        // Latest snapshot per watch in ONE query (newest-first → the first seen per watch is its latest) — no N+1.
+        Map<String, SnykSnapshot> latest = new HashMap<>();
+        for (SnykSnapshot s : snapshots.findByWatchIdInOrderByTakenAtDesc(all.stream().map(SnykWatch::getId).toList())) {
+            latest.putIfAbsent(s.getWatchId(), s);
+        }
+        return all.stream().map(w -> view(w, latest.get(w.getId()))).toList();
     }
 
     /** The latest snapshot's vulnerabilities for a watch, most-severe first. */
@@ -127,7 +140,10 @@ public class SnykService {
     }
 
     private SnykWatchView view(SnykWatch w) {
-        SnykSnapshot snap = snapshots.findFirstByWatchIdOrderByTakenAtDesc(w.getId()).orElse(null);
+        return view(w, snapshots.findFirstByWatchIdOrderByTakenAtDesc(w.getId()).orElse(null));
+    }
+
+    private SnykWatchView view(SnykWatch w, SnykSnapshot snap) {
         return new SnykWatchView(w.getId(), w.getOrgId(), w.getOrgSlug(), w.getOrgName(), w.getTargetId(),
                 w.getRepoSlug(), w.isEnabled(),
                 snap == null ? 0 : snap.getCritical(), snap == null ? 0 : snap.getHigh(),

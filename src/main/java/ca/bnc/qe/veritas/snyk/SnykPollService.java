@@ -4,6 +4,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 import ca.bnc.qe.veritas.integration.snyk.SnykClient;
 import ca.bnc.qe.veritas.integration.snyk.SnykIssue;
 import ca.bnc.qe.veritas.integration.snyk.SnykProjectRef;
@@ -21,14 +24,16 @@ public class SnykPollService {
 
     private final SnykWatchRepository watches;
     private final SnykSnapshotRepository snapshots;
+    private final SnykVulnRepository vulns;
     private final SnykAlertRepository alerts;
     private final SnykScanPersistence persistence;
     private final SnykClient client;
 
-    public SnykPollService(SnykWatchRepository watches, SnykSnapshotRepository snapshots, SnykAlertRepository alerts,
-                           SnykScanPersistence persistence, SnykClient client) {
+    public SnykPollService(SnykWatchRepository watches, SnykSnapshotRepository snapshots, SnykVulnRepository vulns,
+                           SnykAlertRepository alerts, SnykScanPersistence persistence, SnykClient client) {
         this.watches = watches;
         this.snapshots = snapshots;
+        this.vulns = vulns;
         this.alerts = alerts;
         this.persistence = persistence;
         this.client = client;
@@ -69,17 +74,24 @@ public class SnykPollService {
         snap.setFixableCount(fixable);
 
         SnykSnapshot saved = persistence.save(snap, rows);
-        maybeAlert(w, prev, saved);
+        maybeAlert(w, prev, saved, rows);
         return saved;
     }
 
-    private void maybeAlert(SnykWatch w, SnykSnapshot prev, SnykSnapshot cur) {
+    /**
+     * Raise an alert when the status <b>worsens</b> — not just when the aggregate total or the Critical count grows.
+     * Also fires on a severity <b>escalation</b> at an unchanged total (e.g. a medium becomes a high) and on a
+     * <b>new</b> Critical/High issue that wasn't present before (even if it replaced a remediated one at the same or
+     * a lower count). Otherwise a real regression would be silently swallowed.
+     */
+    private void maybeAlert(SnykWatch w, SnykSnapshot prev, SnykSnapshot cur, List<SnykVuln> curVulns) {
         int prevTotal = prev == null ? 0 : prev.total();
-        int prevCritical = prev == null ? 0 : prev.getCritical();
         boolean firstWithVulns = prev == null && cur.total() > 0;
-        boolean newCritical = cur.getCritical() > prevCritical;
+        boolean newCritical = cur.getCritical() > (prev == null ? 0 : prev.getCritical());
         boolean worsened = cur.total() > prevTotal;
-        if (!firstWithVulns && !newCritical && !worsened) {
+        boolean escalated = prev != null && severityScore(cur) > severityScore(prev);
+        String newSevere = prev == null ? null : newSevereSeverity(prev, curVulns);   // "critical" | "high" | null
+        if (!firstWithVulns && !newCritical && !worsened && !escalated && newSevere == null) {
             return;
         }
         String sev = cur.getCritical() > 0 ? "critical"
@@ -90,13 +102,38 @@ public class SnykPollService {
         a.setOrgSlug(w.getOrgSlug());
         a.setRepoSlug(w.getRepoSlug());
         a.setSeverity(sev);
-        a.setMessage(message(w, prevTotal, cur, newCritical, firstWithVulns));
+        a.setMessage(message(w, prevTotal, cur, firstWithVulns, newCritical, newSevere, escalated));
         a.setSeen(false);
         alerts.save(a);
         log.info("Snyk alert [{}] {} ({}) — {}", sev, w.getRepoSlug(), w.getOrgSlug(), a.getMessage());
     }
 
-    private String message(SnykWatch w, int prevTotal, SnykSnapshot cur, boolean newCritical, boolean firstWithVulns) {
+    /** A severity-weighted score (critical ≫ high ≫ medium ≫ low) so an escalation at an unchanged total is caught. */
+    private long severityScore(SnykSnapshot s) {
+        return s.getCritical() * 1_000_000_000L + s.getHigh() * 1_000_000L + s.getMedium() * 1_000L + s.getLow();
+    }
+
+    /** The most-severe NEW issue (a Critical/High issue id not present in the previous snapshot), or null if none. */
+    private String newSevereSeverity(SnykSnapshot prev, List<SnykVuln> curVulns) {
+        Set<String> prevIds = vulns.findBySnapshotId(prev.getId()).stream()
+                .map(SnykVuln::getIssueId).filter(Objects::nonNull).collect(Collectors.toSet());
+        boolean newCrit = curVulns.stream().anyMatch(v -> isSeverity(v, "critical") && isNew(v, prevIds));
+        if (newCrit) {
+            return "critical";
+        }
+        return curVulns.stream().anyMatch(v -> isSeverity(v, "high") && isNew(v, prevIds)) ? "high" : null;
+    }
+
+    private boolean isSeverity(SnykVuln v, String severity) {
+        return v.getSeverity() != null && v.getSeverity().equalsIgnoreCase(severity);
+    }
+
+    private boolean isNew(SnykVuln v, Set<String> prevIds) {
+        return v.getIssueId() != null && !prevIds.contains(v.getIssueId());
+    }
+
+    private String message(SnykWatch w, int prevTotal, SnykSnapshot cur, boolean firstWithVulns,
+                           boolean newCritical, String newSevere, boolean escalated) {
         String counts = cur.getCritical() + " critical, " + cur.getHigh() + " high, "
                 + cur.getMedium() + " medium, " + cur.getLow() + " low";
         String where = w.getRepoSlug() + " (" + w.getOrgSlug() + ")";
@@ -106,7 +143,16 @@ public class SnykPollService {
         if (newCritical) {
             return "New critical vulnerability in " + where + " — now " + counts + ".";
         }
-        return "Vulnerabilities increased in " + where + " (was " + prevTotal + ") — now " + counts + ".";
+        if (newSevere != null) {
+            return "New " + newSevere + "-severity vulnerability in " + where + " — now " + counts + ".";
+        }
+        if (cur.total() > prevTotal) {
+            return "Vulnerabilities increased in " + where + " (was " + prevTotal + ") — now " + counts + ".";
+        }
+        if (escalated) {
+            return "Vulnerability severity increased in " + where + " — now " + counts + ".";
+        }
+        return "Vulnerabilities changed in " + where + " — now " + counts + ".";
     }
 
     private void bumpSeverity(SnykSnapshot snap, String severity) {
