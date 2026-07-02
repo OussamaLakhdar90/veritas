@@ -4,6 +4,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
@@ -43,6 +44,28 @@ class ReportControllerTest {
         mvc.perform(get("/api/v1/scans/abc/report"))
                 .andExpect(status().isOk())
                 .andExpect(content().string("<html>LIVE</html>"));
+    }
+
+    @Test
+    void downloadAddsAttachmentHeaderWithTheReadableName() throws Exception {
+        // ?download=true serves the SAME live HTML but as a named attachment, so the user can save the report and
+        // keep its accept/reject controls working offline (the report JS is self-contained).
+        Scan s = new Scan();
+        s.setServiceName("ciam-policies");
+        s.setModel("claude-opus-4-8");
+        s.setStartedAt(java.time.Instant.parse("2026-06-30T14:15:22Z"));
+        when(scanRepository.findById("abc")).thenReturn(Optional.of(s));
+        FindingRecord r = new FindingRecord();
+        r.setType("MISSING_ENDPOINT");
+        r.setSeverity("CRITICAL");
+        when(findingRepository.findByScanIdOrderBySeverityAsc("abc")).thenReturn(List.of(r));
+        when(renderer.renderHtml(any(), any(), any())).thenReturn("<html>LIVE</html>");
+
+        String expectedName = ca.bnc.qe.veritas.report.ReportNaming.baseName(s) + ".html";
+        mvc.perform(get("/api/v1/scans/abc/report").param("download", "true"))
+                .andExpect(status().isOk())
+                .andExpect(content().string("<html>LIVE</html>"))
+                .andExpect(header().string("Content-Disposition", "attachment; filename=\"" + expectedName + "\""));
     }
 
     @Test

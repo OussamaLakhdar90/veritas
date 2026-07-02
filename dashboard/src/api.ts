@@ -501,6 +501,7 @@ export const api = {
     thoroughness?: string }) =>
     post<ScanAccepted>('/scans', body),
   reportUrl: (scanId: string) => `${BASE}/scans/${scanId}/report`,
+  reportDownloadUrl: (scanId: string) => `${BASE}/scans/${scanId}/report?download=true`,
   testPlans: () => get<TestPlan[]>('/test-plans'),
   testPlan: (id: string) => get<TestPlanDetail>(`/test-plans/${id}`),
   costSummary: () => get<CostSummary>('/costs/summary'),

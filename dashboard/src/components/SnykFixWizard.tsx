@@ -157,6 +157,9 @@ export function SnykFixWizard({ open, onClose, issue, watchId, apps, defaultApp 
           <Field label={t('snyk.fix.reviewersLabel')} hint={t('snyk.fix.reviewersHint')}>
             <Input value={reviewers} onChange={(e) => setReviewers(e.target.value)} placeholder="alice, bob" />
           </Field>
+          <p className="rounded-lg bg-ink-50/60 px-3 py-2 text-[12px] text-muted">
+            {t('snyk.fix.bitbucketNote')}
+          </p>
         </div>
       )}
 
