@@ -2,6 +2,7 @@ package ca.bnc.qe.veritas.snyk.fix;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -21,7 +22,7 @@ import org.junit.jupiter.api.Test;
 class CascadeVerifierTest {
 
     private final BuildVerifier bv = mock(BuildVerifier.class);
-    private final CascadeVerifier verifier = new CascadeVerifier(bv);
+    private final CascadeVerifier verifier = new CascadeVerifier(bv, 900);
 
     private ReactorInputs inputs() {
         return new ReactorInputs(Path.of("localrepo"),
@@ -31,15 +32,15 @@ class CascadeVerifierTest {
 
     @Test
     void allPassOpensTheTrain() {
-        when(bv.verify(any(), any())).thenReturn(new BuildVerifier.BuildResult("PASS", ""));
+        when(bv.verify(any(), any(), anyLong())).thenReturn(new BuildVerifier.BuildResult("PASS", ""));
         ReactorResult r = verifier.verify(inputs());
         assertThat(r.passed()).isTrue();
     }
 
     @Test
     void aConsumerTestFailureNamesTheApp() {
-        when(bv.verify(any(), contains("install"))).thenReturn(new BuildVerifier.BuildResult("PASS", ""));
-        when(bv.verify(any(), contains(" test "))).thenReturn(new BuildVerifier.BuildResult("FAIL", "boom in app"));
+        when(bv.verify(any(), contains("install"), anyLong())).thenReturn(new BuildVerifier.BuildResult("PASS", ""));
+        when(bv.verify(any(), contains(" test "), anyLong())).thenReturn(new BuildVerifier.BuildResult("FAIL", "boom in app"));
         ReactorResult r = verifier.verify(inputs());
         assertThat(r.passed()).isFalse();
         assertThat(r.failingLabel()).isEqualTo("consumer:app7576");
@@ -48,10 +49,10 @@ class CascadeVerifierTest {
 
     @Test
     void aFrameworkInstallFailureStopsBeforeTestingConsumers() {
-        when(bv.verify(any(), any())).thenReturn(new BuildVerifier.BuildResult("FAIL", "cannot compile core"));
+        when(bv.verify(any(), any(), anyLong())).thenReturn(new BuildVerifier.BuildResult("FAIL", "cannot compile core"));
         ReactorResult r = verifier.verify(inputs());
         assertThat(r.passed()).isFalse();
         assertThat(r.failingLabel()).isEqualTo("BOM");
-        verify(bv, times(1)).verify(any(), any());   // stopped at the first module — never reached the consumer
+        verify(bv, times(1)).verify(any(), any(), anyLong());   // stopped at the first module — never reached the consumer
     }
 }

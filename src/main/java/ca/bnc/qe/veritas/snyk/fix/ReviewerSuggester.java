@@ -48,7 +48,11 @@ public class ReviewerSuggester {
         }
     }
 
-    /** Email local part (corporate id), else the display name; skips Veritas's own bot identity. */
+    /**
+     * Email local part (the corporate id / Bitbucket username), skipping Veritas's own bot identity. A raw display
+     * name that isn't a plausible username (contains whitespace, e.g. "Alice Smith") is NOT emitted — Bitbucket would
+     * silently drop it — so we fall back to the configured default reviewers instead of an unresolvable name.
+     */
     private String toUsername(PersonIdent ident) {
         String email = ident.getEmailAddress();
         if (email != null && email.toLowerCase(java.util.Locale.ROOT).contains("veritas")) {
@@ -58,6 +62,9 @@ public class ReviewerSuggester {
             return email.substring(0, email.indexOf('@'));
         }
         String name = ident.getName();
-        return name == null || name.isBlank() ? null : name;
+        if (name == null || name.isBlank() || name.trim().contains(" ")) {
+            return null;   // not a resolvable username
+        }
+        return name.trim();
     }
 }

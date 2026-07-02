@@ -12,6 +12,9 @@ public interface SnykFixTrainRepository extends JpaRepository<SnykFixTrain, Stri
 
     List<SnykFixTrain> findByStatusIn(List<String> statuses);
 
+    /** Existing trains for a watch + coordinate — the submit dedup guard checks these for an in-flight one. */
+    List<SnykFixTrain> findByWatchIdAndCoordinate(String watchId, String coordinate);
+
     /** Terminal (finished) trains older than a cutoff — the retention sweep prunes these + their steps. */
     List<SnykFixTrain> findByFinishedAtBefore(Instant cutoff);
 }

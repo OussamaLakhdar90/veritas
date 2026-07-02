@@ -6,6 +6,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -26,7 +27,15 @@ public class BuildVerifier {
             "mvn", "mvnw", "gradle", "gradlew", "npm", "npx", "node", "yarn", "pnpm",
             "make", "dotnet", "python", "python3", "go", "cargo", "ant", "ng", "tsc", "java");
 
+    /** Default per-command timeout (seconds). The Snyk reactor passes a larger one for multi-module install + tests. */
+    @Value("${veritas.build.verify-timeout-seconds:300}")
+    private long defaultTimeoutSeconds = 300;   // initializer covers direct (non-Spring) construction in tests
+
     public BuildResult verify(Path workingDir, String command) {
+        return verify(workingDir, command, defaultTimeoutSeconds);
+    }
+
+    public BuildResult verify(Path workingDir, String command, long timeoutSeconds) {
         if (command == null || command.isBlank()) {
             return new BuildResult("SKIPPED", "");
         }
@@ -43,7 +52,7 @@ public class BuildVerifier {
                     .redirectErrorStream(true)
                     .start();
             String out = drain(p);
-            boolean done = p.waitFor(300, TimeUnit.SECONDS);
+            boolean done = p.waitFor(timeoutSeconds, TimeUnit.SECONDS);
             if (!done) {
                 p.destroyForcibly();
                 return new BuildResult("FAIL", "build timed out");

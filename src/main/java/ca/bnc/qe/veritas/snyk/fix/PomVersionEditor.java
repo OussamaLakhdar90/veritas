@@ -45,19 +45,56 @@ public final class PomVersionEditor {
         return null;
     }
 
-    /** The value of a {@code <prop>} property, or null when the property isn't declared. */
+    /**
+     * The value of a {@code <prop>} property, or null when it isn't declared. Only the active {@code <properties>}
+     * block is considered (not a profile/pluginManagement copy), and matches inside XML comments are skipped — so a
+     * commented-out or inactive declaration never masquerades as the effective value.
+     */
     public static String propertyValue(String pom, String prop) {
-        Matcher m = property(prop).matcher(pom);
-        return m.find() ? m.group(2).trim() : null;
+        Matcher m = activePropertyMatcher(pom, prop);
+        return m == null ? null : m.group(2).trim();
     }
 
-    /** Set an existing {@code <prop>} property's value. Throws if the property isn't present. */
+    /** Set the active {@code <properties>} block's {@code <prop>} value. Throws if the property isn't present there. */
     public static String bumpProperty(String pom, String prop, String newVersion) {
-        Matcher m = property(prop).matcher(pom);
-        if (!m.find()) {
-            throw new IllegalStateException("Property <" + prop + "> not found in pom.");
+        Matcher m = activePropertyMatcher(pom, prop);
+        if (m == null) {
+            throw new IllegalStateException("Property <" + prop + "> not found in <properties>.");
         }
         return pom.substring(0, m.start()) + m.group(1) + newVersion + m.group(3) + pom.substring(m.end());
+    }
+
+    /** The first non-commented match of {@code <prop>} within the active {@code <properties>} block, or null. */
+    private static Matcher activePropertyMatcher(String pom, String prop) {
+        int[] region = propertiesRegion(pom);
+        Matcher m = property(prop).matcher(pom);
+        m.region(region[0], region[1]);
+        while (m.find()) {
+            if (!insideComment(pom, m.start())) {
+                return m;
+            }
+        }
+        return null;
+    }
+
+    /** The [start,end) of the first {@code <properties>…</properties>} block, or the whole pom when there's none. */
+    private static int[] propertiesRegion(String pom) {
+        int start = pom.indexOf("<properties>");
+        if (start < 0) {
+            return new int[] {0, pom.length()};
+        }
+        int end = pom.indexOf("</properties>", start);
+        return new int[] {start, end < 0 ? pom.length() : end};
+    }
+
+    /** True when {@code idx} falls inside an XML comment ({@code <!-- … -->}). */
+    private static boolean insideComment(String pom, int idx) {
+        int open = pom.lastIndexOf("<!--", idx);
+        if (open < 0) {
+            return false;
+        }
+        int close = pom.indexOf("-->", open);
+        return close < 0 || close > idx;
     }
 
     /** Set the literal {@code <version>} inside the matched dependency (only when it's a literal, not a ${property}). */

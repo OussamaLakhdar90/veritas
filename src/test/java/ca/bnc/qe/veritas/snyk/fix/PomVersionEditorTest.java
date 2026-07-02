@@ -81,6 +81,47 @@ class PomVersionEditorTest {
     }
 
     @Test
+    void propertyEditIgnoresACommentedOutDeclarationBeforeTheRealOne() {
+        String pom = """
+            <project>
+                <modelVersion>4.0.0</modelVersion>
+                <properties>
+                    <!-- <lsist-api.version>0.0.1</lsist-api.version>  legacy, do not use -->
+                    <lsist-api.version>1.0.4</lsist-api.version>
+                </properties>
+            </project>
+            """;
+        // The commented value must NOT be read as the effective one...
+        assertThat(PomVersionEditor.propertyValue(pom, "lsist-api.version")).isEqualTo("1.0.4");
+        // ...and the bump must land on the real property, leaving the comment untouched.
+        String edited = PomVersionEditor.bumpProperty(pom, "lsist-api.version", "1.0.5");
+        assertThat(edited).contains("<lsist-api.version>1.0.5</lsist-api.version>");
+        assertThat(edited).contains("<!-- <lsist-api.version>0.0.1</lsist-api.version>");   // comment preserved verbatim
+    }
+
+    @Test
+    void propertyEditIgnoresAnInactiveProfileCopyOutsideTheMainPropertiesBlock() {
+        String pom = """
+            <project>
+                <modelVersion>4.0.0</modelVersion>
+                <properties>
+                    <lsist-bom.version>1.0.9</lsist-bom.version>
+                </properties>
+                <profiles>
+                    <profile>
+                        <id>legacy</id>
+                        <properties><lsist-bom.version>0.9.0</lsist-bom.version></properties>
+                    </profile>
+                </profiles>
+            </project>
+            """;
+        assertThat(PomVersionEditor.propertyValue(pom, "lsist-bom.version")).isEqualTo("1.0.9");
+        String edited = PomVersionEditor.bumpProperty(pom, "lsist-bom.version", "1.0.10");
+        assertThat(edited).contains("<lsist-bom.version>1.0.10</lsist-bom.version>");
+        assertThat(edited).contains("<lsist-bom.version>0.9.0</lsist-bom.version>");   // profile copy untouched
+    }
+
+    @Test
     void addsAManagedDependencyOverrideForATransitive() {
         String out = PomVersionEditor.addManagedDependency(POM, "org.yaml", "snakeyaml", "2.2");
         assertThat(out).contains("<artifactId>snakeyaml</artifactId>");
