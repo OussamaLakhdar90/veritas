@@ -104,16 +104,13 @@ public class ContractReportRenderer {
         counted.addAll(missing);
         counted.addAll(wrong);
         counted.addAll(dead);
-        int score = FidelityScore.of(counted);
-        long blocking = counted.stream().filter(f -> f.getSeverity() != null
-                && (f.getSeverity().name().equals("BLOCKER") || f.getSeverity().name().equals("CRITICAL"))).count();
-        // Would any counted finding break a running consumer? If every one is additive/documentation drift (the code
-        // is a compatible superset of the spec), the release is safe even when the fidelity bar isn't met.
-        boolean allNonBreaking = counted.stream().filter(f -> f.getType() != null)
-                .noneMatch(f -> ca.bnc.qe.veritas.engine.diff.DiffEngine.isBreaking(f.getType()));
-        // Deterministic findings the AI flagged as possible false positives — excluded from the gate above but shown
-        // prominently so the relaxed verdict is honest and a human can overturn the dispute.
-        long disputed = attention.stream().filter(Finding::isAiDisputed).count();
+        // One shared verdict computation (score / blocking / breaking / disputed) — the executive dashboard
+        // consumes the same ReleaseVerdict, so the report and the KPI page can never disagree.
+        ca.bnc.qe.veritas.contract.ReleaseVerdict verdict = ca.bnc.qe.veritas.contract.ReleaseVerdict.of(findings);
+        int score = verdict.score();
+        long blocking = verdict.blocking();
+        boolean allNonBreaking = verdict.allNonBreaking();
+        long disputed = verdict.aiDisputed();
         String[] band = scoreBand(score);
 
         StringBuilder sb = new StringBuilder();

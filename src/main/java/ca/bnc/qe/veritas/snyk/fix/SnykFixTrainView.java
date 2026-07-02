@@ -20,5 +20,10 @@ public record SnykFixTrainView(
         String reactorOutputTail,
         BreakingVerdict verdict,
         Instant startedAt,
+        /** MTTR anchors: createdAt = detection→remediation start (the honest clock — startedAt is a machine-phase
+         *  clock the reconciler resets mid-flight); finishedAt set on DONE. */
+        Instant createdAt,
+        Instant finishedAt,
+        String watchId,
         List<SnykFixStepView> steps) {
 }

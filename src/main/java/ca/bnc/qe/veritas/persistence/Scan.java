@@ -86,7 +86,9 @@ public class Scan extends AuditableEntity {
     @Column(length = 2000)
     private String errorMessage;
 
-    /** EN→FR translation map (JSON) captured at scan time, so a live re-render stays bilingual. */
+    /** EN→FR translation map (JSON) captured at scan time, so a live re-render stays bilingual. Never sent to
+     *  the dashboard — GET /scans polls every 2s during a live scan and this LOB would ride along on every row. */
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @jakarta.persistence.Lob
     @Column(columnDefinition = "TEXT")
     private String translationsJson;
