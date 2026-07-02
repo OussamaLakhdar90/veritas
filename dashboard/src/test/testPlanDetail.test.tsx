@@ -100,8 +100,8 @@ describe('TestPlanDetail (RTM)', () => {
     expect(await screen.findByRole('heading', {
       name: /policies-service — Release Test Plan \(2\.4\.0\)/,
     })).toBeInTheDocument()
-    // subtitle: kind · status · est. cost
-    expect(screen.getByText(/RELEASE_TEST_PLAN · DRAFT · est\. \$0\.1234/)).toBeInTheDocument()
+    // subtitle: humanized kind · status · localized est. cost (raw enums never reach the screen)
+    expect(screen.getByText(/Release test plan · Draft · est\. \$0\.1234/)).toBeInTheDocument()
     // confidence comes from deliverable.selfReview.confidence (82) → rounded
     expect(screen.getByText('82%')).toBeInTheDocument()
     expect(screen.getByText('self-review confidence')).toBeInTheDocument()

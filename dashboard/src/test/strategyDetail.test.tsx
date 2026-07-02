@@ -77,7 +77,8 @@ describe('StrategyDetail', () => {
     expect(screen.getByText('Load not modelled')).toBeInTheDocument()
     // Scorecard banner
     expect(screen.getByText('DEGRADED')).toBeInTheDocument()
-    expect(screen.getByText(/1 section\(s\) dropped/)).toBeInTheDocument()
+    // "1 section dropped" appears in both the scorecard banner and the rubric-check detail.
+    expect(screen.getAllByText(/1 section dropped/).length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('No empty sections')).toBeInTheDocument()
   })
 

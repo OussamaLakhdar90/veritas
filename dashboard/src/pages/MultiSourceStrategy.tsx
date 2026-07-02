@@ -11,6 +11,7 @@ import { Badge, Button, Card, CardBody, CardHeader, Field, Input, PageHeader } f
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
+import { formatMoney } from '../lib/format';
 
 // Feature status → pill tone + plain label.
 const STATUS_TONE: Record<string, string> = {
@@ -172,7 +173,7 @@ export function MultiSourceStrategy() {
             <SourceToggle on={useCode} setOn={setUseCode} icon={GitBranch} label={t('multiSource.codeToggleLabel')}>
               <div className="grid grid-cols-2 gap-3">
                 <Field label={t('multiSource.appIdLabel')}><Input value={appId} onChange={(e) => setAppId(e.target.value)} placeholder="APP7571" /></Field>
-                <Field label={t('multiSource.repoSlugLabel')}><Input value={repoSlug} onChange={(e) => setRepoSlug(e.target.value)} placeholder="ciam-policies" /></Field>
+                <Field label={t('multiSource.repoSlugLabel')} hint={t('multiSource.repoSlugHint')}><Input value={repoSlug} onChange={(e) => setRepoSlug(e.target.value)} placeholder="ciam-policies" /></Field>
               </div>
               <Field label={t('multiSource.branchLabel')} hint={t('multiSource.branchHint')}><Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="develop" /></Field>
             </SourceToggle>
@@ -228,7 +229,13 @@ export function MultiSourceStrategy() {
                 {preview.mix.code && <Badge className={SOURCE_TONE.CODE}>code</Badge>}
                 {preview.mix.jira && <Badge className={SOURCE_TONE.JIRA}>jira</Badge>}
                 {preview.mix.confluence && <Badge className={SOURCE_TONE.CONFLUENCE}>confluence</Badge>}
-                <span className="ml-auto text-muted">{t('multiSource.featureStats', { features: preview.features.length, gaps: preview.gaps.length, redactions: preview.redactionCount })}</span>
+                <span className="ml-auto text-muted">
+                  {[
+                    t('multiSource.featureStatsFeatures', { count: preview.features.length }),
+                    t('multiSource.featureStatsGaps', { count: preview.gaps.length }),
+                    t('multiSource.featureStatsRedactions', { count: preview.redactionCount }),
+                  ].join(' · ')}
+                </span>
               </div>
 
               {/* Merge action bar */}
@@ -322,7 +329,7 @@ export function MultiSourceStrategy() {
           <Card>
             <CardBody className="flex items-center justify-between gap-4">
               <div className="text-sm text-muted">
-                {t('multiSource.estimatedCostLabel')} <span className="font-semibold text-ink-900">~${preview.estimatedCostUsd.toFixed(2)}</span>
+                {t('multiSource.estimatedCostLabel')} <span className="font-semibold text-ink-900">~{formatMoney(preview.estimatedCostUsd)}</span>
                 <span className="ml-1">{t('multiSource.estimatedCostNote')}</span>
               </div>
               <div className="flex items-center gap-2">

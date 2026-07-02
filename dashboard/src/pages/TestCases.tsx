@@ -8,6 +8,7 @@ import { useToast } from '../components/Toast';
 import { ServiceField } from '../components/ServiceField';
 import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
+import { enumLabel } from '../lib/enumLabels';
 
 const tone = (s?: string) => {
   const v = (s || '').toUpperCase();
@@ -89,7 +90,7 @@ export function TestCases() {
                 <Row key={tc.id}>
                   <Td className="max-w-md font-medium text-ink-900">{tc.title}</Td>
                   <Td className="text-muted">{tc.technique ?? '—'}</Td>
-                  <Td><Badge className={tone(tc.status)}>{tc.status}</Badge></Td>
+                  <Td><Badge className={tone(tc.status)}>{enumLabel(t, 'caseStatus', tc.status)}</Badge></Td>
                   <Td className="font-mono text-xs text-muted">{tc.xrayKey ?? '—'}</Td>
                   <Td className="text-right whitespace-nowrap">
                     <span className="inline-flex gap-2">

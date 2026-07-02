@@ -58,8 +58,8 @@ describe('Costs page', () => {
     stubSummary(summary())
     renderCosts()
 
-    // Wait for the table to populate.
-    expect(await screen.findByText('reconcile')).toBeInTheDocument()
+    // Wait for the table to populate (skill ids are humanized — never rendered raw).
+    expect(await screen.findByText('Reconcile')).toBeInTheDocument()
 
     const table = screen.getByRole('table')
     // Header columns are present.
@@ -71,7 +71,7 @@ describe('Costs page', () => {
     const rows = within(table).getAllByRole('row')
     const bodyRows = rows.slice(1) // drop the header row
     const skillOrder = bodyRows.map((r) => within(r).getAllByRole('cell')[0].textContent)
-    expect(skillOrder).toEqual(['reconcile', 'strategy', 'codegen'])
+    expect(skillOrder).toEqual(['Reconcile', 'Strategy', 'Codegen'])
 
     // Each cost is formatted to 4 dp.
     expect(within(table).getByText('$0.8000')).toBeInTheDocument()

@@ -61,7 +61,7 @@ export function TestConditions() {
     <div>
       <PageHeader
         title={t('testConditions.pageTitle', { service })}
-        subtitle={t('testConditions.pageSubtitle', { n: conditions.length })}
+        subtitle={t('testConditions.pageSubtitle', { count: conditions.length })}
         actions={
           <div className="flex items-center gap-2">
             {id && (
@@ -80,9 +80,9 @@ export function TestConditions() {
       <Card className="mb-5">
         <CardBody className="flex flex-wrap items-center gap-3 text-sm">
           <span className="font-semibold text-ink-900">{t('testConditions.automationSplit')}</span>
-          <Badge className={TONE.ok}>{t('testConditions.automatedBadge', { n: split.AUTOMATED })}</Badge>
-          <Badge className={TONE.danger}>{t('testConditions.manualBadge', { n: split.MANUAL })}</Badge>
-          <Badge className={TONE.warn}>{t('testConditions.candidateBadge', { n: split.CANDIDATE })}</Badge>
+          <Badge className={TONE.ok}>{t('testConditions.automatedBadge', { count: split.AUTOMATED })}</Badge>
+          <Badge className={TONE.danger}>{t('testConditions.manualBadge', { count: split.MANUAL })}</Badge>
+          <Badge className={TONE.warn}>{t('testConditions.candidateBadge', { count: split.CANDIDATE })}</Badge>
           <span className="text-muted">{t('testConditions.splitNote')}</span>
           <span className="w-full text-xs text-muted">
             <Trans i18nKey="testConditions.feedNote">

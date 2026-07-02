@@ -32,7 +32,7 @@ describe('Activity bell', () => {
     const badge = await screen.findByText('2')
     expect(badge).toHaveClass('bg-danger')   // red because one alert is Critical
     await user.click(screen.getByRole('button', { name: 'Notifications' }))
-    await user.click(screen.getByRole('link', { name: '2 unseen vulnerability alert(s)' }))
+    await user.click(screen.getByRole('link', { name: '2 unseen vulnerability alerts' }))
     expect(await screen.findByText('Snyk page')).toBeInTheDocument()
   })
 
@@ -71,7 +71,7 @@ describe('Activity bell', () => {
     expect(within(popover).getByText('Activity')).toBeInTheDocument()
     expect(within(popover).getByRole('link', { name: 'log4j-core fix train' })).toBeInTheDocument()
     expect(within(popover).getByText('Security')).toBeInTheDocument()
-    expect(within(popover).getByRole('link', { name: '1 unseen vulnerability alert(s)' })).toBeInTheDocument()
+    expect(within(popover).getByRole('link', { name: '1 unseen vulnerability alert' })).toBeInTheDocument()
   })
 
   it('clicking an attention item acks it, closes the popover and navigates to its link', async () => {

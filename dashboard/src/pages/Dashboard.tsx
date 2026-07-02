@@ -144,7 +144,7 @@ export function Dashboard() {
 
       {loadError && (
         <div className="mb-6">
-          <ErrorState message={(loadError as Error).message} />
+          <ErrorState message={t('overview.loadError')} detail={(loadError as Error).message} />
         </div>
       )}
 

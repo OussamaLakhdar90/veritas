@@ -1,7 +1,11 @@
 import { BookOpen } from 'lucide-react';
 import { Trans, useTranslation } from 'react-i18next';
 import { Badge, Card, CardBody, CardHeader, PageHeader } from '../components/ui';
-import { SEVERITY_BADGE, LAYER_LABEL, CONFIDENCE_LABEL, TONE } from '../theme/tokens';
+import { SEVERITY_BADGE, TONE } from '../theme/tokens';
+import { enumLabel } from '../lib/enumLabels';
+
+/** The six analysis areas, in report order — labels come from the enums.layer i18n family. */
+const LAYER_CODES = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6'] as const;
 
 /** A single term row: the labelled chip on the left, a plain-language meaning on the right. */
 function Term({ chip, children }: { chip: React.ReactNode; children: React.ReactNode }) {
@@ -24,7 +28,8 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
 
 /**
  * In-app glossary — the plain-language vocabulary Veritas uses on screen and in the management report.
- * It pulls its labels from the same token maps the rest of the UI uses, so it can never drift from them.
+ * It pulls its labels from the same enumLabel i18n families the rest of the UI uses, so it can never
+ * drift from them (and flips wholesale to French with the rest of the shell).
  */
 export function Glossary() {
   const { t } = useTranslation();
@@ -82,13 +87,13 @@ export function Glossary() {
 
       <Section title={t('glossary.confidenceTitle')}
         subtitle={t('glossary.confidenceSubtitle')}>
-        <Term chip={<span className="text-sm font-medium text-ink-900">{CONFIDENCE_LABEL.HIGH}</span>}>
+        <Term chip={<span className="text-sm font-medium text-ink-900">{enumLabel(t, 'confidence', 'HIGH')}</span>}>
           {t('glossary.confidenceHighBody')}
         </Term>
-        <Term chip={<span className="text-sm font-medium text-ink-900">{CONFIDENCE_LABEL.MEDIUM}</span>}>
+        <Term chip={<span className="text-sm font-medium text-ink-900">{enumLabel(t, 'confidence', 'MEDIUM')}</span>}>
           {t('glossary.confidenceMediumBody')}
         </Term>
-        <Term chip={<span className="text-sm font-medium text-warning">{CONFIDENCE_LABEL.LOW}</span>}>
+        <Term chip={<span className="text-sm font-medium text-warning">{enumLabel(t, 'confidence', 'LOW')}</span>}>
           <Trans i18nKey="glossary.confidenceLowBody">
             A reasonable suspicion that needs a human to confirm. A <strong>high-severity finding marked low
             confidence</strong> is flagged with a warning icon — verify it before you treat it as a blocker.
@@ -98,8 +103,8 @@ export function Glossary() {
 
       <Section title={t('glossary.analysisAreaTitle')}
         subtitle={t('glossary.analysisAreaSubtitle')}>
-        {Object.entries(LAYER_LABEL).map(([code, label]) => (
-          <Term key={code} chip={<span className="text-sm font-medium text-ink-900">{label}</span>}>
+        {LAYER_CODES.map((code) => (
+          <Term key={code} chip={<span className="text-sm font-medium text-ink-900">{enumLabel(t, 'layer', code)}</span>}>
             {t(`glossary.layerBlurb${code}`)}
           </Term>
         ))}

@@ -7,7 +7,7 @@ import { api, Finding } from '../api';
 import { Badge, Button, Card, CardBody, EmptyState, ErrorState, Field, Input, PageHeader, Spinner, Table, Td, Th, Row, SortableTh, useSort } from '../components/ui';
 import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toast';
-import { severityBadge, layerLabel, confidenceLabel, TONE } from '../theme/tokens';
+import { severityBadge, TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
 import { enumLabel } from '../lib/enumLabels';
 
@@ -168,12 +168,12 @@ export function Findings() {
                         <span className={cn('inline-flex items-center gap-1 text-sm',
                           riskyConfidence(f) ? 'font-medium text-warning' : 'text-muted')}
                           title={riskyConfidence(f) ? t('findings.riskyConfidenceTooltip') : undefined}>
-                          {confidenceLabel(f.confidence)}
+                          {enumLabel(t, 'confidence', f.confidence)}
                           {riskyConfidence(f) && <AlertTriangle className="h-3.5 w-3.5" />}
                         </span>
                       ) : <span className="text-muted">—</span>}
                     </Td>
-                    <Td className="text-muted" title={f.layer}>{layerLabel(f.layer)}</Td>
+                    <Td className="text-muted">{enumLabel(t, 'layer', f.layer)}</Td>
                     <Td className="font-mono text-xs text-ink-900">{f.endpoint}</Td>
                     <Td className="max-w-md">
                       <p className="text-ink-900">{f.summary}</p>

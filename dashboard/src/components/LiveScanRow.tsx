@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { CheckCircle2, Radio, X } from 'lucide-react';
 import type { Scan } from '../api';
 import { Card, CardBody, useCountUp } from './ui';
-import { STAGE_ORDER, SCAN_STEPS, formatElapsed, stagePct, stageShort, useElapsed } from '../lib/scanStages';
+import { STAGE_ORDER, SCAN_STEPS, formatElapsed, stagePct, useElapsed } from '../lib/scanStages';
 
 /**
  * The live-machine hero: pinned while any validation is RUNNING, streaming the pipeline's own progress
@@ -58,7 +58,7 @@ function RunningStrip({ scan }: { scan: Scan }) {
           <Radio className="h-4 w-4 animate-pulse text-gold" aria-hidden="true" />
           <span className="font-semibold text-ink-900">{scan.serviceName}</span>
           <span className="text-sm text-muted">
-            {t('live.step', { n: Math.max(1, stepNo), m: SCAN_STEPS.length, label: stageShort(stage) })}
+            {t('live.step', { n: Math.max(1, stepNo), m: SCAN_STEPS.length, label: t(`scan.${stage}.short`, { defaultValue: stage }) })}
           </span>
           {scan.model && <span className="rounded-full bg-ink-50 px-2 py-0.5 text-2xs text-ink-700 ring-1 ring-border">{scan.model}</span>}
           <span className="ml-auto text-sm tabular-nums text-muted">{formatElapsed(elapsed)}</span>

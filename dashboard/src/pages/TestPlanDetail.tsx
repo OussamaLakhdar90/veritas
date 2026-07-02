@@ -6,6 +6,7 @@ import { api, Deliverable } from '../api';
 import { Badge, Card, CardBody, PageHeader, Spinner, Table, Td, Th, Row } from '../components/ui';
 import { severityBadge, TONE } from '../theme/tokens';
 import { enumLabel } from '../lib/enumLabels';
+import { formatMoney } from '../lib/format';
 
 const RISK_TO_SEV: Record<string, string> = {
   'VERY HIGH': 'BLOCKER', VH: 'BLOCKER', HIGH: 'CRITICAL', H: 'CRITICAL',
@@ -46,7 +47,11 @@ export function TestPlanDetail() {
     <div>
       <PageHeader
         title={`${t('testPlanDetail.titlePrefix', { serviceName: plan.serviceName })}${plan.fixVersion ? ` (${plan.fixVersion})` : ''}`}
-        subtitle={t('testPlanDetail.subtitle', { kind: plan.kind, status: plan.status, cost: (plan.estCostUsd ?? 0).toFixed(4) })}
+        subtitle={t('testPlanDetail.subtitle', {
+          kind: enumLabel(t, 'planKind', plan.kind),
+          status: enumLabel(t, 'planStatus', plan.status),
+          cost: formatMoney(plan.estCostUsd ?? 0, 4),
+        })}
         actions={
           <div className="flex items-center gap-2">
             <a href={api.testPlanReportUrl(plan.id, 'html')} target="_blank" rel="noreferrer"

@@ -33,13 +33,21 @@ export function formatDateTime(iso?: string | null): string {
 
 const moneyCache = new Map<string, Intl.NumberFormat>();
 
-/** "$0.42" (en-CA) / "0,42 $" (fr-CA) — USD amounts, locale-true digits and symbol placement. */
-export function formatMoney(usd: number): string {
+/**
+ * "$0.42" (en-CA) / "0,42 $" (fr-CA) — USD amounts, locale-true digits and symbol placement.
+ * `fractionDigits` overrides the currency default of 2 (the 4-decimal AI-cost ledgers); it is part of
+ * the cache key so a 2-digit and a 4-digit formatter never collide.
+ */
+export function formatMoney(usd: number, fractionDigits?: number): string {
   const locale = appLocale();
-  let f = moneyCache.get(locale);
+  const cacheKey = `${locale}:${fractionDigits ?? 'default'}`;
+  let f = moneyCache.get(cacheKey);
   if (!f) {
-    f = new Intl.NumberFormat(locale, { style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol' });
-    moneyCache.set(locale, f);
+    f = new Intl.NumberFormat(locale, {
+      style: 'currency', currency: 'USD', currencyDisplay: 'narrowSymbol',
+      ...(fractionDigits != null && { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits }),
+    });
+    moneyCache.set(cacheKey, f);
   }
   return f.format(usd);
 }

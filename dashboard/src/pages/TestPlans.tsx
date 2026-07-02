@@ -7,6 +7,8 @@ import { api } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Field, Input, PageHeader, Spinner, Table, Td, Th, Row } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
+import { enumLabel } from '../lib/enumLabels';
+import { formatMoney } from '../lib/format';
 
 export function TestPlans() {
   const { t } = useTranslation();
@@ -68,12 +70,12 @@ export function TestPlans() {
               {plans.map((p) => (
                 <Row key={p.id}>
                   <Td className="font-medium text-ink-900">{p.serviceName}</Td>
-                  <Td className="text-muted">{p.kind}</Td>
+                  <Td className="text-muted">{enumLabel(t, 'planKind', p.kind)}</Td>
                   <Td className="text-muted">{p.fixVersion ?? '—'}</Td>
-                  <Td><Badge className={p.status === 'APPROVED' ? TONE.ok : TONE.info}>{p.status}</Badge></Td>
+                  <Td><Badge className={p.status === 'APPROVED' ? TONE.ok : TONE.info}>{enumLabel(t, 'planStatus', p.status)}</Badge></Td>
                   <Td className="text-right tabular-nums text-ink-900">{p.confidence != null ? `${Math.round(p.confidence)}%` : '—'}</Td>
                   <Td className="text-right tabular-nums text-muted">{p.riskCount ?? '—'}</Td>
-                  <Td className="text-right tabular-nums text-muted">${(p.estCostUsd ?? 0).toFixed(4)}</Td>
+                  <Td className="text-right tabular-nums text-muted">{formatMoney(p.estCostUsd ?? 0, 4)}</Td>
                   <Td className="text-right whitespace-nowrap">
                     <Link to={`/test-plans/${p.id}`} className="inline-flex items-center gap-1 text-sm font-medium text-gold hover:underline">
                       {t('testPlans.open')} <ArrowRight className="h-3.5 w-3.5" /></Link>
