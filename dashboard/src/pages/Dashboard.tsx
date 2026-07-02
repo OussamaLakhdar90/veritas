@@ -126,7 +126,7 @@ export function Dashboard() {
                 <p className="text-sm font-semibold text-ink-900">
                   {t('overview.finishSetup', { count: missing.length })}
                 </p>
-                <p className="mt-0.5 text-[13px] text-muted">
+                <p className="mt-0.5 text-sm text-muted">
                   {missing.length > 3
                     ? t('overview.setupBodyMore', { names: missing.slice(0, 3).map((c) => c.name).join(', '), count: missing.length - 3 })
                     : t('overview.setupBody', { names: missing.map((c) => c.name).join(', ') })}
@@ -145,7 +145,7 @@ export function Dashboard() {
         <Card className="mb-6 border-l-4 border-l-brand">
           <CardBody className="flex items-center gap-3">
             <Sparkles className="h-5 w-5 shrink-0 text-brand" />
-            <p className="text-[13.5px] text-ink-700">
+            <p className="text-sm text-ink-700">
               <span className="font-semibold text-ink-900">
                 {attention > 0
                   ? t('overview.execAttention', { services: totals.services, attention })
@@ -183,7 +183,7 @@ export function Dashboard() {
             <CardBody className="flex items-center gap-5">
               <Donut slices={sevSlices} ariaLabel={t('overview.chartDefectsSeverity')}
                 centerValue={sevTotal} centerLabel={t('overview.chartDefectsCenter')} />
-              <div className="min-w-0 flex-1 space-y-1.5 text-[13px]">
+              <div className="min-w-0 flex-1 space-y-1.5 text-sm">
                 {sevSlices.length === 0 ? (
                   <span className="text-muted">—</span>
                 ) : sevSlices.map((s) => (
@@ -225,7 +225,7 @@ export function Dashboard() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border text-left text-[12px] uppercase tracking-wide text-muted">
+                  <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
                     <th className="px-5 py-3 font-medium">{t('overview.colService')}</th>
                     <th className="px-5 py-3 font-medium text-right">{t('overview.colStrategies')}</th>
                     <th className="px-5 py-3 font-medium text-right">{t('overview.colConditions')}</th>
@@ -248,7 +248,7 @@ export function Dashboard() {
                       <td className="px-5 py-3 text-right tabular-nums text-muted">{s.scans || '—'}</td>
                       <td className="px-5 py-3 text-right whitespace-nowrap">
                         <Link to="/test-strategy"
-                          className="inline-flex items-center gap-1 text-[13px] font-medium text-gold hover:underline">
+                          className="inline-flex items-center gap-1 text-sm font-medium text-gold hover:underline">
                           {t('overview.open')} <ArrowRight className="h-3.5 w-3.5" />
                         </Link>
                       </td>
@@ -264,7 +264,7 @@ export function Dashboard() {
       {/* Recent activity */}
       <Card>
         <CardHeader title={t('overview.recentTitle')} subtitle={t('overview.recentSubtitle')}
-          action={<Link to="/repos" className="text-[13px] font-medium text-gold hover:underline">{t('overview.newValidation')}</Link>} />
+          action={<Link to="/repos" className="text-sm font-medium text-gold hover:underline">{t('overview.newValidation')}</Link>} />
         <CardBody className="p-0">
           {scansQ.isLoading ? (
             <div className="space-y-2 p-5">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
@@ -278,7 +278,7 @@ export function Dashboard() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border text-left text-[12px] uppercase tracking-wide text-muted">
+                  <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
                     <th className="px-5 py-3 font-medium">{t('overview.colService')}</th>
                     <th className="px-5 py-3 font-medium">{t('overview.colStatus')}</th>
                     <th className="px-5 py-3 font-medium text-right">{t('overview.colFindings')}</th>
@@ -296,11 +296,11 @@ export function Dashboard() {
                       <td className="px-5 py-3 text-right tabular-nums text-muted">${(s.totalEstCostUsd ?? 0).toFixed(4)}</td>
                       <td className="px-5 py-3 text-muted">{s.startedAt}</td>
                       <td className="px-5 py-3 text-right whitespace-nowrap">
-                        <Link to={`/findings/${s.id}`} className="inline-flex items-center gap-1 text-[13px] font-medium text-gold hover:underline">
+                        <Link to={`/findings/${s.id}`} className="inline-flex items-center gap-1 text-sm font-medium text-gold hover:underline">
                           {t('overview.view')} <ArrowRight className="h-3.5 w-3.5" />
                         </Link>
                         <a href={api.reportUrl(s.id)} target="_blank" rel="noreferrer"
-                          className="ml-3 inline-flex items-center gap-1 text-[13px] font-medium text-muted hover:text-ink-900">
+                          className="ml-3 inline-flex items-center gap-1 text-sm font-medium text-muted hover:text-ink-900">
                           <FileText className="h-3.5 w-3.5" /> {t('overview.report')}
                         </a>
                       </td>

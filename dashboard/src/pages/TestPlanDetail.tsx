@@ -22,7 +22,7 @@ const matchTone = (m?: string) => {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <Card className="mb-5">
-      <div className="border-b border-border px-5 py-3"><h2 className="text-[15px] font-semibold text-ink-900">{title}</h2></div>
+      <div className="border-b border-border px-5 py-3"><h2 className="text-md font-semibold text-ink-900">{title}</h2></div>
       <CardBody>{children}</CardBody>
     </Card>
   );
@@ -49,16 +49,16 @@ export function TestPlanDetail() {
         actions={
           <div className="flex items-center gap-2">
             <a href={api.testPlanReportUrl(plan.id, 'html')} target="_blank" rel="noreferrer"
-              className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[13px] font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50"><FileText className="h-4 w-4" /> HTML</a>
+              className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50"><FileText className="h-4 w-4" /> HTML</a>
             <a href={api.testPlanReportUrl(plan.id, 'pdf')} target="_blank" rel="noreferrer"
-              className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[13px] font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50"><FileText className="h-4 w-4" /> PDF</a>
+              className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50"><FileText className="h-4 w-4" /> PDF</a>
           </div>
         } />
 
       {conf != null && (
         <Card className="mb-5"><CardBody className="flex items-center gap-4">
           <div className={`text-4xl font-semibold tabular-nums ${conf >= 70 ? 'text-success' : 'text-warning'}`}>{Math.round(conf)}%</div>
-          <div className="text-[13px] text-muted">{t('testPlanDetail.selfReviewConfidence')}</div>
+          <div className="text-sm text-muted">{t('testPlanDetail.selfReviewConfidence')}</div>
         </CardBody></Card>
       )}
 
@@ -73,7 +73,7 @@ export function TestPlanDetail() {
               <p className="mb-1 mt-3 font-semibold text-ink-900">{t('testPlanDetail.outOfScope')}</p><ul className="list-disc space-y-0.5 pl-5 text-ink-700">{(d.scope.outOfScope || []).map((x, i) => <li key={i}>{x}</li>)}</ul>
             </div>
           </div>
-          {d.scope.assumptions?.length ? <p className="mt-3 text-[13px] text-muted">{t('testPlanDetail.assumptions', { items: d.scope.assumptions.join('; ') })}</p> : null}
+          {d.scope.assumptions?.length ? <p className="mt-3 text-sm text-muted">{t('testPlanDetail.assumptions', { items: d.scope.assumptions.join('; ') })}</p> : null}
         </Section>
       )}
 
@@ -85,7 +85,7 @@ export function TestPlanDetail() {
                 <Td className="font-medium text-ink-900">{r.id}</Td><Td className="text-ink-900">{r.description}</Td>
                 <Td className="text-muted">{r.qualityCharacteristic ?? '—'}</Td><Td className="text-muted">{r.likelihood ?? '—'}</Td><Td className="text-muted">{r.impact ?? '—'}</Td>
                 <Td><Badge className={riskBadge(r.level)}>{r.level}</Badge></Td>
-                <Td className="text-muted">{r.mitigation ?? '—'}</Td><Td className="text-[12px] text-muted">{r.citation ?? ''}</Td>
+                <Td className="text-muted">{r.mitigation ?? '—'}</Td><Td className="text-xs text-muted">{r.citation ?? ''}</Td>
               </Row>
             ))}
           </Table>
@@ -98,11 +98,11 @@ export function TestPlanDetail() {
           {d.testApproach.techniques?.length ? (
             <Table head={<><Th>{t('testPlanDetail.thTechnique')}</Th><Th>{t('testPlanDetail.thRationale')}</Th><Th>{t('testPlanDetail.thCite')}</Th></>}>
               {d.testApproach.techniques.map((t, i) => (
-                <Row key={i}><Td className="font-medium text-ink-900">{t.name}</Td><Td className="text-ink-700">{t.rationale ?? '—'}</Td><Td className="text-[12px] text-muted">{t.citation ?? ''}</Td></Row>
+                <Row key={i}><Td className="font-medium text-ink-900">{t.name}</Td><Td className="text-ink-700">{t.rationale ?? '—'}</Td><Td className="text-xs text-muted">{t.citation ?? ''}</Td></Row>
               ))}
             </Table>
           ) : null}
-          {d.testApproach.entryCriteria?.length ? <p className="mt-3 text-[13px] text-muted">{t('testPlanDetail.entry', { items: d.testApproach.entryCriteria.join('; ') })}</p> : null}
+          {d.testApproach.entryCriteria?.length ? <p className="mt-3 text-sm text-muted">{t('testPlanDetail.entry', { items: d.testApproach.entryCriteria.join('; ') })}</p> : null}
         </Section>
       )}
 
@@ -112,7 +112,7 @@ export function TestPlanDetail() {
             <Row key={i}>
               <Td className="text-ink-900">{c.requirementKey ?? '—'}</Td><Td className="text-ink-700">{c.requiredCaseRef}</Td><Td className="text-muted">{c.dimension}</Td>
               <Td><Badge className={matchTone(c.matchStatus)}>{c.matchStatus}</Badge></Td>
-              <Td className="font-mono text-[12px] text-muted">{c.matchedTestKey ?? '—'}</Td>
+              <Td className="font-mono text-xs text-muted">{c.matchedTestKey ?? '—'}</Td>
             </Row>
           ))}
         </Table>
@@ -122,7 +122,7 @@ export function TestPlanDetail() {
         <Section title={t('testPlanDetail.exitCriteria')}>
           <Table head={<><Th>{t('testPlanDetail.thCriterion')}</Th><Th>{t('testPlanDetail.thMetric')}</Th><Th>{t('testPlanDetail.thSmart')}</Th><Th>{t('testPlanDetail.thCite')}</Th></>}>
             {d.exitCriteria.map((e, i) => (
-              <Row key={i}><Td className="text-ink-900">{e.criterion}</Td><Td className="text-muted">{e.metric ?? '—'}</Td><Td>{e.smart ? '✓' : '—'}</Td><Td className="text-[12px] text-muted">{e.citation ?? ''}</Td></Row>
+              <Row key={i}><Td className="text-ink-900">{e.criterion}</Td><Td className="text-muted">{e.metric ?? '—'}</Td><Td>{e.smart ? '✓' : '—'}</Td><Td className="text-xs text-muted">{e.citation ?? ''}</Td></Row>
             ))}
           </Table>
         </Section>

@@ -77,7 +77,7 @@ export function CopilotAuthProvider({ children }: { children: ReactNode }) {
   return (
     <Ctx.Provider value={{ needsCopilot, connected, loading, signIn }}>
       {showBanner && (
-        <div className="flex items-center justify-between gap-3 border-b border-warning/30 bg-warning/10 px-6 py-2.5 text-[13px]">
+        <div className="flex items-center justify-between gap-3 border-b border-warning/30 bg-warning/10 px-6 py-2.5 text-sm">
           <span className="flex items-center gap-2 text-ink-900">
             <Github className="h-4 w-4 shrink-0" />
             <span><strong>Connect GitHub Copilot</strong> to enable AI review and test generation.
@@ -110,7 +110,7 @@ export function useCopilotGate() {
   const blocked = needsCopilot && !connected && !loading;
   const notice = blocked ? (
     <button type="button" onClick={signIn}
-      className="inline-flex items-center gap-1.5 text-[12px] font-medium text-brand-600 hover:underline">
+      className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:underline">
       <Github className="h-3.5 w-3.5" /> Connect GitHub Copilot to use this
     </button>
   ) : null;

@@ -7,7 +7,7 @@ import { TONE } from '../theme/tokens';
 import { isTestEnv } from '../lib/motion';
 
 /** Animate 0 → target on mount; resolves instantly under reduced-motion or in tests (no rAF flicker / flake). */
-function useCountUp(target: number): number {
+export function useCountUp(target: number): number {
   const reduce = useReducedMotion();
   const [val, setVal] = React.useState<number>(() => (reduce || isTestEnv ? target : 0));
   React.useEffect(() => {
@@ -17,7 +17,8 @@ function useCountUp(target: number): number {
     const dur = 700;
     const tick = (now: number) => {
       const p = Math.min((now - start) / dur, 1);
-      setVal(Math.round(target * (1 - Math.pow(1 - p, 3))));
+      // Snap to the EXACT target on the final frame — rounding the eased value can land $9.99 on $10.
+      setVal(p === 1 ? target : Math.round(target * (1 - Math.pow(1 - p, 3))));
       if (p < 1) raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -35,7 +36,7 @@ type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
 export function Button({ variant = 'primary', size = 'md', loading, className, children, disabled, ...rest }: ButtonProps) {
   const base = 'inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors '
     + 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50 disabled:cursor-not-allowed';
-  const sizes = { sm: 'h-8 px-3 text-[13px]', md: 'h-9 px-4 text-sm' };
+  const sizes = { sm: 'h-8 px-3 text-sm', md: 'h-9 px-4 text-sm' };
   const variants = {
     primary: 'bg-brand text-white hover:bg-brand-700',
     secondary: 'bg-surface text-ink-900 ring-1 ring-border hover:bg-ink-50',
@@ -51,8 +52,17 @@ export function Button({ variant = 'primary', size = 'md', loading, className, c
 }
 
 /* ── Card ───────────────────────────────────────────────────────────────── */
-export function Card({ className, children }: { className?: string; children: React.ReactNode }) {
-  return <div className={cn('rounded-xl bg-surface ring-1 ring-border shadow-card transition-shadow duration-200 hover:shadow-pop', className)}>{children}</div>;
+/** Honest affordances: a resting card never lifts on hover — only `interactive` cards (genuinely clickable
+ *  surfaces) get the lift, so hover-elevation reliably means "you can click this". */
+export function Card({ className, children, interactive }:
+  { className?: string; children: React.ReactNode; interactive?: boolean }) {
+  return (
+    <div className={cn('rounded-xl bg-surface ring-1 ring-border shadow-card',
+      interactive && 'transition-[box-shadow,transform] duration-base ease-calm hover:shadow-lift motion-safe:hover:-translate-y-0.5',
+      className)}>
+      {children}
+    </div>
+  );
 }
 export function CardBody({ className, children }: { className?: string; children: React.ReactNode }) {
   return <div className={cn('p-5', className)}>{children}</div>;
@@ -61,8 +71,8 @@ export function CardHeader({ title, subtitle, action }: { title: React.ReactNode
   return (
     <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
       <div>
-        <h3 className="text-[15px] font-semibold text-ink-900">{title}</h3>
-        {subtitle && <p className="mt-0.5 text-[13px] text-muted">{subtitle}</p>}
+        <h3 className="text-md font-semibold text-ink-900">{title}</h3>
+        {subtitle && <p className="mt-0.5 text-sm text-muted">{subtitle}</p>}
       </div>
       {action}
     </div>
@@ -72,7 +82,7 @@ export function CardHeader({ title, subtitle, action }: { title: React.ReactNode
 /* ── Badge / Pill ───────────────────────────────────────────────────────── */
 export function Badge({ className, children }: { className?: string; children: React.ReactNode }) {
   return (
-    <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide', className)}>
+    <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold uppercase tracking-wide', className)}>
       {children}
     </span>
   );
@@ -95,7 +105,7 @@ export function EmptyState({ icon: Icon, title, body, action }:
     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border bg-surface px-6 py-12 text-center">
       {Icon && <Icon className="mb-3 h-8 w-8 text-muted" />}
       <p className="text-sm font-semibold text-ink-900">{title}</p>
-      {body && <p className="mt-1 max-w-md text-[13px] text-muted">{body}</p>}
+      {body && <p className="mt-1 max-w-md text-sm text-muted">{body}</p>}
       {action && <div className="mt-4">{action}</div>}
     </div>
   );
@@ -120,10 +130,10 @@ export function Field({ label, hint, error, children }:
   { label: string; hint?: string; error?: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-[13px] font-medium text-ink-700">{label}</span>
+      <span className="mb-1 block text-sm font-medium text-ink-700">{label}</span>
       {children}
-      {error ? <span className="mt-1 block text-[12px] text-danger">{error}</span>
-        : hint ? <span className="mt-1 block text-[12px] text-muted">{hint}</span> : null}
+      {error ? <span className="mt-1 block text-xs text-danger">{error}</span>
+        : hint ? <span className="mt-1 block text-xs text-muted">{hint}</span> : null}
     </label>
   );
 }
@@ -138,7 +148,7 @@ export function Select({ className, children, ...rest }: React.SelectHTMLAttribu
 }
 export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(
   function Textarea({ className, ...rest }, ref) {
-    return <textarea ref={ref} className={cn(fieldCls, 'h-auto min-h-[110px] py-2 font-mono text-[13px]', className)} {...rest} />;
+    return <textarea ref={ref} className={cn(fieldCls, 'h-auto min-h-[110px] py-2 font-mono text-sm', className)} {...rest} />;
   });
 
 /* ── KPI tile ───────────────────────────────────────────────────────────── */
@@ -153,13 +163,13 @@ export function KpiTile({ label, value, sub, tone = 'ink', trend }:
   const counted = useCountUp(numeric ? (value as number) : 0);
   const shown = numeric ? counted : value;
   return (
-    <Card className="flex-1 transition-transform duration-200 hover:-translate-y-0.5">
+    <Card className="flex-1 transition-transform duration-base ease-calm motion-safe:hover:-translate-y-0.5">
       <CardBody>
-        <p className="text-[12px] font-medium uppercase tracking-wide text-muted">{label}</p>
-        <p className={cn('mt-1 text-3xl font-semibold tabular-nums', toneCls)}>{shown}</p>
-        {sub && <p className="mt-1 text-[13px] text-muted">{sub}</p>}
+        <p className="text-xs font-medium uppercase tracking-wide text-muted">{label}</p>
+        <p className={cn('mt-1 text-4xl font-semibold tracking-tight tabular-nums', toneCls)}>{shown}</p>
+        {sub && <p className="mt-1 text-sm text-muted">{sub}</p>}
         {trend && (
-          <span className={cn('mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold', trendTone)}>
+          <span className={cn('mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold', trendTone)}>
             <span aria-hidden="true">{arrow}</span> {trend.label}
           </span>
         )}
@@ -174,7 +184,7 @@ export function Table({ head, children }: { head: React.ReactNode; children: Rea
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border text-left text-[12px] uppercase tracking-wide text-muted">{head}</tr>
+          <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">{head}</tr>
         </thead>
         <tbody>{children}</tbody>
       </table>
@@ -248,7 +258,7 @@ export function PageHeader({ title, subtitle, actions }:
   return (
     <div className="mb-6 flex items-end justify-between gap-4">
       <div>
-        <h1 className="text-[22px] font-semibold text-ink-900">{title}</h1>
+        <h1 className="text-title font-semibold text-ink-900">{title}</h1>
         {subtitle && <p className="mt-1 text-sm text-muted">{subtitle}</p>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}

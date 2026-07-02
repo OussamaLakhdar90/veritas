@@ -201,16 +201,16 @@ export function MultiSourceStrategy() {
             <Card className="border-l-4 border-l-danger"><CardBody className="flex items-start gap-3">
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-danger" />
               <div><p className="text-sm font-semibold text-ink-900">{t('multiSource.hardFailTitle')}</p>
-                <p className="mt-0.5 text-[13px] text-muted">{preview.fetchFailures.join('; ') || t('multiSource.hardFailFallback')}{t('multiSource.hardFailBlocked')}</p></div>
+                <p className="mt-0.5 text-sm text-muted">{preview.fetchFailures.join('; ') || t('multiSource.hardFailFallback')}{t('multiSource.hardFailBlocked')}</p></div>
             </CardBody></Card>
           )}
           {!preview.hardFail && preview.fetchFailures.length > 0 && (
-            <Card className="border-l-4 border-l-warning"><CardBody className="text-[13px] text-muted">
+            <Card className="border-l-4 border-l-warning"><CardBody className="text-sm text-muted">
               <span className="font-medium text-ink-900">{t('multiSource.someItemsNotFetched')}</span> {preview.fetchFailures.join('; ')}
             </CardBody></Card>
           )}
           {preview.carryForwardNotes.length > 0 && (
-            <Card className="border-l-4 border-l-warning"><CardBody className="text-[13px] text-muted">
+            <Card className="border-l-4 border-l-warning"><CardBody className="text-sm text-muted">
               <p className="font-medium text-ink-900">{t('multiSource.carryForwardTitle')}</p>
               <ul className="mt-1 list-disc space-y-0.5 pl-5">
                 {preview.carryForwardNotes.map((n, i) => <li key={i}>{n}</li>)}
@@ -223,7 +223,7 @@ export function MultiSourceStrategy() {
             <CardHeader title={t('multiSource.step2Title')}
               subtitle={t('multiSource.step2Subtitle')} />
             <CardBody>
-              <div className="mb-3 flex flex-wrap items-center gap-2 text-[13px]">
+              <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
                 <span className="text-muted">{t('multiSource.sourcesLabel')}</span>
                 {preview.mix.code && <Badge className={SOURCE_TONE.CODE}>code</Badge>}
                 {preview.mix.jira && <Badge className={SOURCE_TONE.JIRA}>jira</Badge>}
@@ -234,7 +234,7 @@ export function MultiSourceStrategy() {
               {/* Merge action bar */}
               {selected.size >= 1 && (
                 <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-brand/40 bg-brand/5 p-2.5">
-                  <span className="text-[13px] font-medium text-ink-900">{t('multiSource.selectedCount', { count: selected.size })}</span>
+                  <span className="text-sm font-medium text-ink-900">{t('multiSource.selectedCount', { count: selected.size })}</span>
                   {selected.size >= 2 ? (
                     <>
                       <Input className="h-8 max-w-[220px]" value={mergeName} onChange={(e) => setMergeName(e.target.value)}
@@ -244,7 +244,7 @@ export function MultiSourceStrategy() {
                       </Button>
                     </>
                   ) : (
-                    <span className="text-[12px] text-muted">{t('multiSource.selectAnotherToMerge')}</span>
+                    <span className="text-xs text-muted">{t('multiSource.selectAnotherToMerge')}</span>
                   )}
                   <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>{t('multiSource.clearBtn')}</Button>
                 </div>
@@ -291,7 +291,7 @@ export function MultiSourceStrategy() {
                       <div className="mt-2 flex flex-wrap gap-1.5 pl-6">
                         {f.units.map((u) => (
                           <span key={u.id} title={`${u.id} — ${u.title}`}
-                            className={cn('rounded px-1.5 py-0.5 text-[11px] ring-1', SOURCE_TONE[u.source] ?? TONE.muted)}>
+                            className={cn('rounded px-1.5 py-0.5 text-2xs ring-1', SOURCE_TONE[u.source] ?? TONE.muted)}>
                             {u.source.toLowerCase()} · {u.title || u.type.toLowerCase()}
                           </span>
                         ))}
@@ -309,7 +309,7 @@ export function MultiSourceStrategy() {
               <CardHeader title={t('multiSource.coverageGapsTitle')} subtitle={t('multiSource.coverageGapsSubtitle')} />
               <CardBody className="space-y-2">
                 {preview.gaps.map((g, i) => (
-                  <div key={i} className="flex items-start gap-2 text-[13px]">
+                  <div key={i} className="flex items-start gap-2 text-sm">
                     <Badge className={g.kind === 'IMPLEMENTED_UNDOCUMENTED' || g.kind === 'COVERAGE_GAP' ? TONE.danger : TONE.warn}>{GAP_LABEL_KEY[g.kind] ? t(`multiSource.${GAP_LABEL_KEY[g.kind]}`) : g.kind}</Badge>
                     <span className="text-ink-900">{g.message}</span>
                   </div>
@@ -321,7 +321,7 @@ export function MultiSourceStrategy() {
           {/* Generate */}
           <Card>
             <CardBody className="flex items-center justify-between gap-4">
-              <div className="text-[13px] text-muted">
+              <div className="text-sm text-muted">
                 {t('multiSource.estimatedCostLabel')} <span className="font-semibold text-ink-900">~${preview.estimatedCostUsd.toFixed(2)}</span>
                 <span className="ml-1">{t('multiSource.estimatedCostNote')}</span>
               </div>
@@ -341,7 +341,7 @@ export function MultiSourceStrategy() {
       )}
 
       {!preview && (
-        <p className="mt-4 flex items-center gap-1.5 text-[12px] text-muted">
+        <p className="mt-4 flex items-center gap-1.5 text-xs text-muted">
           <ShieldCheck className="h-3.5 w-3.5" /> {t('multiSource.footerNote')}
         </p>
       )}

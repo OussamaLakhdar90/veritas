@@ -8,7 +8,7 @@ function Term({ chip, children }: { chip: React.ReactNode; children: React.React
   return (
     <div className="flex flex-col gap-1.5 py-3 sm:flex-row sm:items-start sm:gap-4">
       <div className="w-44 shrink-0">{chip}</div>
-      <p className="text-[13.5px] leading-relaxed text-ink-900">{children}</p>
+      <p className="text-sm leading-relaxed text-ink-900">{children}</p>
     </div>
   );
 }
@@ -38,7 +38,7 @@ export function Glossary() {
       <Card className="mb-5 border-l-4 border-l-brand">
         <CardBody className="flex items-start gap-3">
           <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-brand" />
-          <p className="text-[13.5px] leading-relaxed text-ink-900">
+          <p className="text-sm leading-relaxed text-ink-900">
             <Trans i18nKey="glossary.intro">
               Veritas compares what a service's <strong>code actually does</strong> with what its <strong>API
               contract promises</strong>, and lists every difference as a <em>finding</em>. The terms below
@@ -82,13 +82,13 @@ export function Glossary() {
 
       <Section title={t('glossary.confidenceTitle')}
         subtitle={t('glossary.confidenceSubtitle')}>
-        <Term chip={<span className="text-[13px] font-medium text-ink-900">{CONFIDENCE_LABEL.HIGH}</span>}>
+        <Term chip={<span className="text-sm font-medium text-ink-900">{CONFIDENCE_LABEL.HIGH}</span>}>
           {t('glossary.confidenceHighBody')}
         </Term>
-        <Term chip={<span className="text-[13px] font-medium text-ink-900">{CONFIDENCE_LABEL.MEDIUM}</span>}>
+        <Term chip={<span className="text-sm font-medium text-ink-900">{CONFIDENCE_LABEL.MEDIUM}</span>}>
           {t('glossary.confidenceMediumBody')}
         </Term>
-        <Term chip={<span className="text-[13px] font-medium text-warning">{CONFIDENCE_LABEL.LOW}</span>}>
+        <Term chip={<span className="text-sm font-medium text-warning">{CONFIDENCE_LABEL.LOW}</span>}>
           <Trans i18nKey="glossary.confidenceLowBody">
             A reasonable suspicion that needs a human to confirm. A <strong>high-severity finding marked low
             confidence</strong> is flagged with a warning icon — verify it before you treat it as a blocker.
@@ -99,7 +99,7 @@ export function Glossary() {
       <Section title={t('glossary.analysisAreaTitle')}
         subtitle={t('glossary.analysisAreaSubtitle')}>
         {Object.entries(LAYER_LABEL).map(([code, label]) => (
-          <Term key={code} chip={<span className="text-[13px] font-medium text-ink-900">{label}</span>}>
+          <Term key={code} chip={<span className="text-sm font-medium text-ink-900">{label}</span>}>
             {t(`glossary.layerBlurb${code}`)}
           </Term>
         ))}
@@ -120,17 +120,17 @@ export function Glossary() {
 
       <Section title={t('glossary.reportMetricsTitle')}
         subtitle={t('glossary.reportMetricsSubtitle')}>
-        <Term chip={<span className="text-[13px] font-medium text-ink-900">{t('glossary.contractFidelityChip')}</span>}>
+        <Term chip={<span className="text-sm font-medium text-ink-900">{t('glossary.contractFidelityChip')}</span>}>
           {t('glossary.contractFidelityBody')}
         </Term>
-        <Term chip={<span className="text-[13px] font-medium text-ink-900">{t('glossary.analysisCoverageChip')}</span>}>
+        <Term chip={<span className="text-sm font-medium text-ink-900">{t('glossary.analysisCoverageChip')}</span>}>
           <Trans i18nKey="glossary.analysisCoverageBody">
             How much of the service Veritas was able to examine. <strong>Full</strong> means every source it needed
             was available; <strong>Partial</strong> means something (a security source, an exception handler, a DTO)
             wasn't supplied, so some checks were skipped.
           </Trans>
         </Term>
-        <Term chip={<span className="text-[13px] font-medium text-ink-900">{t('glossary.estAnalysisCostChip')}</span>}>
+        <Term chip={<span className="text-sm font-medium text-ink-900">{t('glossary.estAnalysisCostChip')}</span>}>
           {t('glossary.estAnalysisCostBody')}
         </Term>
       </Section>

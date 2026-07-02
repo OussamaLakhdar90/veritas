@@ -1,4 +1,11 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+/* Self-hosted fonts (@fontsource → bundled woff2, shipped in the jar) — a locked-down proxy can no longer
+   degrade the app to Segoe UI, and nothing render-blocks on an external CDN. */
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -9,7 +16,6 @@
   --brand-600: 227 24 55;     /* NBC red — logo / primary action / active nav only, never body text */
   --brand-700: 179 18 44;
   --gold: 138 106 30;
-  --gold-fill: 181 133 42;
   --gold-tint: 247 239 217;
 
   --ink-50: 247 249 252;
@@ -28,13 +34,19 @@
   --success: 30 142 90;
   --warning: 194 65 12;
   --danger: 194 18 45;
-  --info: 58 70 88;
+  --danger-strong: 154 14 36;
+  --info: 37 99 168;          /* a true informational blue — distinct from --muted in BOTH modes */
 
   --sev-blocker: 107 33 168;
   --sev-critical: 194 18 45;
   --sev-major: 194 65 12;
   --sev-minor: 202 138 4;
   --sev-info: 58 70 88;
+
+  /* Elevation — full shadow values (not channel triplets) so dark mode can vary the alpha too. */
+  --shadow-card: 0 1px 2px rgb(14 23 38 / .06), 0 1px 3px rgb(14 23 38 / .10);
+  --shadow-lift: 0 4px 12px rgb(14 23 38 / .12);
+  --shadow-pop: 0 10px 34px rgb(14 23 38 / .16);
 }
 
 .dark {
@@ -47,6 +59,7 @@
   --ink-50: 26 36 56;
   --ink-100: 36 48 73;
   --ink-600: 148 163 184;
+  --ink-700: 203 213 225;    /* light-ish body ink — the light-mode navy was near-invisible on dark surfaces */
   --ink-900: 229 234 242;
 
   --bg: 11 18 32;
@@ -59,7 +72,19 @@
   --success: 52 211 153;
   --warning: 251 146 60;
   --danger: 248 113 113;
-  --info: 148 163 184;
+  --danger-strong: 220 90 90;
+  --info: 96 165 250;
+
+  /* Severity ramp for dark surfaces (previously missing — pills rendered with unreadable light-mode values). */
+  --sev-blocker: 192 132 252;
+  --sev-critical: 248 113 113;   /* tracks --danger's dark flip */
+  --sev-major: 251 146 60;
+  --sev-minor: 250 204 21;
+  --sev-info: 148 163 184;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / .30), 0 1px 3px rgb(0 0 0 / .35);
+  --shadow-lift: 0 4px 12px rgb(0 0 0 / .45);
+  --shadow-pop: 0 10px 34px rgb(0 0 0 / .55);
 }
 
 @layer base {
@@ -69,6 +94,8 @@
     background: rgb(var(--bg));
     color: rgb(var(--text));
     font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    /* cv05/cv08/cv11: disambiguate l / I / 1 — run ids and Jira keys must read unambiguously. */
+    font-feature-settings: 'cv05', 'cv08', 'cv11';
     -webkit-font-smoothing: antialiased;
   }
   code, pre { font-family: 'JetBrains Mono', ui-monospace, monospace; }

@@ -106,19 +106,19 @@ export function Codegen() {
                 subtitle={sel.templateSource ? t('codegen.templateSubtitle', { source: sel.templateSource }) : undefined} />
               <CardBody className="space-y-5">
                 <div>
-                  <p className="mb-1.5 text-[13px] font-semibold text-ink-900">{t('codegen.generatedFiles')}</p>
+                  <p className="mb-1.5 text-sm font-semibold text-ink-900">{t('codegen.generatedFiles')}</p>
                   <ul className="space-y-1">
                     {parseList(sel.filesWritten).map((f) => (
-                      <li key={f} className="flex items-center gap-2 font-mono text-[12.5px] text-muted"><FileCode className="h-3.5 w-3.5 shrink-0" /> {f}</li>
+                      <li key={f} className="flex items-center gap-2 font-mono text-xs text-muted"><FileCode className="h-3.5 w-3.5 shrink-0" /> {f}</li>
                     ))}
-                    {parseList(sel.filesWritten).length === 0 && <li className="text-[13px] text-muted">—</li>}
+                    {parseList(sel.filesWritten).length === 0 && <li className="text-sm text-muted">—</li>}
                   </ul>
                 </div>
 
                 {parseList(sel.todos).length > 0 && (
                   <div className="rounded-lg border-l-4 border-l-warning bg-warning/5 p-3">
-                    <p className="mb-1 text-[13px] font-semibold text-ink-900">{t('codegen.todosTitle')}</p>
-                    <ul className="list-disc space-y-0.5 pl-5 text-[13px] text-ink-700">
+                    <p className="mb-1 text-sm font-semibold text-ink-900">{t('codegen.todosTitle')}</p>
+                    <ul className="list-disc space-y-0.5 pl-5 text-sm text-ink-700">
                       {parseList(sel.todos).map((t, i) => <li key={i}>{t}</li>)}
                     </ul>
                   </div>

@@ -39,7 +39,7 @@ function LanguageToggle() {
   const { i18n, t } = useTranslation();
   const current = (i18n.language?.startsWith('fr') ? 'fr' : 'en') as Lang;
   return (
-    <div className="inline-flex rounded-full bg-ink-50 p-0.5 text-[11px] font-semibold ring-1 ring-border"
+    <div className="inline-flex rounded-full bg-ink-50 p-0.5 text-2xs font-semibold ring-1 ring-border"
       role="group" aria-label={t('header.language')}>
       {(['en', 'fr'] as Lang[]).map((lng) => (
         <button key={lng} type="button" onClick={() => setLanguage(lng)} aria-pressed={current === lng}
@@ -67,14 +67,14 @@ function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile }:
       <div className={cn('flex items-center gap-2 px-5 py-5', collapsed && 'lg:justify-center lg:px-0')}>
         <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand font-bold text-white">V</span>
         <div className={cn(collapsed && 'lg:hidden')}>
-          <div className="text-[15px] font-semibold text-white">{t('brand.name')}</div>
-          <div className="text-[11px] text-white/50">{t('brand.tagline')}</div>
+          <div className="text-md font-semibold text-white">{t('brand.name')}</div>
+          <div className="text-2xs text-white/50">{t('brand.tagline')}</div>
         </div>
       </div>
       <nav className="flex-1 space-y-0.5 overflow-y-auto px-3 pb-2">
         {NAV_GROUPS.map((group) => (
           <div key={group.section}>
-            <p className={cn('px-3 pb-1 pt-3 text-[9.5px] font-semibold uppercase tracking-wider text-white/35',
+            <p className={cn('px-3 pb-1 pt-3 text-2xs font-semibold uppercase tracking-wider text-white/35',
               collapsed && 'lg:hidden')}>
               {t(`nav.${group.section}`)}
             </p>
@@ -96,7 +96,7 @@ function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile }:
                     <span className={cn('flex-1', collapsed && 'lg:hidden')}>{t(`nav.${key}`)}</span>
                     {adv && (
                       <span aria-hidden="true"
-                        className={cn('ml-auto rounded border border-white/20 px-1.5 text-[9px] text-white/45',
+                        className={cn('ml-auto rounded border border-white/20 px-1.5 text-2xs text-white/45',
                           collapsed && 'lg:hidden')}>
                         {t('nav.adv')}
                       </span>
@@ -110,11 +110,11 @@ function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile }:
       </nav>
       <button type="button" onClick={onToggleCollapse}
         aria-label={collapsed ? t('header.expand') : t('header.collapse')}
-        className="mx-3 mb-2 hidden items-center gap-2 rounded-lg px-3 py-2 text-[12px] text-white/55 hover:bg-white/5 hover:text-white lg:flex">
+        className="mx-3 mb-2 hidden items-center gap-2 rounded-lg px-3 py-2 text-xs text-white/55 hover:bg-white/5 hover:text-white lg:flex">
         {collapsed ? <ChevronRight className="h-4 w-4" />
           : (<><ChevronLeft className="h-4 w-4" /> {t('header.collapse')}</>)}
       </button>
-      <div className={cn('px-5 py-4 text-[11px] text-white/40', collapsed && 'lg:hidden')}>{t('brand.org')}</div>
+      <div className={cn('px-5 py-4 text-2xs text-white/40', collapsed && 'lg:hidden')}>{t('brand.org')}</div>
     </aside>
   );
 }
@@ -143,17 +143,17 @@ function TopBar({ onOpenMobile, onOpenPalette, dark, onToggleDark }:
           className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-ink-600 hover:bg-ink-50 lg:hidden">
           <Menu className="h-5 w-5" />
         </button>
-        {crumb && <span className="truncate text-[14px] font-semibold text-ink-900">{crumb}</span>}
+        {crumb && <span className="truncate text-sm font-semibold text-ink-900">{crumb}</span>}
       </div>
       <div className="flex items-center gap-2">
-        <span className="hidden items-center gap-1.5 rounded-full bg-ink-50 px-2.5 py-1 text-[11px] font-medium text-muted ring-1 ring-border sm:inline-flex">
+        <span className="hidden items-center gap-1.5 rounded-full bg-ink-50 px-2.5 py-1 text-2xs font-medium text-muted ring-1 ring-border sm:inline-flex">
           <span className="h-1.5 w-1.5 rounded-full bg-success" /> {t('header.connected')}
         </span>
         <EngineBadge />
         <button type="button" onClick={onOpenPalette}
-          className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-bg px-3 text-[12px] text-muted transition-colors hover:text-ink-900">
+          className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-bg px-3 text-xs text-muted transition-colors hover:text-ink-900">
           <Search className="h-3.5 w-3.5" /> <span className="hidden sm:inline">{t('palette.open')}</span>
-          <kbd className="hidden rounded bg-surface px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-border sm:inline">⌘K</kbd>
+          <kbd className="hidden rounded bg-surface px-1.5 py-0.5 text-2xs font-medium ring-1 ring-border sm:inline">⌘K</kbd>
         </button>
         <AlertBell />
         <LanguageToggle />

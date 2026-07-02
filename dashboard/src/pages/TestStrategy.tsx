@@ -85,16 +85,16 @@ export function TestStrategy() {
                       {s.source === 'multi-source' && (
                         <a href={api.strategyWhyDocUrl(s.id)} target="_blank" rel="noreferrer"
                           title={t('testStrategy.evidenceTooltip')}
-                          className="inline-flex items-center gap-1 text-[13px] font-medium text-gold hover:underline">
+                          className="inline-flex items-center gap-1 text-sm font-medium text-gold hover:underline">
                           <ScrollText className="h-3.5 w-3.5" /> {t('testStrategy.evidence')} <ExternalLink className="h-3 w-3" />
                         </a>
                       )}
                       <a href={api.strategyRationaleUrl(s.id)} target="_blank" rel="noreferrer"
-                        className="inline-flex items-center gap-1 text-[13px] font-medium text-gold hover:underline">
+                        className="inline-flex items-center gap-1 text-sm font-medium text-gold hover:underline">
                         <FileText className="h-3.5 w-3.5" /> {t('testStrategy.rationale')} <ExternalLink className="h-3 w-3" />
                       </a>
                       <Link to={`/test-strategy/${s.id}`}
-                        className="inline-flex items-center gap-1 text-[13px] font-medium text-gold hover:underline">
+                        className="inline-flex items-center gap-1 text-sm font-medium text-gold hover:underline">
                         {t('testStrategy.open')} <ArrowRight className="h-3.5 w-3.5" />
                       </Link>
                     </div>

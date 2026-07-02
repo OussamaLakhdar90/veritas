@@ -41,7 +41,7 @@ function Stepper({ step }: { step: number }) {
         return (
           <div key={key} className="flex-1">
             <div className={cn('h-1 rounded-full', done || active ? 'bg-brand' : 'bg-border')} />
-            <p className={cn('mt-1.5 text-[11px]', active ? 'font-semibold text-ink-900' : done ? 'text-ink-700' : 'text-muted')}>
+            <p className={cn('mt-1.5 text-2xs', active ? 'font-semibold text-ink-900' : done ? 'text-ink-700' : 'text-muted')}>
               {n}. {t(`wizard.${key}`)}
             </p>
           </div>
@@ -247,7 +247,7 @@ export function GenerateApiTests() {
               hint={t('genApi.jiraTicketHint')}>
               {jiraKey ? (
                 <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-ink-50 px-3 py-2">
-                  <span className="min-w-0 text-[13px]">
+                  <span className="min-w-0 text-sm">
                     <span className="font-mono font-medium text-ink-900">{jiraKey}</span>
                     {jiraSummary && <span className="text-muted"> — {jiraSummary}</span>}
                   </span>
@@ -264,13 +264,13 @@ export function GenerateApiTests() {
                   {jiraQuery.trim().length >= 2 && (
                     <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border border-border bg-surface shadow-card">
                       {jiraResults.isLoading ? (
-                        <p className="px-3 py-2 text-[13px] text-muted">{t('genApi.searching')}</p>
+                        <p className="px-3 py-2 text-sm text-muted">{t('genApi.searching')}</p>
                       ) : (jiraResults.data ?? []).length === 0 ? (
-                        <p className="px-3 py-2 text-[13px] text-muted">{t('genApi.noMatchingTickets')}</p>
+                        <p className="px-3 py-2 text-sm text-muted">{t('genApi.noMatchingTickets')}</p>
                       ) : (
                         (jiraResults.data ?? []).map((i) => (
                           <button key={i.key} type="button"
-                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-[13px] hover:bg-ink-50"
+                            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-ink-50"
                             onClick={() => { setJiraKey(i.key); setJiraSummary(i.summary ?? ''); }}>
                             <span className="font-mono font-medium text-ink-900">{i.key}</span>
                             <span className="truncate text-muted">{i.summary}</span>
@@ -312,7 +312,7 @@ export function GenerateApiTests() {
                 </div>
 
                 <div>
-                  <p className="mb-2 text-[13px] text-muted">
+                  <p className="mb-2 text-sm text-muted">
                     {gaps > 0 ? t('genApi.uncheckHint') : t('genApi.everythingCovered')}
                   </p>
                   <Table head={<><Th /><Th>{t('genApi.thEndpoint')}</Th><Th>{t('genApi.thWhat')}</Th></>}>
@@ -326,7 +326,7 @@ export function GenerateApiTests() {
                     {t('genApi.continueCount', { count: selected.size })} <ArrowRight className="h-4 w-4" />
                   </Button>
                 </div>
-                <p className="flex items-center gap-1.5 text-[12px] text-muted">
+                <p className="flex items-center gap-1.5 text-xs text-muted">
                   <GitPullRequest className="h-3.5 w-3.5" /> {t('genApi.nextTokensPrefix')} <span className="font-mono">{outputRepo || '—'}</span> {t('genApi.nextTokensSuffix')}
                 </p>
               </>
@@ -347,7 +347,7 @@ export function GenerateApiTests() {
             </div>
 
             {authGroups.length === 0 ? (
-              <p className="rounded-lg bg-ink-50 p-3 text-[13px] text-muted">
+              <p className="rounded-lg bg-ink-50 p-3 text-sm text-muted">
                 {t('genApi.publicServiceNote')}
               </p>
             ) : (
@@ -357,7 +357,7 @@ export function GenerateApiTests() {
             )}
 
             {authGroups.length > 0 && (
-              <p className="flex items-center gap-1.5 rounded-lg bg-success/5 p-2.5 text-[12px] text-success">
+              <p className="flex items-center gap-1.5 rounded-lg bg-success/5 p-2.5 text-xs text-success">
                 <Lock className="h-3.5 w-3.5 shrink-0" /> {t('genApi.privateKeyNote1')} <span className="font-mono">oktaCredentials.json</span> {t('genApi.privateKeyNote2')}
                 <span className="font-mono">"$sensitive:…"</span> {t('genApi.privateKeyNote3')}
               </p>
@@ -385,25 +385,25 @@ export function GenerateApiTests() {
             subtitle={t('genApi.step5Subtitle', { name: run.serviceName })} />
           <CardBody className="space-y-5">
             {run.buildStatus === 'SKIPPED' && (
-              <div className="rounded-lg border-l-4 border-l-warning bg-warning/5 p-3 text-[13px] text-ink-700">
+              <div className="rounded-lg border-l-4 border-l-warning bg-warning/5 p-3 text-sm text-ink-700">
                 {t('genApi.buildSkippedNote')}
               </div>
             )}
 
             <div>
-              <p className="mb-1.5 text-[13px] font-semibold text-ink-900">{t('genApi.generatedFiles')}</p>
+              <p className="mb-1.5 text-sm font-semibold text-ink-900">{t('genApi.generatedFiles')}</p>
               <ul className="space-y-1">
                 {parseList(run.filesWritten).map((f) => (
-                  <li key={f} className="flex items-center gap-2 font-mono text-[12.5px] text-muted"><FileCode className="h-3.5 w-3.5 shrink-0" /> {f}</li>
+                  <li key={f} className="flex items-center gap-2 font-mono text-xs text-muted"><FileCode className="h-3.5 w-3.5 shrink-0" /> {f}</li>
                 ))}
-                {parseList(run.filesWritten).length === 0 && <li className="text-[13px] text-muted">—</li>}
+                {parseList(run.filesWritten).length === 0 && <li className="text-sm text-muted">—</li>}
               </ul>
             </div>
 
             {parseList(run.todos).length > 0 && (
               <div className="rounded-lg border-l-4 border-l-warning bg-warning/5 p-3">
-                <p className="mb-1 text-[13px] font-semibold text-ink-900">{t('genApi.beforeTheseRun')}</p>
-                <ul className="list-disc space-y-0.5 pl-5 text-[13px] text-ink-700">
+                <p className="mb-1 text-sm font-semibold text-ink-900">{t('genApi.beforeTheseRun')}</p>
+                <ul className="list-disc space-y-0.5 pl-5 text-sm text-ink-700">
                   {parseList(run.todos).map((t, i) => <li key={i}>{t}</li>)}
                 </ul>
               </div>
@@ -413,10 +413,10 @@ export function GenerateApiTests() {
               <div className="space-y-3">
                 <p className="text-sm">{t('genApi.pullRequestOpenedLabel')} <a href={run.prUrl} target="_blank" rel="noreferrer"
                   className="inline-flex items-center gap-1 font-medium text-gold hover:underline">{run.prUrl} <ExternalLink className="h-3.5 w-3.5" /></a></p>
-                <div className="rounded-lg bg-ink-50 p-3 text-[13px] text-ink-700">
+                <div className="rounded-lg bg-ink-50 p-3 text-sm text-ink-700">
                   <p className="mb-1 font-semibold text-ink-900">{t('genApi.testItLocally')}</p>
                   <p>{t('genApi.testItLocallyBody')}</p>
-                  <pre className="mt-2 overflow-x-auto rounded bg-ink-900/90 px-3 py-2 font-mono text-[12px] text-white">git fetch origin{'\n'}git checkout {run.branch ?? t('genApi.thePrBranch')}</pre>
+                  <pre className="mt-2 overflow-x-auto rounded bg-ink-900/90 px-3 py-2 font-mono text-xs text-white">git fetch origin{'\n'}git checkout {run.branch ?? t('genApi.thePrBranch')}</pre>
                 </div>
               </div>
             ) : (
@@ -442,7 +442,7 @@ export function GenerateApiTests() {
 
             <div className="flex items-center justify-between border-t border-border pt-4">
               <Button variant="secondary" onClick={() => setStep(4)}><ArrowLeft className="h-4 w-4" /> {t('genApi.back')}</Button>
-              <p className="flex items-center gap-1.5 text-[12px] text-muted">
+              <p className="flex items-center gap-1.5 text-xs text-muted">
                 <GitPullRequest className="h-3.5 w-3.5" /> {t('genApi.openingPrNote')}
               </p>
             </div>
@@ -456,7 +456,7 @@ export function GenerateApiTests() {
 function PresetBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button type="button" onClick={onClick}
-      className={cn('flex-1 rounded-md border px-3 py-2 text-[13px] transition-colors',
+      className={cn('flex-1 rounded-md border px-3 py-2 text-sm transition-colors',
         active ? 'border-brand bg-brand/10 font-semibold text-ink-900' : 'border-border text-muted hover:bg-ink-50')}>
       {children}
     </button>
@@ -473,10 +473,10 @@ function AuthGroupCard({ index, group, multi, onChange }:
   return (
     <div className="space-y-3 rounded-lg border border-border p-3">
       <div className="flex items-center gap-2">
-        <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-[12px] font-medium text-brand">
+        <span className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2 py-0.5 text-xs font-medium text-brand">
           <KeyRound className="h-3 w-3" /> {t('genApi.tokenLetter', { letter: String.fromCharCode(65 + index) })}
         </span>
-        {multi && <span className="text-[12px] text-muted">{t('genApi.tokenForEndpoints')}</span>}
+        {multi && <span className="text-xs text-muted">{t('genApi.tokenForEndpoints')}</span>}
       </div>
       <div className="grid grid-cols-2 gap-3">
         {multi && (
@@ -505,7 +505,7 @@ function AuthGroupCard({ index, group, multi, onChange }:
         </div>
       </div>
       <div>
-        <p className="mb-1.5 text-[12px] font-medium text-ink-900">{t('genApi.oauthScopes')}</p>
+        <p className="mb-1.5 text-xs font-medium text-ink-900">{t('genApi.oauthScopes')}</p>
         <div className="space-y-2">
           {scopes.map((s, si) => (
             <div key={si} className="flex items-end gap-2">
@@ -539,7 +539,7 @@ function AuthGroupCard({ index, group, multi, onChange }:
 function Tile({ label, value, tone }: { label: string; value: number; tone?: string }) {
   return (
     <div className="rounded-lg bg-ink-50 p-3">
-      <p className={cn('text-[12px]', tone ?? 'text-muted')}>{label}</p>
+      <p className={cn('text-xs', tone ?? 'text-muted')}>{label}</p>
       <p className="mt-0.5 text-2xl font-semibold tabular-nums text-ink-900">{value}</p>
     </div>
   );
@@ -560,8 +560,8 @@ function PlanRow({ it, selected, toggle }: { it: TestGenPlanItem; selected: Set<
         ) : <span className="inline-block h-4 w-4" />}
       </Td>
       <Td>
-        <div className="font-mono text-[12.5px] text-ink-900">{it.method} {it.path}</div>
-        {it.reason && <div className="text-[11px] text-muted">{it.reason}</div>}
+        <div className="font-mono text-xs text-ink-900">{it.method} {it.path}</div>
+        {it.reason && <div className="text-2xs text-muted">{it.reason}</div>}
       </Td>
       <Td>
         <Badge className={meta.tone}><Icon className="h-3 w-3" /> {t(`genApi.${meta.labelKey}`)}</Badge>

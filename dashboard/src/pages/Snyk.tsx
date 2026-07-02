@@ -91,7 +91,7 @@ export function Snyk() {
       {/* Snyk-branded header */}
       <div className="mb-1 flex items-center gap-2">
         <SnykLogo className="h-7 w-7" />
-        <span className="text-[20px] font-semibold tracking-tight text-ink-900">Snyk</span>
+        <span className="text-xl font-semibold tracking-tight text-ink-900">Snyk</span>
       </div>
       <PageHeader title={t('snyk.title')} subtitle={t('snyk.subtitle')}
         actions={<Button variant="secondary" loading={refresh.isPending} onClick={() => refresh.mutate()}>
@@ -108,7 +108,7 @@ export function Snyk() {
           const critical = a.severity === 'critical';
           return (
             <div key={a.id} role="alert"
-              className={`flex items-start justify-between gap-3 rounded-lg border-l-4 px-4 py-3 text-[13px] ${
+              className={`flex items-start justify-between gap-3 rounded-lg border-l-4 px-4 py-3 text-sm ${
                 critical ? 'border-l-danger bg-danger/10 ring-1 ring-danger/25 shadow-sm' : 'border-l-warning bg-warning/5'}`}>
               <div className="flex items-start gap-2.5">
                 {critical
@@ -135,7 +135,7 @@ export function Snyk() {
           ) : orgsQ.isLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('snyk.loadingApps')}</div>
           ) : (orgsQ.data ?? []).length === 0 ? (
-            <div className="text-[13px] text-muted">
+            <div className="text-sm text-muted">
               <p>{t('snyk.noApps')}</p>
               <Link to="/settings" className="mt-1 inline-flex items-center gap-1 font-medium text-gold hover:underline">
                 <SettingsIcon className="h-3.5 w-3.5" /> {t('snyk.openSettings')}
@@ -154,14 +154,14 @@ export function Snyk() {
                         return next;
                       })} />
                     <span className="min-w-0 truncate text-ink-900">{o.name || o.slug}</span>
-                    <span className="ml-auto shrink-0 text-[11px] text-muted">{o.slug}</span>
+                    <span className="ml-auto shrink-0 text-2xs text-muted">{o.slug}</span>
                   </label>
                 ))}
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-3">
                 <Button disabled={selectedOrgs.size === 0} loading={watchSelected.isPending}
                   onClick={() => watchSelected.mutate()}>{t('snyk.watchSelected')}</Button>
-                <span className="text-[12px] text-muted">{t('snyk.watchHint')}</span>
+                <span className="text-xs text-muted">{t('snyk.watchHint')}</span>
               </div>
             </div>
           )}
@@ -185,7 +185,7 @@ export function Snyk() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate font-semibold text-ink-900">{w.repoSlug}</p>
-                      <p className="text-[12px] text-muted">{w.orgSlug}</p>
+                      <p className="text-xs text-muted">{w.orgSlug}</p>
                     </div>
                     <div className="flex shrink-0 gap-1">
                       <button type="button" onClick={() => setSelectedWatch(w.id)} title={t('snyk.viewIssues')}
@@ -200,7 +200,7 @@ export function Snyk() {
                     <Badge className={snykSeverityBadge('medium')}>{w.medium} {t('snyk.sevMedium')}</Badge>
                     <Badge className={snykSeverityBadge('low')}>{w.low} {t('snyk.sevLow')}</Badge>
                   </div>
-                  <p className="mt-3 text-[12px] text-muted">
+                  <p className="mt-3 text-xs text-muted">
                     {t('snyk.projects', { count: w.projectCount })} · {t('snyk.fixable', { count: w.fixable })}
                     {' · '}{checked ? t('snyk.lastPolled', { when: checked }) : t('snyk.neverPolled')}
                   </p>
@@ -238,7 +238,7 @@ export function Snyk() {
                     <Td>
                       <span className="font-medium text-ink-900">{i.pkgName}</span>
                       <span className="text-muted">@{i.pkgVersion}</span>
-                      <span className="block text-[12px] text-muted">{i.title}</span>
+                      <span className="block text-xs text-muted">{i.title}</span>
                     </Td>
                     <Td className="text-muted">{i.projectName}</Td>
                     <Td>
@@ -256,7 +256,7 @@ export function Snyk() {
                           <Button size="sm" variant="ghost" onClick={() => setFixIssue(i)}>{t('snyk.fix.button')}</Button>
                         </div>
                       ) : (
-                        <span className="inline-flex items-center gap-1 text-[12px] text-muted">
+                        <span className="inline-flex items-center gap-1 text-xs text-muted">
                           <PackageOpen className="h-3.5 w-3.5" /> {t('snyk.noFix')}</span>
                       )}
                     </Td>
@@ -304,7 +304,7 @@ function ConnectSnykPanel() {
   });
 
   const badge = (n: number) => (
-    <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-white">{n}</span>
+    <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand text-2xs font-semibold text-white">{n}</span>
   );
 
   return (
@@ -312,11 +312,11 @@ function ConnectSnykPanel() {
       <div className="flex items-start gap-3">
         <div className="shrink-0 rounded-lg bg-brand-50 p-2"><PlugZap className="h-5 w-5 text-brand" /></div>
         <div className="min-w-0 flex-1">
-          <p className="text-[15px] font-semibold text-ink-900">{t('snyk.connectTitle')}</p>
-          <p className="mt-0.5 text-[13px] text-muted">{t('snyk.connectBody')}</p>
+          <p className="text-md font-semibold text-ink-900">{t('snyk.connectTitle')}</p>
+          <p className="mt-0.5 text-sm text-muted">{t('snyk.connectBody')}</p>
 
           {/* Step 1 — get the token */}
-          <p className="mt-3 flex items-start gap-2.5 text-[13px] text-ink-700">
+          <p className="mt-3 flex items-start gap-2.5 text-sm text-ink-700">
             {badge(1)}
             <span className="min-w-0">{t('snyk.connectStep1')}{' '}
               <a href="https://app.snyk.io/account" target="_blank" rel="noreferrer"
@@ -329,7 +329,7 @@ function ConnectSnykPanel() {
             {badge(2)}
             <div className="flex flex-1 flex-wrap items-end gap-2">
               <div className="min-w-[240px] flex-1">
-                <label htmlFor="snyk-token" className="mb-1 block text-[12px] font-medium text-ink-700">
+                <label htmlFor="snyk-token" className="mb-1 block text-xs font-medium text-ink-700">
                   {t('snyk.tokenLabel')}
                 </label>
                 <Input id="snyk-token" type="password" autoComplete="off" placeholder={t('snyk.tokenPlaceholder')}
@@ -340,9 +340,9 @@ function ConnectSnykPanel() {
               </Button>
             </div>
           </form>
-          {err && <p className="mt-2 pl-[30px] text-[13px] text-danger" role="alert">{err}</p>}
+          {err && <p className="mt-2 pl-[30px] text-sm text-danger" role="alert">{err}</p>}
 
-          <p className="mt-3 text-[12px] text-muted">
+          <p className="mt-3 text-xs text-muted">
             {t('snyk.connectAdvanced')}{' '}
             <Link to="/settings" className="inline-flex items-center gap-1 font-medium text-gold hover:underline">
               <SettingsIcon className="h-3.5 w-3.5" /> {t('snyk.openFullSettings')}

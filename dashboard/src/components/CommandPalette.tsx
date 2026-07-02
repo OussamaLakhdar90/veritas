@@ -58,21 +58,21 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
         </div>
         <ul className="max-h-80 overflow-auto p-2" role="listbox">
           {filtered.length === 0 ? (
-            <li className="px-3 py-6 text-center text-[13px] text-muted">{t('palette.noResults')}</li>
+            <li className="px-3 py-6 text-center text-sm text-muted">{t('palette.noResults')}</li>
           ) : filtered.map((c, i) => (
             <li key={c.id} role="option" aria-selected={i === active}>
               <button type="button" onMouseEnter={() => setActive(i)} onClick={() => go(c)}
                 className={cn('flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm',
                   i === active ? 'bg-brand/10 text-ink-900' : 'text-ink-700 hover:bg-ink-50')}>
                 {c.Icon ? <c.Icon className="h-4 w-4 shrink-0 text-muted" />
-                  : <span className="grid h-4 w-4 shrink-0 place-items-center text-[11px] text-muted">›</span>}
+                  : <span className="grid h-4 w-4 shrink-0 place-items-center text-2xs text-muted">›</span>}
                 <span className="flex-1 truncate">{c.label}</span>
-                <span className="text-[10px] uppercase tracking-wide text-muted">{c.group}</span>
+                <span className="text-2xs uppercase tracking-wide text-muted">{c.group}</span>
               </button>
             </li>
           ))}
         </ul>
-        <div className="flex items-center gap-3 border-t border-border px-4 py-2 text-[11px] text-muted">
+        <div className="flex items-center gap-3 border-t border-border px-4 py-2 text-2xs text-muted">
           <span className="inline-flex items-center gap-1"><CornerDownLeft className="h-3 w-3" /> {t('palette.toSelect')}</span>
           <span>↑↓ {t('palette.toNavigate')}</span>
           <span className="ml-auto">esc</span>

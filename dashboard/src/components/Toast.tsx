@@ -39,7 +39,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
             <div key={t.id} role={t.kind === 'error' ? 'alert' : 'status'}
               className={cn('flex items-start gap-3 rounded-lg bg-surface p-3 shadow-pop ring-1', tone[t.kind])}>
               <Icon className="mt-0.5 h-4 w-4 shrink-0" />
-              <p className="flex-1 text-[13px] text-ink-900">{t.message}</p>
+              <p className="flex-1 text-sm text-ink-900">{t.message}</p>
               <button onClick={() => remove(t.id)} aria-label={tr('common.dismissToast')}><X className="h-3.5 w-3.5 text-muted" /></button>
             </div>
           );

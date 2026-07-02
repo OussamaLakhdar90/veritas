@@ -93,16 +93,16 @@ export function RepoPicker() {
           </div>
           {recents.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1 text-[12px] text-muted"><Clock className="h-3.5 w-3.5" /> {t('repos.recent')}</span>
+              <span className="inline-flex items-center gap-1 text-xs text-muted"><Clock className="h-3.5 w-3.5" /> {t('repos.recent')}</span>
               {recents.map((id) => (
                 <button key={id} onClick={() => search(id)}
-                  className="rounded-full px-2.5 py-1 text-[12px] font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50">
+                  className="rounded-full px-2.5 py-1 text-xs font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50">
                   {id}
                 </button>
               ))}
             </div>
           )}
-          {err && <p className="mt-3 text-[13px] text-danger">{err}</p>}
+          {err && <p className="mt-3 text-sm text-danger">{err}</p>}
         </CardBody>
       </Card>
 
@@ -119,7 +119,7 @@ export function RepoPicker() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border text-left text-[12px] uppercase tracking-wide text-muted">
+                  <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
                     <th className="w-10 px-5 py-3" />
                     <th className="px-5 py-3 font-medium">{t('repos.colRepo')}</th>
                     <th className="px-5 py-3 font-medium">{t('repos.colProject')}</th>
@@ -138,7 +138,7 @@ export function RepoPicker() {
                             <Star className={cn('h-4 w-4', pinned ? 'fill-gold text-gold' : 'text-muted/50 hover:text-muted')} />
                           </button>
                         </td>
-                        <td className="px-5 py-3 font-mono text-[13px] font-medium text-ink-900">{r.slug}</td>
+                        <td className="px-5 py-3 font-mono text-sm font-medium text-ink-900">{r.slug}</td>
                         <td className="px-5 py-3 text-muted">{r.projectKey}</td>
                         <td className="px-5 py-3 text-muted">{r.defaultBranch}</td>
                         <td className="px-5 py-3 text-muted">{r.description}</td>
@@ -151,7 +151,7 @@ export function RepoPicker() {
                     );
                   })}
                   {shown.length === 0 && (
-                    <tr><td colSpan={6} className="px-5 py-6 text-center text-[13px] text-muted">{t('repos.noReposMatch', { filter })}</td></tr>
+                    <tr><td colSpan={6} className="px-5 py-6 text-center text-sm text-muted">{t('repos.noReposMatch', { filter })}</td></tr>
                   )}
                 </tbody>
               </table>
@@ -280,12 +280,12 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
     <Modal open title={title} onClose={onClose} footer={footer}>
       {!scanId ? (
         <>
-          <p className="mb-4 text-[13px] text-muted">
+          <p className="mb-4 text-sm text-muted">
             {t('repos.modalIntroPrefix')} <span className="font-medium text-ink-900">{repo.slug}</span>
             {' '}{t('repos.modalIntroSuffix')}
           </p>
           {needsCopilot && !connected && (
-            <div className="mb-4 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-[12px] text-ink-700">
+            <div className="mb-4 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs text-ink-700">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
               <span>{t('repos.copilotWarnPrefix')} <strong>{t('repos.copilotWarnEmphasis')}</strong>{' '}{t('repos.copilotWarnSuffix')}
                 <button type="button" onClick={signIn} className="ml-1 font-medium text-brand-600 hover:underline">{t('repos.connectNow')}</button>
@@ -375,15 +375,15 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
         failed ? 'bg-danger/5 ring-danger/20' : 'bg-gold/5 ring-gold/20')}>
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className={cn('text-[11px] font-semibold uppercase tracking-wide',
+            <p className={cn('text-2xs font-semibold uppercase tracking-wide',
               failed ? 'text-danger' : 'text-gold')}>
               {failed ? t('repos.statusStopped') : stepNo === 0 ? t('repos.statusStarting') : t('repos.statusStep', { stepNo, total })}
             </p>
-            <p className="mt-0.5 truncate text-[14px] font-semibold text-ink-900">
+            <p className="mt-0.5 truncate text-sm font-semibold text-ink-900">
               {failed ? t('repos.validationFailed') : activeLabel ?? t('repos.queued')}
             </p>
           </div>
-          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-surface/80 px-2.5 py-1 text-[12px] font-medium tabular-nums text-ink-700 ring-1 ring-border">
+          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-surface/80 px-2.5 py-1 text-xs font-medium tabular-nums text-ink-700 ring-1 ring-border">
             <Clock className="h-3.5 w-3.5 text-muted" /> {formatElapsed(elapsed)}
           </span>
         </div>
@@ -394,7 +394,7 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
         </div>
       </div>
 
-      <p className="mb-3 text-[13px] text-muted">
+      <p className="mb-3 text-sm text-muted">
         {failed
           ? t('repos.scanStoppedNote')
           : t('repos.scanStaticNote')}
@@ -425,27 +425,27 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
               </span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center justify-between gap-2">
-                  <p className={cn('truncate text-[13px] font-medium',
+                  <p className={cn('truncate text-sm font-medium',
                     status === 'pending' ? 'text-muted' : 'text-ink-900')}>
                     {t(`scan.${step.key}.label`)}
                   </p>
                   {status === 'active' && (
-                    <span className="shrink-0 text-[11px] font-medium tabular-nums text-gold">{formatElapsed(stageElapsed)}</span>
+                    <span className="shrink-0 text-2xs font-medium tabular-nums text-gold">{formatElapsed(stageElapsed)}</span>
                   )}
-                  {status === 'done' && <span className="shrink-0 text-[11px] font-medium text-success">{t('repos.done')}</span>}
+                  {status === 'done' && <span className="shrink-0 text-2xs font-medium text-success">{t('repos.done')}</span>}
                 </div>
-                <p className="text-[12px] text-muted">
+                <p className="text-xs text-muted">
                   {isFailedHere && errorMessage ? errorMessage
                     : status === 'active' && stageDetail ? stageDetail
                     : t(`scan.${step.key}.detail`)}
                 </p>
                 {status === 'active' && step.long && (
                   <div className="mt-1.5 space-y-1">
-                    <p className="inline-flex items-center gap-1.5 rounded-md bg-gold/10 px-2 py-1 text-[11px] text-gold ring-1 ring-gold/20">
+                    <p className="inline-flex items-center gap-1.5 rounded-md bg-gold/10 px-2 py-1 text-2xs text-gold ring-1 ring-gold/20">
                       <Sparkles className="h-3 w-3 shrink-0" /> {aiHint}
                     </p>
                     {model && (
-                      <p className="text-[11px] text-muted">{t('repos.modelLabel')} <span className="font-medium text-ink-700">{model}</span> {t('repos.modelSuffix')}</p>
+                      <p className="text-2xs text-muted">{t('repos.modelLabel')} <span className="font-medium text-ink-700">{model}</span> {t('repos.modelSuffix')}</p>
                     )}
                   </div>
                 )}
@@ -456,11 +456,11 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
       </ol>
       {failed && (
         <div className="mt-4 rounded-lg border border-danger/30 bg-danger/5 p-3">
-          <p className="flex items-center gap-1.5 text-[13px] font-semibold text-danger">
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-danger">
             <AlertTriangle className="h-4 w-4" /> {t('repos.validationFailed')}
           </p>
-          {errorMessage && <p className="mt-1 break-words text-[12px] text-ink-700">{errorMessage}</p>}
-          <button onClick={onRetry} className="mt-2 text-[12px] font-medium text-brand-600 hover:underline">
+          {errorMessage && <p className="mt-1 break-words text-xs text-ink-700">{errorMessage}</p>}
+          <button onClick={onRetry} className="mt-2 text-xs font-medium text-brand-600 hover:underline">
             {t('repos.adjustAndRetry')}
           </button>
         </div>

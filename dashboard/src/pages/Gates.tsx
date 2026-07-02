@@ -33,7 +33,7 @@ export function Gates() {
           <div className="inline-flex rounded-lg bg-ink-50 p-0.5">
             {FILTERS.map((f) => (
               <button key={f} onClick={() => setStatus(f)}
-                className={cn('rounded-md px-3 py-1.5 text-[13px] font-medium transition',
+                className={cn('rounded-md px-3 py-1.5 text-sm font-medium transition',
                   f === status ? 'bg-surface text-ink-900 shadow-sm ring-1 ring-border' : 'text-muted hover:text-ink-900')}>
                 {t(`gates.filter_${f}`)}
               </button>
@@ -55,7 +55,7 @@ export function Gates() {
               {rows.map((g) => (
                 <Row key={g.id}>
                   <Td className="font-medium text-ink-900">{g.action}</Td>
-                  <Td className="font-mono text-[12px] text-muted">{g.runId}</Td>
+                  <Td className="font-mono text-xs text-muted">{g.runId}</Td>
                   <Td><Badge className={tone(g.status)}>{g.status}</Badge></Td>
                   <Td className="text-muted">{g.approver ?? '—'}</Td>
                   <Td className="text-muted">{g.decidedAt ? new Date(g.decidedAt).toLocaleString() : (g.createdAt ? new Date(g.createdAt).toLocaleString() : '—')}</Td>
