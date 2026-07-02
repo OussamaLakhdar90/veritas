@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Code2, FileCode, ExternalLink, GitPullRequestArrow, Play } from 'lucide-react';
 import { api, CodegenRun } from '../api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Field, Input, PageHeader, Spinner } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Field, Input, PageHeader, CardSkeleton } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
@@ -75,9 +75,9 @@ export function Codegen() {
       </Card>
 
       {q.isLoading ? (
-        <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('codegen.loading')}</CardBody></Card>
+        <CardSkeleton label={t('codegen.loading')} />
       ) : q.isError ? (
-        <ErrorState message={(q.error as Error).message} />
+        <ErrorState detail={(q.error as Error).message} />
       ) : runs.length === 0 ? (
         <EmptyState icon={Code2} title={t('codegen.noRunsTitle')}
           body={t('codegen.noRunsBody')} />

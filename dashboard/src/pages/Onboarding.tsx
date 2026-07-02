@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle2, Circle, AlertTriangle, Settings as SettingsIcon, ShieldCheck, Github } from 'lucide-react';
 import { api } from '../api';
-import { Button, Card, CardBody, CardHeader, PageHeader, Spinner } from '../components/ui';
+import { Button, Card, CardBody, CardHeader, PageContainer, PageHeader, Spinner } from '../components/ui';
 
 /** First-run guided setup — a friendlier, step-by-step companion to the Settings page. */
 export function Onboarding() {
@@ -15,7 +15,7 @@ export function Onboarding() {
   const ready = checks.length > 0 && checks.every((c) => c.status === 'OK') && copilot.data?.authenticated;
 
   return (
-    <div className="mx-auto max-w-3xl">
+    <PageContainer variant="narrow">
       <PageHeader title={t('onboarding.pageTitle')}
         subtitle={t('onboarding.pageSubtitle')} />
 
@@ -56,7 +56,7 @@ export function Onboarding() {
       </Card>
 
       {(preflight.isLoading || copilot.isLoading) && <div className="mt-4 flex justify-center"><Spinner /></div>}
-    </div>
+    </PageContainer>
   );
 }
 

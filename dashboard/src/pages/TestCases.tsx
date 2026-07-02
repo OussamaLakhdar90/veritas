@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ListChecks, Search, Check, X, Upload, Sparkles } from 'lucide-react';
 import { api, TestCase } from '../api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, PageHeader, Spinner, Table, Td, Th, Row, Textarea } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, PageHeader, TableSkeleton, Table, Td, Th, Row, Textarea } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { ServiceField } from '../components/ServiceField';
 import { useCopilotGate } from '../lib/copilotAuth';
@@ -79,7 +79,7 @@ export function TestCases() {
       {!query ? (
         <EmptyState icon={ListChecks} title={t('testCases.emptyLoadTitle')} body={t('testCases.emptyLoadBody')} />
       ) : q.isLoading ? (
-        <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('testCases.loading')}</CardBody></Card>
+        <Card><CardBody className="p-0"><TableSkeleton label={t('testCases.loading')} /></CardBody></Card>
       ) : rows.length === 0 ? (
         <EmptyState icon={ListChecks} title={t('testCases.emptyNoCases', { query })} body={t('testCases.emptyNoCasesBody')} />
       ) : (

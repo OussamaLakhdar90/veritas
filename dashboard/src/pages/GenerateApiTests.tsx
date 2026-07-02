@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Search, ArrowRight, ArrowLeft, Plus, Check, AlertTriangle, Sparkles, GitPullRequest, FileCode, GitPullRequestArrow, ExternalLink, Ticket, X, Lock, Trash2, KeyRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { api, Repo, TestGenPlan, TestGenPlanItem, CodegenRun, Scope, ServiceAuthGroup } from '../api';
-import { Badge, Button, Card, CardBody, CardHeader, Field, Input, PageHeader, Select, Spinner, Table, Td, Th, Row } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, Field, Input, PageContainer, PageHeader, Select, Skeleton, Table, Td, Th, Row } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
@@ -176,7 +176,7 @@ export function GenerateApiTests() {
   const orphans = plan?.items.filter((i) => i.status === 'ORPHAN').length ?? 0;
 
   return (
-    <div>
+    <PageContainer variant="wide">
       <PageHeader title={t('genApi.pageTitle')}
         subtitle={t('genApi.pageSubtitle')} />
       <Stepper step={step} />
@@ -267,6 +267,11 @@ export function GenerateApiTests() {
                     <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-md border border-border bg-surface shadow-card">
                       {jiraResults.isLoading ? (
                         <p className="px-3 py-2 text-sm text-muted">{t('genApi.searching')}</p>
+                      ) : jiraResults.isError ? (
+                        // A Jira outage must not read as "no matching tickets" — that would hide the failure.
+                        <p className="flex items-center gap-1.5 px-3 py-2 text-sm text-danger">
+                          <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> {t('genApi.jiraSearchError')}
+                        </p>
                       ) : (jiraResults.data ?? []).length === 0 ? (
                         <p className="px-3 py-2 text-sm text-muted">{t('genApi.noMatchingTickets')}</p>
                       ) : (
@@ -304,7 +309,13 @@ export function GenerateApiTests() {
               : t('genApi.step3SubtitleScratch')} />
           <CardBody className="space-y-5">
             {planM.isPending || !plan ? (
-              <p className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('genApi.reconciling')}</p>
+              <div role="status" aria-live="polite" className="space-y-3">
+                <span className="sr-only">{t('genApi.reconciling')}</span>
+                <div className="grid grid-cols-3 gap-3">
+                  {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20" />)}
+                </div>
+                {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-10" />)}
+              </div>
             ) : (
               <>
                 <div className="grid grid-cols-3 gap-3">
@@ -451,7 +462,7 @@ export function GenerateApiTests() {
           </CardBody>
         </Card>
       )}
-    </div>
+    </PageContainer>
   );
 }
 

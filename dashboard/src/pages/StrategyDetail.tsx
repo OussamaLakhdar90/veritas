@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileText, ExternalLink, ScrollText, CheckCircle2, XCircle, RefreshCw, Save, History, ListTree } from 'lucide-react';
 import { api, Deliverable, StrategyScorecard } from '../api';
 import {
-  Badge, Button, Card, CardBody, CardHeader, Field, Input, PageHeader, Spinner, Table, Td, Th, Row, Textarea, ErrorState,
+  Badge, Button, Card, CardBody, CardHeader, Field, Input, PageHeader, TableSkeleton, Table, Td, Th, Row, Textarea, ErrorState,
 } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { useCopilotGate } from '../lib/copilotAuth';
@@ -207,8 +207,8 @@ export function StrategyDetail() {
     try { return q.data?.scorecardJson ? JSON.parse(q.data.scorecardJson) : null; } catch { return null; }
   }, [q.data?.scorecardJson]);
 
-  if (q.isLoading) return <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('strategyDetail.loading')}</CardBody></Card>;
-  if (q.isError || !q.data) return <ErrorState message={t('strategyDetail.couldNotLoad', { error: (q.error as Error)?.message ?? t('strategyDetail.unknownError') })} />;
+  if (q.isLoading) return <Card><CardBody className="p-0"><TableSkeleton label={t('strategyDetail.loading')} /></CardBody></Card>;
+  if (q.isError || !q.data) return <ErrorState message={t('strategyDetail.couldNotLoad')} detail={(q.error as Error)?.message ?? t('strategyDetail.unknownError')} />;
 
   const s = q.data;
   const approved = (s.status || '').toUpperCase() === 'APPROVED';

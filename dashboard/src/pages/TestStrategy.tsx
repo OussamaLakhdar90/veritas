@@ -4,7 +4,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ClipboardList, Play, FileText, ExternalLink, ScrollText, ArrowRight } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, PageHeader, Select, Spinner, Table, Td, Th, Row, Textarea } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, PageHeader, Select, TableSkeleton, Table, Td, Th, Row, Textarea } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { ServiceField } from '../components/ServiceField';
 import { useCopilotGate } from '../lib/copilotAuth';
@@ -73,7 +73,7 @@ export function TestStrategy() {
       {!loaded ? (
         <EmptyState icon={ClipboardList} title={t('testStrategy.noStrategyYet')} body={t('testStrategy.noStrategyYetBody')} />
       ) : list.isLoading ? (
-        <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('testStrategy.loading')}</CardBody></Card>
+        <Card><CardBody className="p-0"><TableSkeleton label={t('testStrategy.loading')} /></CardBody></Card>
       ) : rows.length === 0 ? (
         <EmptyState icon={ClipboardList} title={t('testStrategy.noStrategiesForService', { service: loaded })} />
       ) : (

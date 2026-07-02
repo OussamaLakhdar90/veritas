@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Search, ShieldCheck, GitBranch, FileCode, Star, Clock,
   Sparkles, Check, AlertTriangle, Loader2 } from 'lucide-react';
 import { api, Repo } from '../api';
-import { Button, Card, CardBody, EmptyState, Field, Input, PageHeader, Select, Spinner } from '../components/ui';
+import { Button, Card, CardBody, EmptyState, ErrorState, Field, Input, PageHeader, Select, Spinner } from '../components/ui';
 import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toast';
 import { useCopilotAuth } from '../lib/copilotAuth';
@@ -46,7 +46,7 @@ export function RepoPicker() {
         setRecents(next);
         writeList(RECENTS_KEY, next);
       })
-      .catch((e) => setErr(String(e)))
+      .catch((e) => setErr((e as Error)?.message || String(e)))
       .finally(() => { setLoading(false); setSearched(true); });
   };
 
@@ -101,7 +101,7 @@ export function RepoPicker() {
               ))}
             </div>
           )}
-          {err && <p className="mt-3 text-sm text-danger">{err}</p>}
+          {err && <div className="mt-3"><ErrorState detail={err} /></div>}
         </CardBody>
       </Card>
 

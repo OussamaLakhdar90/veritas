@@ -114,7 +114,9 @@ describe('Settings page', () => {
     )
     renderPage(<Settings />)
 
-    expect(await screen.findByText('Could not load settings.')).toBeInTheDocument()
+    // Now an ErrorState (role="alert") — the friendly title plus the page-specific message.
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(screen.getByText(/Could not load settings/)).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Bitbucket' })).not.toBeInTheDocument()
   })
 

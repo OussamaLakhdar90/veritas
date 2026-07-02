@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { GitPullRequestArrow, Check, X } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, Card, CardBody, EmptyState, ErrorState, PageHeader, Spinner, Table, Td, Th, Row } from '../components/ui';
+import { Badge, Button, Card, CardBody, EmptyState, ErrorState, PageHeader, TableSkeleton, Table, Td, Th, Row } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
@@ -44,9 +44,9 @@ export function Gates() {
         } />
 
       {q.isLoading ? (
-        <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('gates.loading')}</CardBody></Card>
+        <Card><CardBody className="p-0"><TableSkeleton label={t('gates.loading')} /></CardBody></Card>
       ) : q.isError ? (
-        <ErrorState message={(q.error as Error).message} />
+        <ErrorState detail={(q.error as Error).message} />
       ) : rows.length === 0 ? (
         <EmptyState icon={GitPullRequestArrow} title={t('gates.emptyTitle', { statusLabel: enumLabel(t, 'gateStatus', status).toLowerCase() })}
           body={status === 'PENDING' ? t('gates.emptyBody') : undefined} />
