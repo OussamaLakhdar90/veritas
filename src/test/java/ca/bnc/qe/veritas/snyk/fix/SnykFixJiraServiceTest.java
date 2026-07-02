@@ -79,4 +79,31 @@ class SnykFixJiraServiceTest {
         service.transitionTo("CIAM-1", SnykFixJiraService.Phase.DONE);
         verify(jira).transition(eq("CIAM-1"), eq("41"));
     }
+
+    @Test
+    void prefersTheDestinationStatusOverAMerelyLabelMatchingTransition() {
+        // "Ship it" → Done (destination match, score 2) beats "Complete review" → In Review (label 'complete', score 1).
+        when(jira.listTransitions("CIAM-1")).thenReturn(List.of(
+                new JiraTransition("12", "Complete review", "In Review"),
+                new JiraTransition("11", "Ship it", "Done")));
+        service.transitionTo("CIAM-1", SnykFixJiraService.Phase.DONE);
+        verify(jira).transition("CIAM-1", "11");
+    }
+
+    @Test
+    void doesNotResolveAsDoneViaADeclineTransition() {
+        // "Close as Won't Do" contains 'close' but is a decline — must be skipped in favour of the genuine "Done".
+        when(jira.listTransitions("CIAM-1")).thenReturn(List.of(
+                new JiraTransition("90", "Close as Won't Do", "Won't Do"),
+                new JiraTransition("31", "Done", "Done")));
+        service.transitionTo("CIAM-1", SnykFixJiraService.Phase.DONE);
+        verify(jira).transition("CIAM-1", "31");
+    }
+
+    @Test
+    void inReviewMatchesAReadyForQaWorkflow() {
+        when(jira.listTransitions("CIAM-1")).thenReturn(List.of(new JiraTransition("21", "Ready for QA", "In Review")));
+        service.transitionTo("CIAM-1", SnykFixJiraService.Phase.IN_REVIEW);
+        verify(jira).transition("CIAM-1", "21");
+    }
 }

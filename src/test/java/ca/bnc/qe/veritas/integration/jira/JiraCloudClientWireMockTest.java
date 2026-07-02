@@ -69,6 +69,30 @@ class JiraCloudClientWireMockTest {
         return "Basic " + Base64.getEncoder().encodeToString(raw.getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
+    // ---------------------------------------------------------------- transitions (v3)
+
+    @Test
+    void listTransitionsParsesIdNameAndDestinationStatus() {
+        wm.stubFor(get(urlPathEqualTo("/rest/api/3/issue/CIAM-1/transitions")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"transitions\":[{\"id\":\"31\",\"name\":\"Ship it\",\"to\":{\"name\":\"Done\"}}]}")));
+        List<JiraTransition> ts = client().listTransitions("CIAM-1");
+        assertThat(ts).singleElement().satisfies(t -> {
+            assertThat(t.id()).isEqualTo("31");
+            assertThat(t.name()).isEqualTo("Ship it");
+            assertThat(t.toStatus()).isEqualTo("Done");
+        });
+    }
+
+    @Test
+    void transitionPostsTheTransitionIdToV3() {
+        wm.stubFor(post(urlPathEqualTo("/rest/api/3/issue/CIAM-1/transitions"))
+                .willReturn(aResponse().withStatus(204)));
+        client().transition("CIAM-1", "31");
+        wm.verify(postRequestedFor(urlPathEqualTo("/rest/api/3/issue/CIAM-1/transitions"))
+                .withRequestBody(containing("\"id\":\"31\"")));
+    }
+
     // ---------------------------------------------------------------- auth + payload
 
     @Test

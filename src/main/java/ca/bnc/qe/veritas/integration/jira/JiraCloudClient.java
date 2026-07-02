@@ -159,6 +159,41 @@ public class JiraCloudClient implements JiraClient {
     }
 
     @Override
+    public List<JiraTransition> listTransitions(String key) {
+        try {
+            String resp = retries.call(() -> http.get()
+                    .uri(URI.create(base() + "/rest/api/3/issue/" + key + "/transitions"))
+                    .header("Authorization", authHeader())
+                    .retrieve().body(String.class));
+            JsonNode root = mapper.readTree(resp == null ? "{}" : resp);
+            List<JiraTransition> out = new ArrayList<>();
+            for (JsonNode t : root.path("transitions")) {
+                out.add(new JiraTransition(t.path("id").asText(""), t.path("name").asText(""),
+                        t.path("to").path("name").asText("")));
+            }
+            return out;
+        } catch (Exception e) {
+            throw new IllegalStateException("Jira listTransitions failed for " + key + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void transition(String key, String transitionId) {
+        try {
+            String body = mapper.writeValueAsString(Map.of("transition", Map.of("id", transitionId)));
+            retries.callWrite(() -> http.post()
+                    .uri(URI.create(base() + "/rest/api/3/issue/" + key + "/transitions"))
+                    .header("Authorization", authHeader())
+                    .header("Content-Type", "application/json")
+                    .body(body)
+                    .retrieve().body(String.class));
+        } catch (Exception e) {
+            throw new IllegalStateException("Jira transition failed for " + key + " (id " + transitionId + "): "
+                    + e.getMessage(), e);
+        }
+    }
+
+    @Override
     public List<JiraVersion> listVersions(String projectKey) {
         try {
             String resp = retries.call(() -> http.get()

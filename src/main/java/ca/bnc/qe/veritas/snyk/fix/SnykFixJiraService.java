@@ -3,7 +3,6 @@ package ca.bnc.qe.veritas.snyk.fix;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Optional;
 import ca.bnc.qe.veritas.integration.jira.JiraClient;
 import ca.bnc.qe.veritas.integration.jira.JiraCreateRequest;
 import ca.bnc.qe.veritas.integration.jira.JiraTransition;
@@ -20,26 +19,46 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class SnykFixJiraService {
 
-    /** Which lifecycle phase to move the ticket to; each carries the workflow-name keywords it matches on. */
+    /**
+     * A lifecycle phase + the workflow keywords it matches. {@code positive} keywords identify the target; the
+     * shared {@code NEGATIVE} keywords veto a decline/back/cancel transition (so a "Close as Won't Do" isn't mistaken
+     * for a genuine Done). Matching prefers a transition's <b>destination status</b> over its label.
+     */
     public enum Phase {
-        IN_PROGRESS("in progress", "progress", "start", "develop"),
-        IN_REVIEW("in review", "review"),
-        DONE("done", "closed", "resolve", "complete", "close");
+        IN_PROGRESS("in progress", "progress", "start", "develop", "implement"),
+        IN_REVIEW("in review", "review", "verify", "qa", "ready for", "testing", "code review"),
+        DONE("done", "closed", "resolve", "complete", "close", "fixed");
 
-        private final String[] keywords;
+        /** Keywords that mean "not a genuine forward transition" — a decline/cancel/back-out. */
+        private static final String[] NEGATIVE = {
+                "won't", "wont", "cancel", "reject", "abandon", "decline", "reopen", "back to", "stop"};
 
-        Phase(String... keywords) {
-            this.keywords = keywords;
+        private final String[] positive;
+
+        Phase(String... positive) {
+            this.positive = positive;
         }
 
-        boolean matches(String transitionName) {
-            String n = transitionName == null ? "" : transitionName.toLowerCase(Locale.ROOT);
+        private static boolean containsAny(String text, String[] keywords) {
+            String n = text == null ? "" : text.toLowerCase(Locale.ROOT);
             for (String k : keywords) {
                 if (n.contains(k)) {
                     return true;
                 }
             }
             return false;
+        }
+
+        boolean isDecline(String transitionName) {
+            return containsAny(transitionName, NEGATIVE);
+        }
+
+        /** 2 if the transition's destination status matches, 1 if only its label matches, 0 otherwise. */
+        int score(JiraTransition t) {
+            if (containsAny(t.toStatus(), positive)) {
+                return 2;
+            }
+            return containsAny(t.name(), positive) ? 1 : 0;
         }
     }
 
@@ -67,11 +86,23 @@ public class SnykFixJiraService {
             return;
         }
         try {
-            List<JiraTransition> transitions = jira.listTransitions(jiraKey);
-            Optional<JiraTransition> match = transitions.stream().filter(t -> phase.matches(t.name())).findFirst();
-            if (match.isPresent()) {
-                jira.transition(jiraKey, match.get().id());
-                log.info("Jira {} → {} (transition '{}')", jiraKey, phase, match.get().name());
+            // Prefer the transition whose DESTINATION status matches the phase; skip declines/back-outs; pick the
+            // best-scoring candidate rather than the first name-substring hit.
+            JiraTransition best = null;
+            int bestScore = 0;
+            for (JiraTransition t : jira.listTransitions(jiraKey)) {
+                if (phase.isDecline(t.name())) {
+                    continue;
+                }
+                int s = phase.score(t);
+                if (s > bestScore) {
+                    bestScore = s;
+                    best = t;
+                }
+            }
+            if (best != null) {
+                jira.transition(jiraKey, best.id());
+                log.info("Jira {} → {} (transition '{}' → {})", jiraKey, phase, best.name(), best.toStatus());
             } else {
                 log.info("Jira {} has no '{}' transition available; leaving status unchanged.", jiraKey, phase);
             }
