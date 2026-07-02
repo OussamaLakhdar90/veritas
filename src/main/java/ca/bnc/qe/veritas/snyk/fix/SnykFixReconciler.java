@@ -21,7 +21,11 @@ public class SnykFixReconciler {
 
     private final SnykFixTrainRepository trains;
 
-    @Value("${veritas.snyk.fix.max-runtime-minutes:30}")
+    // Generous by design: the VERIFYING phase runs a full local reactor (up to 4 framework `mvn install` + N app
+    // `mvn test`, each bounded by reactor-timeout-seconds), which legitimately exceeds 30 min on a cold multi-module
+    // build. The runner resets startedAt at the reactor's start, so this measures the execute phase; it is only a
+    // backstop for a dead worker (each mvn command has its own process timeout).
+    @Value("${veritas.snyk.fix.max-runtime-minutes:120}")
     private long maxRuntimeMinutes;
 
     public SnykFixReconciler(SnykFixTrainRepository trains) {

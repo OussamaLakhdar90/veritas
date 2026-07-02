@@ -167,4 +167,70 @@ class SnykFixActionsTest {
         assertThat(t.getFinishedAt()).isNotNull();
         verify(jira).transitionTo(eq("CIAM-1"), eq(SnykFixJiraService.Phase.DONE));
     }
+
+    @Test
+    void decideHoldsTheTrainAsManualWhenEveryPrOpenFailsRatherThanClaimingPrOpen() {
+        when(gitHost.openPullRequest(any(GitHost.PullRequestSpec.class)))
+                .thenThrow(new RuntimeException("bitbucket unreachable"));
+        SnykFixTrain t = train();
+        t.setReactorPassed(true);
+        t.setBreaking(false);
+        SnykFixStep s = step(1, false, SnykFixStatus.BRANCH_PUSHED);
+
+        actions.decide(t, List.of(s));
+
+        // No PR opened → don't claim PR_OPEN and don't move Jira; the branch is pushed, so hold for the user.
+        assertThat(s.getStatus()).isEqualTo(SnykFixStatus.BRANCH_PUSHED);
+        assertThat(t.getStatus()).isEqualTo(SnykFixStatus.AWAITING_MANUAL_FIX);
+        verify(jira, never()).transitionTo(any(), eq(SnykFixJiraService.Phase.IN_REVIEW));
+    }
+
+    @Test
+    void markMergedMergesOnlyTheStepsWhosePrsWereActuallyOpen() {
+        SnykFixTrain t = train();
+        t.setStatus(SnykFixStatus.PR_OPEN);
+        SnykFixStep opened = step(1, false, SnykFixStatus.STEP_PR_OPEN);
+        SnykFixStep pushed = step(2, false, SnykFixStatus.BRANCH_PUSHED);   // its PR never opened
+        when(trains.findById("t1")).thenReturn(Optional.of(t));
+        when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of(opened, pushed));
+
+        actions.markMerged("t1");
+
+        assertThat(opened.getStatus()).isEqualTo(SnykFixStatus.MERGED);
+        assertThat(pushed.getStatus()).isEqualTo(SnykFixStatus.BRANCH_PUSHED);   // NOT falsely marked merged
+        assertThat(t.getStatus()).isEqualTo(SnykFixStatus.DONE);
+    }
+
+    @Test
+    void recordUserPrDoesNotOverwriteAStepWhosePrIsAlreadyOpen() {
+        SnykFixTrain t = train();
+        t.setStatus(SnykFixStatus.PR_OPEN);
+        SnykFixStep s = step(1, false, SnykFixStatus.STEP_PR_OPEN);
+        s.setPrUrl("http://host/veritas-pr");
+        s.setPrOpenedBy(SnykFixStatus.BY_VERITAS);
+        when(trains.findById("t1")).thenReturn(Optional.of(t));
+        when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of(s));
+
+        actions.recordUserPr("t1", 1, "http://host/user-pr");
+
+        // The already-open Veritas PR is preserved, not clobbered with the user's URL/opener.
+        assertThat(s.getPrUrl()).isEqualTo("http://host/veritas-pr");
+        assertThat(s.getPrOpenedBy()).isEqualTo(SnykFixStatus.BY_VERITAS);
+    }
+
+    @Test
+    void recordUserPrCanCompleteATrainThatHasAPushFailedStep() {
+        SnykFixTrain t = train();
+        t.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);
+        SnykFixStep failed = step(1, false, SnykFixStatus.STEP_FAILED);   // no branch, can't open a PR
+        SnykFixStep pushed = step(2, false, SnykFixStatus.BRANCH_PUSHED);
+        when(trains.findById("t1")).thenReturn(Optional.of(t));
+        when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of(failed, pushed));
+
+        actions.recordUserPr("t1", 2, "http://host/user-pr");
+
+        // The STEP_FAILED step no longer blocks completion — recording the openable step advances the train.
+        assertThat(pushed.getStatus()).isEqualTo(SnykFixStatus.STEP_PR_OPEN);
+        assertThat(t.getStatus()).isEqualTo(SnykFixStatus.PR_OPEN);
+    }
 }
