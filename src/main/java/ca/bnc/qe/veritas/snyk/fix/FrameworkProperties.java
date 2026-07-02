@@ -27,6 +27,12 @@ public class FrameworkProperties {
     private String apiRepo = "lsist-test-framework-api";
     private String webRepo = "lsist-test-framework-web";
 
+    /**
+     * The repo (under each watched app-id's Bitbucket project) that holds the consumer poms Veritas bumps.
+     * Override per deployment if your test repos are not named {@code application-tests}.
+     */
+    private String consumerRepo = "application-tests";
+
     /** The version-alignment properties a downstream pom uses to pin its upstreams. */
     private String bomVersionProperty = "lsist-bom.version";
     private String coreVersionProperty = "lsist-core.version";

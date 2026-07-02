@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Optional;
 import ca.bnc.qe.veritas.integration.snyk.SnykClient;
 import ca.bnc.qe.veritas.integration.snyk.SnykTarget;
+import ca.bnc.qe.veritas.snyk.fix.FrameworkProperties;
 import org.junit.jupiter.api.Test;
 
 /** The app-id-centric watch: resolve the canonical application-tests target and watch it. */
@@ -22,7 +23,7 @@ class SnykServiceTest {
     private final SnykAlertRepository alerts = mock(SnykAlertRepository.class);
     private final SnykPollService pollService = mock(SnykPollService.class);
     private final SnykService service =
-            new SnykService(client, watches, snapshots, vulns, alerts, pollService);
+            new SnykService(client, watches, snapshots, vulns, alerts, pollService, new FrameworkProperties());
 
     @Test
     void resolvesTheApplicationTestsTargetPreferringAnExactName() {

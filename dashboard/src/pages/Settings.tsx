@@ -21,7 +21,7 @@ const AUTH_LABEL: Record<string, string> = {
   CLIENT_CREDENTIALS: 'authClientCredentials',
 };
 
-type ServiceKey = 'bitbucket' | 'jira' | 'xray' | 'confluence';
+type ServiceKey = 'bitbucket' | 'jira' | 'xray' | 'confluence' | 'snyk';
 interface TokenField { key: string; label: string; optional?: boolean; role?: 'username' | 'secret' }
 interface ServiceDef {
   key: ServiceKey; label: string; editions: string[];
@@ -31,6 +31,10 @@ interface ServiceDef {
   workspaceEditions?: string[];
   tokens: TokenField[];
   note?: Record<string, string>;   // optional per-edition hint shown on the card
+  /** SaaS-token services (Snyk): a base URL + one personal API token, no edition/workspace/auth choices. */
+  simple?: boolean;
+  /** i18n leaf key for an always-shown help line under the card title. */
+  hint?: string;
 }
 
 // Auth types that require a username (Basic = user+password; App-password = user+token). Bearer/OAuth/Client-creds don't.
@@ -57,6 +61,10 @@ const SERVICES: ServiceDef[] = [
     authByEdition: { CLOUD: ['BEARER', 'BASIC'], SERVER_DC: ['BEARER', 'BASIC'] },
     tokens: [{ key: 'JIRA_USERNAME', label: 'tokenUsername', role: 'username', optional: true },
              { key: 'CONFLUENCE_API_TOKEN', label: 'tokenHttpAccessToken', role: 'secret' }] },
+  // Snyk: a SaaS dependency scanner reached with a personal API token — no edition/workspace/auth choice.
+  { key: 'snyk', label: 'Snyk', editions: ['CLOUD'], authByEdition: { CLOUD: ['BEARER'] }, simple: true,
+    hint: 'snykHint',
+    tokens: [{ key: 'SNYK_API_TOKEN', label: 'tokenSnykApiToken', role: 'secret' }] },
 ];
 
 export function Settings() {
@@ -260,30 +268,30 @@ function ServiceCard({ def, initial, secrets, onSaved, onError }: {
 
   return (
     <Card>
-      <CardHeader title={def.label}
+      <CardHeader title={def.label} subtitle={def.hint ? t('settings.' + def.hint) : undefined}
         action={<Button variant="ghost" size="sm" loading={testing} onClick={runTest}><Plug className="h-4 w-4" /> {t('settings.testConnection')}</Button>} />
       <CardBody className="space-y-4">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label={t('settings.baseUrl')}><Input value={cfg.baseUrl ?? ''} placeholder={t('settings.baseUrlPlaceholder')} onChange={(e) => set('baseUrl', e.target.value)} /></Field>
-          <Field label={t('settings.edition')} hint={t('settings.editionHint')}>
+          {!def.simple && <Field label={t('settings.edition')} hint={t('settings.editionHint')}>
             <Select value={edition} onChange={(e) => set('edition', e.target.value)}>
               {def.editions.map((ed) => <option key={ed} value={ed}>{EDITION_LABEL[ed] ? t('settings.' + EDITION_LABEL[ed]) : ed}</option>)}
             </Select>
-          </Field>
-          {showWorkspace && <Field label={t('settings.workspace')} hint={t('settings.workspaceHint')}><Input value={cfg.workspace ?? ''} onChange={(e) => set('workspace', e.target.value)} /></Field>}
-          <Field label={t('settings.signInMethod')}>
+          </Field>}
+          {showWorkspace && !def.simple && <Field label={t('settings.workspace')} hint={t('settings.workspaceHint')}><Input value={cfg.workspace ?? ''} onChange={(e) => set('workspace', e.target.value)} /></Field>}
+          {!def.simple && <Field label={t('settings.signInMethod')}>
             <Select value={authType} onChange={(e) => set('authType', e.target.value)}>
               {authTypes.map((a) => <option key={a} value={a}>{AUTH_LABEL[a] ? t('settings.' + AUTH_LABEL[a]) : a}</option>)}
             </Select>
-          </Field>
+          </Field>}
         </div>
-        {note && <p className="text-[12px] text-muted">{t('settings.' + note)}</p>}
+        {note && !def.simple && <p className="text-[12px] text-muted">{t('settings.' + note)}</p>}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {def.tokens
             // Username only matters for username+secret schemes (BASIC / APP_PASSWORD); hide it for token-only auth.
             .filter((t) => t.role !== 'username' || NEEDS_USERNAME.has(authType ?? ''))
             .map((tok) => {
-              const label = tok.role === 'secret'
+              const label = tok.role === 'secret' && !def.simple
                 ? (authType === 'BASIC' ? t('settings.tokenPassword') : authType === 'BEARER' ? t('settings.tokenHttpAccessTokenPat') : t('settings.' + tok.label))
                 : t('settings.' + tok.label);
               const isUsername = tok.role === 'username';

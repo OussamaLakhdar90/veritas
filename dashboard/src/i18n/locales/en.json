@@ -892,6 +892,8 @@
     "tokenHttpAccessTokenXray": "HTTP access token (may reuse the Jira token)",
     "tokenPassword": "Password",
     "tokenHttpAccessTokenPat": "HTTP access token (PAT)",
+    "tokenSnykApiToken": "Snyk API token",
+    "snykHint": "Paste a personal API token from app.snyk.io → Account settings. Veritas reads your Snyk organizations (app-ids) with it — read-only.",
     "noteBitbucketServerDc": "Server/DC: BEARER = an HTTP access token (PAT); BASIC = your BNC username + password. No workspace — the project key (app-id) is entered on the Validate screen.",
     "hintAlreadySetUsername": "Already set — leave blank to keep it",
     "hintYourUsername": "Your username",

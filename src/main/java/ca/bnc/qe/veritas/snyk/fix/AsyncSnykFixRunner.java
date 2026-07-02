@@ -189,7 +189,7 @@ public class AsyncSnykFixRunner {
             return apps;
         }
         for (String appId : appIds) {
-            String pom = readPom(clone(appId, "application-tests", clones));
+            String pom = readPom(clone(appId, fw.getConsumerRepo(), clones));
             apps.add(new AppInput(appId, appId, pom));
         }
         return apps;
@@ -282,7 +282,7 @@ public class AsyncSnykFixRunner {
         addModule(framework, "web", clones.get(fw.getProject() + "/" + fw.getWebRepo()));
         List<ConsumerBuild> consumers = new ArrayList<>();
         for (AppInput app : apps) {
-            Path dir = clones.get(app.appId() + "/application-tests");
+            Path dir = clones.get(app.appId() + "/" + fw.getConsumerRepo());
             if (dir != null) {
                 consumers.add(new ConsumerBuild(app.appId(), dir));
             }

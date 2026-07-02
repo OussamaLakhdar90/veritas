@@ -84,7 +84,7 @@ async function send<T>(method: string, path: string, body?: unknown): Promise<T>
 // ── Settings types (Part A backend) ──────────────────────────────────────────
 export type SecretStatus = Record<string, boolean>
 export interface EndpointCfg { baseUrl?: string; edition?: string; workspace?: string; authType?: string }
-export interface ConnectionsCfg { bitbucket: EndpointCfg; jira: EndpointCfg; confluence: EndpointCfg; xray: EndpointCfg }
+export interface ConnectionsCfg { bitbucket: EndpointCfg; jira: EndpointCfg; confluence: EndpointCfg; xray: EndpointCfg; snyk: EndpointCfg }
 export interface UpdateConnectionsResult { applied: boolean; restartRequiredFields: string[] }
 export interface ConnectionTestResult { service: string; reachable: boolean; authenticated: boolean; status: number; message: string }
 export interface CopilotLoginStart { id: string; userCode: string; verificationUri: string; expiresIn: number }
