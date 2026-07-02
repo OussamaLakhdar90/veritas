@@ -121,7 +121,8 @@ public class JiraServerClient implements JiraClient {
             JsonNode root = mapper.readTree(resp == null ? "{}" : resp);
             List<JiraTransition> out = new ArrayList<>();
             for (JsonNode t : root.path("transitions")) {
-                out.add(new JiraTransition(t.path("id").asText(""), t.path("name").asText("")));
+                out.add(new JiraTransition(t.path("id").asText(""), t.path("name").asText(""),
+                        t.path("to").path("name").asText("")));
             }
             return out;
         } catch (Exception e) {
