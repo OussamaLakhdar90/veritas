@@ -1,4 +1,5 @@
 import React from 'react';
+import { useCountUp } from './ui';
 
 /** Dependency-free, token-coloured SVG charts. Each is an accessible image (role="img" + aria-label). */
 
@@ -101,5 +102,40 @@ export function MiniBar({ data, ariaLabel, format }: {
         </div>
       ))}
     </div>
+  );
+}
+
+/** Threshold tone for a fidelity score — mirrors the release gate language (>=90 passes). */
+export function scoreTone(score: number): string {
+  if (score >= 90) return 'stroke-success';
+  if (score >= 70) return 'stroke-warning';
+  return 'stroke-danger';
+}
+export function scoreTextTone(score: number): string {
+  if (score >= 90) return 'text-success';
+  if (score >= 70) return 'text-warning';
+  return 'text-danger';
+}
+
+/**
+ * The Contract Fidelity hero ring: sweeps to the score (ring-sweep keyframe, reduced-motion shows the final
+ * state) while the center counts up. The one number the VP quotes upward.
+ */
+export function ScoreRing({ score, size = 190, ariaLabel, centerLabel }: {
+  score: number; ariaLabel: string; size?: number; centerLabel?: string }) {
+  const shown = useCountUp(score);
+  const len = (Math.max(0, Math.min(100, score)) / 100) * C;
+  return (
+    <svg viewBox="0 0 140 140" role="img" aria-label={ariaLabel} style={{ width: size, height: size }}
+      className="chart-in shrink-0">
+      <g transform="rotate(-90 70 70)" fill="none" strokeWidth={12}>
+        <circle cx="70" cy="70" r={R} className="stroke-border/60" />
+        <circle cx="70" cy="70" r={R} className={`ring-sweep ${scoreTone(score)}`} strokeLinecap="round"
+          strokeDasharray={`${len.toFixed(2)} ${(C - len).toFixed(2)}`} />
+      </g>
+      <text x="70" y="66" textAnchor="middle" className="fill-ink-900 font-bold tabular-nums" fontSize="34">{shown}</text>
+      <text x="70" y="82" textAnchor="middle" className="fill-muted" fontSize="10">/100</text>
+      {centerLabel && <text x="70" y="96" textAnchor="middle" className="fill-muted" fontSize="8.5">{centerLabel}</text>}
+    </svg>
   );
 }

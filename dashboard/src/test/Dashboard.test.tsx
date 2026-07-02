@@ -14,6 +14,7 @@ const scan = (over: Record<string, unknown> = {}) => ({
   totalFindings: 3,
   totalEstCostUsd: 0.1234,
   startedAt: '2026-06-20T10:00:00Z',
+  finishedAt: '2026-06-20T10:03:42Z',
   specSources: 'openapi',
   ...over,
 })
@@ -87,8 +88,8 @@ describe('Dashboard', () => {
     expect(await screen.findByText('Pipeline by service')).toBeInTheDocument()
     const panel = screen.getByText('Pipeline by service').closest('div.rounded-xl') as HTMLElement
     expect(within(panel).getByText('ciam-policies')).toBeInTheDocument()
-    expect(within(panel).getByText('9')).toBeInTheDocument();    // conditions
-    expect(within(panel).getByText('12')).toBeInTheDocument()    // cases
+    expect(within(panel).getByText('9 conditions')).toBeInTheDocument()
+    expect(within(panel).getByText('12 cases')).toBeInTheDocument()
   })
 
   it('shows skeletons while scans are loading (never-resolving fetch)', async () => {
@@ -139,8 +140,8 @@ describe('Dashboard', () => {
     // Services = unique serviceName count (alpha, beta) = 2
     expect(within(await tileAsync('Services validated')).getByText('2')).toBeInTheDocument()
     expect(within(tile('Services validated')).getByText('3 validations total')).toBeInTheDocument()
-    // Findings = 2 + 5 + 0 = 7
-    expect(within(tile('Findings')).getByText('7')).toBeInTheDocument()
+    // The Findings tile became the breaking-changes KPI (from /summary/executive — 0 in the default stub).
+    expect(within(tile('Breaking changes caught')).getByText('0')).toBeInTheDocument()
     // Open defects = 2 (Done excluded)
     expect(within(tile('Open defects')).getByText('2')).toBeInTheDocument()
     // Spend comes from costs/summary, formatted; sub shows the AI call count.
@@ -159,6 +160,7 @@ describe('Dashboard', () => {
           totalFindings: 9,
           totalEstCostUsd: 2.5,
           startedAt: '2026-06-25T08:00:00Z',
+          finishedAt: '2026-06-25T08:03:42Z',
         }),
       ],
     })
@@ -170,8 +172,8 @@ describe('Dashboard', () => {
     // FAILED → friendly "Failed" label; COMPLETED → "Completed".
     expect(within(table).getByText('Failed')).toBeInTheDocument()
     expect(within(table).getByText('Completed')).toBeInTheDocument()
-    // Cost formatted to 4 dp in the table.
-    expect(within(table).getByText('$2.5000')).toBeInTheDocument()
+    // The audit punchline: duration · localized 2-dp cost.
+    expect(within(table).getByText('3 min 42 s · $2.50')).toBeInTheDocument()
 
     // Most-recent scan sorts first.
     const firstRowCell = within(table).getAllByRole('row')[1].querySelector('td')
@@ -234,7 +236,7 @@ describe('Dashboard', () => {
     )
     renderDashboard()
 
-    expect(await screen.findByText(/Couldn't load the overview/)).toBeInTheDocument()
+    expect(await screen.findByText(/Couldn’t load this data/)).toBeInTheDocument()
     expect(screen.getByRole('alert')).toBeInTheDocument()
   })
 
