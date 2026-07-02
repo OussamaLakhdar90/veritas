@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Trash2, Eye, ExternalLink, ShieldCheck, PackageOpen, X, ShieldAlert, AlertTriangle } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { RefreshCw, Trash2, Eye, ExternalLink, ShieldCheck, PackageOpen, X, ShieldAlert, AlertTriangle,
+  PlugZap, Settings as SettingsIcon, ArrowRight } from 'lucide-react';
 import { api, type SnykIssueView } from '../api';
 import {
   Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Spinner,
@@ -129,11 +131,16 @@ export function Snyk() {
         <CardHeader title={t('snyk.addTitle')} subtitle={t('snyk.addBody')} />
         <CardBody>
           {orgsQ.isError ? (
-            <p className="text-[13px] text-muted">{t('snyk.connectHint')}</p>
+            <ConnectSnykPanel />
           ) : orgsQ.isLoading ? (
             <div className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('snyk.loadingApps')}</div>
           ) : (orgsQ.data ?? []).length === 0 ? (
-            <p className="text-[13px] text-muted">{t('snyk.noApps')}</p>
+            <div className="text-[13px] text-muted">
+              <p>{t('snyk.noApps')}</p>
+              <Link to="/settings" className="mt-1 inline-flex items-center gap-1 font-medium text-gold hover:underline">
+                <SettingsIcon className="h-3.5 w-3.5" /> {t('snyk.openSettings')}
+              </Link>
+            </div>
           ) : (
             <div>
               <div className="grid gap-1 sm:grid-cols-2">
@@ -264,6 +271,43 @@ export function Snyk() {
       <SnykFixWizard open={!!fixIssue} onClose={() => setFixIssue(null)} issue={fixIssue} watchId={selectedWatch ?? undefined}
         apps={Array.from(new Map(watches.map((w) => [w.orgSlug, { slug: w.orgSlug, name: w.orgName }])).values())}
         defaultApp={watches.find((w) => w.id === selectedWatch)?.orgSlug} />
+    </div>
+  );
+}
+
+/** Guided "Snyk isn't connected yet" state — a clear, step-by-step path to Settings instead of a dead-end hint. */
+function ConnectSnykPanel() {
+  const { t } = useTranslation();
+  const steps = [
+    <>{t('snyk.connectStep1')}{' '}
+      <a href="https://app.snyk.io/account" target="_blank" rel="noreferrer"
+        className="font-medium text-gold hover:underline">app.snyk.io/account</a></>,
+    t('snyk.connectStep2'),
+    t('snyk.connectStep3'),
+  ];
+  return (
+    <div className="rounded-xl border border-dashed border-border bg-ink-50/40 px-5 py-5">
+      <div className="flex items-start gap-3">
+        <div className="shrink-0 rounded-lg bg-brand-50 p-2"><PlugZap className="h-5 w-5 text-brand" /></div>
+        <div className="min-w-0">
+          <p className="text-[15px] font-semibold text-ink-900">{t('snyk.connectTitle')}</p>
+          <p className="mt-0.5 text-[13px] text-muted">{t('snyk.connectBody')}</p>
+          <ol className="mt-3 space-y-2">
+            {steps.map((node, i) => (
+              <li key={i} className="flex items-start gap-2.5 text-[13px] text-ink-700">
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-white">
+                  {i + 1}
+                </span>
+                <span className="min-w-0">{node}</span>
+              </li>
+            ))}
+          </ol>
+          <Link to="/settings"
+            className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-brand px-3.5 py-2 text-[13px] font-medium text-white hover:bg-brand-700">
+            <SettingsIcon className="h-4 w-4" /> {t('snyk.connectCta')} <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+      </div>
     </div>
   );
 }
