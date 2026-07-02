@@ -19,6 +19,11 @@ export const handlers = [
   // The Overview pulls daily cost + scan trends for its sparkline + weekly deltas; default to empty series.
   http.get('*/api/v1/costs/trend', () => HttpResponse.json([])),
   http.get('*/api/v1/scans/trend', () => HttpResponse.json([])),
+  http.get('*/api/v1/summary/executive', () => HttpResponse.json({
+    totals: { breakingFindingsCaught: 0, blockingOpen: 0, disputedByAi: 0 },
+    perService: [],
+    dispositions: { reviewed: 0, accepted: 0, rejected: 0, jiraCreated: 0, open: 0, aiDisputed: 0 },
+  })),
   // The TopBar alert bell polls unseen Snyk alerts app-wide; default empty so unrelated tests don't see it.
   http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([])),
   // The Dashboard's Snyk impact card fetches the summary; default to zero watches → the card renders nothing.

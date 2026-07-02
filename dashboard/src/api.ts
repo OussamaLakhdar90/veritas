@@ -108,8 +108,30 @@ export interface Scan {
   totalFindings: number
   totalEstCostUsd: number
   startedAt: string
+  finishedAt?: string
   specSources: string
   errorMessage?: string
+  /** Contract Fidelity Score /100 — null while RUNNING or on FAILED scans. */
+  fidelityScore?: number | null
+  previousFidelityScore?: number | null
+  coverageGaps?: number | null
+  confidence?: number | null
+}
+
+/** Executive rollup — the same ReleaseVerdict the HTML report renders (backend guarantees agreement). */
+export interface ExecutiveServiceSummary {
+  service: string
+  fidelity?: number | null
+  delta?: number | null
+  breakingCount: number
+  blockingCount: number
+  releaseSafe: 'PASS' | 'WARN' | 'FAIL'
+  latestScanId: string
+}
+export interface ExecutiveSummary {
+  totals: { breakingFindingsCaught: number; blockingOpen: number; disputedByAi: number }
+  perService: ExecutiveServiceSummary[]
+  dispositions: { reviewed: number; accepted: number; rejected: number; jiraCreated: number; open: number; aiDisputed: number }
 }
 
 export interface Finding {
@@ -510,6 +532,7 @@ export const api = {
   costSummary: () => get<CostSummary>('/costs/summary'),
   costTrend: (days = 30) => get<CostTrendPoint[]>(`/costs/trend?days=${days}`),
   scansTrend: (days = 30) => get<ScanTrendPoint[]>(`/scans/trend?days=${days}`),
+  executiveSummary: () => get<ExecutiveSummary>('/summary/executive'),
   preflight: () => get<PreflightCheck[]>('/preflight'),
   defects: () => get<DefectLink[]>('/defects'),
   defectMetrics: () => get<DefectMetrics>('/defects/metrics'),

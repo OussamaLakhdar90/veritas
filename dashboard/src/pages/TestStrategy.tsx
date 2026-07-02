@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ClipboardList, Play, FileText, ExternalLink, ScrollText, ArrowRight } from 'lucide-react';
 import { api } from '../api';
@@ -17,8 +17,12 @@ export function TestStrategy() {
   const { t } = useTranslation();
   const toast = useToast();
   const qc = useQueryClient();
-  const [service, setService] = useState('');
-  const [loaded, setLoaded] = useState('');
+  // Deep link support: /test-strategy?service=X lands ON the service's list (seeding `service` alone
+  // would show an empty form — the list renders off `loaded`).
+  const params = new URLSearchParams(useLocation().search);
+  const initialService = params.get('service') ?? '';
+  const [service, setService] = useState(initialService);
+  const [loaded, setLoaded] = useState(initialService);
   const [basis, setBasis] = useState('');
   const [source, setSource] = useState('CODE');
 
