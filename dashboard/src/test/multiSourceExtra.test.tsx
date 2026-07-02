@@ -255,7 +255,7 @@ describe('Multi-source strategy — edit-step extras', () => {
 
     await user.click(screen.getByRole('button', { name: /Re-extract \(keep edits\)/ }))
 
-    expect(await screen.findByText(/1 edit\(s\) couldn't be carried forward/)).toBeInTheDocument()
+    expect(await screen.findByText(/1 edit couldn't be carried forward/)).toBeInTheDocument()
     expect(screen.getByText("Some of your edits couldn't be carried forward")).toBeInTheDocument()
     expect(screen.getByText('Rename of "Get policy" dropped — feature no longer present')).toBeInTheDocument()
   })
@@ -298,7 +298,7 @@ describe('Multi-source strategy — edit-step extras', () => {
     renderPage(<MultiSourceStrategy />)
     await previewFromJira(user)
 
-    expect(await screen.findByText(/2 feature\(s\) · 1 gap\(s\) · 3 redaction\(s\)/)).toBeInTheDocument()
+    expect(await screen.findByText(/2 features · 1 gap · 3 redactions/)).toBeInTheDocument()
   })
 
   it('surfaces an error toast when a rename PATCH fails', async () => {

@@ -5,6 +5,7 @@ import { ArrowRight, Clock, GitPullRequest, ShieldCheck, Sparkles } from 'lucide
 import { api } from '../api';
 import { Card, CardBody } from './ui';
 import { SnykLogo } from './SnykLogo';
+import { formatMoney } from '../lib/format';
 
 /** Severity → swatch + text colour + its localized-label key (Critical is the alarming one). */
 const SEV = [
@@ -48,7 +49,7 @@ export function SnykImpactCard({ showLink = true }: { showLink?: boolean }) {
             <SnykLogo className="h-5 w-5" />
             <span className="text-md font-semibold text-ink-900">{t('snyk.impact.title')}</span>
             <span className="text-xs text-muted">
-              {t('snyk.impact.watching', { apps: s.watchedApps, projects: s.projects })}
+              {t('snyk.impact.watchingApps', { count: s.watchedApps })} · {t('snyk.impact.watchingProjects', { count: s.projects })}
             </span>
           </div>
           {showLink && (
@@ -90,7 +91,7 @@ export function SnykImpactCard({ showLink = true }: { showLink?: boolean }) {
               <Stat icon={<ShieldCheck className="h-3.5 w-3.5 text-success" />} value={s.fixesMerged} label={t('snyk.impact.merged')} />
               <Stat icon={<GitPullRequest className="h-3.5 w-3.5 text-gold" />} value={s.prsOpened} label={t('snyk.impact.prs')} />
               <Stat icon={<Clock className="h-3.5 w-3.5 text-muted" />} value={s.fixesInProgress} label={t('snyk.impact.inProgress')} />
-              <Stat icon={<Sparkles className="h-3.5 w-3.5 text-brand" />} value={`$${s.llmCostUsd.toFixed(2)}`} label={t('snyk.impact.aiCost')} />
+              <Stat icon={<Sparkles className="h-3.5 w-3.5 text-brand" />} value={formatMoney(s.llmCostUsd)} label={t('snyk.impact.aiCost')} />
             </div>
           </div>
         </div>

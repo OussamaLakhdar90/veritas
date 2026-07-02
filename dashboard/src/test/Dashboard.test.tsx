@@ -78,15 +78,15 @@ function tile(label: string): HTMLElement {
 }
 
 describe('Dashboard', () => {
-  it('shows the pipeline-by-service panel from the service catalog', async () => {
+  it('shows the scorecard-by-service panel from the service catalog', async () => {
     stub({ scans: [] })
     server.use(http.get('*/api/v1/services', () => HttpResponse.json([
       { name: 'ciam-policies', strategies: 1, conditions: 9, cases: 12, plans: 0, scans: 5, codegenRuns: 4 },
     ])))
     renderDashboard()
 
-    expect(await screen.findByText('Pipeline by service')).toBeInTheDocument()
-    const panel = screen.getByText('Pipeline by service').closest('div.rounded-xl') as HTMLElement
+    expect(await screen.findByText('Scorecard by service')).toBeInTheDocument()
+    const panel = screen.getByText('Scorecard by service').closest('div.rounded-xl') as HTMLElement
     expect(within(panel).getByText('ciam-policies')).toBeInTheDocument()
     expect(within(panel).getByText('9 conditions')).toBeInTheDocument()
     expect(within(panel).getByText('12 cases')).toBeInTheDocument()

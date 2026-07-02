@@ -4,27 +4,25 @@ import { GitBranch, FileCode, Code2, GitCompare, Sparkles, FileText } from 'luci
 /**
  * Single source of truth for the live scan stages, shared by the in-modal stepper
  * (RepoPicker) and the floating background-scan dock. Mirrors the backend
- * `ScanStages` constants + `describe()` text so both surfaces stay in sync.
+ * `ScanStages` constants; the user-facing wording lives in the `scan.*` i18n
+ * families (label/short/detail per stage key) so it flips with the language.
  * `pct` drives the progress bars; `long` flags the AI step (by far the slowest)
  * so we can reassure the user it isn't stuck.
  */
 export type ScanStep = {
   key: string;
-  label: string;
-  short: string;
-  detail: string;
   icon: typeof GitBranch;
   pct: number;
   long?: boolean;
 };
 
 export const SCAN_STEPS: ScanStep[] = [
-  { key: 'CLONING', label: 'Getting the code', short: 'Getting code', detail: 'Fetching the branch from Bitbucket', icon: GitBranch, pct: 12 },
-  { key: 'RESOLVING_SPEC', label: 'Locating the API spec', short: 'Locating spec', detail: 'Reading the spec file you selected', icon: FileCode, pct: 26 },
-  { key: 'EXTRACTING', label: 'Reading the API from the code', short: 'Reading code', detail: 'Reading the endpoints and data types — read-only, your app is never run', icon: Code2, pct: 44 },
-  { key: 'DIFFING', label: 'Comparing code against the spec', short: 'Comparing', detail: 'Endpoints, parameters, data types, status codes', icon: GitCompare, pct: 60 },
-  { key: 'RECONCILING', label: 'AI review & suggested fixes', short: 'AI review', detail: 'AI explains each difference and suggests a correction', icon: Sparkles, pct: 82, long: true },
-  { key: 'REPORTING', label: 'Building the report', short: 'Building report', detail: 'Scoring accuracy and preparing the results', icon: FileText, pct: 95 },
+  { key: 'CLONING', icon: GitBranch, pct: 12 },
+  { key: 'RESOLVING_SPEC', icon: FileCode, pct: 26 },
+  { key: 'EXTRACTING', icon: Code2, pct: 44 },
+  { key: 'DIFFING', icon: GitCompare, pct: 60 },
+  { key: 'RECONCILING', icon: Sparkles, pct: 82, long: true },
+  { key: 'REPORTING', icon: FileText, pct: 95 },
 ];
 
 /** Stage → ordinal, used to mark each step done / active / pending. DONE & FAILED both sit past the last step. */
@@ -38,14 +36,6 @@ export function stagePct(stage: string): number {
   if (stage === 'QUEUED') return 4;
   const step = SCAN_STEPS.find((s) => s.key === stage);
   return step ? step.pct : 4;
-}
-
-/** Compact stage label for the dock chip (e.g. "AI review"). */
-export function stageShort(stage: string): string {
-  if (stage === 'QUEUED') return 'Queued';
-  if (stage === 'DONE') return 'Done';
-  if (stage === 'FAILED') return 'Failed';
-  return SCAN_STEPS.find((s) => s.key === stage)?.short ?? stage;
 }
 
 /** "m:ss" elapsed formatting. */

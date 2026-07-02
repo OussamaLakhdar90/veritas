@@ -9,7 +9,7 @@ import { Gates } from '../pages/Gates'
 const pendingGate = {
   id: 'gate-1',
   runId: 'run-abc',
-  action: 'Create Jira defect',
+  action: 'CREATE_DEFECT',
   status: 'PENDING',
   approver: null as string | null,
   createdAt: '2026-06-01T10:00:00Z',
@@ -18,7 +18,7 @@ const pendingGate = {
 const approvedGate = {
   id: 'gate-2',
   runId: 'run-def',
-  action: 'Push Xray test',
+  action: 'XRAY_CREATE_TEST',
   status: 'APPROVED',
   approver: 'alice',
   decidedAt: '2026-06-02T12:00:00Z',
@@ -69,7 +69,7 @@ describe('Approval gates', () => {
     server.use(http.get('*/api/v1/gates', () => HttpResponse.json([pendingGate])))
     renderGates()
 
-    expect(await screen.findByText('Create Jira defect')).toBeInTheDocument()
+    expect(await screen.findByText('Create a Jira defect')).toBeInTheDocument()
     expect(screen.getByText('run-abc')).toBeInTheDocument()
     expect(screen.getAllByText('Pending').length).toBeGreaterThan(0)
     expect(screen.getByText('—')).toBeInTheDocument() // no approver yet
@@ -89,7 +89,7 @@ describe('Approval gates', () => {
     const user = userEvent.setup()
     renderGates()
 
-    expect(await screen.findByText('Create Jira defect')).toBeInTheDocument()
+    expect(await screen.findByText('Create a Jira defect')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^Approve$/ }))
 
     expect(await screen.findByText('Approved.')).toBeInTheDocument()
@@ -108,7 +108,7 @@ describe('Approval gates', () => {
     const user = userEvent.setup()
     renderGates()
 
-    expect(await screen.findByText('Create Jira defect')).toBeInTheDocument()
+    expect(await screen.findByText('Create a Jira defect')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^Reject$/ }))
 
     expect(await screen.findByText('Rejected.')).toBeInTheDocument()
@@ -124,7 +124,7 @@ describe('Approval gates', () => {
     const user = userEvent.setup()
     renderGates()
 
-    expect(await screen.findByText('Create Jira defect')).toBeInTheDocument()
+    expect(await screen.findByText('Create a Jira defect')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^Approve$/ }))
 
     expect(await screen.findByText('Gate already decided')).toBeInTheDocument()
@@ -141,25 +141,25 @@ describe('Approval gates', () => {
     const user = userEvent.setup()
     renderGates()
 
-    expect(await screen.findByText('Create Jira defect')).toBeInTheDocument()
+    expect(await screen.findByText('Create a Jira defect')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Approved' }))
 
-    expect(await screen.findByText('Push Xray test')).toBeInTheDocument()
+    expect(await screen.findByText('Create an Xray test')).toBeInTheDocument()
     expect(screen.getByText('alice')).toBeInTheDocument()
     expect(screen.getAllByText('Approved').length).toBeGreaterThan(0)
     // Decided gates are not actionable: only the filter toggles remain, no row Approve/Reject.
     expect(screen.queryByRole('button', { name: /^Approve$/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^Reject$/ })).not.toBeInTheDocument()
     // The pending row is gone after switching filters.
-    expect(screen.queryByText('Create Jira defect')).not.toBeInTheDocument()
+    expect(screen.queryByText('Create a Jira defect')).not.toBeInTheDocument()
   })
 
   it('renders the approver and decided time for a row inside its table row', async () => {
     server.use(http.get('*/api/v1/gates', () => HttpResponse.json([approvedGate])))
     renderGates()
 
-    const row = (await screen.findByText('Push Xray test')).closest('tr')!
+    const row = (await screen.findByText('Create an Xray test')).closest('tr')!
     expect(within(row).getByText('alice')).toBeInTheDocument()
     expect(within(row).getByText('Approved')).toBeInTheDocument()
   })

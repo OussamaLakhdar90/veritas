@@ -20,19 +20,16 @@ import {
   SCAN_STEPS,
   STAGE_ORDER,
   stagePct,
-  stageShort,
   formatElapsed,
 } from '../lib/scanStages'
 import { useDarkMode } from '../lib/theme'
 import {
   severityBadge,
-  layerLabel,
-  confidenceLabel,
   SEVERITY_BADGE,
-  LAYER_LABEL,
-  CONFIDENCE_LABEL,
   TONE,
 } from '../theme/tokens'
+import i18n from '../i18n'
+import { enumLabel } from '../lib/enumLabels'
 
 /* ── components/cn.ts ──────────────────────────────────────────────────────── */
 describe('cn', () => {
@@ -394,14 +391,6 @@ describe('scanStages', () => {
     expect(stagePct('NOT_A_STAGE')).toBe(4) // fallback
   })
 
-  it('stageShort: friendly labels for queued/done/failed + known steps + raw fallback', () => {
-    expect(stageShort('QUEUED')).toBe('Queued')
-    expect(stageShort('DONE')).toBe('Done')
-    expect(stageShort('FAILED')).toBe('Failed')
-    expect(stageShort('RECONCILING')).toBe('AI review')
-    expect(stageShort('MYSTERY')).toBe('MYSTERY') // unknown → echoes the raw stage
-  })
-
   it('formatElapsed: m:ss with zero-padded seconds and a 0 floor for negatives', () => {
     expect(formatElapsed(0)).toBe('0:00')
     expect(formatElapsed(5000)).toBe('0:05')
@@ -465,23 +454,40 @@ describe('theme tokens', () => {
     expect(severityBadge(undefined)).toBe(SEVERITY_BADGE.INFO)
   })
 
-  it('layerLabel turns L-codes into plain language and echoes unknown/empty input', () => {
-    expect(layerLabel('L2')).toBe(LAYER_LABEL.L2)
-    expect(layerLabel('l2')).toBe(LAYER_LABEL.L2) // case-insensitive
-    expect(layerLabel('L9')).toBe('L9') // unknown echoes the raw code
-    expect(layerLabel(undefined)).toBe('') // no layer → empty
-  })
-
-  it('confidenceLabel maps HIGH/MEDIUM/LOW and echoes unknown/empty input', () => {
-    expect(confidenceLabel('HIGH')).toBe(CONFIDENCE_LABEL.HIGH)
-    expect(confidenceLabel('low')).toBe(CONFIDENCE_LABEL.LOW)
-    expect(confidenceLabel('UNSURE')).toBe('UNSURE')
-    expect(confidenceLabel(undefined)).toBe('')
-  })
-
   it('TONE exposes the expected status keys', () => {
     expect(Object.keys(TONE).sort()).toEqual(['danger', 'info', 'muted', 'ok', 'warn'])
     expect(TONE.ok).toContain('text-success')
     expect(TONE.danger).toContain('text-danger')
+  })
+})
+
+/* ── lib/enumLabels.ts (the layer/confidence labels moved here from theme/tokens) ── */
+describe('enumLabel', () => {
+  const t = i18n.t.bind(i18n)
+
+  it('turns layer codes into plain language (case-insensitive) and echoes unknown codes', () => {
+    expect(enumLabel(t, 'layer', 'L2')).toBe('API completeness')
+    expect(enumLabel(t, 'layer', 'l2')).toBe('API completeness')
+    expect(enumLabel(t, 'layer', 'L9')).toBe('L9') // unknown echoes the raw code
+    expect(enumLabel(t, 'layer', undefined)).toBe('—') // no layer → em dash
+  })
+
+  it('maps confidence HIGH/MEDIUM/LOW to plain language', () => {
+    expect(enumLabel(t, 'confidence', 'HIGH')).toBe('High confidence')
+    expect(enumLabel(t, 'confidence', 'low')).toBe('Low confidence')
+    expect(enumLabel(t, 'confidence', 'UNSURE')).toBe('UNSURE')
+  })
+
+  it('humanizes the real gate-action codes and prettifies unknown machine ids', () => {
+    expect(enumLabel(t, 'gateAction', 'CREATE_DEFECT')).toBe('Create a Jira defect')
+    expect(enumLabel(t, 'gateAction', 'XRAY_UPDATE_STEPS')).toBe('Update test steps in Xray')
+    expect(enumLabel(t, 'gateAction', 'SOME_NEW-ACTION')).toBe('Some new action') // _ and - both split
+    expect(enumLabel(t, 'gateAction', 'Already a sentence')).toBe('Already a sentence') // free-form stays raw
+  })
+
+  it('humanizes skill ids including the unknown bucket', () => {
+    expect(enumLabel(t, 'skill', 'validate-contract')).toBe('Contract validation')
+    expect(enumLabel(t, 'skill', 'unknown')).toBe('Other')
+    expect(enumLabel(t, 'skill', 'brand-new-skill')).toBe('Brand new skill') // prettified fallback
   })
 })

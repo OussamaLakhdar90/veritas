@@ -3,6 +3,8 @@ import { Coins } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { Card, CardBody, CardHeader, EmptyState, ErrorState, KpiTile, PageHeader, Skeleton, Table, Td, Th, Row } from '../components/ui';
+import { enumLabel } from '../lib/enumLabels';
+import { formatMoney } from '../lib/format';
 
 export function Costs() {
   const { t } = useTranslation();
@@ -20,7 +22,7 @@ export function Costs() {
           <><Skeleton className="h-28" /><Skeleton className="h-28" /></>
         ) : (
           <>
-            <KpiTile label={t('costs.totalEstCost')} value={`$${(s?.totalEstCostUsd ?? 0).toFixed(4)}`} tone="brand" />
+            <KpiTile label={t('costs.totalEstCost')} value={formatMoney(s?.totalEstCostUsd ?? 0, 4)} tone="brand" />
             <KpiTile label={t('costs.llmActions')} value={s?.actions ?? 0} />
           </>
         )}
@@ -39,13 +41,13 @@ export function Costs() {
             <Table head={<><Th>{t('costs.colSkill')}</Th><Th className="w-1/2">{t('costs.colShare')}</Th><Th className="text-right">{t('costs.colEstCost')}</Th></>}>
               {rows.map(([skill, cost]) => (
                 <Row key={skill}>
-                  <Td className="font-medium text-ink-900">{skill}</Td>
+                  <Td className="font-medium text-ink-900">{enumLabel(t, 'skill', skill)}</Td>
                   <Td>
                     <div className="h-2 w-full rounded-full bg-ink-100">
                       <div className="h-2 rounded-full bg-brand" style={{ width: `${max ? Math.max(4, (cost / max) * 100) : 0}%` }} />
                     </div>
                   </Td>
-                  <Td className="text-right tabular-nums text-ink-900">${cost.toFixed(4)}</Td>
+                  <Td className="text-right tabular-nums text-ink-900">{formatMoney(cost, 4)}</Td>
                 </Row>
               ))}
             </Table>

@@ -39,9 +39,9 @@ describe('TestPlans page', () => {
     renderTestPlans()
 
     expect(await screen.findByText('ciam-policies')).toBeInTheDocument()
-    expect(screen.getByText('RELEASE')).toBeInTheDocument()
+    expect(screen.getByText('Release')).toBeInTheDocument()       // planKind enum → humanized
     expect(screen.getByText('8.2')).toBeInTheDocument()
-    expect(screen.getByText('PROPOSED')).toBeInTheDocument()
+    expect(screen.getByText('Proposed')).toBeInTheDocument()      // unknown status → prettified, never raw
     expect(screen.getByText('87%')).toBeInTheDocument()       // confidence rounded
     expect(screen.getByText('5')).toBeInTheDocument()          // risk count
     expect(screen.getByText('$0.1234')).toBeInTheDocument()    // est cost, 4dp

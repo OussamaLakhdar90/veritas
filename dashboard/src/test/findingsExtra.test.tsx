@@ -98,8 +98,8 @@ describe('Findings — sortable columns', () => {
     renderFindings(allThree)
     expect(await screen.findByText(critical.summary)).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: /Layer/ }))
-    const header = screen.getByRole('button', { name: /Layer/ }).closest('th')!
+    await user.click(screen.getByRole('button', { name: /Area/ }))
+    const header = screen.getByRole('button', { name: /Area/ }).closest('th')!
     expect(header).toHaveAttribute('aria-sort', 'ascending')
   })
 })

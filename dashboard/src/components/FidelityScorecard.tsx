@@ -73,7 +73,7 @@ export function FidelityScorecard({ summary, coverageGaps }: { summary: Executiv
             ))}
           </div>
           <p className="mt-3 text-xs text-muted">
-            {t('overview.heroHonesty', { gaps: coverageGaps, disputed: summary.totals.disputedByAi })}
+            {t('overview.heroHonesty', { count: coverageGaps })}
           </p>
         </div>
       </CardBody>

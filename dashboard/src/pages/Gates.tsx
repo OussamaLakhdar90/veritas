@@ -56,7 +56,7 @@ export function Gates() {
             <Table head={<><Th>{t('gates.colAction')}</Th><Th>{t('gates.colRun')}</Th><Th>{t('gates.colStatus')}</Th><Th>{t('gates.colApprover')}</Th><Th>{t('gates.colWhen')}</Th><Th /></>}>
               {rows.map((g) => (
                 <Row key={g.id}>
-                  <Td className="font-medium text-ink-900">{g.action}</Td>
+                  <Td className="font-medium text-ink-900">{enumLabel(t, 'gateAction', g.action)}</Td>
                   <Td className="font-mono text-xs text-muted">{g.runId}</Td>
                   <Td><Badge className={tone(g.status)}>{enumLabel(t, 'gateStatus', g.status)}</Badge></Td>
                   <Td className="text-muted">{g.approver ?? '—'}</Td>

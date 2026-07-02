@@ -132,6 +132,7 @@ export function SnykFixWizard({ open, onClose, issue, watchId, apps, defaultApp 
         <div className="space-y-4">
           <p className="text-sm text-muted">{t('snyk.fix.intro', {
             pkg: issue?.pkgName, from: issue?.pkgVersion, to: issue?.fixedIn })}</p>
+          <p className="text-xs text-muted">{t('snyk.fix.introAside')}</p>
 
           <Field label={t('snyk.fix.appsLabel')} hint={t('snyk.fix.appsHint')}>
             <div className="grid gap-1 sm:grid-cols-2">

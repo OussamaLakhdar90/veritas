@@ -91,7 +91,7 @@ describe('Reviews page', () => {
 
     // No JQL typed → clicking Run review must not POST; it surfaces a guard toast instead.
     await user.click(screen.getByRole('button', { name: /Run review/ }))
-    expect(await screen.findByText('Enter a JQL query.')).toBeInTheDocument()
+    expect(await screen.findByText('Enter a Jira search first.')).toBeInTheDocument()
     // Still on the initial empty state — nothing was reviewed.
     expect(screen.getByText('No review yet')).toBeInTheDocument()
   })
@@ -211,7 +211,7 @@ describe('Reviews page', () => {
     renderReviews()
     await user.type(screen.getByPlaceholderText('project = CIAM AND issuetype = Test'), 'project = NOPE')
     await user.click(screen.getByRole('button', { name: /Load tests/ }))
-    expect(await screen.findByText('The JQL returned no Xray tests.')).toBeInTheDocument()
+    expect(await screen.findByText('That search returned no Xray tests.')).toBeInTheDocument()
   })
 
   it('renders em-dashes for missing verdict/score/confidence fields', async () => {

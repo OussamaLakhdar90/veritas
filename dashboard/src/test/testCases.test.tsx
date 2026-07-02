@@ -50,7 +50,7 @@ describe('TestCases (RTM workspace)', () => {
     expect(screen.getByText('Equivalence partitioning')).toBeInTheDocument()
     expect(screen.getByText('Boundary value analysis')).toBeInTheDocument()
     expect(screen.getByText('CIAM-42')).toBeInTheDocument()       // the pushed Xray key column
-    expect(screen.getByText('CREATED')).toBeInTheDocument()         // status badge
+    expect(screen.getByText('Created')).toBeInTheDocument()         // status badge (humanized, never raw)
   })
 
   it('shows the per-service empty state when the service has no cases', async () => {
