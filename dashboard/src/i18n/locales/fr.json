@@ -36,7 +36,8 @@
     "language": "Langue",
     "menu": "Ouvrir le menu",
     "collapse": "Réduire la barre latérale",
-    "expand": "Agrandir la barre latérale"
+    "expand": "Agrandir la barre latérale",
+    "alerts": "{{count}} nouvelle(s) alerte(s) de vulnérabilité — ouvrir Snyk"
   },
   "common": {
     "errorTitle": "Impossible de charger ces données",

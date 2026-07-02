@@ -19,4 +19,6 @@ export const handlers = [
   // The Overview pulls daily cost + scan trends for its sparkline + weekly deltas; default to empty series.
   http.get('*/api/v1/costs/trend', () => HttpResponse.json([])),
   http.get('*/api/v1/scans/trend', () => HttpResponse.json([])),
+  // The TopBar alert bell polls unseen Snyk alerts app-wide; default empty so unrelated tests don't see it.
+  http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([])),
 ]
