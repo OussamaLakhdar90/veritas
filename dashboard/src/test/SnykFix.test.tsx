@@ -97,6 +97,28 @@ describe('Snyk fix wizard', () => {
     expect(confirmBody.versionOverrides).toEqual({ BOM: '1.1.0' })
   })
 
+  it('shows a retryable error (not an endless spinner) when the train fails to load', async () => {
+    let failNext = true
+    server.use(
+      http.post('*/api/v1/snyk/fixes', () => HttpResponse.json({ trainId: 't1' }, { status: 202 })),
+      http.get('*/api/v1/snyk/fixes/t1', () =>
+        failNext ? new HttpResponse(null, { status: 500 }) : HttpResponse.json(breakingTrain)),
+    )
+    const user = userEvent.setup()
+    renderWizard()
+    await user.type(screen.getByPlaceholderText('CIAM-1234'), 'CIAM-1')
+    await user.click(screen.getByRole('button', { name: /Start fix/ }))
+
+    // The first poll 500s → an error card with a Retry action, not a permanent "Starting…" spinner.
+    expect(await screen.findByText(/Couldn’t load the fix train/)).toBeInTheDocument()
+    expect(screen.queryByText('Starting the fix…')).not.toBeInTheDocument()
+
+    // Retry once the endpoint recovers → the train renders.
+    failNext = false
+    await user.click(screen.getByRole('button', { name: /Retry/ }))
+    expect(await screen.findByText('BOM')).toBeInTheDocument()
+  })
+
   it('lets Veritas open the held PRs (breaking-change path)', async () => {
     let opened = false
     const openedTrain = {

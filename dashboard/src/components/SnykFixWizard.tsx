@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { ExternalLink, CheckCircle2, AlertTriangle, GitBranch, Loader2 } from 'lucide-react';
 import { api, type SnykIssueView, type SnykFixTrainView, type SnykFixStepView } from '../api';
 import { Modal } from './Modal';
-import { Badge, Button, Field, Input, Spinner } from './ui';
+import { Badge, Button, ErrorState, Field, Input, Spinner } from './ui';
 import { useToast } from './Toast';
 import { TONE } from '../theme/tokens';
 
@@ -172,7 +172,14 @@ export function SnykFixWizard({ open, onClose, issue, watchId, apps, defaultApp 
       {trainId && !reviewing && (
         <div className="space-y-4">
           {!train ? (
-            <div className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('snyk.fix.starting')}</div>
+            trainQ.isError ? (
+              <div className="space-y-2">
+                <ErrorState message={t('snyk.fix.loadFailed')} />
+                <Button variant="secondary" onClick={() => trainQ.refetch()}>{t('common.retry')}</Button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('snyk.fix.starting')}</div>
+            )
           ) : (
             <>
               <TrainHeader train={train} />

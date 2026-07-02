@@ -42,6 +42,7 @@
   "common": {
     "errorTitle": "Couldn’t load this data",
     "errorRetry": "Check your connection settings and try again.",
+    "retry": "Retry",
     "close": "Close",
     "dismissToast": "Dismiss toast"
   },
@@ -58,7 +59,7 @@
       "merged": "fixes merged",
       "prs": "PRs opened",
       "inProgress": "in progress",
-      "aiCost": "AI checks"
+      "aiCost": "AI cost"
     },
     "refresh": "Refresh now",
     "refreshed_one": "Refreshed {{count}} watched repository.",
@@ -121,6 +122,7 @@
       "reviewersEditHint": "Comma-separated; edit per repo.",
       "start": "Start fix",
       "starting": "Starting the fix…",
+      "loadFailed": "Couldn’t load the fix train.",
       "confirm": "Confirm & run",
       "reviewIntro": "Review the cascade before it runs. Framework repos (APP7488) merge first, then one PR per app. Edit each module’s new version or its reviewers; greyed rows can’t be auto-bumped.",
       "newVersionLabel": "New version",
