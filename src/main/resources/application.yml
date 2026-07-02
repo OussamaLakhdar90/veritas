@@ -103,6 +103,8 @@ veritas:
       snapshot-days: 30
       alert-days: 60
       fix-train-days: 90
+    fix:
+      reactor-timeout-seconds: 900   # per-command timeout for the local reactor build (cold repo + multi-module + N app tests)
 
 logging:
   level:

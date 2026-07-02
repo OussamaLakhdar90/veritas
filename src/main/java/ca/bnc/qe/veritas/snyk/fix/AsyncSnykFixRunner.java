@@ -1,16 +1,20 @@
 package ca.bnc.qe.veritas.snyk.fix;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 import ca.bnc.qe.veritas.codegen.GeneratedFileWriter;
 import ca.bnc.qe.veritas.codegen.PrPublisher;
 import ca.bnc.qe.veritas.snyk.fix.CascadePlanner.AppInput;
@@ -89,8 +93,24 @@ public class AsyncSnykFixRunner {
         }
     }
 
+    /** Non-terminal states — a train in any of these is still "in flight" for the dedup guard. */
+    private static final Set<String> ACTIVE_STATUSES = Set.of(
+            SnykFixStatus.PLANNING, SnykFixStatus.AWAITING_CONFIRM, SnykFixStatus.CHECKING, SnykFixStatus.VERIFYING,
+            SnykFixStatus.OPENING_PRS, SnykFixStatus.PR_OPEN, SnykFixStatus.AWAITING_MANUAL_FIX);
+
     /** Create the train row + kick off the cascade on a background thread; returns the train id immediately. */
     public String submit(SnykFixRequest req) {
+        // Idempotency: if a fix is already in flight for this watch + coordinate, reuse it rather than starting a
+        // duplicate train that would clone/push the same branches (a poll re-alert or a double click can trigger this).
+        if (req.watchId() != null && req.coordinate() != null) {
+            for (SnykFixTrain existing : trains.findByWatchIdAndCoordinate(req.watchId(), req.coordinate())) {
+                if (ACTIVE_STATUSES.contains(existing.getStatus())) {
+                    log.info("Snyk fix already in flight for {} on watch {} — reusing train {}",
+                            req.coordinate(), req.watchId(), existing.getId());
+                    return existing.getId();
+                }
+            }
+        }
         SnykFixTrain train = new SnykFixTrain();
         train.setWatchId(req.watchId());
         train.setIssueId(req.issueId());
@@ -323,21 +343,45 @@ public class AsyncSnykFixRunner {
         try {
             localRepo = Files.createTempDirectory("veritas-snyk-m2-");
         } catch (IOException e) {
-            return ReactorResult.fail("local-repo", "could not create a temp local Maven repo: " + e.getMessage());
+            // Infrastructure failure (disk full / temp not writable) — NOT a breaking change. Throw so run() marks
+            // the train FAILED at VERIFYING rather than mis-reporting a non-existent breaking change to the user.
+            throw new UncheckedIOException("Could not create a temp local Maven repo for the reactor build", e);
         }
-        List<ModuleBuild> framework = new ArrayList<>();
-        addModule(framework, "BOM", clones.get(fw.getProject() + "/" + fw.getBomRepo()));
-        addModule(framework, "core", clones.get(fw.getProject() + "/" + fw.getCoreRepo()));
-        addModule(framework, "api", clones.get(fw.getProject() + "/" + fw.getApiRepo()));
-        addModule(framework, "web", clones.get(fw.getProject() + "/" + fw.getWebRepo()));
-        List<ConsumerBuild> consumers = new ArrayList<>();
-        for (AppInput app : apps) {
-            Path dir = clones.get(app.appId() + "/" + fw.getConsumerRepo());
-            if (dir != null) {
-                consumers.add(new ConsumerBuild(app.appId(), dir));
+        try {
+            List<ModuleBuild> framework = new ArrayList<>();
+            addModule(framework, "BOM", clones.get(fw.getProject() + "/" + fw.getBomRepo()));
+            addModule(framework, "core", clones.get(fw.getProject() + "/" + fw.getCoreRepo()));
+            addModule(framework, "api", clones.get(fw.getProject() + "/" + fw.getApiRepo()));
+            addModule(framework, "web", clones.get(fw.getProject() + "/" + fw.getWebRepo()));
+            List<ConsumerBuild> consumers = new ArrayList<>();
+            for (AppInput app : apps) {
+                Path dir = clones.get(app.appId() + "/" + fw.getConsumerRepo());
+                if (dir != null) {
+                    consumers.add(new ConsumerBuild(app.appId(), dir));
+                }
             }
+            return verifier.verify(new ReactorInputs(localRepo, framework, consumers));
+        } finally {
+            deleteRecursively(localRepo);   // the throwaway m2 repo is hundreds of MB — never leak it to temp
         }
-        return verifier.verify(new ReactorInputs(localRepo, framework, consumers));
+    }
+
+    /** Best-effort recursive delete of the throwaway local Maven repo. */
+    private void deleteRecursively(Path root) {
+        if (root == null) {
+            return;
+        }
+        try (Stream<Path> walk = Files.walk(root)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException ignored) {
+                    // best effort — a locked pack file on Windows; the OS temp cleaner gets it eventually
+                }
+            });
+        } catch (IOException e) {
+            log.debug("Could not delete temp local repo {}: {}", root, e.getMessage());
+        }
     }
 
     private void addModule(List<ModuleBuild> list, String label, Path dir) {

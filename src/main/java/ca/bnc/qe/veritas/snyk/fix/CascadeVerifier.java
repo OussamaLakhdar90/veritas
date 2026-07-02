@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.util.List;
 import ca.bnc.qe.veritas.codegen.BuildVerifier;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -19,22 +20,27 @@ public class CascadeVerifier {
 
     private final BuildVerifier buildVerifier;
 
-    public CascadeVerifier(BuildVerifier buildVerifier) {
+    /** Per-command timeout for the reactor build — larger than the codegen default (cold repo + multi-module + N test runs). */
+    private final long timeoutSeconds;
+
+    public CascadeVerifier(BuildVerifier buildVerifier,
+                           @Value("${veritas.snyk.fix.reactor-timeout-seconds:900}") long timeoutSeconds) {
         this.buildVerifier = buildVerifier;
+        this.timeoutSeconds = timeoutSeconds;
     }
 
     public ReactorResult verify(ReactorInputs in) {
         String repoArg = "-Dmaven.repo.local=" + in.localRepo().toAbsolutePath();
         for (ModuleBuild m : in.framework()) {
             BuildVerifier.BuildResult r = buildVerifier.verify(m.dir(),
-                    "mvn -q -B -DskipTests install " + repoArg);
+                    "mvn -q -B -DskipTests install " + repoArg, timeoutSeconds);
             if (!"PASS".equals(r.status())) {
                 log.info("Snyk reactor: framework module {} failed to install", m.label());
                 return ReactorResult.fail(m.label(), r.output());
             }
         }
         for (ConsumerBuild c : in.consumers()) {
-            BuildVerifier.BuildResult r = buildVerifier.verify(c.dir(), "mvn -q -B test " + repoArg);
+            BuildVerifier.BuildResult r = buildVerifier.verify(c.dir(), "mvn -q -B test " + repoArg, timeoutSeconds);
             if (!"PASS".equals(r.status())) {
                 log.info("Snyk reactor: consumer {} tests failed", c.appId());
                 return ReactorResult.fail("consumer:" + c.appId(), r.output());
