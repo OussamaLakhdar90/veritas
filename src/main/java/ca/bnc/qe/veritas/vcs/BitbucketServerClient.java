@@ -72,14 +72,16 @@ public class BitbucketServerClient implements GitHost {
 
     @Override
     public List<String> listBranches(String appId, String repoSlug) {
-        String project = (appId != null && !appId.isBlank()) ? appId : project();   // app-id is the Server/DC project key
+        // app-id is the Server/DC project key; validate both — they land raw in the REST path (SSRF/path-injection sink).
+        String project = seg((appId != null && !appId.isBlank()) ? appId : project(), "project key");
+        String repo = seg(repoSlug, "repository slug");
         List<String> branches = new ArrayList<>();
         String defaultBranch = null;
         try {
             int start = 0;
             boolean last = false;
             while (!last) {
-                final String pageUri = base() + "/rest/api/1.0/projects/" + project + "/repos/" + repoSlug
+                final String pageUri = base() + "/rest/api/1.0/projects/" + project + "/repos/" + repo
                         + "/branches?limit=100&start=" + start;
                 String body = retries.call(() -> http.get().uri(URI.create(pageUri))
                         .header("Authorization", authHeader()).retrieve().body(String.class));
@@ -162,11 +164,13 @@ public class BitbucketServerClient implements GitHost {
 
     @Override
     public String openPullRequest(PullRequestSpec spec) {
-        String project = (spec.project() != null && !spec.project().isBlank()) ? spec.project() : project();
+        String project = seg((spec.project() != null && !spec.project().isBlank()) ? spec.project() : project(),
+                "project key");
+        String repo = seg(spec.repoSlug(), "repository slug");
         try {
             String payload = buildPullRequestPayload(spec.sourceBranch(), spec.targetBranch(),
                     spec.title(), spec.description(), spec.reviewers());
-            String uri = base() + "/rest/api/1.0/projects/" + project + "/repos/" + spec.repoSlug() + "/pull-requests";
+            String uri = base() + "/rest/api/1.0/projects/" + project + "/repos/" + repo + "/pull-requests";
             String body = retries.callWrite(() -> http.post().uri(URI.create(uri))
                     .header("Authorization", authHeader())
                     .header("Content-Type", "application/json")
@@ -203,11 +207,24 @@ public class BitbucketServerClient implements GitHost {
     // ---- testable building blocks ----
 
     String buildDiscoveryUri(String appId, int start) {
-        return base() + "/rest/api/1.0/projects/" + appId + "/repos?limit=100&start=" + start;
+        return base() + "/rest/api/1.0/projects/" + seg(appId, "project key") + "/repos?limit=100&start=" + start;
     }
 
     String buildPullRequestUri(String repoSlug) {
-        return base() + "/rest/api/1.0/projects/" + project() + "/repos/" + repoSlug + "/pull-requests";
+        return base() + "/rest/api/1.0/projects/" + project() + "/repos/" + seg(repoSlug, "repository slug")
+                + "/pull-requests";
+    }
+
+    /**
+     * Validate a caller-supplied path segment (project key / repo slug) before it is concatenated into a REST URL.
+     * Bitbucket keys/slugs are {@code [A-Za-z0-9._-]}; anything else (a {@code /}, {@code ..}, {@code ?}, {@code #},
+     * or an encoded traversal) could rewrite the request path under Veritas's PAT — an authenticated SSRF. Reject it.
+     */
+    private static String seg(String value, String what) {
+        if (value == null || !value.matches("[A-Za-z0-9._-]+")) {
+            throw new IllegalArgumentException("Invalid " + what + ": '" + value + "'");
+        }
+        return value;
     }
 
     String buildPullRequestPayload(String sourceBranch, String targetBranch, String title, String description)

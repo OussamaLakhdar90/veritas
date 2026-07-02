@@ -9,6 +9,7 @@ import java.util.Optional;
 import ca.bnc.qe.veritas.integration.snyk.SnykClient;
 import ca.bnc.qe.veritas.integration.snyk.SnykOrg;
 import ca.bnc.qe.veritas.integration.snyk.SnykTarget;
+import ca.bnc.qe.veritas.skill.NotFoundException;
 import ca.bnc.qe.veritas.snyk.fix.FrameworkProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -82,9 +83,12 @@ public class SnykService {
         return view(watches.save(w));
     }
 
-    /** Remove a watch and its owned snapshots/vulns/alerts (so a deleted watch never orphans rows). */
+    /** Remove a watch and its owned snapshots/vulns/alerts (so a deleted watch never orphans rows). 404 if unknown. */
     @Transactional
     public void removeWatch(String id) {
+        if (!watches.existsById(id)) {
+            throw new NotFoundException("Watch not found: " + id);
+        }
         for (SnykSnapshot s : snapshots.findByWatchId(id)) {
             vulns.deleteBySnapshotId(s.getId());
         }
@@ -106,8 +110,11 @@ public class SnykService {
         return all.stream().map(w -> view(w, latest.get(w.getId()))).toList();
     }
 
-    /** The latest snapshot's vulnerabilities for a watch, most-severe first. */
+    /** The latest snapshot's vulnerabilities for a watch, most-severe first. 404 if the watch is unknown. */
     public List<SnykIssueView> latestIssues(String watchId) {
+        if (!watches.existsById(watchId)) {
+            throw new NotFoundException("Watch not found: " + watchId);
+        }
         return snapshots.findFirstByWatchIdOrderByTakenAtDesc(watchId)
                 .map(snap -> vulns.findBySnapshotId(snap.getId()).stream()
                         .sorted(Comparator.comparingInt((SnykVuln v) -> severityRank(v.getSeverity()))
@@ -125,18 +132,21 @@ public class SnykService {
     }
 
     public void refresh(String watchId) {
-        watches.findById(watchId).ifPresent(pollService::poll);
+        SnykWatch w = watches.findById(watchId)
+                .orElseThrow(() -> new NotFoundException("Watch not found: " + watchId));
+        pollService.poll(w);
     }
 
-    public List<SnykAlert> alerts(boolean unseenOnly) {
-        return unseenOnly ? alerts.findBySeenFalseOrderByCreatedAtDesc() : alerts.findAllByOrderByCreatedAtDesc();
+    public List<SnykAlertView> alerts(boolean unseenOnly) {
+        List<SnykAlert> raw = unseenOnly
+                ? alerts.findBySeenFalseOrderByCreatedAtDesc() : alerts.findAllByOrderByCreatedAtDesc();
+        return raw.stream().map(SnykAlertView::of).toList();
     }
 
     public void markSeen(String id) {
-        alerts.findById(id).ifPresent(a -> {
-            a.setSeen(true);
-            alerts.save(a);
-        });
+        SnykAlert a = alerts.findById(id).orElseThrow(() -> new NotFoundException("Alert not found: " + id));
+        a.setSeen(true);
+        alerts.save(a);
     }
 
     private SnykWatchView view(SnykWatch w) {

@@ -75,6 +75,20 @@ class SnykFixControllerTest {
     }
 
     @Test
+    void startFixWithoutACoordinateReturns400() throws Exception {
+        mvc.perform(post("/api/v1/snyk/fixes").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"fixedIn\":\"2.15.0\",\"appIds\":[\"app7576\"]}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void unknownFixTrainReturns404() throws Exception {
+        when(trains.findById("missing")).thenReturn(Optional.empty());
+        mvc.perform(get("/api/v1/snyk/fixes/missing"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void getFixReturnsTheTrainWithSteps() throws Exception {
         when(trains.findById("t1")).thenReturn(Optional.of(train()));
         when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of(step()));

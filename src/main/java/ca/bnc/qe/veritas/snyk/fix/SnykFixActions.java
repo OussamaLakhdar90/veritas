@@ -58,7 +58,7 @@ public class SnykFixActions {
     /** The user asks Veritas to open the held PRs (breaking-change path, after they adapted the branches). */
     public SnykFixTrain openHeldPrs(String trainId) {
         SnykFixTrain train = trains.findById(trainId).orElseThrow(
-                () -> new IllegalArgumentException("Fix train not found: " + trainId));
+                () -> new ca.bnc.qe.veritas.skill.NotFoundException("Fix train not found: " + trainId));
         List<SnykFixStep> trainSteps = steps.findByTrainIdOrderByStepOrder(trainId);
         openAll(train, trainSteps, SnykFixStatus.BY_VERITAS);
         train.setStatus(SnykFixStatus.PR_OPEN);
@@ -70,7 +70,7 @@ public class SnykFixActions {
     /** The user opened a PR themselves for one step — record it and advance the train if all PRs are now open. */
     public SnykFixTrain recordUserPr(String trainId, int stepOrder, String prUrl) {
         SnykFixTrain train = trains.findById(trainId).orElseThrow(
-                () -> new IllegalArgumentException("Fix train not found: " + trainId));
+                () -> new ca.bnc.qe.veritas.skill.NotFoundException("Fix train not found: " + trainId));
         List<SnykFixStep> trainSteps = steps.findByTrainIdOrderByStepOrder(trainId);
         for (SnykFixStep s : trainSteps) {
             if (s.getStepOrder() == stepOrder && !s.isManual()) {
@@ -91,7 +91,7 @@ public class SnykFixActions {
     /** All PRs merged (by a human) — close the train and move the Jira to Done. Veritas never merges itself. */
     public SnykFixTrain markMerged(String trainId) {
         SnykFixTrain train = trains.findById(trainId).orElseThrow(
-                () -> new IllegalArgumentException("Fix train not found: " + trainId));
+                () -> new ca.bnc.qe.veritas.skill.NotFoundException("Fix train not found: " + trainId));
         for (SnykFixStep s : steps.findByTrainIdOrderByStepOrder(trainId)) {
             if (!s.isManual()) {
                 s.setStatus(SnykFixStatus.MERGED);
