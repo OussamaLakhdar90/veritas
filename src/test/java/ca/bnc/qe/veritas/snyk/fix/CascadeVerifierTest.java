@@ -48,6 +48,15 @@ class CascadeVerifierTest {
     }
 
     @Test
+    void nothingToBuildFailsTheGateInsteadOfAVacuousPass() {
+        // A total clone failure leaves no modules/consumers — must NOT green-light a non-existent fix.
+        ReactorResult r = verifier.verify(new ReactorInputs(Path.of("localrepo"), List.of(), List.of()));
+        assertThat(r.passed()).isFalse();
+        assertThat(r.failingLabel()).isEqualTo("reactor");
+        org.mockito.Mockito.verifyNoInteractions(bv);   // never even tried to build
+    }
+
+    @Test
     void aFrameworkInstallFailureStopsBeforeTestingConsumers() {
         when(bv.verify(any(), any(), anyLong())).thenReturn(new BuildVerifier.BuildResult("FAIL", "cannot compile core"));
         ReactorResult r = verifier.verify(inputs());

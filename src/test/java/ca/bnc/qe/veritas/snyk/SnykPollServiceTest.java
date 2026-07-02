@@ -3,6 +3,7 @@ package ca.bnc.qe.veritas.snyk;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -141,6 +142,23 @@ class SnykPollServiceTest {
         verify(alerts).save(cap.capture());
         assertThat(cap.getValue().getSeverity()).isEqualTo("critical");
         assertThat(cap.getValue().getMessage()).contains("New critical");
+    }
+
+    @Test
+    void pollAllCountsOnlyTheWatchesThatActuallyRefreshed() {
+        SnykWatch good = watch();
+        good.setOrgId("good");
+        SnykWatch bad = watch();
+        bad.setOrgId("bad");
+        when(watches.findByEnabledTrue()).thenReturn(List.of(good, bad));
+        when(snapshots.findFirstByWatchIdOrderByTakenAtDesc(any())).thenReturn(Optional.empty());
+        when(persistence.save(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        when(client.listProjects(eq("good"), any())).thenReturn(List.of());          // refreshes cleanly
+        when(client.listProjects(eq("bad"), any())).thenThrow(new IllegalStateException("token expired"));
+
+        int polled = service.pollAll();
+
+        assertThat(polled).isEqualTo(1);   // the failing watch is logged, not counted as a successful refresh
     }
 
     @Test

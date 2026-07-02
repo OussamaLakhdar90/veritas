@@ -112,6 +112,7 @@ public class SnykService {
         }
         fixTrains.deleteAll(trains);
         watches.deleteById(id);
+        pollService.forgetWatch(id);   // release the per-watch poll lock so the lock map doesn't leak
     }
 
     public List<SnykWatchView> watchViews() {

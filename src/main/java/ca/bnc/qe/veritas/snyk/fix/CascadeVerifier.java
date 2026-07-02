@@ -30,6 +30,13 @@ public class CascadeVerifier {
     }
 
     public ReactorResult verify(ReactorInputs in) {
+        // Nothing to build means nothing was cloned (a total clone/network failure). The two loops below would
+        // otherwise fall through to a vacuous pass() and green-light a non-existent fix, so fail the gate instead.
+        if (in.framework().isEmpty() && in.consumers().isEmpty()) {
+            log.warn("Snyk reactor: no framework modules or consumer apps to build (clone failure?) — failing the gate");
+            return ReactorResult.fail("reactor",
+                    "Nothing was cloned or built, so the fix could not be verified — check connectivity to the repos.");
+        }
         String repoArg = "-Dmaven.repo.local=" + in.localRepo().toAbsolutePath();
         for (ModuleBuild m : in.framework()) {
             BuildVerifier.BuildResult r = buildVerifier.verify(m.dir(),

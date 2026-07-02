@@ -16,6 +16,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import ca.bnc.qe.veritas.codegen.GeneratedFileWriter;
 import ca.bnc.qe.veritas.codegen.PrPublisher;
+import ca.bnc.qe.veritas.skill.ConflictException;
+import ca.bnc.qe.veritas.skill.NotFoundException;
 import ca.bnc.qe.veritas.snyk.fix.CascadePlanner.AppInput;
 import ca.bnc.qe.veritas.snyk.fix.CascadePlanner.FrameworkPoms;
 import ca.bnc.qe.veritas.snyk.fix.CascadeVerifier.ConsumerBuild;
@@ -133,9 +135,9 @@ public class AsyncSnykFixRunner {
     public void confirm(String trainId, Map<String, String> versionOverrides,
                         Map<Integer, List<String>> reviewerOverrides) {
         SnykFixTrain train = trains.findById(trainId)
-                .orElseThrow(() -> new ca.bnc.qe.veritas.skill.NotFoundException("Fix train not found: " + trainId));
+                .orElseThrow(() -> new NotFoundException("Fix train not found: " + trainId));
         if (!SnykFixStatus.AWAITING_CONFIRM.equals(train.getStatus())) {
-            throw new ca.bnc.qe.veritas.skill.ConflictException(
+            throw new ConflictException(
                     "Fix train " + trainId + " is not awaiting confirmation (" + train.getStatus() + ").");
         }
         SnykFixRequest req = new SnykFixRequest(train.getWatchId(), train.getIssueId(), train.getCoordinate(),

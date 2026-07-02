@@ -30,9 +30,6 @@ public class SnykSnapshot extends AuditableEntity {
     private int projectCount;
     private int fixableCount;
 
-    /** True when the poll itself failed (network/auth) — the snapshot records the error rather than a false "0". */
-    private boolean failed;
-
     public int total() {
         return critical + high + medium + low;
     }

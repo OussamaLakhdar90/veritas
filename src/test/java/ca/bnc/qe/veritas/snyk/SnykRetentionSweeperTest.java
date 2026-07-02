@@ -9,6 +9,7 @@ import static org.mockito.Mockito.when;
 
 import java.util.List;
 import java.util.Optional;
+import ca.bnc.qe.veritas.snyk.fix.SnykFixStatus;
 import ca.bnc.qe.veritas.snyk.fix.SnykFixStepRepository;
 import ca.bnc.qe.veritas.snyk.fix.SnykFixTrain;
 import ca.bnc.qe.veritas.snyk.fix.SnykFixTrainRepository;
@@ -52,15 +53,30 @@ class SnykRetentionSweeperTest {
     }
 
     @Test
-    void prunesFinishedFixTrainsWithTheirSteps() {
+    void prunesOldFailedFixTrainsWithTheirSteps() {
         when(watches.findAll()).thenReturn(List.of());
         SnykFixTrain t = new SnykFixTrain();
         t.setId("t1");
+        t.setStatus(SnykFixStatus.FAILED);
         when(trains.findByFinishedAtBefore(any())).thenReturn(List.of(t));
 
         sweeper.sweep();
 
         verify(steps).deleteByTrainId("t1");
         verify(trains).delete(t);
+    }
+
+    @Test
+    void keepsDoneFixTrainsSoTheExecCardFixCountsDoNotShrink() {
+        when(watches.findAll()).thenReturn(List.of());
+        SnykFixTrain done = new SnykFixTrain();
+        done.setId("t-done");
+        done.setStatus(SnykFixStatus.DONE);   // a merged fix — the managerial "fixes merged / PRs opened" record
+        when(trains.findByFinishedAtBefore(any())).thenReturn(List.of(done));
+
+        sweeper.sweep();
+
+        verify(steps, never()).deleteByTrainId("t-done");
+        verify(trains, never()).delete(done);
     }
 }
