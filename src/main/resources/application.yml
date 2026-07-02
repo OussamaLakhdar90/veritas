@@ -2,7 +2,9 @@ spring:
   application:
     name: veritas
   datasource:
-    url: jdbc:sqlite:veritas.db
+    # WAL lets readers proceed during a write and busy_timeout makes a second writer WAIT (5s) instead of
+    # instantly failing with SQLITE_BUSY — required now that concurrent scans/fix-trains write simultaneously.
+    url: jdbc:sqlite:veritas.db?journal_mode=WAL&busy_timeout=5000
     driver-class-name: org.sqlite.JDBC
   jpa:
     hibernate:

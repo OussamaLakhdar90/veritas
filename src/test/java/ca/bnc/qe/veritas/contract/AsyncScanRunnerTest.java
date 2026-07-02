@@ -252,6 +252,51 @@ class AsyncScanRunnerTest {
     }
 
     @Test
+    void cancelInterruptsTheWorkerAndFreesItsSlot() throws Exception {
+        // A hung scan (parked in a blocking call) must be interruptible by the reconciler so its pool slot frees.
+        java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
+        when(workspace.resolve(any(), any(), any(), any())).thenAnswer(inv -> {
+            entered.countDown();
+            Thread.sleep(60_000);   // parked until interrupted by cancel(true)
+            return Path.of("never-reached");
+        });
+
+        String id = runner.submit("Orders", "APP1", "orders-svc", "main", null,
+                oneRepoSpec(), true, "carol", Thoroughness.STANDARD);
+        assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+        assertThat(runner.cancel(id)).isTrue();     // live worker found + interrupted
+        // the interruption surfaces on the failure path: FAILED persisted + workspace cleanup still runs
+        verify(workspace, timeout(ASYNC_MS)).cleanup(any());
+        ArgumentCaptor<Scan> cap = ArgumentCaptor.forClass(Scan.class);
+        verify(scans, atLeastOnce()).save(cap.capture());
+        Scan last = cap.getAllValues().get(cap.getAllValues().size() - 1);
+        assertThat(last.getStatus()).isEqualTo(RunStatus.FAILED);
+
+        assertThat(runner.cancel(id)).isFalse();    // already removed from the in-flight registry
+    }
+
+    @Test
+    void startedAtIsRestampedAtDequeueAndQueuedAtKept() {
+        // submit() records queuedAt; the worker re-stamps startedAt when it actually begins, so queue wait
+        // never counts against the runtime ceiling.
+        Path repo = Path.of("repo-dir");
+        when(workspace.resolve(any(), any(), any(), any())).thenReturn(repo);
+        when(specResolver.resolve(any(SpecSource.class), any()))
+                .thenReturn(new SpecInput("openapi", "openapi: 3.0.0"));
+
+        runner.submit("Orders", "APP1", "orders-svc", "main", "/local",
+                oneRepoSpec(), true, "carol", Thoroughness.STANDARD);
+
+        ArgumentCaptor<Scan> scanCap = ArgumentCaptor.forClass(Scan.class);
+        verify(validation, timeout(ASYNC_MS)).runInto(scanCap.capture(), any());
+        Scan s = scanCap.getValue();
+        assertThat(s.getQueuedAt()).isNotNull();
+        assertThat(s.getStartedAt()).isNotNull();
+        assertThat(s.getStartedAt()).isAfterOrEqualTo(s.getQueuedAt());
+    }
+
+    @Test
     void shutdownStopsTheWorkerPool() {
         // submit() with a clone failure, then shutdown — shutdown must complete without throwing.
         when(workspace.resolve(any(), any(), any(), any()))

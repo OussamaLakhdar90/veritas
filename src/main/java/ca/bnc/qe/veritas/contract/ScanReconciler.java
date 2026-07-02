@@ -15,20 +15,25 @@ import org.springframework.stereotype.Component;
 
 /**
  * Recovers scans left in RUNNING by a hard crash (JVM kill, power loss) — the one failure window a transaction
- * can't cover. On startup, any RUNNING scan is from a prior process and is marked FAILED; periodically, a scan
- * RUNNING longer than the configured ceiling is marked FAILED so the dashboard never shows a perpetual spinner.
+ * can't cover. On startup, any RUNNING scan is from a prior process and is marked FAILED. Periodically, a scan
+ * whose row has seen NO progress write for the configured ceiling is considered hung: its worker is interrupted
+ * (freeing the pool slot for queued scans) and the row is marked FAILED. The timeout is based on the last
+ * heartbeat ({@code updatedAt}, refreshed by every stage/detail persist), never on submit time — so a scan
+ * waiting in the queue or a long scan still actively streaming LLM output is never falsely failed.
  */
 @Component
 @Slf4j
 public class ScanReconciler {
 
     private final ScanRepository scans;
+    private final AsyncScanRunner runner;
 
     @Value("${veritas.scan.max-runtime-minutes:60}")
     private long maxRuntimeMinutes;
 
-    public ScanReconciler(ScanRepository scans) {
+    public ScanReconciler(ScanRepository scans, AsyncScanRunner runner) {
         this.scans = scans;
+        this.runner = runner;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -52,10 +57,25 @@ public class ScanReconciler {
     public void timeOutStaleScans() {
         Instant cutoff = Instant.now().minus(maxRuntimeMinutes, ChronoUnit.MINUTES);
         for (Scan s : scans.findByStatus(RunStatus.RUNNING)) {
-            if (s.getStartedAt() != null && s.getStartedAt().isBefore(cutoff)) {
-                fail(s, "Scan exceeded the maximum runtime of " + maxRuntimeMinutes + " min");
+            if (ScanStages.QUEUED.equals(s.getStage())) {
+                // Hasn't started — it's waiting for a pool slot, not hung. It runs as soon as a slot frees
+                // (hung slot-holders are interrupted below); orphans from a crash are recovered at startup.
+                continue;
+            }
+            Instant heartbeat = lastProgress(s);
+            if (heartbeat != null && heartbeat.isBefore(cutoff)) {
+                boolean interrupted = runner.cancel(s.getId());
+                log.warn("Scan {} [{}] made no progress for over {} min — {}", s.getId(), s.getServiceName(),
+                        maxRuntimeMinutes, interrupted ? "worker interrupted" : "no live worker found");
+                fail(s, "Scan made no progress for over " + maxRuntimeMinutes + " min");
             }
         }
+    }
+
+    /** The row's last write ({@code updatedAt} refreshes on every stage/detail persist — the true liveness
+     *  signal); falls back to {@code startedAt} for rows read before Hibernate populated the timestamp. */
+    private static Instant lastProgress(Scan s) {
+        return s.getUpdatedAt() != null ? s.getUpdatedAt() : s.getStartedAt();
     }
 
     private void fail(Scan s, String reason) {

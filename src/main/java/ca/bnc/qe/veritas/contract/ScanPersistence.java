@@ -13,30 +13,69 @@ import ca.bnc.qe.veritas.persistence.Scan;
 import ca.bnc.qe.veritas.persistence.ScanRepository;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Atomically persists a finished scan: the finding rows and the COMPLETED scan are written in a single
- * transaction (a separate bean so the {@code @Transactional} proxy actually applies — self-invocation from
- * ContractValidationService would be a no-op). If the JVM dies mid-scan, {@link ScanReconciler} recovers the
- * scan stuck in RUNNING on the next start.
+ * transaction (via {@link TransactionTemplate} so the bounded SQLITE_BUSY retry can sit OUTSIDE the
+ * transaction — an {@code @Transactional} method can't retry itself). If the JVM dies mid-scan,
+ * {@link ScanReconciler} recovers the scan stuck in RUNNING on the next start.
  */
 @Component
 public class ScanPersistence {
 
+    private static final int MAX_ATTEMPTS = 3;
+
     private final ScanRepository scanRepository;
     private final FindingRecordRepository findingRepository;
+    private final TransactionTemplate tx;
 
-    public ScanPersistence(ScanRepository scanRepository, FindingRecordRepository findingRepository) {
+    public ScanPersistence(ScanRepository scanRepository, FindingRecordRepository findingRepository,
+                           PlatformTransactionManager txManager) {
         this.scanRepository = scanRepository;
         this.findingRepository = findingRepository;
+        this.tx = new TransactionTemplate(txManager);
     }
 
-    /** Write the findings and the scan together so a reader never sees a COMPLETED scan with no findings. */
-    @Transactional
+    /**
+     * Write the findings and the scan together so a reader never sees a COMPLETED scan with no findings.
+     * Retries briefly on an SQLite write-lock collision: with concurrent scans (or a fix train) writing at the
+     * same moment, the finishing writer can hit SQLITE_BUSY — without the retry a fully successful scan would
+     * be reported FAILED with a raw database error. Each attempt is its own transaction (full rollback between
+     * attempts), so a retry never duplicates rows.
+     */
     public void complete(Scan scan, List<Finding> findings, Map<String, JsonNode> enrich) {
-        findingRepository.saveAll(toRecords(scan.getId(), findings, enrich));
-        scanRepository.save(scan);
+        for (int attempt = 1; ; attempt++) {
+            try {
+                tx.executeWithoutResult(status -> {
+                    findingRepository.saveAll(toRecords(scan.getId(), findings, enrich));
+                    scanRepository.save(scan);
+                });
+                return;
+            } catch (RuntimeException e) {
+                if (attempt >= MAX_ATTEMPTS || !isSqliteBusy(e)) {
+                    throw e;
+                }
+                try {
+                    Thread.sleep(250L * attempt);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
+        }
+    }
+
+    /** SQLITE_BUSY surfaces as "database is locked" / "SQLITE_BUSY" somewhere in the cause chain. */
+    static boolean isSqliteBusy(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause() == t ? null : t.getCause()) {
+            String m = t.getMessage();
+            if (m != null && (m.contains("SQLITE_BUSY") || m.contains("database is locked"))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private List<FindingRecord> toRecords(String scanId, List<Finding> findings, Map<String, JsonNode> enrich) {

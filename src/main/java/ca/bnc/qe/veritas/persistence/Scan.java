@@ -60,6 +60,10 @@ public class Scan extends AuditableEntity {
 
     private int totalFindings;
     private String owner;
+
+    /** When the scan was submitted (entered the worker queue). {@code startedAt} is re-stamped when a worker
+     *  actually dequeues it, so queue wait time never counts against the runtime ceiling. */
+    private Instant queuedAt;
     private Instant startedAt;
     private Instant finishedAt;
 
