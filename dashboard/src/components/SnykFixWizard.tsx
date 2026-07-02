@@ -7,8 +7,8 @@ import { Modal } from './Modal';
 import { Badge, Button, ErrorState, Field, Input, Spinner } from './ui';
 import { useToast } from './Toast';
 import { TONE } from '../theme/tokens';
+import { FIX_STATUS, IN_FLIGHT } from '../lib/snykStatus';
 
-const IN_FLIGHT = ['PLANNING', 'CHECKING', 'VERIFYING', 'OPENING_PRS'];
 const FRAMEWORK_LABELS = ['BOM', 'core', 'api', 'web'];
 
 /** Only ever render an http(s) URL as a clickable link — never a javascript:/data: value (defence-in-depth). */
@@ -46,7 +46,7 @@ export function SnykFixWizard({ open, onClose, issue, watchId, apps, defaultApp 
     refetchInterval: (q) => (q.state.data && IN_FLIGHT.includes(q.state.data.status) ? 2000 : false),
   });
   const train = trainQ.data;
-  const reviewing = train?.status === 'AWAITING_CONFIRM';
+  const reviewing = train?.status === FIX_STATUS.AWAITING_CONFIRM;
 
   const start = useMutation({
     mutationFn: () => api.startSnykFix({
@@ -185,17 +185,17 @@ export function SnykFixWizard({ open, onClose, issue, watchId, apps, defaultApp 
               <TrainHeader train={train} />
               <ol className="space-y-2">
                 {train.steps.map((s) => (
-                  <StepRow key={s.order} step={s} awaiting={train.status === 'AWAITING_MANUAL_FIX'}
+                  <StepRow key={s.order} step={s} awaiting={train.status === FIX_STATUS.AWAITING_MANUAL_FIX}
                     url={prUrls[s.order] ?? ''} onUrl={(v) => setPrUrls((p) => ({ ...p, [s.order]: v }))}
                     onRecord={() => recordPr.mutate({ order: s.order, url: prUrls[s.order] ?? '' })} />
                 ))}
               </ol>
               <div className="flex flex-wrap gap-2">
-                {train.status === 'AWAITING_MANUAL_FIX' && (
+                {train.status === FIX_STATUS.AWAITING_MANUAL_FIX && (
                   <Button loading={openPrs.isPending} onClick={() => openPrs.mutate()}>
                     {t('snyk.fix.openPrs')}</Button>
                 )}
-                {train.status === 'PR_OPEN' && (
+                {train.status === FIX_STATUS.PR_OPEN && (
                   <Button variant="secondary" loading={markMerged.isPending} onClick={() => markMerged.mutate()}>
                     {t('snyk.fix.markMerged')}</Button>
                 )}
@@ -244,14 +244,14 @@ function ReviewRow({ step, version, onVersion, reviewers, onReviewers }:
 function TrainHeader({ train }: { train: SnykFixTrainView }) {
   const { t } = useTranslation();
   const inFlight = IN_FLIGHT.includes(train.status);
-  const tone = train.status === 'DONE' || train.status === 'PR_OPEN' ? TONE.ok
-    : train.status === 'FAILED' ? TONE.danger
-    : train.status === 'AWAITING_MANUAL_FIX' ? TONE.warn : TONE.info;
+  const tone = train.status === FIX_STATUS.DONE || train.status === FIX_STATUS.PR_OPEN ? TONE.ok
+    : train.status === FIX_STATUS.FAILED ? TONE.danger
+    : train.status === FIX_STATUS.AWAITING_MANUAL_FIX ? TONE.warn : TONE.info;
   return (
     <div className="rounded-lg bg-ink-50/60 px-4 py-3">
       <div className="flex items-center gap-2">
         {inFlight ? <Loader2 className="h-4 w-4 animate-spin text-brand" />
-          : train.status === 'AWAITING_MANUAL_FIX' ? <AlertTriangle className="h-4 w-4 text-warning" />
+          : train.status === FIX_STATUS.AWAITING_MANUAL_FIX ? <AlertTriangle className="h-4 w-4 text-warning" />
           : <CheckCircle2 className="h-4 w-4 text-success" />}
         <Badge className={tone}>{t(`snyk.fix.status.${train.status}`, train.status)}</Badge>
         {train.stageDetail && <span className="text-[13px] text-muted">{train.stageDetail}</span>}
@@ -265,7 +265,7 @@ function TrainHeader({ train }: { train: SnykFixTrainView }) {
         {train.reactorPassed === true && ' · ' + t('snyk.fix.reactorPass')}
         {train.reactorPassed === false && ' · ' + t('snyk.fix.reactorFail', { where: train.reactorFailingLabel ?? '' })}
       </p>
-      {train.status === 'AWAITING_MANUAL_FIX' && (
+      {train.status === FIX_STATUS.AWAITING_MANUAL_FIX && (
         <p className="mt-1 text-[12px] text-warning">{t('snyk.fix.breakingHelp')}</p>
       )}
     </div>
