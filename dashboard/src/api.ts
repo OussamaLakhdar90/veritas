@@ -646,10 +646,15 @@ export const api = {
   // ── Snyk auto-fix release train ──
   startSnykFix: (body: { watchId?: string; issueId: string; coordinate: string; oldVersion: string;
     fixedIn: string; severity: string; appIds: string[]; jiraKey?: string; jiraProject?: string;
-    jiraIssueType?: string; reviewers?: string[]; owner?: string }) =>
+    jiraIssueType?: string; reviewers?: string[]; owner?: string; autoConfirm?: boolean }) =>
     post<{ trainId: string }>('/snyk/fixes', body),
   snykFixes: () => get<SnykFixTrainView[]>('/snyk/fixes'),
   snykFix: (id: string) => get<SnykFixTrainView>(`/snyk/fixes/${encodeURIComponent(id)}`),
+  // Confirm a paused (AWAITING_CONFIRM) train with per-module version + per-step-order reviewer edits.
+  confirmSnykFix: (id: string, versionOverrides: Record<string, string>,
+    reviewerOverrides: Record<number, string[]>) =>
+    send<SnykFixTrainView>('POST', `/snyk/fixes/${encodeURIComponent(id)}/confirm`,
+      { versionOverrides, reviewerOverrides }),
   openSnykFixPrs: (id: string) => send<SnykFixTrainView>('POST', `/snyk/fixes/${encodeURIComponent(id)}/open-prs`),
   recordSnykFixPr: (id: string, order: number, prUrl: string) =>
     send<SnykFixTrainView>('POST', `/snyk/fixes/${encodeURIComponent(id)}/steps/${order}/pr`, { prUrl }),

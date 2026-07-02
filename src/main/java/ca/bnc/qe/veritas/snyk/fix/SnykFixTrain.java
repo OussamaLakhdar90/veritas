@@ -37,6 +37,7 @@ public class SnykFixTrain extends AuditableEntity {
 
     private String jiraKey;
     private String jiraProject;
+    private String jiraIssueType;   // kept so a paused (AWAITING_CONFIRM) train can rebuild its request on confirm
 
     @Column(length = 30)
     private String status;
