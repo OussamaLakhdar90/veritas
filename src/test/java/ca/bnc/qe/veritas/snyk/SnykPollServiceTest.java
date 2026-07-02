@@ -10,6 +10,8 @@ import static org.mockito.Mockito.when;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.locks.ReentrantLock;
 import ca.bnc.qe.veritas.integration.snyk.SnykClient;
 import ca.bnc.qe.veritas.integration.snyk.SnykIssue;
 import ca.bnc.qe.veritas.integration.snyk.SnykProjectRef;
@@ -139,5 +141,41 @@ class SnykPollServiceTest {
         verify(alerts).save(cap.capture());
         assertThat(cap.getValue().getSeverity()).isEqualTo("critical");
         assertThat(cap.getValue().getMessage()).contains("New critical");
+    }
+
+    @Test
+    void aConcurrentPollOfTheSameWatchIsSkippedNotDuplicated() throws InterruptedException {
+        SnykWatch w = watch();
+        w.setId("w-lock-1");
+        SnykSnapshot latest = new SnykSnapshot();
+        when(snapshots.findFirstByWatchIdOrderByTakenAtDesc("w-lock-1")).thenReturn(Optional.of(latest));
+
+        // Hold this watch's lock on ANOTHER thread (a ReentrantLock is reentrant, so the test thread can't stand in).
+        ReentrantLock held = new ReentrantLock();
+        service.pollLocks.put("w-lock-1", held);
+        CountDownLatch acquired = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        Thread other = new Thread(() -> {
+            held.lock();
+            acquired.countDown();
+            try {
+                release.await();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                held.unlock();
+            }
+        });
+        other.start();
+        acquired.await();   // the other thread now holds the lock
+
+        SnykSnapshot result = service.poll(w);
+
+        release.countDown();
+        other.join();
+        // It bailed out with the existing latest snapshot instead of racing in a duplicate snapshot + alert.
+        assertThat(result).isSameAs(latest);
+        verify(persistence, never()).save(any(), any());
+        verify(alerts, never()).save(any());
     }
 }

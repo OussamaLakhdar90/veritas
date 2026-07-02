@@ -4,8 +4,11 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 import ca.bnc.qe.veritas.integration.snyk.SnykClient;
 import ca.bnc.qe.veritas.integration.snyk.SnykIssue;
@@ -29,6 +32,12 @@ public class SnykPollService {
     private final SnykScanPersistence persistence;
     private final SnykClient client;
 
+    /**
+     * One lock per watch id so the scheduled poll and a manual refresh can't poll the same watch at once — a
+     * concurrent pair would each read the same previous snapshot and each write a duplicate snapshot + alert.
+     */
+    final Map<String, ReentrantLock> pollLocks = new ConcurrentHashMap<>();
+
     public SnykPollService(SnykWatchRepository watches, SnykSnapshotRepository snapshots, SnykVulnRepository vulns,
                            SnykAlertRepository alerts, SnykScanPersistence persistence, SnykClient client) {
         this.watches = watches;
@@ -39,19 +48,43 @@ public class SnykPollService {
         this.client = client;
     }
 
-    /** Poll every enabled watch; one repo failing never aborts the others. */
-    public void pollAll() {
+    /** Poll every enabled watch; one repo failing never aborts the others. Returns how many were polled. */
+    public int pollAll() {
+        int polled = 0;
         for (SnykWatch w : watches.findByEnabledTrue()) {
+            polled++;
             try {
                 poll(w);
             } catch (RuntimeException e) {
                 log.warn("Snyk poll failed for {} ({}): {}", w.getRepoSlug(), w.getOrgSlug(), e.getMessage());
             }
         }
+        return polled;
     }
 
-    /** Poll one watch: fetch all its projects' issues, store a snapshot, and alert if the status worsened. */
+    /**
+     * Poll one watch: fetch all its projects' issues, store a snapshot, and alert if the status worsened. If another
+     * poll of the same watch is already running, this one is skipped (returns the latest snapshot) rather than
+     * racing it into a duplicate snapshot/alert.
+     */
     public SnykSnapshot poll(SnykWatch w) {
+        // A persisted watch always has an id; guard the (test-only) unsaved case so we never key a lock on null.
+        ReentrantLock lock = w.getId() == null ? null : pollLocks.computeIfAbsent(w.getId(), k -> new ReentrantLock());
+        if (lock != null && !lock.tryLock()) {
+            log.debug("Snyk poll already running for {} ({}) — skipping the concurrent request",
+                    w.getRepoSlug(), w.getOrgSlug());
+            return snapshots.findFirstByWatchIdOrderByTakenAtDesc(w.getId()).orElse(null);
+        }
+        try {
+            return doPoll(w);
+        } finally {
+            if (lock != null) {
+                lock.unlock();
+            }
+        }
+    }
+
+    private SnykSnapshot doPoll(SnykWatch w) {
         SnykSnapshot prev = snapshots.findFirstByWatchIdOrderByTakenAtDesc(w.getId()).orElse(null);
         SnykSnapshot snap = new SnykSnapshot();
         snap.setWatchId(w.getId());
@@ -108,9 +141,13 @@ public class SnykPollService {
         log.info("Snyk alert [{}] {} ({}) — {}", sev, w.getRepoSlug(), w.getOrgSlug(), a.getMessage());
     }
 
-    /** A severity-weighted score (critical ≫ high ≫ medium ≫ low) so an escalation at an unchanged total is caught. */
+    /**
+     * A severity-weighted score (critical ≫ high ≫ medium ≫ low) so an escalation at an unchanged total is caught.
+     * Bands are 10^4 apart so a lower tier can never sum its way into masking a higher one (a real repo never has
+     * 10 000 issues in a single severity), and the top band still fits a long for millions of criticals.
+     */
     private long severityScore(SnykSnapshot s) {
-        return s.getCritical() * 1_000_000_000L + s.getHigh() * 1_000_000L + s.getMedium() * 1_000L + s.getLow();
+        return s.getCritical() * 1_000_000_000_000L + s.getHigh() * 100_000_000L + s.getMedium() * 10_000L + s.getLow();
     }
 
     /** The most-severe NEW issue (a Critical/High issue id not present in the previous snapshot), or null if none. */

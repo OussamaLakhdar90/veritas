@@ -143,9 +143,7 @@ public class SnykService {
 
     /** Poll every enabled watch now; returns how many were polled. */
     public int refreshAll() {
-        List<SnykWatch> enabled = watches.findByEnabledTrue();
-        pollService.pollAll();
-        return enabled.size();
+        return pollService.pollAll();
     }
 
     public void refresh(String watchId) {
