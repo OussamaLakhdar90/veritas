@@ -500,6 +500,7 @@ export interface SnykFixTrainView {
   id: string; coordinate: string; oldVersion: string; fixedIn: string; severity: string; appIds: string;
   jiraKey?: string; status: string; stageDetail?: string; breaking: boolean; reactorPassed?: boolean;
   reactorFailingLabel?: string; reactorOutputTail?: string; verdict?: BreakingVerdict; startedAt?: string;
+  createdAt?: string; finishedAt?: string; watchId?: string;
   steps: SnykFixStepView[];
 }
 

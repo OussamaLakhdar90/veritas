@@ -47,6 +47,26 @@
     "dismissToast": "Dismiss toast",
     "technicalDetails": "Technical details"
   },
+  "live": {
+    "step": "Step {{n}} of {{m}} — {{label}}",
+    "done": "{{service}} scored {{score}}/100",
+    "doneNoScore": "{{service}} finished",
+    "view": "View findings",
+    "dismiss": "Dismiss"
+  },
+  "queue": {
+    "title": "Waiting for you",
+    "subtitle": "Nothing is written to Jira, Xray or Git without your approval.",
+    "empty": "Nothing awaits your decision.",
+    "gates": "{{count}} approval(s) pending",
+    "alerts": "{{count}} new security alert(s)",
+    "trains": "{{count}} fix train(s) held for your confirmation"
+  },
+  "precision": {
+    "summary": "Engineers reviewed {{reviewed}} findings — {{pct}}% accepted · {{jira}} sent to Jira.",
+    "summaryNoRate": "Engineers reviewed {{reviewed}} findings — {{jira}} sent to Jira.",
+    "disputed": "The AI disputed {{count}} of its own findings first."
+  },
   "enums": {
     "gateStatus": { "PENDING": "Pending", "APPROVED": "Approved", "REJECTED": "Rejected" },
     "strategyStatus": { "DRAFT": "Draft", "IN_REVIEW": "In review", "APPROVED": "Approved" },
@@ -69,6 +89,7 @@
     "impact": {
       "title": "Dependency security",
       "watching": "Watching {{apps}} app-id(s) · {{projects}} projects",
+      "mttr": "Median remediation: {{days}} days",
       "open": "Open Snyk",
       "found": "Found — open",
       "fixed": "Fixed by Veritas",
