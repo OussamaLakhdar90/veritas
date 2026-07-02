@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 import ca.bnc.qe.veritas.snyk.fix.AsyncSnykFixRunner;
 import ca.bnc.qe.veritas.snyk.fix.BreakingVerdict;
+import ca.bnc.qe.veritas.snyk.fix.MavenTokens;
 import ca.bnc.qe.veritas.snyk.fix.SnykFixActions;
 import ca.bnc.qe.veritas.snyk.fix.SnykFixRequest;
 import ca.bnc.qe.veritas.snyk.fix.SnykFixStep;
@@ -61,6 +62,17 @@ public class SnykFixController {
         if (req.appIds() == null || req.appIds().isEmpty()) {
             throw new IllegalArgumentException("At least one app-id is required.");
         }
+        // Only safe Maven tokens may reach the pom editor — reject XML metacharacters up front (they would otherwise
+        // be caught deeper as a "manual" step, but a clean 400 is friendlier and closes the injection at the door).
+        String[] gav = req.coordinate().split(":", 2);
+        if (gav.length != 2 || !MavenTokens.isSafe(gav[0]) || !MavenTokens.isSafe(gav[1])) {
+            throw new IllegalArgumentException(
+                    "coordinate must be groupId:artifactId using only letters, digits, '.', '-', '_'.");
+        }
+        if (!MavenTokens.isSafe(req.fixedIn())) {
+            throw new IllegalArgumentException(
+                    "fixedIn must be a plain Maven version (letters, digits, '.', '-', '_').");
+        }
         String id = runner.submit(new SnykFixRequest(req.watchId(), req.issueId(), req.coordinate(),
                 req.oldVersion(), req.fixedIn(), req.severity(), req.appIds(), req.jiraKey(), req.jiraProject(),
                 req.jiraIssueType(), req.reviewers(), req.owner(), req.autoConfirm()));
@@ -72,8 +84,14 @@ public class SnykFixController {
     @ResponseStatus(HttpStatus.ACCEPTED)
     public SnykFixTrainView confirm(@PathVariable String id, @RequestBody(required = false) ConfirmFixRequest req) {
         ConfirmFixRequest body = req == null ? new ConfirmFixRequest(Map.of(), Map.of()) : req;
-        runner.confirm(id, body.versionOverrides() == null ? Map.of() : body.versionOverrides(),
-                body.reviewerOverrides() == null ? Map.of() : body.reviewerOverrides());
+        Map<String, String> overrides = body.versionOverrides() == null ? Map.of() : body.versionOverrides();
+        for (String v : overrides.values()) {
+            if (!MavenTokens.isSafe(v)) {
+                throw new IllegalArgumentException(
+                        "Version override must be a plain Maven version (letters, digits, '.', '-', '_'): " + v);
+            }
+        }
+        runner.confirm(id, overrides, body.reviewerOverrides() == null ? Map.of() : body.reviewerOverrides());
         return fix(id);
     }
 

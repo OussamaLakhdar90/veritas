@@ -205,6 +205,16 @@ class CascadePlannerTest {
     }
 
     @Test
+    void aCoordinateWithXmlMetacharactersIsAManualStepNeverAPomEdit() {
+        // Defence-in-depth at the sink: even if a malicious coordinate bypassed the controller, the pom editor
+        // refuses to write it, so the BOM step becomes an honest manual step and is never applied or built.
+        CascadeStep bom = planner.plan("org.evil",
+                "art</artifactId><build><plugins><plugin>x</plugin></plugins></build><x>",
+                "2.2", new FrameworkPoms(BOM, null, null, null), List.of()).get(0);
+        assertThat(bom.manual()).isTrue();
+    }
+
+    @Test
     void anAppThatUsesNoneOfTheAffectedArtifactsIsMarkedManualNotSilent() {
         String unrelated = """
             <project><modelVersion>4.0.0</modelVersion>

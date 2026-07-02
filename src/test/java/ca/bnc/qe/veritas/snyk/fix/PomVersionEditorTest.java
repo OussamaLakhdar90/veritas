@@ -1,6 +1,7 @@
 package ca.bnc.qe.veritas.snyk.fix;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
 
@@ -119,6 +120,43 @@ class PomVersionEditorTest {
         String edited = PomVersionEditor.bumpProperty(pom, "lsist-bom.version", "1.0.10");
         assertThat(edited).contains("<lsist-bom.version>1.0.10</lsist-bom.version>");
         assertThat(edited).contains("<lsist-bom.version>0.9.0</lsist-bom.version>");   // profile copy untouched
+    }
+
+    @Test
+    void rejectsAnInjectedValueRatherThanWritingItIntoAPomThatWillBeBuilt() {
+        // An XML-injection payload (balanced tags to smuggle in a <build><plugins> block) must never be written.
+        String evil = "1.0</version></properties><build><plugins><plugin>x</plugin></plugins></build><properties><x>1";
+        assertThatThrownBy(() -> PomVersionEditor.bumpProjectVersion(POM, evil))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> PomVersionEditor.bumpProperty(POM, "jackson.version", evil))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> PomVersionEditor.bumpDependencyVersion(POM, "org.mozilla", "rhino", evil))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> PomVersionEditor.addManagedDependency(POM, "org.yaml", "snake</artifactId><x>", "2.2"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void aModuleThatInheritsItsVersionHasNoOwnVersionToBumpAndNeverMangledADependency() {
+        // Regression: a module with NO own <version> (it inherits from <parent>) but a literal dependency version
+        // must NOT report the dependency's version as the project version and must NOT rewrite it as a "release".
+        String module = """
+            <project>
+                <modelVersion>4.0.0</modelVersion>
+                <parent>
+                    <groupId>g</groupId><artifactId>a</artifactId><version>3.0.0</version>
+                </parent>
+                <artifactId>lsist-test-framework-core</artifactId>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.mozilla</groupId><artifactId>rhino</artifactId><version>1.7.14</version>
+                    </dependency>
+                </dependencies>
+            </project>
+            """;
+        assertThat(PomVersionEditor.projectVersion(module)).isNull();   // not "1.7.14"
+        assertThatThrownBy(() -> PomVersionEditor.bumpProjectVersion(module, "1.0.10"))
+                .isInstanceOf(IllegalStateException.class);
     }
 
     @Test

@@ -82,6 +82,23 @@ class SnykFixControllerTest {
     }
 
     @Test
+    void startFixRejectsACoordinateWithXmlMetacharactersWith400() throws Exception {
+        // An XML-injection payload in the coordinate must be refused at the door, never reach the pom editor / mvn.
+        mvc.perform(post("/api/v1/snyk/fixes").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"coordinate\":\"g:a</artifactId><build>x\",\"fixedIn\":\"2.15.0\","
+                                + "\"appIds\":[\"app7576\"]}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void confirmRejectsAVersionOverrideWithXmlMetacharactersWith400() throws Exception {
+        mvc.perform(post("/api/v1/snyk/fixes/t1/confirm").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"versionOverrides\":{\"BOM\":\"1.0</version><build>evil\"}}"))
+                .andExpect(status().isBadRequest());
+        org.mockito.Mockito.verify(runner, org.mockito.Mockito.never()).confirm(anyString(), any(), any());
+    }
+
+    @Test
     void unknownFixTrainReturns404() throws Exception {
         when(trains.findById("missing")).thenReturn(Optional.empty());
         mvc.perform(get("/api/v1/snyk/fixes/missing"))
