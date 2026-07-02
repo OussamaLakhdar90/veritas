@@ -49,6 +49,33 @@ class PomVersionEditorTest {
     }
 
     @Test
+    void patchBumpPreservesAQualifierInsteadOfBumpingTheWrongSegment() {
+        assertThat(PomVersionEditor.patchBump("1.0.9-SNAPSHOT")).isEqualTo("1.0.10-SNAPSHOT");   // not 1.1.9-SNAPSHOT
+        assertThat(PomVersionEditor.patchBump("2.0.0-RC1")).isEqualTo("2.0.1-RC1");
+        assertThat(PomVersionEditor.patchBump("1.0.0.RELEASE")).isEqualTo("1.0.1.RELEASE");
+    }
+
+    @Test
+    void addManagedDependencyLandsInsideDependencyManagementEvenWithoutAnExistingDependenciesChild() {
+        String pom = """
+            <project>
+                <modelVersion>4.0.0</modelVersion>
+                <artifactId>bom</artifactId><version>1.0.0</version>
+                <dependencyManagement></dependencyManagement>
+                <dependencies>
+                    <dependency><groupId>junit</groupId><artifactId>junit</artifactId><version>4.13</version></dependency>
+                </dependencies>
+            </project>
+            """;
+        String out = PomVersionEditor.addManagedDependency(pom, "org.yaml", "snakeyaml", "2.2");
+        // The override must be pinned INSIDE dependencyManagement, not appended to the project <dependencies>.
+        int snake = out.indexOf("snakeyaml");
+        assertThat(snake).isGreaterThan(out.indexOf("<dependencyManagement>"));
+        assertThat(snake).isLessThan(out.indexOf("</dependencyManagement>"));
+        assertThat(snake).isLessThan(out.indexOf("junit"));   // before the project-level dependencies
+    }
+
+    @Test
     void readsPropertyAndDependencyTokens() {
         assertThat(PomVersionEditor.propertyValue(POM, "jackson.version")).isEqualTo("2.14.0");
         assertThat(PomVersionEditor.propertyValue(POM, "missing.version")).isNull();

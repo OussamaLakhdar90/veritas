@@ -22,16 +22,24 @@ public final class PomVersionEditor {
     private PomVersionEditor() {
     }
 
-    /** Increment the last numeric dot-segment (1.0.9 → 1.0.10, 1.7.15.1 → 1.7.15.2); appends ".1" if none is numeric. */
+    /**
+     * Increment the last numeric dot-segment while preserving any Maven qualifier suffix: 1.0.9 → 1.0.10,
+     * 1.7.15.1 → 1.7.15.2, 1.0.9-SNAPSHOT → 1.0.10-SNAPSHOT, 2.0.0-RC1 → 2.0.1-RC1, 1.0.0.RELEASE → 1.0.1.RELEASE.
+     * Appends ".1" if no numeric segment exists. The {@code -qualifier} is peeled off first so it isn't glued to the
+     * last numeric segment (which would otherwise bump the wrong part, e.g. 1.0.9-SNAPSHOT → 1.1.9-SNAPSHOT).
+     */
     public static String patchBump(String version) {
         if (version == null || version.isBlank()) {
             return "0.0.1";
         }
-        String[] parts = version.split("\\.");
+        int dash = version.indexOf('-');
+        String core = dash < 0 ? version : version.substring(0, dash);
+        String qualifier = dash < 0 ? "" : version.substring(dash);
+        String[] parts = core.split("\\.");
         for (int i = parts.length - 1; i >= 0; i--) {
             if (parts[i].matches("\\d+")) {
                 parts[i] = String.valueOf(Long.parseLong(parts[i]) + 1);
-                return String.join(".", parts);
+                return String.join(".", parts) + qualifier;
             }
         }
         return version + ".1";
@@ -154,10 +162,19 @@ public final class PomVersionEditor {
                 + "            </dependency>";
         int dm = pom.indexOf("<dependencyManagement>");
         if (dm >= 0) {
+            int dmEnd = pom.indexOf("</dependencyManagement>", dm);
             int deps = pom.indexOf("<dependencies>", dm);
-            if (deps >= 0) {
+            // Only accept a <dependencies> that is INSIDE this dependencyManagement block. When the block has no
+            // <dependencies> child, indexOf would otherwise match the top-level project <dependencies> and turn a
+            // managed constraint into a hard compile-scope dependency — so create the child block instead.
+            if (deps >= 0 && (dmEnd < 0 || deps < dmEnd)) {
                 int insert = deps + "<dependencies>".length();
                 return pom.substring(0, insert) + entry + pom.substring(insert);
+            }
+            if (dmEnd >= 0) {
+                int insert = dm + "<dependencyManagement>".length();
+                return pom.substring(0, insert) + "\n        <dependencies>" + entry + "\n        </dependencies>"
+                        + pom.substring(insert);
             }
         }
         // No dependencyManagement block — create one just before </project>.

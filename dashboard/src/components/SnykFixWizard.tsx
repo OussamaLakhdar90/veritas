@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { ExternalLink, CheckCircle2, AlertTriangle, GitBranch, Loader2 } from 'lucide-react';
@@ -40,6 +40,14 @@ export function SnykFixWizard({ open, onClose, issue, watchId, apps, defaultApp 
   // Review-step edits: per-module new version (keyed by module label) + per-step reviewers (keyed by step order).
   const [versionEdits, setVersionEdits] = useState<Record<string, string>>({});
   const [reviewerEdits, setReviewerEdits] = useState<Record<number, string>>({});
+
+  // The wizard stays mounted (Modal just hides), so the useState initializer ran once at page mount with no
+  // defaultApp — re-seed the app pre-selection each time it opens so the current app is actually pre-checked.
+  useEffect(() => {
+    if (open) {
+      setSelected(new Set(defaultApp ? [defaultApp] : []));
+    }
+  }, [open, defaultApp]);
 
   const trainQ = useQuery({
     queryKey: ['snyk-fix', trainId], queryFn: () => api.snykFix(trainId as string), enabled: !!trainId,

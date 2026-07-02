@@ -2,6 +2,7 @@ package ca.bnc.qe.veritas.snyk;
 
 import java.time.Duration;
 import java.time.Instant;
+import ca.bnc.qe.veritas.snyk.fix.SnykFixStatus;
 import ca.bnc.qe.veritas.snyk.fix.SnykFixStepRepository;
 import ca.bnc.qe.veritas.snyk.fix.SnykFixTrain;
 import ca.bnc.qe.veritas.snyk.fix.SnykFixTrainRepository;
@@ -81,9 +82,17 @@ public class SnykRetentionSweeper {
         return pruned;
     }
 
+    /**
+     * Prune only old <b>FAILED</b> trains (noise). DONE trains are the cumulative "fixes merged / PRs opened" record
+     * the executive dashboard reports, so deleting them would make those counters silently shrink over time — keep
+     * them as the historical remediation trail.
+     */
     private int pruneFixTrains(Instant cutoff) {
         int pruned = 0;
         for (SnykFixTrain t : trains.findByFinishedAtBefore(cutoff)) {
+            if (!SnykFixStatus.FAILED.equals(t.getStatus())) {
+                continue;
+            }
             steps.deleteByTrainId(t.getId());
             trains.delete(t);
             pruned++;

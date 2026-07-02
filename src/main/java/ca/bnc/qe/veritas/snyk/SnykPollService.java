@@ -48,18 +48,25 @@ public class SnykPollService {
         this.client = client;
     }
 
-    /** Poll every enabled watch; one repo failing never aborts the others. Returns how many were polled. */
+    /** Poll every enabled watch; one repo failing never aborts the others. Returns how many were polled successfully. */
     public int pollAll() {
         int polled = 0;
         for (SnykWatch w : watches.findByEnabledTrue()) {
-            polled++;
             try {
                 poll(w);
+                polled++;   // count only watches that actually refreshed — a failed poll must not inflate the total
             } catch (RuntimeException e) {
                 log.warn("Snyk poll failed for {} ({}): {}", w.getRepoSlug(), w.getOrgSlug(), e.getMessage());
             }
         }
         return polled;
+    }
+
+    /** Drop a removed watch's poll lock so the lock map never grows without bound (called by {@code removeWatch}). */
+    public void forgetWatch(String watchId) {
+        if (watchId != null) {
+            pollLocks.remove(watchId);
+        }
     }
 
     /**

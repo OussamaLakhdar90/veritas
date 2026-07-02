@@ -73,6 +73,7 @@ class SnykServiceTest {
         org.mockito.Mockito.verify(fixSteps).deleteByTrainId("tr1");
         org.mockito.Mockito.verify(fixTrains).deleteAll(List.of(train));
         org.mockito.Mockito.verify(watches).deleteById("w1");
+        org.mockito.Mockito.verify(pollService).forgetWatch("w1");   // release its poll lock so the lock map doesn't leak
     }
 
     @Test
