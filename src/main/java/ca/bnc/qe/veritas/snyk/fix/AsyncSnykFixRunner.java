@@ -99,16 +99,50 @@ public class AsyncSnykFixRunner {
         train.setFixedIn(req.fixedIn());
         train.setSeverity(req.severity());
         train.setAppIds(req.appIds() == null ? "" : String.join(",", req.appIds()));
+        train.setJiraKey(req.jiraKey());            // requested key (may be null) — kept so confirm can rebuild
+        train.setJiraProject(req.jiraProject());
+        train.setJiraIssueType(req.jiraIssueType());
         train.setOwner(req.owner());
         train.setStatus(SnykFixStatus.PLANNING);
         train.setStartedAt(Instant.now());
         SnykFixTrain saved = trains.save(train);
         final String id = saved.getId();
-        pool.submit(() -> run(id, req));
+        // autoConfirm=false (the wizard default) pauses at AWAITING_CONFIRM for the review step; true runs straight through.
+        pool.submit(() -> run(id, req, Map.of(), Map.of(), !req.autoConfirm()));
         return id;
     }
 
-    private void run(String trainId, SnykFixRequest req) {
+    /**
+     * Resume a paused (AWAITING_CONFIRM) train with the user's per-module version + per-step reviewer edits: re-clone,
+     * re-plan with the overrides, then run the rest of the cascade. Rebuilds the request from the persisted train.
+     */
+    public void confirm(String trainId, Map<String, String> versionOverrides,
+                        Map<Integer, List<String>> reviewerOverrides) {
+        SnykFixTrain train = trains.findById(trainId)
+                .orElseThrow(() -> new IllegalArgumentException("Fix train not found: " + trainId));
+        if (!SnykFixStatus.AWAITING_CONFIRM.equals(train.getStatus())) {
+            throw new IllegalStateException("Fix train " + trainId + " is not awaiting confirmation.");
+        }
+        SnykFixRequest req = new SnykFixRequest(train.getWatchId(), train.getIssueId(), train.getCoordinate(),
+                train.getOldVersion(), train.getFixedIn(), train.getSeverity(), splitAppIds(train.getAppIds()),
+                train.getJiraKey(), train.getJiraProject(), train.getJiraIssueType(), List.of(), train.getOwner(), true);
+        train.setStatus(SnykFixStatus.PLANNING);
+        train.setStartedAt(Instant.now());   // reset the runtime clock so the reconciler measures the execute phase
+        trains.save(train);
+        Map<String, String> vo = versionOverrides == null ? Map.of() : versionOverrides;
+        Map<Integer, List<String>> ro = reviewerOverrides == null ? Map.of() : reviewerOverrides;
+        pool.submit(() -> run(trainId, req, vo, ro, false));
+    }
+
+    private static List<String> splitAppIds(String csv) {
+        if (csv == null || csv.isBlank()) {
+            return List.of();
+        }
+        return List.of(csv.split(","));
+    }
+
+    private void run(String trainId, SnykFixRequest req, Map<String, String> versionOverrides,
+                     Map<Integer, List<String>> reviewerOverrides, boolean pauseForConfirm) {
         String stage = SnykFixStatus.PLANNING;
         Map<String, Path> clones = new LinkedHashMap<>();
         try {
@@ -121,8 +155,14 @@ public class AsyncSnykFixRunner {
             // 1) PLANNING — clone framework + consumers, read poms, plan the cascade, persist the steps.
             FrameworkPoms poms = cloneFramework(clones);
             List<AppInput> apps = cloneConsumers(req.appIds(), clones);
-            List<CascadeStep> plan = planner.plan(groupId, artifactId, req.fixedIn(), poms, apps);
-            persistSteps(trainId, plan, clones, branch, req.reviewersOverride());
+            List<CascadeStep> plan = planner.plan(groupId, artifactId, req.fixedIn(), poms, apps, versionOverrides);
+            persistSteps(trainId, plan, clones, branch, req.reviewersOverride(), reviewerOverrides);
+
+            // 1b) Pause for the user to review the cascade (edit versions/reviewers) before anything runs.
+            if (pauseForConfirm) {
+                stage(train, SnykFixStatus.AWAITING_CONFIRM, "Review the cascade, then confirm to run it.");
+                return;   // the finally cleans the clones; confirm() re-clones with the user's overrides
+            }
 
             // 2) CHECKING — advisory breaking-change verdict (never gates on its own).
             stage = SnykFixStatus.CHECKING;
@@ -219,7 +259,8 @@ public class AsyncSnykFixRunner {
     }
 
     private void persistSteps(String trainId, List<CascadeStep> plan, Map<String, Path> clones, String branch,
-                              List<String> reviewersOverride) {
+                              List<String> reviewersOverride, Map<Integer, List<String>> reviewerOverrides) {
+        steps.deleteByTrainId(trainId);   // a confirm-time re-plan replaces the preview steps rather than duplicating
         for (CascadeStep cs : plan) {
             SnykFixStep s = new SnykFixStep();
             s.setTrainId(trainId);
@@ -234,7 +275,7 @@ public class AsyncSnykFixRunner {
             s.setManual(cs.manual());
             s.setReason(cs.reason());
             s.setStatus(cs.manual() ? SnykFixStatus.MANUAL : SnykFixStatus.PLANNED);
-            s.setReviewersJson(reviewersJson(cs, clones, reviewersOverride));
+            s.setReviewersJson(reviewersJson(cs, clones, reviewersOverride, reviewerOverrides));
             steps.save(s);
             if (!cs.manual()) {
                 applyStepEdits(cs, clones);
@@ -257,11 +298,20 @@ public class AsyncSnykFixRunner {
         }
     }
 
-    private String reviewersJson(CascadeStep cs, Map<String, Path> clones, List<String> override) {
+    /** Reviewers for a step: the user's per-step edit wins, then a global override, then git-history suggestion. */
+    private String reviewersJson(CascadeStep cs, Map<String, Path> clones, List<String> globalOverride,
+                                 Map<Integer, List<String>> perStep) {
         try {
-            List<String> reviewers = override != null && !override.isEmpty() ? override
-                    : clones.get(cs.bitbucketProject() + "/" + cs.repoSlug()) == null ? List.of()
-                    : reviewerSuggester.suggest(clones.get(cs.bitbucketProject() + "/" + cs.repoSlug()), cs.pomPath(), 3);
+            List<String> stepOverride = perStep == null ? null : perStep.get(cs.order());
+            List<String> reviewers;
+            if (stepOverride != null && !stepOverride.isEmpty()) {
+                reviewers = stepOverride;
+            } else if (globalOverride != null && !globalOverride.isEmpty()) {
+                reviewers = globalOverride;
+            } else {
+                Path dir = clones.get(cs.bitbucketProject() + "/" + cs.repoSlug());
+                reviewers = dir == null ? List.of() : reviewerSuggester.suggest(dir, cs.pomPath(), 3);
+            }
             return mapper.writeValueAsString(reviewers);
         } catch (Exception e) {
             return "[]";

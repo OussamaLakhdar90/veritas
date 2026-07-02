@@ -28,14 +28,24 @@ public class CascadePlanner {
 
     public List<CascadeStep> plan(String groupId, String artifactId, String fixedIn,
                                   FrameworkPoms poms, List<AppInput> apps) {
+        return plan(groupId, artifactId, fixedIn, poms, apps, Map.of());
+    }
+
+    /**
+     * As {@link #plan}, but with user-chosen new release versions per framework module (keyed by label
+     * {@code BOM|core|api|web}). Overrides only apply to a module that is present; downstream {@code <lsist-*.version>}
+     * pointers pick up the overridden value automatically. Used by the confirm step after the user edits the plan.
+     */
+    public List<CascadeStep> plan(String groupId, String artifactId, String fixedIn,
+                                  FrameworkPoms poms, List<AppInput> apps, Map<String, String> versionOverrides) {
         List<CascadeStep> steps = new ArrayList<>();
         int order = 1;
 
-        // New release versions for each framework module (patch bump of its own version).
-        String newBom = ownBump(poms.bom());
-        String newCore = ownBump(poms.core());
-        String newApi = ownBump(poms.api());
-        String newWeb = ownBump(poms.web());
+        // New release versions for each framework module (patch bump of its own version, or the user's override).
+        String newBom = pick("BOM", ownBump(poms.bom()), versionOverrides);
+        String newCore = pick("core", ownBump(poms.core()), versionOverrides);
+        String newApi = pick("api", ownBump(poms.api()), versionOverrides);
+        String newWeb = pick("web", ownBump(poms.web()), versionOverrides);
         Map<String, String> newVersions = new LinkedHashMap<>();
         putIf(newVersions, fw.getBomVersionProperty(), newBom);
         putIf(newVersions, fw.getCoreVersionProperty(), newCore);
@@ -199,6 +209,15 @@ public class CascadePlanner {
         if (value != null) {
             map.put(key, value);
         }
+    }
+
+    /** The user's override for a module's new version if given (and the module is present), else the computed bump. */
+    private String pick(String label, String computed, Map<String, String> overrides) {
+        if (computed == null) {
+            return null;   // module absent — nothing to version
+        }
+        String override = overrides.get(label);
+        return override != null && !override.isBlank() ? override.trim() : computed;
     }
 
     /** Apply an ordered list of edits to a pom (used by the planner to validate + by the verifier to write). */

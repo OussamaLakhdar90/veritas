@@ -48,14 +48,27 @@ public class SnykFixController {
         this.mapper = mapper;
     }
 
-    /** Start a fix (runs the cascade off-thread). */
+    /**
+     * Start a fix (plans the cascade off-thread). {@code autoConfirm} defaults false → the train pauses at
+     * AWAITING_CONFIRM for the review step; the wizard then calls {@code /confirm}. {@code autoConfirm=true} runs straight through.
+     */
     @PostMapping("/snyk/fixes")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Map<String, String> startFix(@RequestBody StartFixRequest req) {
         String id = runner.submit(new SnykFixRequest(req.watchId(), req.issueId(), req.coordinate(),
                 req.oldVersion(), req.fixedIn(), req.severity(), req.appIds(), req.jiraKey(), req.jiraProject(),
-                req.jiraIssueType(), req.reviewers(), req.owner()));
+                req.jiraIssueType(), req.reviewers(), req.owner(), req.autoConfirm()));
         return Map.of("trainId", id);
+    }
+
+    /** Confirm a paused (AWAITING_CONFIRM) train with per-module version + per-step reviewer edits — resumes the cascade. */
+    @PostMapping("/snyk/fixes/{id}/confirm")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public SnykFixTrainView confirm(@PathVariable String id, @RequestBody(required = false) ConfirmFixRequest req) {
+        ConfirmFixRequest body = req == null ? new ConfirmFixRequest(Map.of(), Map.of()) : req;
+        runner.confirm(id, body.versionOverrides() == null ? Map.of() : body.versionOverrides(),
+                body.reviewerOverrides() == null ? Map.of() : body.reviewerOverrides());
+        return fix(id);
     }
 
     @GetMapping("/snyk/fixes")
@@ -67,6 +80,12 @@ public class SnykFixController {
     public SnykFixTrainView fix(@PathVariable String id) {
         return trains.findById(id).map(this::toView)
                 .orElseThrow(() -> new IllegalArgumentException("Fix train not found: " + id));
+    }
+
+    /** The planned cascade (steps + diffs + per-repo reviewers) for the confirm step — an alias of {@code GET /{id}}. */
+    @GetMapping("/snyk/fixes/{id}/plan")
+    public SnykFixTrainView plan(@PathVariable String id) {
+        return fix(id);
     }
 
     /** Breaking-change path: Veritas opens the held PRs (after the user adapted the branches). */
@@ -130,7 +149,12 @@ public class SnykFixController {
 
     public record StartFixRequest(String watchId, String issueId, String coordinate, String oldVersion,
                                   String fixedIn, String severity, List<String> appIds, String jiraKey,
-                                  String jiraProject, String jiraIssueType, List<String> reviewers, String owner) {}
+                                  String jiraProject, String jiraIssueType, List<String> reviewers, String owner,
+                                  boolean autoConfirm) {}
+
+    /** The user's edits from the review step: per-module (BOM/core/api/web) new versions + per-step-order reviewers. */
+    public record ConfirmFixRequest(Map<String, String> versionOverrides,
+                                    Map<Integer, List<String>> reviewerOverrides) {}
 
     public record RecordPrRequest(String prUrl) {}
 }

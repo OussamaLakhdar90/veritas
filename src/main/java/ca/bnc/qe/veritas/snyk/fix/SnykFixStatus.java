@@ -5,6 +5,7 @@ public final class SnykFixStatus {
 
     // Train status
     public static final String PLANNING = "PLANNING";
+    public static final String AWAITING_CONFIRM = "AWAITING_CONFIRM"; // plan computed → waiting for the user to confirm
     public static final String CHECKING = "CHECKING";                 // breaking-change LLM
     public static final String VERIFYING = "VERIFYING";               // local reactor build
     public static final String OPENING_PRS = "OPENING_PRS";

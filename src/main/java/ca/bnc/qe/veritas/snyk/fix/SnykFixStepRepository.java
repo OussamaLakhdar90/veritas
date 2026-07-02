@@ -6,4 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface SnykFixStepRepository extends JpaRepository<SnykFixStep, String> {
 
     List<SnykFixStep> findByTrainIdOrderByStepOrder(String trainId);
+
+    /** Drop a train's steps so a confirm-time re-plan replaces them (rather than duplicating). */
+    void deleteByTrainId(String trainId);
 }

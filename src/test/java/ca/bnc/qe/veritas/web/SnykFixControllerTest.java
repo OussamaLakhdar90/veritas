@@ -86,6 +86,19 @@ class SnykFixControllerTest {
     }
 
     @Test
+    void confirmInvokesTheRunnerAndReturns202WithTheTrain() throws Exception {
+        when(trains.findById("t1")).thenReturn(Optional.of(train()));
+        when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of(step()));
+        mvc.perform(post("/api/v1/snyk/fixes/t1/confirm").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"versionOverrides\":{\"BOM\":\"1.1.0\"},"
+                                + "\"reviewerOverrides\":{\"1\":[\"bob\"]}}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.id").value("t1"));
+        org.mockito.Mockito.verify(runner).confirm(eq("t1"),
+                eq(java.util.Map.of("BOM", "1.1.0")), eq(java.util.Map.of(1, List.of("bob"))));
+    }
+
+    @Test
     void openPrsInvokesTheAction() throws Exception {
         when(actions.openHeldPrs("t1")).thenReturn(train());
         when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of(step()));

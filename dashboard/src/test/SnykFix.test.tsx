@@ -58,6 +58,45 @@ describe('Snyk fix wizard', () => {
     expect(posted.jiraKey).toBe('CIAM-1')
   })
 
+  it('pauses on a review step, lets the user edit a version, and confirms', async () => {
+    const planTrain = {
+      id: 't2', coordinate: 'org.apache.commons:commons-lang3', oldVersion: '3.12.0', fixedIn: '3.18.0',
+      severity: 'high', appIds: 'APP7576', jiraKey: 'CIAM-1', status: 'AWAITING_CONFIRM',
+      stageDetail: 'Review the cascade, then confirm to run it.', breaking: false, reactorPassed: null,
+      reactorFailingLabel: null, verdict: null,
+      steps: [{ order: 1, moduleLabel: 'BOM', bitbucketProject: 'APP7488', repoSlug: 'lsist-test-framework-bom',
+        branch: 'veritas/snyk-fix-x', pomPath: 'pom.xml', diffPreview: 'jackson 2.14 → 2.15; 1.0.9 → 1.0.10',
+        newModuleVersion: '1.0.10', status: 'PLANNED', manual: false, reviewers: ['alice'] }],
+    }
+    const openedTrain = { ...planTrain, status: 'PR_OPEN',
+      steps: [{ ...planTrain.steps[0], status: 'PR_OPEN', prUrl: 'https://bitbucket/pr/1' }] }
+    let confirmed = false
+    let confirmBody: { versionOverrides?: Record<string, string> } = {}
+    server.use(
+      http.post('*/api/v1/snyk/fixes', () => HttpResponse.json({ trainId: 't2' }, { status: 202 })),
+      http.get('*/api/v1/snyk/fixes/t2', () => HttpResponse.json(confirmed ? openedTrain : planTrain)),
+      http.post('*/api/v1/snyk/fixes/t2/confirm', async ({ request }) => {
+        confirmBody = (await request.json()) as typeof confirmBody
+        confirmed = true
+        return HttpResponse.json(openedTrain, { status: 202 })
+      }),
+    )
+    const user = userEvent.setup()
+    renderWizard()
+    await user.type(screen.getByPlaceholderText('CIAM-1234'), 'CIAM-1')
+    await user.click(screen.getByRole('button', { name: /Start fix/ }))
+
+    // The review step appears with the editable framework version pre-filled.
+    const versionInput = await screen.findByDisplayValue('1.0.10')
+    await user.clear(versionInput)
+    await user.type(versionInput, '1.1.0')
+    await user.click(screen.getByRole('button', { name: /Confirm & run/ }))
+
+    // After confirm the train advances (PR_OPEN → mark-merged action), and the edit was sent.
+    expect(await screen.findByRole('button', { name: /Mark all merged/ })).toBeInTheDocument()
+    expect(confirmBody.versionOverrides).toEqual({ BOM: '1.1.0' })
+  })
+
   it('lets Veritas open the held PRs (breaking-change path)', async () => {
     let opened = false
     const openedTrain = {
