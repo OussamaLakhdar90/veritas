@@ -141,7 +141,8 @@ public class AsyncSnykFixRunner {
         SnykFixTrain train = trains.findById(trainId)
                 .orElseThrow(() -> new ca.bnc.qe.veritas.skill.NotFoundException("Fix train not found: " + trainId));
         if (!SnykFixStatus.AWAITING_CONFIRM.equals(train.getStatus())) {
-            throw new IllegalStateException("Fix train " + trainId + " is not awaiting confirmation.");
+            throw new ca.bnc.qe.veritas.skill.ConflictException(
+                    "Fix train " + trainId + " is not awaiting confirmation (" + train.getStatus() + ").");
         }
         SnykFixRequest req = new SnykFixRequest(train.getWatchId(), train.getIssueId(), train.getCoordinate(),
                 train.getOldVersion(), train.getFixedIn(), train.getSeverity(), splitAppIds(train.getAppIds()),
@@ -214,11 +215,10 @@ public class AsyncSnykFixRunner {
             pushBranches(trainId, clones, branch);
 
             // 6) DECIDE — clean opens the PR train (+ Jira In Review); breaking holds the PRs and awaits the user.
+            // Both outcomes (PR_OPEN / AWAITING_MANUAL_FIX) are NON-terminal human-wait states, so we do NOT stamp
+            // finishedAt here — that is set only when the train is genuinely terminal (markMerged→DONE, or FAILED
+            // in the catch). Stamping it now would let the retention sweeper prune a still-open fix.
             actions.decide(train, steps.findByTrainIdOrderByStepOrder(trainId));
-
-            SnykFixTrain done = trains.findById(trainId).orElseThrow();
-            done.setFinishedAt(Instant.now());
-            trains.save(done);
         } catch (Exception e) {
             final String failedAt = stage;
             log.error("Snyk fix train {} failed at {}: {}", trainId, failedAt, e.getMessage());

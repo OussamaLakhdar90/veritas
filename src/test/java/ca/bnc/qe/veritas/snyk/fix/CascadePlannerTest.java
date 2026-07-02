@@ -177,6 +177,25 @@ class CascadePlannerTest {
     }
 
     @Test
+    void consumerAlreadyOnTheSafeVersionIsBenignNotAFalseManualParentEdit() {
+        // A re-run (or an override equal to the current value): the app's lsist-bom.version already equals the target.
+        String app = """
+            <project>
+                <modelVersion>4.0.0</modelVersion>
+                <artifactId>ciam-tests</artifactId>
+                <version>1.0.0</version>
+                <properties><lsist-bom.version>1.0.10</lsist-bom.version></properties>
+            </project>
+            """;
+        // The BOM's new release is 1.0.10 (1.0.9 patch-bumped), which is exactly what the app already has.
+        CascadeStep consumer = planner.plan("com.fasterxml.jackson.core", "jackson-databind", "2.15.0",
+                allFour(), List.of(new AppInput("app7576", "CIAM", app))).get(4);
+        assertThat(consumer.manual()).isTrue();
+        assertThat(consumer.reason()).contains("already on the safe framework version")
+                .doesNotContain("Update the parent by hand").doesNotContain("does not use");
+    }
+
+    @Test
     void consumerRepoSlugIsConfigurable() {
         fw.setConsumerRepo("ciam-autotests");
         CascadeStep consumer = planner.plan("com.fasterxml.jackson.core", "jackson-databind", "2.15.0",

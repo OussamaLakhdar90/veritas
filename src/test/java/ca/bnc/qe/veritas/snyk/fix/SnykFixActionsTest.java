@@ -86,6 +86,7 @@ class SnykFixActionsTest {
     @Test
     void recordUserPrMarksTheStepAndAdvancesWhenAllOpen() {
         SnykFixTrain t = train();
+        t.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);
         SnykFixStep s = step(1, false, SnykFixStatus.BRANCH_PUSHED);
         when(trains.findById("t1")).thenReturn(Optional.of(t));
         when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of(s));
@@ -109,6 +110,7 @@ class SnykFixActionsTest {
     void openHeldPrsOpensPrsForABreakingTrain() {
         when(gitHost.openPullRequest(any(GitHost.PullRequestSpec.class))).thenReturn("http://host/pr/9");
         SnykFixTrain t = train();
+        t.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);
         SnykFixStep s = step(1, false, SnykFixStatus.BRANCH_PUSHED);
         when(trains.findById("t1")).thenReturn(Optional.of(t));
         when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of(s));
@@ -121,8 +123,39 @@ class SnykFixActionsTest {
     }
 
     @Test
+    void lifecycleActionsRejectAWrongState() {
+        SnykFixTrain planning = train();
+        planning.setStatus(SnykFixStatus.PLANNING);
+        when(trains.findById("t1")).thenReturn(Optional.of(planning));
+        when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of());
+        // markMerged needs PR_OPEN; openHeldPrs needs AWAITING_MANUAL_FIX — both reject a PLANNING train (409).
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> actions.markMerged("t1"))
+                .isInstanceOf(ca.bnc.qe.veritas.skill.ConflictException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> actions.openHeldPrs("t1"))
+                .isInstanceOf(ca.bnc.qe.veritas.skill.ConflictException.class);
+    }
+
+    @Test
+    void decideSkipsAStepWhosePushFailedRatherThanMislabellingIt() {
+        SnykFixTrain t = train();
+        t.setReactorPassed(true);
+        t.setBreaking(false);
+        SnykFixStep failed = step(1, false, SnykFixStatus.STEP_FAILED);
+        SnykFixStep ok = step(2, false, SnykFixStatus.BRANCH_PUSHED);
+        when(gitHost.openPullRequest(any(GitHost.PullRequestSpec.class))).thenReturn("http://host/pr/2");
+
+        actions.decide(t, List.of(failed, ok));
+
+        // The failed-push step is left FAILED (not opened / not relabelled); only the pushed step gets a PR.
+        assertThat(failed.getStatus()).isEqualTo(SnykFixStatus.STEP_FAILED);
+        assertThat(ok.getStatus()).isEqualTo(SnykFixStatus.STEP_PR_OPEN);
+        verify(gitHost, org.mockito.Mockito.times(1)).openPullRequest(any(GitHost.PullRequestSpec.class));
+    }
+
+    @Test
     void markMergedClosesTheTrainAndMovesJiraToDone() {
         SnykFixTrain t = train();
+        t.setStatus(SnykFixStatus.PR_OPEN);   // mark-merged is only valid once the PRs are open
         SnykFixStep s = step(1, false, SnykFixStatus.STEP_PR_OPEN);
         when(trains.findById("t1")).thenReturn(Optional.of(t));
         when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of(s));
@@ -131,6 +164,7 @@ class SnykFixActionsTest {
 
         assertThat(s.getStatus()).isEqualTo(SnykFixStatus.MERGED);
         assertThat(t.getStatus()).isEqualTo(SnykFixStatus.DONE);
+        assertThat(t.getFinishedAt()).isNotNull();
         verify(jira).transitionTo(eq("CIAM-1"), eq(SnykFixJiraService.Phase.DONE));
     }
 }

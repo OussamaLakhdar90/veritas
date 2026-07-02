@@ -3,6 +3,8 @@ package ca.bnc.qe.veritas.snyk.fix;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import ca.bnc.qe.veritas.skill.ConflictException;
+import ca.bnc.qe.veritas.skill.NotFoundException;
 import ca.bnc.qe.veritas.vcs.GitHost;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -58,7 +60,11 @@ public class SnykFixActions {
     /** The user asks Veritas to open the held PRs (breaking-change path, after they adapted the branches). */
     public SnykFixTrain openHeldPrs(String trainId) {
         SnykFixTrain train = trains.findById(trainId).orElseThrow(
-                () -> new ca.bnc.qe.veritas.skill.NotFoundException("Fix train not found: " + trainId));
+                () -> new NotFoundException("Fix train not found: " + trainId));
+        requireStatus(train, SnykFixStatus.AWAITING_MANUAL_FIX);
+        // Claim the train first (optimistic-lock via @Version) so a concurrent open-prs click can't also open the PRs.
+        train.setStatus(SnykFixStatus.OPENING_PRS);
+        trains.save(train);
         List<SnykFixStep> trainSteps = steps.findByTrainIdOrderByStepOrder(trainId);
         openAll(train, trainSteps, SnykFixStatus.BY_VERITAS);
         train.setStatus(SnykFixStatus.PR_OPEN);
@@ -75,7 +81,8 @@ public class SnykFixActions {
             throw new IllegalArgumentException("PR URL must be an http(s) link.");
         }
         SnykFixTrain train = trains.findById(trainId).orElseThrow(
-                () -> new ca.bnc.qe.veritas.skill.NotFoundException("Fix train not found: " + trainId));
+                () -> new NotFoundException("Fix train not found: " + trainId));
+        requireStatus(train, SnykFixStatus.AWAITING_MANUAL_FIX, SnykFixStatus.PR_OPEN);
         List<SnykFixStep> trainSteps = steps.findByTrainIdOrderByStepOrder(trainId);
         for (SnykFixStep s : trainSteps) {
             if (s.getStepOrder() == stepOrder && !s.isManual()) {
@@ -96,7 +103,9 @@ public class SnykFixActions {
     /** All PRs merged (by a human) — close the train and move the Jira to Done. Veritas never merges itself. */
     public SnykFixTrain markMerged(String trainId) {
         SnykFixTrain train = trains.findById(trainId).orElseThrow(
-                () -> new ca.bnc.qe.veritas.skill.NotFoundException("Fix train not found: " + trainId));
+                () -> new NotFoundException("Fix train not found: " + trainId));
+        // Only a train whose PRs are actually open can be marked merged — never PLANNING/AWAITING_*/VERIFYING.
+        requireStatus(train, SnykFixStatus.PR_OPEN);
         for (SnykFixStep s : steps.findByTrainIdOrderByStepOrder(trainId)) {
             if (!s.isManual()) {
                 s.setStatus(SnykFixStatus.MERGED);
@@ -111,11 +120,24 @@ public class SnykFixActions {
 
     private void openAll(SnykFixTrain train, List<SnykFixStep> trainSteps, String openedBy) {
         for (SnykFixStep s : trainSteps) {
-            if (s.isManual() || SnykFixStatus.STEP_PR_OPEN.equals(s.getStatus()) || SnykFixStatus.MERGED.equals(s.getStatus())) {
+            // Skip manual steps, already-open/merged PRs, and steps whose branch push FAILED (no branch to open a PR against).
+            if (s.isManual() || SnykFixStatus.STEP_PR_OPEN.equals(s.getStatus())
+                    || SnykFixStatus.MERGED.equals(s.getStatus()) || SnykFixStatus.STEP_FAILED.equals(s.getStatus())) {
                 continue;
             }
             openStepPr(train, s, openedBy);
         }
+    }
+
+    /** Guard a public action against being invoked from an unexpected lifecycle state. */
+    private void requireStatus(SnykFixTrain train, String... allowed) {
+        for (String a : allowed) {
+            if (a.equals(train.getStatus())) {
+                return;
+            }
+        }
+        throw new ConflictException("Fix train " + train.getId() + " is " + train.getStatus()
+                + "; this action requires " + String.join(" or ", allowed) + ".");
     }
 
     /** Open one step's PR in its Bitbucket project with its reviewers; records the URL + who opened it. */
