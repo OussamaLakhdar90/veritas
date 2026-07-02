@@ -4,6 +4,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.revwalk.RevCommit;
@@ -55,7 +56,7 @@ public class ReviewerSuggester {
      */
     private String toUsername(PersonIdent ident) {
         String email = ident.getEmailAddress();
-        if (email != null && email.toLowerCase(java.util.Locale.ROOT).contains("veritas")) {
+        if (email != null && email.toLowerCase(Locale.ROOT).contains("veritas")) {
             return null;
         }
         if (email != null && email.contains("@")) {

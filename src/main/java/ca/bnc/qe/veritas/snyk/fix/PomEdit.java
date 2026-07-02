@@ -30,7 +30,6 @@ public record PomEdit(FixEditKind kind, String groupId, String artifactId, Strin
             case PROPERTY_BUMP -> "<" + property + "> " + oldVersion + " → " + newVersion;
             case MANAGED_BUMP -> groupId + ":" + artifactId + " " + oldVersion + " → " + newVersion;
             case ADD_OVERRIDE -> "pin " + groupId + ":" + artifactId + " = " + newVersion;
-            case PLUGIN_BUMP -> "plugin " + groupId + ":" + artifactId + " → " + newVersion;
             case VERSION_BUMP -> "release version " + oldVersion + " → " + newVersion;
         };
     }

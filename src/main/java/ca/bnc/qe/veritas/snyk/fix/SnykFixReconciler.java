@@ -19,10 +19,6 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class SnykFixReconciler {
 
-    /** Only the actively-processing stages — never the human-wait states. */
-    private static final List<String> IN_FLIGHT = List.of(
-            SnykFixStatus.PLANNING, SnykFixStatus.CHECKING, SnykFixStatus.VERIFYING, SnykFixStatus.OPENING_PRS);
-
     private final SnykFixTrainRepository trains;
 
     @Value("${veritas.snyk.fix.max-runtime-minutes:30}")
@@ -34,7 +30,7 @@ public class SnykFixReconciler {
 
     @EventListener(ApplicationReadyEvent.class)
     public void recoverInterrupted() {
-        List<SnykFixTrain> stuck = trains.findByStatusIn(IN_FLIGHT);
+        List<SnykFixTrain> stuck = trains.findByStatusIn(SnykFixStatus.MACHINE_DRIVEN);
         stuck.forEach(t -> fail(t, "The fix was interrupted by a process restart."));
         if (!stuck.isEmpty()) {
             log.warn("Recovered {} Snyk fix train(s) left mid-flight → FAILED", stuck.size());
@@ -45,7 +41,7 @@ public class SnykFixReconciler {
             initialDelayString = "${veritas.snyk.fix.reconcile-ms:300000}")
     public void timeoutStale() {
         Instant cutoff = Instant.now().minus(maxRuntimeMinutes, ChronoUnit.MINUTES);
-        for (SnykFixTrain t : trains.findByStatusIn(IN_FLIGHT)) {
+        for (SnykFixTrain t : trains.findByStatusIn(SnykFixStatus.MACHINE_DRIVEN)) {
             if (t.getStartedAt() != null && t.getStartedAt().isBefore(cutoff)) {
                 fail(t, "The fix exceeded the maximum runtime of " + maxRuntimeMinutes + " min.");
             }

@@ -240,7 +240,6 @@ public class CascadePlanner {
                 case MANAGED_BUMP -> PomVersionEditor.bumpDependencyVersion(out, e.groupId(), e.artifactId(), e.newVersion());
                 case ADD_OVERRIDE -> PomVersionEditor.addManagedDependency(out, e.groupId(), e.artifactId(), e.newVersion());
                 case VERSION_BUMP -> PomVersionEditor.bumpProjectVersion(out, e.newVersion());
-                case PLUGIN_BUMP -> out;
             };
         }
         return out;

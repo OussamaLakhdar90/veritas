@@ -17,11 +17,6 @@ public class SnykSummaryService {
     /** The skill the breaking-change LLM check bills under (see {@code BreakingChangeService}). */
     private static final String FIX_SKILL = "snyk-fix";
 
-    /** Fix trains still working or awaiting a human — the "in progress" bucket for the summary. */
-    private static final List<String> IN_PROGRESS = List.of(
-            SnykFixStatus.PLANNING, SnykFixStatus.AWAITING_CONFIRM, SnykFixStatus.CHECKING, SnykFixStatus.VERIFYING,
-            SnykFixStatus.OPENING_PRS, SnykFixStatus.PR_OPEN, SnykFixStatus.AWAITING_MANUAL_FIX);
-
     private final SnykService snyk;
     private final SnykAlertRepository alerts;
     private final SnykFixTrainRepository trains;
@@ -48,7 +43,7 @@ public class SnykSummaryService {
 
         return new SnykSummaryView(
                 watches.size(), projects, critical, high, medium, low, fixable, alerts.countBySeenFalse(),
-                trains.count(), trains.countByStatusIn(IN_PROGRESS), trains.countByStatus(SnykFixStatus.DONE),
+                trains.count(), trains.countByStatusIn(SnykFixStatus.NON_TERMINAL), trains.countByStatus(SnykFixStatus.DONE),
                 trains.countByBreakingTrue(), steps.countByPrUrlIsNotNull(),
                 costs.countBySkill(FIX_SKILL), round2(costs.sumEstCostUsdBySkill(FIX_SKILL)));
     }
