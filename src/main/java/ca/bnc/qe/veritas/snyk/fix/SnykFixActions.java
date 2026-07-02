@@ -69,6 +69,11 @@ public class SnykFixActions {
 
     /** The user opened a PR themselves for one step — record it and advance the train if all PRs are now open. */
     public SnykFixTrain recordUserPr(String trainId, int stepOrder, String prUrl) {
+        // The URL is rendered as a clickable link in every reviewer's browser — reject anything but http(s) so a
+        // javascript:/data: value can't become a stored-XSS href.
+        if (prUrl == null || !prUrl.matches("(?i)https?://\\S+")) {
+            throw new IllegalArgumentException("PR URL must be an http(s) link.");
+        }
         SnykFixTrain train = trains.findById(trainId).orElseThrow(
                 () -> new ca.bnc.qe.veritas.skill.NotFoundException("Fix train not found: " + trainId));
         List<SnykFixStep> trainSteps = steps.findByTrainIdOrderByStepOrder(trainId);

@@ -11,6 +11,11 @@ import { TONE } from '../theme/tokens';
 const IN_FLIGHT = ['PLANNING', 'CHECKING', 'VERIFYING', 'OPENING_PRS'];
 const FRAMEWORK_LABELS = ['BOM', 'core', 'api', 'web'];
 
+/** Only ever render an http(s) URL as a clickable link — never a javascript:/data: value (defence-in-depth). */
+function isHttpUrl(url?: string | null): boolean {
+  return !!url && /^https?:\/\//i.test(url);
+}
+
 function stepTone(status: string): string {
   if (status === 'PR_OPEN' || status === 'MERGED') return TONE.ok;
   if (status === 'FAILED') return TONE.danger;
@@ -275,7 +280,7 @@ function StepRow({ step, awaiting, url, onUrl, onRecord }:
         </Badge>
       </div>
       <p className="mt-1 pl-7 text-[12px] text-muted">{step.manual ? step.reason : step.diffPreview}</p>
-      {step.prUrl && (
+      {step.prUrl && isHttpUrl(step.prUrl) && (
         <a href={step.prUrl} target="_blank" rel="noreferrer"
           className="ml-7 inline-flex items-center gap-1 text-[12px] text-gold hover:underline">
           {t('snyk.fix.viewPr')} {step.prOpenedBy ? `(${step.prOpenedBy.toLowerCase()})` : ''} <ExternalLink className="h-3 w-3" />
