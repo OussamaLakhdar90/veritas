@@ -24,6 +24,7 @@ const connections = {
   jira: { baseUrl: 'https://jira.bnc.ca', edition: 'SERVER_DC', authType: 'BEARER' },
   xray: { baseUrl: '', edition: 'SERVER_DC', authType: 'BEARER' },
   confluence: { baseUrl: '', edition: 'CLOUD', authType: 'BEARER' },
+  snyk: { baseUrl: 'https://api.snyk.io', authType: 'BEARER' },
 }
 
 const secrets = { GIT_TOKEN: true, GIT_USERNAME: false, JIRA_API_TOKEN: false, JIRA_USERNAME: false }
@@ -87,7 +88,7 @@ describe('Settings page', () => {
     expect(await screen.findByText('Bitbucket connection')).toBeInTheDocument()
   })
 
-  it('renders the four per-service connection cards once connections + secrets load', async () => {
+  it('renders the per-service connection cards (incl. Snyk) once connections + secrets load', async () => {
     mountGets()
     renderPage(<Settings />)
 
@@ -95,8 +96,13 @@ describe('Settings page', () => {
     expect(screen.getByRole('heading', { name: 'Jira' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Xray' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Confluence' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Snyk' })).toBeInTheDocument()
     // The persisted base URL is reflected in the input value.
     expect(within(card('Bitbucket')).getByDisplayValue('https://bitbucket.org')).toBeInTheDocument()
+    // The Snyk card is the SaaS-token variant: base URL + a single API-token field, no edition/workspace/auth.
+    const snykCard = card('Snyk')
+    expect(within(snykCard).getByDisplayValue('https://api.snyk.io')).toBeInTheDocument()
+    expect(within(snykCard).queryByRole('combobox')).not.toBeInTheDocument()
   })
 
   it('falls back to an error message when connections fail to load', async () => {

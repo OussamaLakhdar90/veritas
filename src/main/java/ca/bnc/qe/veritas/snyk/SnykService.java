@@ -9,6 +9,7 @@ import java.util.Optional;
 import ca.bnc.qe.veritas.integration.snyk.SnykClient;
 import ca.bnc.qe.veritas.integration.snyk.SnykOrg;
 import ca.bnc.qe.veritas.integration.snyk.SnykTarget;
+import ca.bnc.qe.veritas.snyk.fix.FrameworkProperties;
 import org.springframework.stereotype.Service;
 
 /**
@@ -20,7 +21,6 @@ public class SnykService {
 
     private static final Map<String, Integer> SEVERITY_RANK =
             Map.of("critical", 0, "high", 1, "medium", 2, "low", 3);
-    private static final String APPLICATION_TESTS = "application-tests";
 
     private final SnykClient client;
     private final SnykWatchRepository watches;
@@ -28,15 +28,18 @@ public class SnykService {
     private final SnykVulnRepository vulns;
     private final SnykAlertRepository alerts;
     private final SnykPollService pollService;
+    private final FrameworkProperties framework;
 
     public SnykService(SnykClient client, SnykWatchRepository watches, SnykSnapshotRepository snapshots,
-                       SnykVulnRepository vulns, SnykAlertRepository alerts, SnykPollService pollService) {
+                       SnykVulnRepository vulns, SnykAlertRepository alerts, SnykPollService pollService,
+                       FrameworkProperties framework) {
         this.client = client;
         this.watches = watches;
         this.snapshots = snapshots;
         this.vulns = vulns;
         this.alerts = alerts;
         this.pollService = pollService;
+        this.framework = framework;
     }
 
     public List<SnykOrg> orgs() {
@@ -47,20 +50,22 @@ public class SnykService {
         return client.listTargets(orgId);
     }
 
-    /** The canonical {@code application-tests} target for an org (the repo holding the consumer poms). */
+    /** The canonical consumer-tests target for an org (the repo holding the consumer poms, default application-tests). */
     public Optional<SnykTarget> resolveApplicationTestsTarget(String orgId) {
+        String slug = framework.getConsumerRepo().toLowerCase(Locale.ROOT);
         List<SnykTarget> targets = client.listTargets(orgId);
-        return targets.stream().filter(t -> APPLICATION_TESTS.equalsIgnoreCase(t.displayName())).findFirst()
+        return targets.stream().filter(t -> framework.getConsumerRepo().equalsIgnoreCase(t.displayName())).findFirst()
                 .or(() -> targets.stream()
                         .filter(t -> t.displayName() != null
-                                && t.displayName().toLowerCase(Locale.ROOT).contains(APPLICATION_TESTS))
+                                && t.displayName().toLowerCase(Locale.ROOT).contains(slug))
                         .findFirst());
     }
 
-    /** Watch an app-id by auto-targeting its {@code application-tests} repo. */
+    /** Watch an app-id by auto-targeting its consumer-tests repo (default {@code application-tests}). */
     public SnykWatchView addWatchForApp(String orgId, String orgSlug, String orgName) {
         SnykTarget target = resolveApplicationTestsTarget(orgId).orElseThrow(() -> new IllegalStateException(
-                "No 'application-tests' repository found in " + (orgSlug == null ? orgId : orgSlug) + "."));
+                "No '" + framework.getConsumerRepo() + "' repository found in "
+                        + (orgSlug == null ? orgId : orgSlug) + "."));
         return addWatch(orgId, orgSlug, orgName, target.id(), target.displayName());
     }
 

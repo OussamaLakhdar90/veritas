@@ -28,18 +28,22 @@ class ConnectionsConfigServiceTest {
         var in = new ConnectionsView(
                 new EndpointView("https://bitbucket.bnc", null, "ws", null),
                 new EndpointView("https://jira.bnc", null, null, "BEARER"),
-                null, null);
+                null, null,
+                new EndpointView("https://api.snyk.io", null, null, "BEARER"));
         UpdateConnectionsResponse res = svc.update(in);
 
         // live fields mutated on the singleton (clients read these per-request)
         assertThat(props.getJira().getBaseUrl()).isEqualTo("https://jira.bnc");
         assertThat(props.getJira().getAuthType()).isEqualTo("BEARER");
         assertThat(props.getBitbucket().getWorkspace()).isEqualTo("ws");
+        // Snyk round-trips like any other integration (base URL + token → SNYK_API_TOKEN elsewhere)
+        assertThat(props.getSnyk().getBaseUrl()).isEqualTo("https://api.snyk.io");
         // no edition changed → no restart needed; persisted to the temp file
         assertThat(res.restartRequiredFields()).isEmpty();
-        assertThat(Files.readString(file)).contains("jira.bnc").contains("BEARER");
+        assertThat(Files.readString(file)).contains("jira.bnc").contains("BEARER").contains("api.snyk.io");
         // round-trips through current()
         assertThat(svc.current().jira().baseUrl()).isEqualTo("https://jira.bnc");
+        assertThat(svc.current().snyk().baseUrl()).isEqualTo("https://api.snyk.io");
     }
 
     @Test
@@ -48,7 +52,7 @@ class ConnectionsConfigServiceTest {
         ConnectionsConfigService svc = service(props, dir.resolve("connections.json"));
 
         UpdateConnectionsResponse res = svc.update(new ConnectionsView(null,
-                new EndpointView(null, "CLOUD", null, null), null, null));
+                new EndpointView(null, "CLOUD", null, null), null, null, null));
 
         assertThat(res.restartRequiredFields()).contains("jira.edition");
         assertThat(props.getJira().getEdition()).isEqualTo("CLOUD");   // persisted; bean re-wires on restart
@@ -58,7 +62,7 @@ class ConnectionsConfigServiceTest {
     void rejectsInvalidEdition(@TempDir Path dir) {
         ConnectionsConfigService svc = service(new ConnectionsProperties(), dir.resolve("connections.json"));
         assertThatThrownBy(() -> svc.update(new ConnectionsView(null,
-                new EndpointView(null, "BOGUS", null, null), null, null)))
+                new EndpointView(null, "BOGUS", null, null), null, null, null)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

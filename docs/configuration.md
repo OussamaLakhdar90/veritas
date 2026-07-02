@@ -42,6 +42,9 @@ veritas:
       edition: SERVER_DC                          # SERVER_DC (default: Raven REST on the Jira host) | CLOUD (GraphQL)
       base-url: https://xray.cloud.getxray.app    # Cloud only; SERVER_DC reuses the Jira base-url
       auth-type: BEARER                           # SERVER_DC: Bearer (Xray/Jira PAT) | CLOUD: CLIENT_CREDENTIALS
+    snyk:
+      base-url: https://api.snyk.io               # Snyk SaaS REST/v1; auth is a personal API token ("token <key>")
+      auth-type: BEARER
 ```
 
 ## Rules
@@ -71,6 +74,37 @@ veritas:
 The `integration/{bitbucket,jira,xray,confluence}` clients are constructed from this config (base URL +
 edition picks the REST/GraphQL variant); the secret provider supplies the matching per-user token. Built as
 part of task #9 (Bitbucket) and #14 (Jira/Confluence ingestion).
+
+## Snyk dependency-security module
+
+The Automation → Snyk feature watches app-ids for new vulnerabilities and opens a cascade of dependency-bump
+PRs across the lsist test framework. Connect it in **Settings → Snyk** (base URL + a personal API token) — the
+token is stored as the secret **`SNYK_API_TOKEN`** (owner-only, never in config). The poller is **off by
+default** — enable it in the Settings/Snyk UI or with `veritas.snyk.poll-enabled=true`.
+
+```yaml
+veritas:
+  connections:
+    snyk:
+      base-url: https://api.snyk.io      # Snyk SaaS; auth = personal API token ("token <key>")
+  snyk:
+    api-version: "2024-10-15"            # Snyk REST API version date (?version=)
+    poll-enabled: false                  # background vulnerability polling — OFF by default
+    poll-interval-ms: 86400000           # once a day between polls
+    poll-initial-delay-ms: 60000         # first poll ~1 min after startup
+    framework:                           # where the lsist test framework lives (the fix-cascade targets)
+      project: APP7488                   # Bitbucket project holding bom/core/api/web (MUST match your setup)
+      branch: develop                    # integration branch the cascade branches off + opens PRs against
+      consumer-repo: application-tests   # repo (under each watched app-id) holding the consumer poms Veritas bumps
+      default-reviewers: []              # Bitbucket usernames added when git history yields no reviewer
+```
+
+**Required secret:** `SNYK_API_TOKEN` (from *app.snyk.io → Account settings*). **Per-deployment overrides you
+should review:** `framework.project` (the Bitbucket project key holding the framework repos), `framework.branch`
+(if your framework repos integrate on `main`/`master`), `framework.consumer-repo` (if your test repos are not
+named `application-tests`), and `framework.default-reviewers`. The four `framework.*-repo` slugs and the
+`framework.*-version-property` names are also overridable if your naming differs — the local reactor build is the
+safety net if any name is wrong (a bad name blocks the PRs rather than shipping a broken bump).
 
 ## Datasource — local SQLite → server Postgres
 

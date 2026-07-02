@@ -96,6 +96,9 @@ veritas:
     poll-initial-delay-ms: 60000  # first poll ~1 min after application start
     framework:
       project: "APP7488"          # Bitbucket project holding the lsist-test-framework bom/core/api/web repos
+      branch: "develop"           # integration branch the cascade branches off + opens PRs against (main/master on some setups)
+      consumer-repo: "application-tests"   # repo under each watched app-id holding the consumer poms Veritas bumps
+      # default-reviewers: []      # Bitbucket usernames added when git history yields no reviewer suggestion
 
 logging:
   level:

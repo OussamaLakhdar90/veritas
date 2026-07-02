@@ -892,6 +892,8 @@
     "tokenHttpAccessTokenXray": "Jeton d'accès HTTP (peut réutiliser le jeton Jira)",
     "tokenPassword": "Mot de passe",
     "tokenHttpAccessTokenPat": "Jeton d'accès HTTP (PAT)",
+    "tokenSnykApiToken": "Jeton d'API Snyk",
+    "snykHint": "Collez un jeton d'API personnel depuis app.snyk.io → Paramètres du compte. Veritas s'en sert pour lire vos organisations Snyk (app-ids) — en lecture seule.",
     "noteBitbucketServerDc": "Serveur/DC : BEARER = un jeton d'accès HTTP (PAT); BASIC = votre nom d'utilisateur BNC + mot de passe. Aucun espace de travail — la clé de projet (app-id) est saisie à l'écran Valider.",
     "hintAlreadySetUsername": "Déjà défini — laissez vide pour le conserver",
     "hintYourUsername": "Votre nom d'utilisateur",

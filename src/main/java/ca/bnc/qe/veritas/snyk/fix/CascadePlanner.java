@@ -97,10 +97,10 @@ public class CascadePlanner {
         maybeBump(app.pomContent(), edits, fw.getWebVersionProperty(), use.usesWeb(), newVersions);
         String label = "consumer:" + app.appId();
         if (edits.isEmpty()) {
-            return CascadeStep.manual(order, app.appId(), "application-tests", "pom.xml", label,
+            return CascadeStep.manual(order, app.appId(), fw.getConsumerRepo(), "pom.xml", label,
                     "This app does not use the affected framework artifact — nothing to bump.");
         }
-        return build(order, app.appId(), "application-tests", "pom.xml", label, edits, null, app.pomContent());
+        return build(order, app.appId(), fw.getConsumerRepo(), "pom.xml", label, edits, null, app.pomContent());
     }
 
     /** Bump each framework version property that is present in this pom to its new value. */

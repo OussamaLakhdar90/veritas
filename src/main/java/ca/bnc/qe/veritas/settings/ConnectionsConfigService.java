@@ -36,7 +36,7 @@ public class ConnectionsConfigService {
 
     public ConnectionsView current() {
         return new ConnectionsView(view(props.getBitbucket()), view(props.getJira()),
-                view(props.getConfluence()), view(props.getXray()));
+                view(props.getConfluence()), view(props.getXray()), view(props.getSnyk()));
     }
 
     public UpdateConnectionsResponse update(ConnectionsView in) {
@@ -45,6 +45,7 @@ public class ConnectionsConfigService {
         apply("jira", props.getJira(), in.jira(), restart);
         apply("confluence", props.getConfluence(), in.confluence(), restart);
         apply("xray", props.getXray(), in.xray(), restart);
+        apply("snyk", props.getSnyk(), in.snyk(), restart);
         persist();
         return new UpdateConnectionsResponse(true, restart);
     }
@@ -83,6 +84,7 @@ public class ConnectionsConfigService {
             out.put("jira", view(props.getJira()));
             out.put("confluence", view(props.getConfluence()));
             out.put("xray", view(props.getXray()));
+            out.put("snyk", view(props.getSnyk()));
             Files.createDirectories(connectionsFile.getParent());
             Files.writeString(connectionsFile, mapper.writerWithDefaultPrettyPrinter().writeValueAsString(out));
         } catch (Exception e) {

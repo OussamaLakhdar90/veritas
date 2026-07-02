@@ -119,6 +119,15 @@ class CascadePlannerTest {
     }
 
     @Test
+    void consumerRepoSlugIsConfigurable() {
+        fw.setConsumerRepo("ciam-autotests");
+        CascadeStep consumer = planner.plan("com.fasterxml.jackson.core", "jackson-databind", "2.15.0",
+                allFour(), List.of(new AppInput("app7576", "CIAM Profile", APP))).get(4);
+        assertThat(consumer.repoSlug()).isEqualTo("ciam-autotests");
+        fw.setConsumerRepo("application-tests");   // restore for the shared instance
+    }
+
+    @Test
     void anAppThatUsesNoneOfTheAffectedArtifactsIsMarkedManualNotSilent() {
         String unrelated = """
             <project><modelVersion>4.0.0</modelVersion>
