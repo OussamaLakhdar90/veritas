@@ -57,7 +57,7 @@ class AsyncSnykFixRunnerTest {
     void confirmRejectsATrainThatIsNotAwaitingConfirmation() {
         when(trains.findById("t1")).thenReturn(Optional.of(train("t1", SnykFixStatus.PLANNING)));
         assertThatThrownBy(() -> runner.confirm("t1", Map.of(), Map.of()))
-                .isInstanceOf(IllegalStateException.class);
+                .isInstanceOf(ca.bnc.qe.veritas.skill.ConflictException.class);
         verify(trains, never()).save(any());
     }
 

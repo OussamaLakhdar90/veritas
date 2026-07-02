@@ -1,6 +1,7 @@
 package ca.bnc.qe.veritas.snyk.fix;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -98,27 +99,35 @@ public class CascadePlanner {
         return build(order, fw.getProject(), repo, "pom.xml", label, edits, newOwn, pom);
     }
 
+    /** The outcome of trying to bump one framework module in a consumer pom. */
+    private enum Bump { BUMPED, ALREADY_CURRENT, INHERITED, SKIP }
+
     private CascadeStep consumerStep(int order, AppInput app, Map<String, String> newVersions) {
         String pom = app.pomContent();
         AppUsageDetector.AppUsage use = usage.detect(pom);
         List<PomEdit> edits = new ArrayList<>();
         // A consumer picks up a (usually transitive) fix by advancing its framework-version pointer. Bump whichever
         // pointer it actually has — a <lsist-*.version> property OR an inline dependency/BOM-import version.
-        boolean usesButInherited = false;
-        usesButInherited |= addConsumerBump(pom, edits, fw.getBomVersionProperty(), fw.getBomRepo(), use.usesBom(), newVersions);
-        usesButInherited |= addConsumerBump(pom, edits, fw.getCoreVersionProperty(), fw.getCoreRepo(), use.usesCore(), newVersions);
-        usesButInherited |= addConsumerBump(pom, edits, fw.getApiVersionProperty(), fw.getApiRepo(), use.usesApi(), newVersions);
-        usesButInherited |= addConsumerBump(pom, edits, fw.getWebVersionProperty(), fw.getWebRepo(), use.usesWeb(), newVersions);
+        EnumSet<Bump> outcomes = EnumSet.noneOf(Bump.class);
+        outcomes.add(addConsumerBump(pom, edits, fw.getBomVersionProperty(), fw.getBomRepo(), use.usesBom(), newVersions));
+        outcomes.add(addConsumerBump(pom, edits, fw.getCoreVersionProperty(), fw.getCoreRepo(), use.usesCore(), newVersions));
+        outcomes.add(addConsumerBump(pom, edits, fw.getApiVersionProperty(), fw.getApiRepo(), use.usesApi(), newVersions));
+        outcomes.add(addConsumerBump(pom, edits, fw.getWebVersionProperty(), fw.getWebRepo(), use.usesWeb(), newVersions));
         String label = "consumer:" + app.appId();
         if (!edits.isEmpty()) {
             return build(order, app.appId(), fw.getConsumerRepo(), "pom.xml", label, edits, null, pom);
         }
-        if (use.usesAny() || usesButInherited) {
+        if (outcomes.contains(Bump.INHERITED)) {
             // Honest, actionable state — NOT "doesn't use it": the app uses the framework but the version comes
             // from a parent pom or is BOM-managed, so there's no local pointer here to bump.
             return CascadeStep.manual(order, app.appId(), fw.getConsumerRepo(), "pom.xml", label,
                     "This app uses the framework but pins its version upstream (a parent pom or the BOM) — "
                             + "no local <lsist-*.version> or inline version to bump. Update the parent by hand.");
+        }
+        if (outcomes.contains(Bump.ALREADY_CURRENT)) {
+            // Benign: a local pointer exists and is already on the target version — nothing to do (not a work item).
+            return CascadeStep.manual(order, app.appId(), fw.getConsumerRepo(), "pom.xml", label,
+                    "This app is already on the safe framework version — nothing to bump.");
         }
         return CascadeStep.manual(order, app.appId(), fw.getConsumerRepo(), "pom.xml", label,
                 "This app does not use the affected framework artifact — nothing to bump.");
@@ -126,33 +135,35 @@ public class CascadePlanner {
 
     /**
      * Bump a consumer's pointer to one framework module: prefer its {@code <lsist-*.version>} property, else its
-     * inline dependency/BOM-import version. Returns {@code true} when the app uses the module but has no local
-     * pointer to bump (version inherited from a parent / managed by the BOM) — surfaced as an honest manual step.
+     * inline dependency/BOM-import version. Distinguishes an already-current local pointer (benign) from a version
+     * inherited upstream (needs a manual parent edit).
      */
-    private boolean addConsumerBump(String pom, List<PomEdit> edits, String prop, String artifactId,
-                                    boolean uses, Map<String, String> newVersions) {
+    private Bump addConsumerBump(String pom, List<PomEdit> edits, String prop, String artifactId,
+                                 boolean uses, Map<String, String> newVersions) {
         if (!uses) {
-            return false;
+            return Bump.SKIP;
         }
         String newVal = newVersions.get(prop);
         if (newVal == null) {
-            return false;   // this module isn't part of this fix's version set (its pom wasn't fetched)
+            return Bump.SKIP;   // this module isn't part of this fix's version set (its pom wasn't fetched)
         }
         String curProp = PomVersionEditor.propertyValue(pom, prop);
         if (curProp != null) {
-            if (!curProp.equals(newVal)) {
-                edits.add(PomEdit.property(prop, curProp, newVal));
+            if (curProp.equals(newVal)) {
+                return Bump.ALREADY_CURRENT;
             }
-            return false;
+            edits.add(PomEdit.property(prop, curProp, newVal));
+            return Bump.BUMPED;
         }
         String token = PomVersionEditor.dependencyVersionToken(pom, fw.getGroup(), artifactId);
         if (token != null && !token.startsWith("${")) {
-            if (!token.equals(newVal)) {
-                edits.add(PomEdit.managed(fw.getGroup(), artifactId, token, newVal));
+            if (token.equals(newVal)) {
+                return Bump.ALREADY_CURRENT;
             }
-            return false;
+            edits.add(PomEdit.managed(fw.getGroup(), artifactId, token, newVal));
+            return Bump.BUMPED;
         }
-        return true;   // uses the module, but no local property/inline version to bump
+        return Bump.INHERITED;   // uses the module, but no local property/inline version to bump
     }
 
     /** Bump each framework version property that is present in this pom to its new value. */
