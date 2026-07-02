@@ -221,7 +221,8 @@ public class BitbucketServerClient implements GitHost {
      * or an encoded traversal) could rewrite the request path under Veritas's PAT — an authenticated SSRF. Reject it.
      */
     private static String seg(String value, String what) {
-        if (value == null || !value.matches("[A-Za-z0-9._-]+")) {
+        // Dots are legal in a repo slug (my.repo), so also reject a bare/embedded ".." — a single-segment traversal.
+        if (value == null || !value.matches("[A-Za-z0-9._-]+") || value.contains("..")) {
             throw new IllegalArgumentException("Invalid " + what + ": '" + value + "'");
         }
         return value;

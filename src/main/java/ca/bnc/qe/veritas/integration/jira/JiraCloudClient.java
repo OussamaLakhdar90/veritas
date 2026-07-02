@@ -82,7 +82,7 @@ public class JiraCloudClient implements JiraClient {
     public JiraIssue getIssue(String key) {
         try {
             String resp = retries.call(() -> http.get()
-                    .uri(URI.create(base() + "/rest/api/3/issue/" + key + "?fields=summary,description"))
+                    .uri(URI.create(base() + "/rest/api/3/issue/" + JiraKeys.issueKey(key) + "?fields=summary,description"))
                     .header("Authorization", authHeader())
                     .retrieve().body(String.class));
             return toIssue(mapper.readTree(resp == null ? "{}" : resp));
@@ -131,7 +131,7 @@ public class JiraCloudClient implements JiraClient {
             buf.write(content == null ? new byte[0] : content.getBytes(StandardCharsets.UTF_8));
             buf.write(tail.getBytes(StandardCharsets.UTF_8));
             byte[] body = buf.toByteArray();
-            retries.callWrite(() -> http.post().uri(URI.create(base() + "/rest/api/3/issue/" + key + "/attachments"))
+            retries.callWrite(() -> http.post().uri(URI.create(base() + "/rest/api/3/issue/" + JiraKeys.issueKey(key) + "/attachments"))
                     .header("Authorization", authHeader())
                     .header("X-Atlassian-Token", "no-check")   // required by Jira for attachments
                     .header("Content-Type", "multipart/form-data; boundary=" + boundary)
@@ -146,7 +146,7 @@ public class JiraCloudClient implements JiraClient {
     public JiraStatus getStatus(String key) {
         try {
             String resp = retries.call(() -> http.get()
-                    .uri(URI.create(base() + "/rest/api/3/issue/" + key + "?fields=status"))
+                    .uri(URI.create(base() + "/rest/api/3/issue/" + JiraKeys.issueKey(key) + "?fields=status"))
                     .header("Authorization", authHeader())
                     .retrieve().body(String.class));
             JsonNode status = mapper.readTree(resp == null ? "{}" : resp).path("fields").path("status");
@@ -162,7 +162,7 @@ public class JiraCloudClient implements JiraClient {
     public List<JiraTransition> listTransitions(String key) {
         try {
             String resp = retries.call(() -> http.get()
-                    .uri(URI.create(base() + "/rest/api/3/issue/" + key + "/transitions"))
+                    .uri(URI.create(base() + "/rest/api/3/issue/" + JiraKeys.issueKey(key) + "/transitions"))
                     .header("Authorization", authHeader())
                     .retrieve().body(String.class));
             JsonNode root = mapper.readTree(resp == null ? "{}" : resp);
@@ -182,7 +182,7 @@ public class JiraCloudClient implements JiraClient {
         try {
             String body = mapper.writeValueAsString(Map.of("transition", Map.of("id", transitionId)));
             retries.callWrite(() -> http.post()
-                    .uri(URI.create(base() + "/rest/api/3/issue/" + key + "/transitions"))
+                    .uri(URI.create(base() + "/rest/api/3/issue/" + JiraKeys.issueKey(key) + "/transitions"))
                     .header("Authorization", authHeader())
                     .header("Content-Type", "application/json")
                     .body(body)
@@ -197,7 +197,7 @@ public class JiraCloudClient implements JiraClient {
     public List<JiraVersion> listVersions(String projectKey) {
         try {
             String resp = retries.call(() -> http.get()
-                    .uri(URI.create(base() + "/rest/api/3/project/" + projectKey + "/versions"))
+                    .uri(URI.create(base() + "/rest/api/3/project/" + JiraKeys.projectKey(projectKey) + "/versions"))
                     .header("Authorization", authHeader())
                     .retrieve().body(String.class));
             JsonNode root = mapper.readTree(resp == null ? "[]" : resp);

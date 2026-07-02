@@ -84,6 +84,8 @@ class BitbucketServerClientWireMockTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> c.listBranches("APP7576", "repo?x=1"))
                 .isInstanceOf(IllegalArgumentException.class);
+        // A bare ".." single-segment traversal is rejected even though dots are otherwise allowed in a slug.
+        assertThatThrownBy(() -> c.buildDiscoveryUri("..", 0)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

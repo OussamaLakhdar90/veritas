@@ -96,7 +96,7 @@ public class JiraServerClient implements JiraClient {
     @Override
     public JiraIssue getIssue(String key) {
         try {
-            String resp = corp.get(base() + "/rest/api/2/issue/" + key + "?fields=summary,description", authHeaders());
+            String resp = corp.get(base() + "/rest/api/2/issue/" + JiraKeys.issueKey(key) + "?fields=summary,description", authHeaders());
             return toIssue(mapper.readTree(resp == null ? "{}" : resp));
         } catch (Exception e) {
             throw new IllegalStateException("Jira getIssue failed for " + key + ": " + e.getMessage(), e);
@@ -117,7 +117,7 @@ public class JiraServerClient implements JiraClient {
     @Override
     public List<JiraTransition> listTransitions(String key) {
         try {
-            String resp = corp.get(base() + "/rest/api/2/issue/" + key + "/transitions", authHeaders());
+            String resp = corp.get(base() + "/rest/api/2/issue/" + JiraKeys.issueKey(key) + "/transitions", authHeaders());
             JsonNode root = mapper.readTree(resp == null ? "{}" : resp);
             List<JiraTransition> out = new ArrayList<>();
             for (JsonNode t : root.path("transitions")) {
@@ -134,7 +134,7 @@ public class JiraServerClient implements JiraClient {
     public void transition(String key, String transitionId) {
         try {
             String body = mapper.writeValueAsString(Map.of("transition", Map.of("id", transitionId)));
-            corp.postWrite(base() + "/rest/api/2/issue/" + key + "/transitions", authHeaders(), body, "application/json");
+            corp.postWrite(base() + "/rest/api/2/issue/" + JiraKeys.issueKey(key) + "/transitions", authHeaders(), body, "application/json");
         } catch (Exception e) {
             throw new IllegalStateException("Jira transition failed for " + key + " (id " + transitionId + "): "
                     + e.getMessage(), e);
@@ -144,7 +144,7 @@ public class JiraServerClient implements JiraClient {
     @Override
     public JiraStatus getStatus(String key) {
         try {
-            String resp = corp.get(base() + "/rest/api/2/issue/" + key + "?fields=status", authHeaders());
+            String resp = corp.get(base() + "/rest/api/2/issue/" + JiraKeys.issueKey(key) + "?fields=status", authHeaders());
             JsonNode status = mapper.readTree(resp == null ? "{}" : resp).path("fields").path("status");
             return new JiraStatus(
                     status.path("name").asText(""),
@@ -158,7 +158,7 @@ public class JiraServerClient implements JiraClient {
     public void addComment(String key, String wikiBody) {
         try {
             String body = mapper.writeValueAsString(Map.of("body", wikiBody == null ? "" : wikiBody));
-            corp.postWrite(base() + "/rest/api/2/issue/" + key + "/comment", authHeaders(), body, "application/json");
+            corp.postWrite(base() + "/rest/api/2/issue/" + JiraKeys.issueKey(key) + "/comment", authHeaders(), body, "application/json");
         } catch (Exception e) {
             throw new IllegalStateException("Jira addComment failed for " + key + ": " + e.getMessage(), e);
         }
@@ -176,7 +176,7 @@ public class JiraServerClient implements JiraClient {
                     + "Content-Type: application/octet-stream\r\n\r\n"
                     + (content == null ? "" : content)
                     + "\r\n--" + boundary + "--\r\n";
-            corp.postWrite(base() + "/rest/api/2/issue/" + key + "/attachments",
+            corp.postWrite(base() + "/rest/api/2/issue/" + JiraKeys.issueKey(key) + "/attachments",
                     java.util.Map.of("Authorization", authHeader(), "X-Atlassian-Token", "no-check"),
                     body, "multipart/form-data; boundary=" + boundary);
         } catch (Exception e) {

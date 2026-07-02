@@ -168,7 +168,8 @@ public class BitbucketCloudClient implements GitHost {
      * path under Veritas's credentials — an authenticated SSRF/path-injection. Reject it.
      */
     private static String seg(String value, String what) {
-        if (value == null || !value.matches("[A-Za-z0-9._-]+")) {
+        // Dots are legal in a repo slug (my.repo), so also reject a bare/embedded ".." — a single-segment traversal.
+        if (value == null || !value.matches("[A-Za-z0-9._-]+") || value.contains("..")) {
             throw new IllegalArgumentException("Invalid " + what + ": '" + value + "'");
         }
         return value;

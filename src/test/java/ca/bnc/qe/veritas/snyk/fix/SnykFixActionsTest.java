@@ -99,6 +99,13 @@ class SnykFixActionsTest {
     }
 
     @Test
+    void recordUserPrRejectsANonHttpUrl() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> actions.recordUserPr("t1", 1, "javascript:alert(1)"))
+                .isInstanceOf(IllegalArgumentException.class);
+        verify(trains, never()).findById(any());   // rejected before touching the store
+    }
+
+    @Test
     void openHeldPrsOpensPrsForABreakingTrain() {
         when(gitHost.openPullRequest(any(GitHost.PullRequestSpec.class))).thenReturn("http://host/pr/9");
         SnykFixTrain t = train();
