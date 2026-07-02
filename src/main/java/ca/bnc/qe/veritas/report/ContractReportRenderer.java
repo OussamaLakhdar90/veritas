@@ -420,7 +420,7 @@ public class ContractReportRenderer {
                 .append("<span class=\"finding-title\">").append(biDyn(nz(f.getSummary()), fr)).append("</span>")
                 .append("<span class=\"finding-meta\"><code>").append(esc(nz(f.getEndpoint()))).append("</code>")
                 .append(f.getLayer() != null ? " · " + esc(layerLabel(f.getLayer())) : "")
-                .append(f.getConfidence() != null ? " · " + esc(confidenceLabel(f.getConfidence())) : "").append("</span>")
+                .append(f.getConfidence() != null ? confidencePill(f.getConfidence()) : "").append("</span>")
                 .append("</div>");
         // AI-disputed: a deterministic finding the assistant believes is a false positive. Shown prominently with its
         // reason; it is excluded from the release gate but still listed — a human verifies before dismissing it.
@@ -459,6 +459,15 @@ public class ContractReportRenderer {
         String currentYaml = f.getCurrentYamlFragment();
         String proposedFix = f.getProposedFix();
         String citation = f.getCitation();
+        // Traceable code anchor: always show where in the source this came from — "File.java:line" as a clickable
+        // Bitbucket deep link (when the repo coordinates are known). For findings with a snippet the location sits in
+        // the snippet panel's header; for the rest (e.g. a schema-field diff) show it as a standalone trace line so
+        // the reviewer can always jump straight to the exact field in the code.
+        String codeLoc = loc(f);
+        if (!isBlank(codeLoc) && isBlank(snippet)) {
+            sb.append("<div class=\"code-trace\"><span class=\"code-trace-label\">")
+                    .append(bi("Code", "Code")).append("</span> ").append(codeEvidenceLabel(scan, f)).append("</div>");
+        }
         if (!isBlank(snippet) || !isBlank(currentYaml) || !isBlank(proposedFix)) {
             sb.append("<div class=\"dual-view\">");
             if (!isBlank(snippet)) {
@@ -668,6 +677,30 @@ public class ContractReportRenderer {
             case "L6" -> "Test coverage";
             default -> layer.name();
         };
+    }
+
+    /** Confidence as a clear coloured pill with a plain-language tooltip explaining what the level means here. */
+    private String confidencePill(ca.bnc.qe.veritas.finding.Confidence c) {
+        if (c == null) {
+            return "";
+        }
+        String cls;
+        String tip;
+        switch (c.name()) {
+            case "HIGH" -> {
+                cls = "conf-high";
+                tip = "Parsed directly from the source signatures — deterministic, not an AI guess.";
+            }
+            case "MEDIUM" -> {
+                cls = "conf-med";
+                tip = "Deterministic, with some inference (e.g. type mapping).";
+            }
+            default -> {
+                cls = "conf-low";
+                tip = "Heuristic signal — verify before acting.";
+            }
+        }
+        return "<span class=\"conf-pill " + cls + "\" title=\"" + esc(tip) + "\">" + esc(confidenceLabel(c)) + "</span>";
     }
 
     /** Plain-language label for confidence — never show the raw HIGH/MEDIUM/LOW code. */
@@ -917,6 +950,14 @@ public class ContractReportRenderer {
                 + ".finding-header{display:flex;align-items:center;gap:10px;flex-wrap:wrap}"
                 + ".severity-badge{color:#fff;font-size:.7rem;font-weight:700;text-transform:uppercase;padding:2px 9px;border-radius:999px}"
                 + ".finding-title{font-weight:600}.finding-meta{color:#888;font-size:.8rem;margin-left:auto}"
+                + ".conf-pill{display:inline-block;margin-left:.5rem;font-size:.72rem;font-weight:600;padding:2px 8px;"
+                + "border-radius:999px;vertical-align:middle;cursor:help}"
+                + ".conf-high{background:#e7f6ec;color:#1b7f4b}.conf-med{background:#fff4e0;color:#96690a}"
+                + ".conf-low{background:#f0f0f0;color:#666}"
+                + ".code-trace{margin-top:.55rem;font-size:.84rem;color:#475569;background:#f8fafc;border:1px solid #e5e9f0;"
+                + "border-radius:6px;padding:.4rem .6rem}"
+                + ".code-trace-label{font-weight:600;color:#334155;margin-right:.4rem}"
+                + ".code-link{font-family:ui-monospace,Menlo,Consolas,monospace}"
                 + ".business-impact{background:#fff8f0;border-left:3px solid #fd7e14;border-radius:0 6px 6px 0;padding:.5rem .75rem;margin-top:.6rem;font-size:.88rem}"
                 + ".dual-view{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-top:.75rem}"
                 + ".evidence-panel{border:1px solid #e3e6eb;border-radius:8px;padding:.5rem .6rem;overflow:auto}"

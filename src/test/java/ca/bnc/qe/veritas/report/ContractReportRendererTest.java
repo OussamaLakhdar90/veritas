@@ -63,6 +63,38 @@ class ContractReportRendererTest {
     }
 
     @Test
+    void aFieldFindingWithoutASnippetStillShowsATraceableCodeLineAndAClearConfidencePill() {
+        ConnectionsProperties cp = new ConnectionsProperties();
+        cp.getBitbucket().setEdition("SERVER_DC");
+        cp.getBitbucket().setBaseUrl("https://git.bnc.ca");
+        ContractReportRenderer renderer = new ContractReportRenderer(new BitbucketLinkBuilder(cp));
+
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        scan.setAppId("APP7571");
+        scan.setRepoSlug("ciam-policies");
+        scan.setGitRef("develop");
+        // A schema-field finding: code evidence points at the DTO field's own file/line, with NO snippet (the case
+        // the user hit — previously it showed no code evidence at all).
+        Finding f = Finding.builder()
+                .findingId("sf1").type(FindingType.SCHEMA_FIELD_MISSING).layer(Layer.L4).severity(Severity.MAJOR)
+                .confidence(Confidence.HIGH).origin("DETERMINISTIC").service("ciam-policies").specSource("code-vs-spec")
+                .endpoint("GET /ciam/policies response.password.complexity.excludeAttributes")
+                .summary("Field 'excludeAttributes' is in code but missing from the spec schema")
+                .codeEvidence(SourceRef.code("src/main/java/ca/bnc/PasswordComplexity.java", 42, 42, null))
+                .build();
+
+        String html = renderer.renderHtml(scan, List.of(f));
+        // A standalone, traceable code line with a clickable Bitbucket deep link to the exact field.
+        assertThat(html).contains("code-trace")
+                .contains("/browse/src/main/java/ca/bnc/PasswordComplexity.java")
+                .contains(">PasswordComplexity.java:42</a>")
+                .contains("#42");
+        // Confidence is a clearly-labelled coloured pill, not buried plain text.
+        assertThat(html).contains("conf-pill").contains("conf-high").contains("High confidence");
+    }
+
+    @Test
     void codeEvidenceStaysPlainTextWhenNoLinkBuilder() {
         // The no-arg constructor (tests / non-Spring use) has no link builder → evidence renders as plain text.
         String html = new ContractReportRenderer().renderHtml(new Scan(), List.of(richFinding()));

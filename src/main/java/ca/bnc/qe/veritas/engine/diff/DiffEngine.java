@@ -23,6 +23,7 @@ import java.util.stream.Stream;
 import ca.bnc.qe.veritas.engine.model.ApiModel;
 import ca.bnc.qe.veritas.engine.model.ConstraintSet;
 import ca.bnc.qe.veritas.engine.model.Endpoint;
+import ca.bnc.qe.veritas.engine.model.SourceRef;
 import ca.bnc.qe.veritas.engine.model.HttpMethod;
 import ca.bnc.qe.veritas.engine.model.ParamLocation;
 import ca.bnc.qe.veritas.engine.model.ParamModel;
@@ -579,6 +580,20 @@ public class DiffEngine {
 
     static Finding finding(FindingType type, String endpoint, String specSource, String summary,
                             Endpoint codeEndpoint, Confidence confidence) {
+        return build(type, endpoint, specSource, summary, codeEndpoint == null ? null : codeEndpoint.source(), confidence);
+    }
+
+    /**
+     * Finding factory that attaches an explicit code {@link SourceRef} (e.g. a DTO field's own file + line) as the
+     * evidence — so a schema-field finding traces to the exact field in the source, not just its endpoint.
+     */
+    static Finding fieldFinding(FindingType type, String endpoint, String specSource, String summary,
+                                SourceRef codeEvidence, Confidence confidence) {
+        return build(type, endpoint, specSource, summary, codeEvidence, confidence);
+    }
+
+    private static Finding build(FindingType type, String endpoint, String specSource, String summary,
+                                 SourceRef codeEvidence, Confidence confidence) {
         return Finding.builder()
                 .findingId(Integer.toHexString(Objects.hash(type, endpoint, summary, specSource)))
                 .type(type)
@@ -589,7 +604,7 @@ public class DiffEngine {
                 .endpoint(endpoint)
                 .specSource(specSource)
                 .summary(summary)
-                .codeEvidence(codeEndpoint == null ? null : codeEndpoint.source())
+                .codeEvidence(codeEvidence)
                 .build();
     }
 

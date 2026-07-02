@@ -84,12 +84,12 @@ final class SchemaComparator {
                     // reported as an array-vs-scalar type mismatch — by compareSchema for differently-named pairs, or
                     // by the components-schema loop for same-named — so re-emitting here would double-count one defect.
                     if (scalarType != null && !"object".equals(scalarType) && !"array".equals(refType)) {
-                        findings.add(DiffEngine.finding(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, locus + "." + e.getKey(),
+                        findings.add(DiffEngine.fieldFinding(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, locus + "." + e.getKey(),
                                 spec.source(), "Field '" + e.getKey() + "' of " + locus + " is "
                                         + (c.refSchema() != null
                                             ? "a nested object/array in code but a scalar (" + s.type() + ") in the spec"
                                             : "a scalar (" + c.type() + ") in code but a nested object/array in the spec"),
-                                null, Confidence.HIGH));
+                                c.source(), Confidence.HIGH));
                     }
                     continue;
                 }
@@ -99,11 +99,11 @@ final class SchemaComparator {
                 if (arrayRef(c.refSchema()) != arrayRef(s.refSchema())) {
                     // A nested field that is an array on one side and a single object on the other — a real wire-shape
                     // break the recursion would otherwise drop (fieldDiffByBinding returns early on array-vs-object).
-                    findings.add(DiffEngine.finding(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, locus + "." + e.getKey(), spec.source(),
+                    findings.add(DiffEngine.fieldFinding(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, locus + "." + e.getKey(), spec.source(),
                             "Field '" + e.getKey() + "' of " + locus + " is "
                                     + (arrayRef(c.refSchema()) ? "an array in code but a single object in the spec"
                                                                : "a single object in code but an array in the spec"),
-                            null, Confidence.HIGH));
+                            c.source(), Confidence.HIGH));
                     continue;
                 }
                 fieldDiffByBinding(findings, code, spec, c.refSchema(), s.refSchema(),
@@ -276,16 +276,16 @@ final class SchemaComparator {
         for (FieldModel cf : codeS.fields()) {
             FieldModel sf = specFields.get(cf.jsonName());
             if (sf == null) {
-                findings.add(DiffEngine.finding(FindingType.SCHEMA_FIELD_MISSING, name + "." + cf.jsonName(), specSource,
+                findings.add(DiffEngine.fieldFinding(FindingType.SCHEMA_FIELD_MISSING, name + "." + cf.jsonName(), specSource,
                         "Field '" + cf.jsonName() + "' of " + name + " is in code but missing from the spec schema",
-                        null, Confidence.HIGH));
+                        cf.source(), Confidence.HIGH));
                 continue;
             }
             if (cf.type() != null && sf.type() != null && !cf.type().equals(sf.type())
                     && !"object".equals(cf.type()) && !"object".equals(sf.type())) {
-                findings.add(DiffEngine.finding(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, name + "." + cf.jsonName(), specSource,
+                findings.add(DiffEngine.fieldFinding(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, name + "." + cf.jsonName(), specSource,
                         "Field '" + cf.jsonName() + "' type — code " + cf.type() + " vs spec " + sf.type(),
-                        null, Confidence.MEDIUM));
+                        cf.source(), Confidence.MEDIUM));
             }
             // required drift — ONLY the faithful direction: the code POSITIVELY asserts the field is required
             // (@NotNull/@NotBlank/@NotEmpty) but the spec marks it optional. The reverse (code false, spec required)
