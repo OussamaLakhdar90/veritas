@@ -107,6 +107,10 @@ public class ContractReportRenderer {
         int score = FidelityScore.of(counted);
         long blocking = counted.stream().filter(f -> f.getSeverity() != null
                 && (f.getSeverity().name().equals("BLOCKER") || f.getSeverity().name().equals("CRITICAL"))).count();
+        // Would any counted finding break a running consumer? If every one is additive/documentation drift (the code
+        // is a compatible superset of the spec), the release is safe even when the fidelity bar isn't met.
+        boolean allNonBreaking = counted.stream().filter(f -> f.getType() != null)
+                .noneMatch(f -> ca.bnc.qe.veritas.engine.diff.DiffEngine.isBreaking(f.getType()));
         // Deterministic findings the AI flagged as possible false positives — excluded from the gate above but shown
         // prominently so the relaxed verdict is honest and a human can overturn the dispute.
         long disputed = attention.stream().filter(Finding::isAiDisputed).count();
@@ -149,7 +153,8 @@ public class ContractReportRenderer {
         sb.append("<div class=\"content\">");
 
         // ---- Bottom line: the one-glance "is it safe to release?" verdict (deterministic from the gate) ----
-        sb.append(bottomLine(score, blocking, counted.size(), missing.size(), wrong.size(), dead.size(), disputed));
+        sb.append(bottomLine(score, blocking, counted.size(), missing.size(), wrong.size(), dead.size(), disputed,
+                allNonBreaking));
 
         // ---- Table of contents (anchors to each section present) ----
         boolean anyFix = findings.stream().anyMatch(f -> !isBlank(f.getProposedFix()));
@@ -414,14 +419,27 @@ public class ContractReportRenderer {
             stateClass = " rejected";
         }
         StringBuilder sb = new StringBuilder("<div class=\"finding-card" + stateClass + "\">");
+        boolean multiEndpoint = f.getAffectedEndpoints() != null && f.getAffectedEndpoints().size() > 1;
         sb.append("<div class=\"finding-header\">")
                 .append("<span class=\"severity-badge\" style=\"background:").append(color).append("\">")
                 .append(esc(f.getSeverity() != null ? f.getSeverity().name() : "")).append("</span>")
                 .append("<span class=\"finding-title\">").append(biDyn(nz(f.getSummary()), fr)).append("</span>")
-                .append("<span class=\"finding-meta\"><code>").append(esc(nz(f.getEndpoint()))).append("</code>")
+                .append("<span class=\"finding-meta\"><code>")
+                .append(multiEndpoint ? f.getAffectedEndpoints().size() + " " + bi("endpoints", "points de terminaison")
+                        : esc(nz(f.getEndpoint())))
+                .append("</code>")
                 .append(f.getLayer() != null ? " · " + esc(layerLabel(f.getLayer())) : "")
                 .append(f.getConfidence() != null ? confidencePill(f.getConfidence()) : "").append("</span>")
                 .append("</div>");
+        // One shared root cause spanning several endpoints — list them so a reviewer sees the full blast radius (and
+        // knows it's counted once, not per endpoint).
+        if (multiEndpoint) {
+            StringBuilder eps = new StringBuilder();
+            for (String ep : f.getAffectedEndpoints()) {
+                eps.append(eps.length() > 0 ? ", " : "").append("<code>").append(esc(ep)).append("</code>");
+            }
+            sb.append("<div class=\"affects\">").append(bi("Affects", "Concerne")).append(": ").append(eps).append("</div>");
+        }
         // AI-disputed: a deterministic finding the assistant believes is a false positive. Shown prominently with its
         // reason; it is excluded from the release gate but still listed — a human verifies before dismissing it.
         if (f.isAiDisputed()) {
@@ -601,12 +619,21 @@ public class ContractReportRenderer {
         return bar.append("</div>").append(legend).append("</div>").toString();
     }
 
-    /** The plain "is it safe to release?" verdict box — first thing management sees, derived only from the gate. */
-    private String bottomLine(int score, long blocking, int total, int missing, int wrong, int dead, long disputed) {
+    /** The plain "is it safe to release?" verdict box — first thing management sees. Release RISK (breaking changes)
+     *  drives the action; the fidelity score is the separate quality bar. */
+    private String bottomLine(int score, long blocking, int total, int missing, int wrong, int dead, long disputed,
+                              boolean allNonBreaking) {
         boolean pass = score >= FidelityScore.PASS_THRESHOLD;
+        // Below the fidelity bar but nothing would break a running consumer → the release is safe; the spec is just
+        // behind. Call it out as a calm "proceed", distinct from a real "hold".
+        boolean additiveProceed = blocking == 0 && !pass && total > 0 && allNonBreaking;
         String color, tint, statusEn, statusFr;
         if (blocking > 0) {
             color = "#C2122D"; tint = "#fdecef"; statusEn = "Do not release"; statusFr = "Ne pas livrer";
+        } else if (additiveProceed) {
+            color = "#0F766E"; tint = "#e7f5f3";
+            statusEn = "Proceed — documentation fixes recommended";
+            statusFr = "Prêt à livrer — mises à jour de la documentation recommandées";
         } else if (!pass) {
             color = "#C2410C"; tint = "#fff4ec"; statusEn = "Hold for fixes"; statusFr = "À corriger avant livraison";
         } else {
@@ -643,6 +670,16 @@ public class ContractReportRenderer {
         b.append("<tr><td style=\"color:#475069;padding:.1rem 1rem .1rem 0;vertical-align:top;white-space:nowrap\">")
                 .append(bi("Effort", "Effort")).append("</td><td style=\"padding:.1rem 0\">").append(bi(timeEn, timeFr)).append("</td></tr>");
         b.append("</table>");
+        // Why a sub-target score still reads "Proceed": no finding breaks a running consumer — the drift is additive
+        // documentation (the code is a compatible superset of the spec), so the release is safe on its own timeline.
+        if (additiveProceed) {
+            b.append("<div style=\"margin-top:.6rem;font-size:.82rem;color:#475069\">").append(bi(
+                    "0 release-blocking findings — all drift is additive documentation (the code returns/accepts more "
+                            + "than the spec documents). Safe to release; update the spec at your own cadence.",
+                    "0 constat bloquant — toute la dérive est documentaire additive (le code renvoie/accepte plus que "
+                            + "ce que la spéc documente). Livraison sûre; mettez à jour la spéc à votre rythme."))
+                    .append("</div>");
+        }
         // Honesty when the gate was conditionally relaxed: surface that the AI excluded N findings as possible false
         // positives, so a clean-looking verdict is never mistaken for "nothing flagged". They remain listed in §6.
         if (disputed > 0) {
@@ -957,6 +994,7 @@ public class ContractReportRenderer {
                 + ".code-trace{margin-top:.55rem;font-size:.84rem;color:#475569;background:#f8fafc;border:1px solid #e5e9f0;"
                 + "border-radius:6px;padding:.4rem .6rem}"
                 + ".code-trace-label{font-weight:600;color:#334155;margin-right:.4rem}"
+                + ".affects{margin-top:.4rem;font-size:.82rem;color:#475569}"
                 + ".code-link{font-family:ui-monospace,Menlo,Consolas,monospace}"
                 + ".business-impact{background:#fff8f0;border-left:3px solid #fd7e14;border-radius:0 6px 6px 0;padding:.5rem .75rem;margin-top:.6rem;font-size:.88rem}"
                 + ".dual-view{display:grid;grid-template-columns:1fr 1fr;gap:.75rem;margin-top:.75rem}"

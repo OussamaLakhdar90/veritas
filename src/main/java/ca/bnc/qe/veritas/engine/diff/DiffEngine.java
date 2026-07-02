@@ -229,8 +229,16 @@ public class DiffEngine {
         List<String> codeVars = pathVars(ce.pathTemplate());
         List<String> specVars = pathVars(se.pathTemplate());
         if (!codeVars.equals(specVars) && codeVars.size() == specVars.size()) {
-            findings.add(finding(FindingType.PATH_VAR_NAME_MISMATCH, label(ce), spec.source(),
-                    "Path variable names differ — code " + codeVars + " vs spec " + specVars, ce, Confidence.HIGH));
+            // A neutral, deterministic proposed fix: a path variable is positional, so this is a naming convention
+            // choice for the API owner — NOT "rename the spec to match the code". Set it here so it pre-empts the
+            // reconcile LLM (which only fills a null proposedFix).
+            Finding f = finding(FindingType.PATH_VAR_NAME_MISMATCH, label(ce), spec.source(),
+                    "Path variable names differ — code " + codeVars + " vs spec " + specVars, ce, Confidence.HIGH);
+            findings.add(f.toBuilder().proposedFix(
+                    "Path variable names are positional and non-breaking — " + codeVars + " and " + specVars
+                    + " route identically. Pick one naming convention with the API owner: align the spec to the code, "
+                    + "or keep the spec's more descriptive name and rename the code. A convention choice, not a "
+                    + "required fix.").build());
         }
     }
 
@@ -640,6 +648,27 @@ public class DiffEngine {
             // EXTRA_ENDPOINT, PATH_VAR_NAME_MISMATCH, SPEC_DRIFT, PARAM_EXTRA, STATUS_CODE_EXTRA,
             // SCHEMA_FIELD_EXTRA, CONSUMES_PRODUCES_MISMATCH — dead-spec / additive / naming drift, non-breaking
             default -> Severity.MINOR;
+        };
+    }
+
+    /**
+     * Whether a discrepancy would break an existing consumer (an active shape/type/validation disagreement or an
+     * availability loss) as opposed to additive / dead-spec / naming / documentation drift where the code is a
+     * compatible superset of the spec. This drives the RELEASE verdict, NOT the fidelity score: a report with zero
+     * breaking findings is release-safe even when the docs are behind. Conservative — anything not clearly additive
+     * is treated as breaking so we never green-light a real risk.
+     */
+    public static boolean isBreaking(FindingType t) {
+        return switch (t) {
+            case OPENAPI_PARSE_ERROR, UNRESOLVED_REF,
+                 MISSING_ENDPOINT, VERB_MISMATCH, SECURITY_MISMATCH,
+                 SCHEMA_FIELD_TYPE_MISMATCH, PARAM_TYPE_MISMATCH, PARAM_REQUIRED_MISMATCH,
+                 REQUEST_BODY_PRESENCE_MISMATCH, REQUEST_BODY_SCHEMA_MISMATCH, RESPONSE_SCHEMA_MISMATCH,
+                 CONSTRAINT_GAP -> true;
+            // SCHEMA_FIELD_MISSING (code returns an undocumented field), *_EXTRA, STATUS_CODE_MISSING, PARAM_MISSING,
+            // PATH_VAR_NAME_MISMATCH, SPEC_DRIFT, CONSUMES_PRODUCES_MISMATCH, MISSING_INFO_FIELD, DESIGN_QUALITY,
+            // TEST_BASIS_GAP — additive / dead-spec / documentation drift, non-breaking for a running consumer.
+            default -> false;
         };
     }
 

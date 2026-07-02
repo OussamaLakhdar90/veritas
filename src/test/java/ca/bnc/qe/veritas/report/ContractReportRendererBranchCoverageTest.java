@@ -63,13 +63,14 @@ class ContractReportRendererBranchCoverageTest {
 
     @Test
     void minorBandForScoreBetween75And89() {
-        // Two MAJORs = -16 -> 84 (75..89) -> "Below target", below the 90 gate so it FAILS but no blockers.
+        // Two MAJORs = -16 -> 84 (75..89) -> "Below target", below the 90 gate so it FAILS but no blockers. One is a
+        // breaking type-mismatch, so the release verdict is the strict "Hold for fixes" (not the additive-only proceed).
         String html = renderer.renderHtml(scan("svc"),
                 List.of(counted(FindingType.STATUS_CODE_MISSING, Severity.MAJOR),
-                        counted(FindingType.SCHEMA_FIELD_MISSING, Severity.MAJOR)));
+                        counted(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, Severity.MAJOR)));
         assertThat(html).contains("class=\"rating rating-minor\">").contains("Below target")
                 .contains("class=\"gate gate-fail\">").contains("Quality gate: FAIL")
-                .contains("Hold for fixes");        // !pass && no blocking
+                .contains("Hold for fixes");        // !pass && a breaking finding present
         assertThat(html).contains("84/100");
     }
 

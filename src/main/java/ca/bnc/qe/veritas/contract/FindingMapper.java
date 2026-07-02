@@ -1,5 +1,7 @@
 package ca.bnc.qe.veritas.contract;
 
+import java.util.Arrays;
+import java.util.List;
 import ca.bnc.qe.veritas.engine.model.SourceRef;
 import ca.bnc.qe.veritas.finding.Confidence;
 import ca.bnc.qe.veritas.finding.Finding;
@@ -33,6 +35,7 @@ public final class FindingMapper {
                 .confidence(parse(Confidence.class, r.getConfidence()))
                 .origin(r.getOrigin())
                 .endpoint(r.getEndpoint())
+                .affectedEndpoints(splitCsv(r.getAffectedEndpoints()))
                 .specSource(r.getSpecSource())
                 .summary(r.getSummary())
                 .explanation(r.getExplanation())
@@ -46,6 +49,14 @@ public final class FindingMapper {
                 .aiDisputed(r.isAiDisputed())
                 .aiDisputeReason(r.getAiDisputeReason())
                 .build();
+    }
+
+    /** CSV → list of affected endpoints (empty when null/blank). Inverse of {@code String.join(",", …)}. */
+    static List<String> splitCsv(String csv) {
+        if (csv == null || csv.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(csv.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
     }
 
     private static <E extends Enum<E>> E parse(Class<E> cls, String v) {

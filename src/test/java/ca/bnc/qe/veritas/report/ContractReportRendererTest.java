@@ -171,6 +171,48 @@ class ContractReportRendererTest {
     }
 
     @Test
+    void additiveOnlyDriftBelow90RendersProceedWithDocumentationFixes() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        // Two additive MAJORs (code returns fields the spec omits) → score 84 (<90) but nothing breaks a consumer.
+        Finding a = Finding.builder().findingId("a").type(FindingType.SCHEMA_FIELD_MISSING).layer(Layer.L4)
+                .severity(Severity.MAJOR).confidence(Confidence.HIGH).origin("DETERMINISTIC").service("ciam-policies")
+                .specSource("code-vs-spec").endpoint("GET /policies").summary("Field 'x' in code, missing from spec").build();
+        Finding b = a.toBuilder().findingId("b").endpoint("GET /policies/{app}")
+                .summary("Field 'y' in code, missing from spec").build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(a, b));
+        assertThat(html).contains("Proceed — documentation fixes recommended")
+                .contains("0 release-blocking")
+                .doesNotContain("Hold for fixes");
+    }
+
+    @Test
+    void aBreakingMajorBelow90StillRendersHoldForFixes() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        Finding breaking = Finding.builder().findingId("t").type(FindingType.SCHEMA_FIELD_TYPE_MISMATCH).layer(Layer.L4)
+                .severity(Severity.MAJOR).confidence(Confidence.HIGH).origin("DETERMINISTIC").service("ciam-policies")
+                .specSource("code-vs-spec").endpoint("GET /policies").summary("Field 'x' type — code string vs spec integer").build();
+        Finding additive = breaking.toBuilder().findingId("m").type(FindingType.SCHEMA_FIELD_MISSING)
+                .summary("Field 'y' in code, missing from spec").build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(breaking, additive));
+        assertThat(html).contains("Hold for fixes").doesNotContain("documentation fixes recommended");
+    }
+
+    @Test
+    void collapsedFindingListsItsAffectedEndpoints() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        Finding shared = Finding.builder().findingId("s").type(FindingType.SCHEMA_FIELD_MISSING).layer(Layer.L4)
+                .severity(Severity.MAJOR).confidence(Confidence.HIGH).origin("DETERMINISTIC").service("ciam-policies")
+                .specSource("code-vs-spec").endpoint("GET /policies")
+                .affectedEndpoints(List.of("GET /policies", "GET /policies/{app}"))
+                .summary("Field 'excludeAttributes' is in code but missing from spec").build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(shared));
+        assertThat(html).contains("Affects").contains("GET /policies/{app}").contains("2 ");
+    }
+
+    @Test
     void recordedDispositionRendersAsAnAuditedBadge() {
         Scan scan = new Scan();
         scan.setServiceName("ciam-policies");
