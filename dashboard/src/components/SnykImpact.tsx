@@ -22,6 +22,18 @@ const SEV = [
 export function SnykImpactCard({ showLink = true }: { showLink?: boolean }) {
   const { t } = useTranslation();
   const q = useQuery({ queryKey: ['snyk-summary'], queryFn: api.snykSummary, refetchInterval: 60000 });
+  const fixesQ = useQuery({ queryKey: ['snyk-fixes'], queryFn: api.snykFixes, staleTime: 30_000 });
+  // Median detection-to-merged over DONE trains; createdAt is the honest clock (startedAt is reconciler-reset).
+  const mttrDays = (() => {
+    const done = (fixesQ.data ?? []).filter((x) => x.status === 'DONE' && x.createdAt && x.finishedAt)
+      .map((x) => (new Date(x.finishedAt as string).getTime() - new Date(x.createdAt as string).getTime()) / 86_400_000)
+      .filter((d) => d > 0)
+      .sort((a, b) => a - b);
+    if (done.length === 0) return null;
+    const mid = Math.floor(done.length / 2);
+    const med = done.length % 2 === 1 ? done[mid] : (done[mid - 1] + done[mid]) / 2;
+    return Math.round(med * 10) / 10;
+  })();
   const s = q.data;
   if (!s || s.watchedApps === 0) return null;
 
@@ -82,6 +94,9 @@ export function SnykImpactCard({ showLink = true }: { showLink?: boolean }) {
             </div>
           </div>
         </div>
+        {mttrDays != null && (
+          <p className="mt-3 text-sm text-muted">{t('snyk.impact.mttr', { days: mttrDays })}</p>
+        )}
       </CardBody>
     </Card>
   );

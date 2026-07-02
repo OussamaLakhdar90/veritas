@@ -47,6 +47,26 @@
     "dismissToast": "Rejeter la notification",
     "technicalDetails": "Détails techniques"
   },
+  "live": {
+    "step": "Étape {{n}} sur {{m}} — {{label}}",
+    "done": "{{service}} : note {{score}}/100",
+    "doneNoScore": "{{service}} terminé",
+    "view": "Voir les constats",
+    "dismiss": "Fermer"
+  },
+  "queue": {
+    "title": "En attente de vous",
+    "subtitle": "Rien n’est écrit dans Jira, Xray ou Git sans votre approbation.",
+    "empty": "Aucune décision en attente.",
+    "gates": "{{count}} approbation(s) en attente",
+    "alerts": "{{count}} nouvelle(s) alerte(s) de sécurité",
+    "trains": "{{count}} train(s) de correction en attente de confirmation"
+  },
+  "precision": {
+    "summary": "Les ingénieurs ont révisé {{reviewed}} constats — {{pct}} % acceptés · {{jira}} envoyés à Jira.",
+    "summaryNoRate": "Les ingénieurs ont révisé {{reviewed}} constats — {{jira}} envoyés à Jira.",
+    "disputed": "L’IA a contesté {{count}} de ses propres constats en premier."
+  },
   "enums": {
     "gateStatus": { "PENDING": "En attente", "APPROVED": "Approuvé", "REJECTED": "Rejeté" },
     "strategyStatus": { "DRAFT": "Brouillon", "IN_REVIEW": "En révision", "APPROVED": "Approuvée" },
@@ -69,6 +89,7 @@
     "impact": {
       "title": "Sécurité des dépendances",
       "watching": "Surveillance de {{apps}} app-id · {{projects}} projets",
+      "mttr": "Résolution médiane : {{days}} jours",
       "open": "Ouvrir Snyk",
       "found": "Trouvées — ouvertes",
       "fixed": "Corrigées par Veritas",

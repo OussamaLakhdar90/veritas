@@ -10,6 +10,10 @@ import { Donut, Gauge, Sparkline, severitySlices, SEV_SWATCH } from '../componen
 import { SnykImpactCard } from '../components/SnykImpact';
 import { FidelityScorecard, letterGrade } from '../components/FidelityScorecard';
 import { ValueStrip } from '../components/ValueStrip';
+import { LiveScanRow } from '../components/LiveScanRow';
+import { PrecisionStrip } from '../components/PrecisionStrip';
+import { DecisionQueue } from '../components/DecisionQueue';
+import { StaggerItem, StaggerList } from '../components/motion';
 import { TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
 import { formatDuration, formatMoney, formatDateTime, formatRelative } from '../lib/format';
@@ -52,7 +56,9 @@ export function Dashboard() {
     return status ? status.charAt(0) + status.slice(1).toLowerCase() : '—';
   };
 
-  const scansQ = useQuery({ queryKey: ['scans'], queryFn: () => api.scans() });
+  // 2s live poll while any scan runs (drives the LiveScanRow theatre), calm otherwise.
+  const scansQ = useQuery({ queryKey: ['scans'], queryFn: () => api.scans(),
+    refetchInterval: (q) => ((q.state.data ?? []) as Scan[]).some((s) => (s.status || '').toUpperCase() === 'RUNNING') ? 2000 : false });
   const preflightQ = useQuery({ queryKey: ['preflight'], queryFn: api.preflight });
   const costQ = useQuery({ queryKey: ['costs'], queryFn: api.costSummary });
   const defectsQ = useQuery({ queryKey: ['defects'], queryFn: api.defects });
@@ -111,16 +117,16 @@ export function Dashboard() {
 
   const kpiTiles = (
     <>
-      <KpiTile label={t('overview.kpiServices')} value={totals.services} tone="brand"
-        sub={t('overview.kpiServicesSub', { count: scans.length })} />
-      <KpiTile label={t('overview.kpiBreaking')} value={summary?.totals.breakingFindingsCaught ?? 0}
+      <StaggerItem><KpiTile label={t('overview.kpiServices')} value={totals.services} tone="brand"
+        sub={t('overview.kpiServicesSub', { count: scans.length })} /></StaggerItem>
+      <StaggerItem><KpiTile label={t('overview.kpiBreaking')} value={summary?.totals.breakingFindingsCaught ?? 0}
         tone={(summary?.totals.breakingFindingsCaught ?? 0) > 0 ? 'danger' : 'success'}
-        sub={t('overview.kpiBreakingSub')} />
-      <KpiTile label={t('overview.kpiDefects')} value={totals.openDefects}
-        tone={totals.openDefects > 0 ? 'danger' : 'success'} sub={t('overview.kpiDefectsSub')} />
-      <KpiTile label={t('overview.kpiCost')} value={formatMoney(totals.spend)}
+        sub={t('overview.kpiBreakingSub')} /></StaggerItem>
+      <StaggerItem><KpiTile label={t('overview.kpiDefects')} value={totals.openDefects}
+        tone={totals.openDefects > 0 ? 'danger' : 'success'} sub={t('overview.kpiDefectsSub')} /></StaggerItem>
+      <StaggerItem><KpiTile label={t('overview.kpiCost')} value={formatMoney(totals.spend)}
         sub={costQ.data ? t('overview.kpiCostCalls', { count: costQ.data.actions }) : t('overview.kpiCostEnv')}
-        trend={costTrend} />
+        trend={costTrend} /></StaggerItem>
     </>
   );
 
@@ -141,6 +147,9 @@ export function Dashboard() {
           <ErrorState message={(loadError as Error).message} />
         </div>
       )}
+
+      {/* Live validations — pinned theatre while the machine works; morphs into the score reveal. */}
+      {!loadError && <LiveScanRow scans={scans} />}
 
       {/* Setup nudge — only when something is unconfigured */}
       {missing.length > 0 && (
@@ -170,13 +179,13 @@ export function Dashboard() {
       {hasHero && (
         <div className="mb-6 grid gap-4 xl:grid-cols-[minmax(340px,5fr),6fr]">
           <FidelityScorecard summary={summary} coverageGaps={coverageGaps} />
-          <div className="grid grid-cols-2 gap-4">{kpiTiles}</div>
+          <StaggerList className="grid grid-cols-2 gap-4">{kpiTiles}</StaggerList>
         </div>
       )}
 
       {/* KPI-only fallback while nothing is scored yet (zeroed tiles are honest on an empty portfolio) */}
       {!scansQ.isLoading && !hasHero && (
-        <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">{kpiTiles}</div>
+        <StaggerList className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">{kpiTiles}</StaggerList>
       )}
 
       {scansQ.isLoading && (
@@ -187,6 +196,9 @@ export function Dashboard() {
 
       {/* ROI strip — duration, cost per audit, review hours avoided (estimated — assumption in the tooltip) */}
       {hasData && <ValueStrip scans={scans} />}
+
+      {/* Human-in-the-loop proof: acceptance rate + the AI's own disputes. */}
+      {hasData && summary && <PrecisionStrip summary={summary} />}
 
       {/* Charts row — severity mix, resolution, findings trend */}
       {hasData && (
@@ -229,6 +241,9 @@ export function Dashboard() {
 
       {/* Dependency-security posture (Snyk) — found vs fixed; renders only when app-ids are watched. */}
       <SnykImpactCard />
+
+      {/* Everything waiting on a named human — the governance selling point. */}
+      {hasData && <DecisionQueue />}
 
       {/* Scorecard by service — letter grades, deltas, coverage honesty, assets, deep links. */}
       {services.length > 0 && (
