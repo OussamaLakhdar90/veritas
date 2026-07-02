@@ -7,7 +7,7 @@ import { server } from "./msw/server"
 import { ToastProvider } from "../components/Toast"
 import { App } from "../App"
 
-// App owns its OWN HashRouter + BackgroundScansProvider + CopilotAuthProvider, so renderPage (a MemoryRouter)
+// App owns its OWN HashRouter + ActivityCenterProvider + CopilotAuthProvider, so renderPage (a MemoryRouter)
 // would double-wrap the router. Render the bare <App/> under only the two providers the shell still needs.
 function renderApp(): ReturnType<typeof render> {
   const client = new QueryClient({

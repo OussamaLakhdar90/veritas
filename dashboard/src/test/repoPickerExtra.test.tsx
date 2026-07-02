@@ -265,12 +265,18 @@ describe('RepoPicker — failed scan and run-in-background', () => {
     expect(await screen.findByText('Spec path')).toBeInTheDocument()
   })
 
-  it('hands a still-running scan to the background dock and closes the modal', async () => {
+  it('closes the modal on "Run in background" — the server-truth Activity dock shows the running scan', async () => {
     server.use(
       http.post('*/api/v1/scans', () => HttpResponse.json({ scanId: 'scan-bg', status: 'RUNNING' }, { status: 202 })),
       // Stays RUNNING so the footer keeps the "Run in background" affordance.
       http.get('*/api/v1/scans/:id', () =>
         HttpResponse.json({ id: 'scan-bg', status: 'RUNNING', stage: 'EXTRACTING', startedAt: new Date().toISOString(), totalFindings: 0 })),
+      // The Activity Center feed already knows about the running scan — no client-side tracking involved.
+      http.get('*/api/v1/activity', () => HttpResponse.json([
+        { id: 'scan-bg', type: 'SCAN', label: 'auth-gateway', status: 'RUNNING', stage: 'EXTRACTING',
+          detail: '', needsAttention: false, startedAt: new Date().toISOString(), finishedAt: null,
+          link: '/findings/scan-bg', acked: false },
+      ])),
     )
     const user = userEvent.setup()
     renderPage(<RepoPicker />)
@@ -280,16 +286,15 @@ describe('RepoPicker — failed scan and run-in-background', () => {
     expect(await screen.findByText(/Validate auth-gateway/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Run validation/ }))
 
-    // Once RUNNING, the footer flips to "Run in background"; clicking tracks it + closes the modal.
+    // Once RUNNING, the footer flips to "Run in background"; clicking just closes the modal.
     const bgButton = await screen.findByRole('button', { name: /Run in background/ })
     await user.click(bgButton)
 
-    // The modal is gone, and the floating dock card now tracks the scan: its dismiss control and the
-    // compact stage label ("Reading code" = EXTRACTING) only exist inside the dock, not the repo table.
+    // The modal is gone, and the floating Activity dock card shows the scan (label + plain status),
+    // straight from the server feed — no localStorage tracking anymore.
     expect(screen.queryByText(/Validating auth-gateway/)).not.toBeInTheDocument()
     const dock = (await screen.findByRole('button', { name: 'Dismiss' })).closest('div[class*="pointer-events-auto"]') as HTMLElement
     expect(within(dock).getByText('auth-gateway')).toBeInTheDocument()
-    expect(within(dock).getByText(/Reading code/)).toBeInTheDocument()
-    expect(JSON.parse(localStorage.getItem('veritas-bg-scans') || '[]')).toHaveLength(1)
+    expect(within(dock).getByText('Running')).toBeInTheDocument()
   })
 })

@@ -26,6 +26,10 @@ export const handlers = [
   })),
   // The TopBar alert bell polls unseen Snyk alerts app-wide; default empty so unrelated tests don't see it.
   http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([])),
+  // The ActivityCenterProvider polls the unified activity feed app-wide; default empty (nothing running),
+  // and acknowledge succeeds silently. Tests that exercise the dock/bell override via server.use(...).
+  http.get('*/api/v1/activity', () => HttpResponse.json([])),
+  http.post('*/api/v1/activity/ack', () => new HttpResponse(null, { status: 200 })),
   // The Dashboard's Snyk impact card fetches the summary; default to zero watches → the card renders nothing.
   http.get('*/api/v1/snyk/summary', () => HttpResponse.json({
     watchedApps: 0, projects: 0, critical: 0, high: 0, medium: 0, low: 0, fixable: 0, unseenAlerts: 0,
