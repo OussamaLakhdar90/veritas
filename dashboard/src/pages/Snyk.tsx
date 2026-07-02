@@ -3,10 +3,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { RefreshCw, Trash2, Eye, ExternalLink, ShieldCheck, PackageOpen, X, ShieldAlert, AlertTriangle,
-  PlugZap, Settings as SettingsIcon, ArrowRight } from 'lucide-react';
+  PlugZap, Settings as SettingsIcon } from 'lucide-react';
 import { api, type SnykIssueView } from '../api';
 import {
-  Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Spinner,
+  Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Input, Spinner,
   Table, Th, Td, Row, PageHeader,
 } from '../components/ui';
 import { SnykLogo } from '../components/SnykLogo';
@@ -275,37 +275,79 @@ export function Snyk() {
   );
 }
 
-/** Guided "Snyk isn't connected yet" state — a clear, step-by-step path to Settings instead of a dead-end hint. */
+/** Guided "Snyk isn't connected yet" state — paste your personal API token right here and connect in one click. */
 function ConnectSnykPanel() {
   const { t } = useTranslation();
-  const steps = [
-    <>{t('snyk.connectStep1')}{' '}
-      <a href="https://app.snyk.io/account" target="_blank" rel="noreferrer"
-        className="font-medium text-gold hover:underline">app.snyk.io/account</a></>,
-    t('snyk.connectStep2'),
-    t('snyk.connectStep3'),
-  ];
+  const qc = useQueryClient();
+  const toast = useToast();
+  const [token, setToken] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+
+  // Save the token (encrypted, server-side), then validate it via Test connection; on success the orgs query
+  // refetches and this whole panel is replaced by the app list — no trip to Settings needed.
+  const connect = useMutation({
+    mutationFn: async () => {
+      await api.setSecret('SNYK_API_TOKEN', token.trim());
+      const res = await api.testConnection('snyk');
+      if (!res.authenticated) {
+        throw new Error(res.message || t('snyk.connectFailed'));
+      }
+      return res;
+    },
+    onSuccess: () => {
+      setErr(null);
+      setToken('');
+      toast.push('success', t('snyk.connectedToast'));
+      qc.invalidateQueries({ queryKey: ['snyk-orgs'] });
+    },
+    onError: (e: Error) => setErr(e.message || t('snyk.connectFailed')),
+  });
+
+  const badge = (n: number) => (
+    <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-white">{n}</span>
+  );
+
   return (
     <div className="rounded-xl border border-dashed border-border bg-ink-50/40 px-5 py-5">
       <div className="flex items-start gap-3">
         <div className="shrink-0 rounded-lg bg-brand-50 p-2"><PlugZap className="h-5 w-5 text-brand" /></div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="text-[15px] font-semibold text-ink-900">{t('snyk.connectTitle')}</p>
           <p className="mt-0.5 text-[13px] text-muted">{t('snyk.connectBody')}</p>
-          <ol className="mt-3 space-y-2">
-            {steps.map((node, i) => (
-              <li key={i} className="flex items-start gap-2.5 text-[13px] text-ink-700">
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-white">
-                  {i + 1}
-                </span>
-                <span className="min-w-0">{node}</span>
-              </li>
-            ))}
-          </ol>
-          <Link to="/settings"
-            className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-brand px-3.5 py-2 text-[13px] font-medium text-white hover:bg-brand-700">
-            <SettingsIcon className="h-4 w-4" /> {t('snyk.connectCta')} <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
+
+          {/* Step 1 — get the token */}
+          <p className="mt-3 flex items-start gap-2.5 text-[13px] text-ink-700">
+            {badge(1)}
+            <span className="min-w-0">{t('snyk.connectStep1')}{' '}
+              <a href="https://app.snyk.io/account" target="_blank" rel="noreferrer"
+                className="font-medium text-gold hover:underline">app.snyk.io/account</a></span>
+          </p>
+
+          {/* Step 2 — paste it right here + connect */}
+          <form className="mt-2 flex items-start gap-2.5"
+            onSubmit={(e) => { e.preventDefault(); if (token.trim()) connect.mutate(); }}>
+            {badge(2)}
+            <div className="flex flex-1 flex-wrap items-end gap-2">
+              <div className="min-w-[240px] flex-1">
+                <label htmlFor="snyk-token" className="mb-1 block text-[12px] font-medium text-ink-700">
+                  {t('snyk.tokenLabel')}
+                </label>
+                <Input id="snyk-token" type="password" autoComplete="off" placeholder={t('snyk.tokenPlaceholder')}
+                  value={token} onChange={(e) => setToken(e.target.value)} />
+              </div>
+              <Button type="submit" disabled={!token.trim()} loading={connect.isPending}>
+                <PlugZap className="h-4 w-4" /> {t('snyk.connectCta2')}
+              </Button>
+            </div>
+          </form>
+          {err && <p className="mt-2 pl-[30px] text-[13px] text-danger" role="alert">{err}</p>}
+
+          <p className="mt-3 text-[12px] text-muted">
+            {t('snyk.connectAdvanced')}{' '}
+            <Link to="/settings" className="inline-flex items-center gap-1 font-medium text-gold hover:underline">
+              <SettingsIcon className="h-3.5 w-3.5" /> {t('snyk.openFullSettings')}
+            </Link>
+          </p>
         </div>
       </div>
     </div>
