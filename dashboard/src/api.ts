@@ -630,7 +630,7 @@ export const api = {
   connections: () => get<ConnectionsCfg>('/settings/connections'),
   saveConnections: (cfg: ConnectionsCfg) => send<UpdateConnectionsResult>('PUT', '/settings/connections', cfg),
   testConnection: (service: string) => send<ConnectionTestResult>('POST', `/settings/connections/${encodeURIComponent(service)}/test`),
-  llmSettings: () => get<{ active: string; desired: string; simulated: boolean; model: string }>('/settings/llm'),
+  llmSettings: () => get<{ active: string; desired: string; simulated: boolean; model: string; seeded?: boolean }>('/settings/llm'),
   saveLlmSettings: (mode: string) =>
     send<{ applied: boolean; restartRequiredFields: string[] }>('PUT', '/settings/llm', { mode }),
   copilotStatus: () => get<{ authenticated: boolean; connected?: boolean }>('/settings/copilot/status'),

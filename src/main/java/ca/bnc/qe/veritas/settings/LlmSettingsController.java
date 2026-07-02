@@ -19,6 +19,9 @@ public class LlmSettingsController {
     @Value("${veritas.llm.mode:mock}")
     private String activeMode;
 
+    @Value("${veritas.demo.seed:false}")
+    private boolean demoSeeded;
+
     @Value("${veritas.llm.model:claude-sonnet-4.6}")
     private String model;
 
@@ -35,7 +38,8 @@ public class LlmSettingsController {
                 activeMode,
                 desired == null ? activeMode : desired,
                 "mock".equalsIgnoreCase(activeMode),   // simulated → results are canned, not real Copilot
-                model);
+                model,
+                demoSeeded);
     }
 
     @PutMapping
@@ -44,8 +48,9 @@ public class LlmSettingsController {
         return new LlmUpdateResponse(!restart, restart ? List.of("mode") : List.of());
     }
 
-    /** {@code simulated} = the active engine is the mock (sign-in/connections won't change skill output). */
-    public record LlmSettingsView(String active, String desired, boolean simulated, String model) {}
+    /** {@code simulated} = the active engine is the mock (sign-in/connections won't change skill output);
+     *  {@code seeded} = the demo portfolio seeder is on — the UI must wear a visible "demo data" badge. */
+    public record LlmSettingsView(String active, String desired, boolean simulated, String model, boolean seeded) {}
 
     public record LlmUpdateRequest(String mode) {}
 

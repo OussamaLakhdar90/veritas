@@ -1060,6 +1060,8 @@
     "addScope": "Ajouter une portée"
   },
   "engine": {
+    "seededData": "Données de démo",
+    "seededTooltip": "Cet environnement utilise un portefeuille de démonstration — les chiffres sont illustratifs, le produit est réel.",
     "simulatedData": "Données simulées",
     "mockTooltip": "Le moteur actif est le moteur fictif — les résultats sont simulés et ne constituent pas une analyse réelle. Changez de moteur dans les Paramètres."
   },
