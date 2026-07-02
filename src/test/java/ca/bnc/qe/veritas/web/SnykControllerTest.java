@@ -12,6 +12,8 @@ import java.util.List;
 import ca.bnc.qe.veritas.integration.snyk.SnykOrg;
 import ca.bnc.qe.veritas.snyk.SnykIssueView;
 import ca.bnc.qe.veritas.snyk.SnykService;
+import ca.bnc.qe.veritas.snyk.SnykSummaryService;
+import ca.bnc.qe.veritas.snyk.SnykSummaryView;
 import ca.bnc.qe.veritas.snyk.SnykWatchView;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +31,20 @@ class SnykControllerTest {
 
     @MockBean
     private SnykService snyk;
+    @MockBean
+    private SnykSummaryService summary;
+
+    @Test
+    void summaryRollsUpFoundVsFixed() throws Exception {
+        when(summary.summary()).thenReturn(new SnykSummaryView(2, 5, 4, 12, 8, 3, 6, 1,
+                7, 2, 4, 1, 15, 7, 0.42));
+        mvc.perform(get("/api/v1/snyk/summary"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.critical").value(4))
+                .andExpect(jsonPath("$.fixesMerged").value(4))
+                .andExpect(jsonPath("$.prsOpened").value(15))
+                .andExpect(jsonPath("$.llmCostUsd").value(0.42));
+    }
 
     @Test
     void listsOrgs() throws Exception {

@@ -25,7 +25,8 @@ export function AlertBell() {
 
   return (
     <button type="button" onClick={() => navigate('/snyk')} aria-label={t('header.alerts', { count })}
-      className="relative grid h-9 w-9 shrink-0 place-items-center rounded-md text-ink-600 hover:bg-ink-50">
+      className={cn('relative grid h-9 w-9 shrink-0 place-items-center rounded-md hover:bg-ink-50',
+        hasCritical ? 'text-danger' : 'text-ink-600')}>
       <Bell className="h-[18px] w-[18px]" />
       {count > 0 && (
         <span className={cn(
@@ -33,6 +34,10 @@ export function AlertBell() {
           hasCritical ? 'bg-danger' : 'bg-brand')}>
           {count > 9 ? '9+' : count}
         </span>
+      )}
+      {/* A pulsing ring when a Critical alert is unseen — draws the eye without being obnoxious. */}
+      {hasCritical && (
+        <span className="absolute -right-0.5 -top-0.5 h-4 w-4 animate-ping rounded-full bg-danger/40" aria-hidden="true" />
       )}
     </button>
   );

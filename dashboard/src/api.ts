@@ -452,6 +452,13 @@ export interface SnykAlert {
   id: string; watchId: string; orgSlug: string; repoSlug: string; severity: string; message: string;
   seen: boolean; createdAt?: string;
 }
+/** Managerial roll-up — what's open (found) vs what Veritas has done about it (fixed). */
+export interface SnykSummary {
+  watchedApps: number; projects: number;
+  critical: number; high: number; medium: number; low: number; fixable: number; unseenAlerts: number;
+  fixesStarted: number; fixesInProgress: number; fixesMerged: number; fixesBreaking: number;
+  prsOpened: number; llmChecks: number; llmCostUsd: number;
+}
 
 /** The advisory breaking-change verdict (unavailable when Copilot is off — the reactor build is the real gate). */
 export interface BreakingVerdict {
@@ -628,6 +635,7 @@ export const api = {
   copilotSignout: () => send<void>('POST', '/settings/copilot/signout'),
 
   // ── Snyk dependency-security module ──
+  snykSummary: () => get<SnykSummary>('/snyk/summary'),
   snykOrgs: () => get<SnykOrg[]>('/snyk/orgs'),
   snykRepos: (orgId: string) => get<SnykTarget[]>(`/snyk/orgs/${encodeURIComponent(orgId)}/repos`),
   snykWatches: () => get<SnykWatchView[]>('/snyk/watches'),

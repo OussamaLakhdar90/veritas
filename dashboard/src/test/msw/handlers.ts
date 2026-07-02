@@ -21,4 +21,9 @@ export const handlers = [
   http.get('*/api/v1/scans/trend', () => HttpResponse.json([])),
   // The TopBar alert bell polls unseen Snyk alerts app-wide; default empty so unrelated tests don't see it.
   http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([])),
+  // The Dashboard's Snyk impact card fetches the summary; default to zero watches → the card renders nothing.
+  http.get('*/api/v1/snyk/summary', () => HttpResponse.json({
+    watchedApps: 0, projects: 0, critical: 0, high: 0, medium: 0, low: 0, fixable: 0, unseenAlerts: 0,
+    fixesStarted: 0, fixesInProgress: 0, fixesMerged: 0, fixesBreaking: 0, prsOpened: 0, llmChecks: 0, llmCostUsd: 0,
+  })),
 ]

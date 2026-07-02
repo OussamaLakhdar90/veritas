@@ -7,6 +7,8 @@ import ca.bnc.qe.veritas.integration.snyk.SnykTarget;
 import ca.bnc.qe.veritas.snyk.SnykAlertView;
 import ca.bnc.qe.veritas.snyk.SnykIssueView;
 import ca.bnc.qe.veritas.snyk.SnykService;
+import ca.bnc.qe.veritas.snyk.SnykSummaryService;
+import ca.bnc.qe.veritas.snyk.SnykSummaryView;
 import ca.bnc.qe.veritas.snyk.SnykWatchView;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -28,9 +30,17 @@ import org.springframework.web.bind.annotation.RestController;
 public class SnykController {
 
     private final SnykService snyk;
+    private final SnykSummaryService summary;
 
-    public SnykController(SnykService snyk) {
+    public SnykController(SnykService snyk, SnykSummaryService summary) {
         this.snyk = snyk;
+        this.summary = summary;
+    }
+
+    /** Managerial roll-up (found vs fixed, PRs opened, LLM spend) for the executive dashboard + the Snyk page. */
+    @GetMapping("/snyk/summary")
+    public SnykSummaryView summary() {
+        return summary.summary();
     }
 
     /** Orgs (app-ids) the token can see. */

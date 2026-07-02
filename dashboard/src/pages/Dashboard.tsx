@@ -7,6 +7,7 @@ import { api, Scan } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, KpiTile, PageHeader, Skeleton } from '../components/ui';
 import type { KpiTrend } from '../components/ui';
 import { Donut, Gauge, Sparkline, severitySlices, SEV_SWATCH } from '../components/charts';
+import { SnykImpactCard } from '../components/SnykImpact';
 import { TONE } from '../theme/tokens';
 
 /** Map a validation status to a status-pill tone. */
@@ -212,6 +213,9 @@ export function Dashboard() {
           </Card>
         </div>
       )}
+
+      {/* Dependency-security posture (Snyk) — found vs fixed; renders only when app-ids are watched. */}
+      <SnykImpactCard />
 
       {/* Pipeline by service — everything the platform holds work for, browsable (find-your-work). */}
       {services.length > 0 && (
