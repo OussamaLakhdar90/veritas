@@ -27,16 +27,38 @@ describe('Snyk page', () => {
     expect(screen.getAllByLabelText('Snyk').length).toBeGreaterThan(0)
   })
 
-  it('shows a guided "Connect Snyk" call-to-action (with a Settings link) when Snyk is not connected', async () => {
+  it('lets the user paste a Snyk token inline and connects, then loads the apps', async () => {
+    let orgsConnected = false
+    let savedToken: string | null = null
     server.use(
-      http.get('*/api/v1/snyk/orgs', () => new HttpResponse(null, { status: 500 })),   // no token → orgs errors
+      // Orgs error until a token is saved + the connection tests OK, then they load.
+      http.get('*/api/v1/snyk/orgs', () => orgsConnected
+        ? HttpResponse.json([{ id: 'o1', slug: 'app7576', name: 'CIAM Profile' }])
+        : new HttpResponse(null, { status: 500 })),
       http.get('*/api/v1/snyk/watches', () => HttpResponse.json([])),
       http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([])),
+      http.post('*/api/v1/settings/secrets', async ({ request }) => {
+        savedToken = ((await request.json()) as { value: string }).value
+        return new HttpResponse(null, { status: 204 })
+      }),
+      http.post('*/api/v1/settings/connections/snyk/test', () => {
+        orgsConnected = true
+        return HttpResponse.json({ service: 'snyk', reachable: true, authenticated: true, status: 200, message: 'ok' })
+      }),
     )
+    const user = userEvent.setup()
     renderSnyk()
+
+    // Guided panel with an inline token field — no trip to Settings needed.
     expect(await screen.findByText('Connect Snyk to get started')).toBeInTheDocument()
-    const cta = screen.getByRole('link', { name: /Connect Snyk in Settings/ })
-    expect(cta).toHaveAttribute('href', '/settings')
+    await user.type(screen.getByLabelText('Paste your Snyk API token'), 'my-personal-token')
+    await user.click(screen.getByRole('button', { name: /Connect/ }))
+
+    // The token was saved and, once connected, the apps appear (panel replaced by the app list).
+    expect(await screen.findByText('CIAM Profile')).toBeInTheDocument()
+    expect(savedToken).toBe('my-personal-token')
+    // A link to the full Settings page remains for region/advanced options.
+    expect(screen.queryByRole('link', { name: /Open full settings/ })).not.toBeInTheDocument()   // panel is gone now
   })
 
   it('watches selected app-ids via the by-app endpoint (auto application-tests)', async () => {
