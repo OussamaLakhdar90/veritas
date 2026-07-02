@@ -48,6 +48,18 @@
   "snyk": {
     "title": "Snyk",
     "subtitle": "Sécurité des dépendances — surveillez vos dépôts et corrigez les vulnérabilités.",
+    "impact": {
+      "title": "Sécurité des dépendances",
+      "watching": "Surveillance de {{apps}} app-id · {{projects}} projets",
+      "open": "Ouvrir Snyk",
+      "found": "Trouvées — ouvertes",
+      "fixed": "Corrigées par Veritas",
+      "foundSub": "{{open}} ouvertes · {{fixable}} avec une version sûre disponible",
+      "merged": "correctifs fusionnés",
+      "prs": "PR ouvertes",
+      "inProgress": "en cours",
+      "aiCost": "vérifs IA"
+    },
     "refresh": "Actualiser",
     "refreshed_one": "{{count}} dépôt surveillé actualisé.",
     "refreshed_other": "{{count}} dépôts surveillés actualisés.",

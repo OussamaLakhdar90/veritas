@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { RefreshCw, Trash2, Eye, ExternalLink, ShieldCheck, PackageOpen, X } from 'lucide-react';
+import { RefreshCw, Trash2, Eye, ExternalLink, ShieldCheck, PackageOpen, X, ShieldAlert, AlertTriangle } from 'lucide-react';
 import { api, type SnykIssueView } from '../api';
 import {
   Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Spinner,
   Table, Th, Td, Row, PageHeader,
 } from '../components/ui';
 import { SnykLogo } from '../components/SnykLogo';
+import { SnykImpactCard } from '../components/SnykImpact';
 import { SnykFixWizard } from '../components/SnykFixWizard';
 import { useToast } from '../components/Toast';
 import { snykSeverityBadge, TONE } from '../theme/tokens';
@@ -89,22 +90,32 @@ export function Snyk() {
         actions={<Button variant="secondary" loading={refresh.isPending} onClick={() => refresh.mutate()}>
           <RefreshCw className="h-4 w-4" /> {t('snyk.refresh')}</Button>} />
 
-      {/* New-alert notifications (Critical in red). Persistent aria-live region so new arrivals are announced. */}
+      {/* Managerial impact strip — found vs fixed (renders once at least one app-id is watched). */}
+      <SnykImpactCard showLink={false} />
+
+      {/* New-alert notifications. Critical is deliberately alarming (strong red + a pulsing shield); lower severities
+          stay calm. Persistent aria-live region so screen readers announce new arrivals. */}
       <div className={alerts.length > 0 ? 'mb-6 space-y-2' : ''} aria-live="assertive" aria-atomic="false">
-        {alerts.map((a) => (
-          <div key={a.id} role="alert"
-            className={`flex items-start justify-between gap-3 rounded-lg border-l-4 px-4 py-3 text-[13px] ${
-              a.severity === 'critical' ? 'border-l-danger bg-danger/5' : 'border-l-warning bg-warning/5'}`}>
-            <div className="flex items-start gap-2">
-              <Badge className={snykSeverityBadge(a.severity)}>{a.severity}</Badge>
-              <span className="text-ink-900">{a.message}</span>
+        {alerts.map((a) => {
+          const critical = a.severity === 'critical';
+          return (
+            <div key={a.id} role="alert"
+              className={`flex items-start justify-between gap-3 rounded-lg border-l-4 px-4 py-3 text-[13px] ${
+                critical ? 'border-l-danger bg-danger/10 ring-1 ring-danger/25 shadow-sm' : 'border-l-warning bg-warning/5'}`}>
+              <div className="flex items-start gap-2.5">
+                {critical
+                  ? <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 animate-pulse text-danger" aria-hidden="true" />
+                  : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />}
+                <Badge className={snykSeverityBadge(a.severity)}>{a.severity}</Badge>
+                <span className={critical ? 'font-semibold text-danger' : 'text-ink-900'}>{a.message}</span>
+              </div>
+              <button type="button" onClick={() => dismissAlert.mutate(a.id)} aria-label={t('snyk.alertDismiss')}
+                className="shrink-0 rounded p-0.5 text-muted hover:text-ink-900">
+                <X className="h-4 w-4" />
+              </button>
             </div>
-            <button type="button" onClick={() => dismissAlert.mutate(a.id)} aria-label={t('snyk.alertDismiss')}
-              className="shrink-0 rounded p-0.5 text-muted hover:text-ink-900">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Watch applications (app-id-centric — each watch targets that app's application-tests repo) */}

@@ -9,4 +9,7 @@ public interface SnykFixStepRepository extends JpaRepository<SnykFixStep, String
 
     /** Drop a train's steps so a confirm-time re-plan replaces them (rather than duplicating). */
     void deleteByTrainId(String trainId);
+
+    /** How many PRs the fix engine has actually opened across all trains (a step gets a prUrl when its PR opens). */
+    long countByPrUrlIsNotNull();
 }

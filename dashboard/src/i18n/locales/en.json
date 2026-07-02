@@ -48,6 +48,18 @@
   "snyk": {
     "title": "Snyk",
     "subtitle": "Dependency security — watch your repositories and act on vulnerabilities.",
+    "impact": {
+      "title": "Dependency security",
+      "watching": "Watching {{apps}} app-id(s) · {{projects}} projects",
+      "open": "Open Snyk",
+      "found": "Found — open",
+      "fixed": "Fixed by Veritas",
+      "foundSub": "{{open}} open · {{fixable}} with a safe version available",
+      "merged": "fixes merged",
+      "prs": "PRs opened",
+      "inProgress": "in progress",
+      "aiCost": "AI checks"
+    },
     "refresh": "Refresh now",
     "refreshed_one": "Refreshed {{count}} watched repository.",
     "refreshed_other": "Refreshed {{count}} watched repositories.",
