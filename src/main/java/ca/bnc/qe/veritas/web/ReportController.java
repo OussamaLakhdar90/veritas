@@ -13,11 +13,13 @@ import ca.bnc.qe.veritas.persistence.ScanRepository;
 import ca.bnc.qe.veritas.report.ContractReportRenderer;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /** Serves the management report HTML. It re-renders LIVE from the persisted findings so the report always reflects
@@ -43,7 +45,9 @@ public class ReportController {
     }
 
     @GetMapping(value = "/scans/{id}/report", produces = MediaType.TEXT_HTML_VALUE)
-    public ResponseEntity<String> report(@PathVariable String id) throws Exception {
+    public ResponseEntity<String> report(@PathVariable String id,
+                                         @RequestParam(name = "download", defaultValue = "false") boolean download)
+            throws Exception {
         if (id == null || !SAFE_ID.matcher(id).matches()) {
             return ResponseEntity.notFound().build();   // reject path-traversal / unexpected ids outright
         }
@@ -54,8 +58,7 @@ public class ReportController {
             List<FindingRecord> records = findingRepository.findByScanIdOrderBySeverityAsc(id);
             if (!records.isEmpty()) {
                 List<Finding> findings = records.stream().map(FindingMapper::toFinding).toList();
-                return ResponseEntity.ok().contentType(MediaType.TEXT_HTML)
-                        .body(renderer.renderHtml(scan, findings, frenchMap(scan)));
+                return html(renderer.renderHtml(scan, findings, frenchMap(scan)), download, scan);
             }
         }
         // Fallback: the as-scanned HTML written at scan time (older scans, or no persisted findings yet). Try the
@@ -78,7 +81,19 @@ public class ReportController {
         if (file == null) {
             return ResponseEntity.notFound().build();
         }
-        return ResponseEntity.ok().contentType(MediaType.TEXT_HTML).body(Files.readString(file));
+        return html(Files.readString(file), download, scan);
+    }
+
+    /** HTML body, served inline by default or as a named download when {@code download=true}. The report's
+     *  accept/reject controls are self-contained JS, so a downloaded copy stays fully interactive offline. */
+    private ResponseEntity<String> html(String body, boolean download, Scan scan) {
+        ResponseEntity.BodyBuilder b = ResponseEntity.ok().contentType(MediaType.TEXT_HTML);
+        if (download) {
+            String name = (scan != null ? ca.bnc.qe.veritas.report.ReportNaming.baseName(scan) : "contract-report")
+                    + ".html";
+            b.header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + name + "\"");
+        }
+        return b.body(body);
     }
 
     /** The EN→FR translation map captured at scan time, so the live re-render stays bilingual (empty if none). */

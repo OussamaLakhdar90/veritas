@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Bug, FileText, CheckCircle2, AlertTriangle, Check, X, ExternalLink } from 'lucide-react';
+import { Bug, FileText, CheckCircle2, AlertTriangle, Check, X, ExternalLink, Download } from 'lucide-react';
 import { api, Finding } from '../api';
 import { Badge, Button, Card, CardBody, EmptyState, ErrorState, Field, Input, PageHeader, Spinner, Table, Td, Th, Row, SortableTh, useSort } from '../components/ui';
 import { Modal } from '../components/Modal';
@@ -100,10 +100,15 @@ export function Findings() {
       <PageHeader title={t('findings.title')}
         subtitle={t('findings.subtitle')}
         actions={scanId && (
-          <a href={api.reportUrl(scanId)} target="_blank" rel="noreferrer"
-            title={t('findings.reportTooltip')}>
-            <Button variant="secondary"><FileText className="h-4 w-4" /> {t('findings.managementReport')}</Button>
-          </a>
+          <div className="flex items-center gap-2">
+            <a href={api.reportUrl(scanId)} target="_blank" rel="noreferrer"
+              title={t('findings.reportTooltip')}>
+              <Button variant="secondary"><FileText className="h-4 w-4" /> {t('findings.managementReport')}</Button>
+            </a>
+            <a href={api.reportDownloadUrl(scanId)} title={t('findings.downloadTooltip')}>
+              <Button variant="ghost"><Download className="h-4 w-4" /> {t('findings.download')}</Button>
+            </a>
+          </div>
         )} />
 
       {q.isLoading ? (
