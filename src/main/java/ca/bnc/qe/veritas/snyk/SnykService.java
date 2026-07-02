@@ -11,6 +11,9 @@ import ca.bnc.qe.veritas.integration.snyk.SnykOrg;
 import ca.bnc.qe.veritas.integration.snyk.SnykTarget;
 import ca.bnc.qe.veritas.skill.NotFoundException;
 import ca.bnc.qe.veritas.snyk.fix.FrameworkProperties;
+import ca.bnc.qe.veritas.snyk.fix.SnykFixStepRepository;
+import ca.bnc.qe.veritas.snyk.fix.SnykFixTrain;
+import ca.bnc.qe.veritas.snyk.fix.SnykFixTrainRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,10 +34,13 @@ public class SnykService {
     private final SnykAlertRepository alerts;
     private final SnykPollService pollService;
     private final FrameworkProperties framework;
+    private final SnykFixTrainRepository fixTrains;
+    private final SnykFixStepRepository fixSteps;
 
     public SnykService(SnykClient client, SnykWatchRepository watches, SnykSnapshotRepository snapshots,
                        SnykVulnRepository vulns, SnykAlertRepository alerts, SnykPollService pollService,
-                       FrameworkProperties framework) {
+                       FrameworkProperties framework, SnykFixTrainRepository fixTrains,
+                       SnykFixStepRepository fixSteps) {
         this.client = client;
         this.watches = watches;
         this.snapshots = snapshots;
@@ -42,6 +48,8 @@ public class SnykService {
         this.alerts = alerts;
         this.pollService = pollService;
         this.framework = framework;
+        this.fixTrains = fixTrains;
+        this.fixSteps = fixSteps;
     }
 
     public List<SnykOrg> orgs() {
@@ -83,7 +91,11 @@ public class SnykService {
         return view(watches.save(w));
     }
 
-    /** Remove a watch and its owned snapshots/vulns/alerts (so a deleted watch never orphans rows). 404 if unknown. */
+    /**
+     * Remove a watch and everything it owns — snapshots/vulns/alerts <em>and</em> its fix trains + steps — so a
+     * deleted watch never orphans rows. Orphaned trains would otherwise keep inflating the managerial summary's
+     * fix counts (in-progress / PRs opened) for an app nobody watches any more. 404 if unknown.
+     */
     @Transactional
     public void removeWatch(String id) {
         if (!watches.existsById(id)) {
@@ -94,6 +106,11 @@ public class SnykService {
         }
         snapshots.deleteByWatchId(id);
         alerts.deleteByWatchId(id);
+        List<SnykFixTrain> trains = fixTrains.findByWatchId(id);
+        for (SnykFixTrain t : trains) {
+            fixSteps.deleteByTrainId(t.getId());
+        }
+        fixTrains.deleteAll(trains);
         watches.deleteById(id);
     }
 

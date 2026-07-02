@@ -11,6 +11,9 @@ import java.util.Optional;
 import ca.bnc.qe.veritas.integration.snyk.SnykClient;
 import ca.bnc.qe.veritas.integration.snyk.SnykTarget;
 import ca.bnc.qe.veritas.snyk.fix.FrameworkProperties;
+import ca.bnc.qe.veritas.snyk.fix.SnykFixStepRepository;
+import ca.bnc.qe.veritas.snyk.fix.SnykFixTrain;
+import ca.bnc.qe.veritas.snyk.fix.SnykFixTrainRepository;
 import org.junit.jupiter.api.Test;
 
 /** The app-id-centric watch: resolve the canonical application-tests target and watch it. */
@@ -22,8 +25,10 @@ class SnykServiceTest {
     private final SnykVulnRepository vulns = mock(SnykVulnRepository.class);
     private final SnykAlertRepository alerts = mock(SnykAlertRepository.class);
     private final SnykPollService pollService = mock(SnykPollService.class);
-    private final SnykService service =
-            new SnykService(client, watches, snapshots, vulns, alerts, pollService, new FrameworkProperties());
+    private final SnykFixTrainRepository fixTrains = mock(SnykFixTrainRepository.class);
+    private final SnykFixStepRepository fixSteps = mock(SnykFixStepRepository.class);
+    private final SnykService service = new SnykService(
+            client, watches, snapshots, vulns, alerts, pollService, new FrameworkProperties(), fixTrains, fixSteps);
 
     @Test
     void resolvesTheApplicationTestsTargetPreferringAnExactName() {
@@ -52,5 +57,28 @@ class SnykServiceTest {
         assertThatThrownBy(() -> service.addWatchForApp("o1", "app7576", "CIAM Profile"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("application-tests");
+    }
+
+    @Test
+    void removeWatchCascadesToItsFixTrainsAndSteps() {
+        SnykFixTrain train = new SnykFixTrain();
+        train.setId("tr1");
+        when(watches.existsById("w1")).thenReturn(true);
+        when(snapshots.findByWatchId("w1")).thenReturn(List.of());
+        when(fixTrains.findByWatchId("w1")).thenReturn(List.of(train));
+
+        service.removeWatch("w1");
+
+        // The watch's trains (and their steps) are deleted too, so they never orphan into the managerial summary.
+        org.mockito.Mockito.verify(fixSteps).deleteByTrainId("tr1");
+        org.mockito.Mockito.verify(fixTrains).deleteAll(List.of(train));
+        org.mockito.Mockito.verify(watches).deleteById("w1");
+    }
+
+    @Test
+    void removeWatchThrowsWhenUnknown() {
+        when(watches.existsById("nope")).thenReturn(false);
+        assertThatThrownBy(() -> service.removeWatch("nope"))
+                .isInstanceOf(ca.bnc.qe.veritas.skill.NotFoundException.class);
     }
 }

@@ -10,7 +10,6 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -93,18 +92,13 @@ public class AsyncSnykFixRunner {
         }
     }
 
-    /** Non-terminal states — a train in any of these is still "in flight" for the dedup guard. */
-    private static final Set<String> ACTIVE_STATUSES = Set.of(
-            SnykFixStatus.PLANNING, SnykFixStatus.AWAITING_CONFIRM, SnykFixStatus.CHECKING, SnykFixStatus.VERIFYING,
-            SnykFixStatus.OPENING_PRS, SnykFixStatus.PR_OPEN, SnykFixStatus.AWAITING_MANUAL_FIX);
-
     /** Create the train row + kick off the cascade on a background thread; returns the train id immediately. */
     public String submit(SnykFixRequest req) {
         // Idempotency: if a fix is already in flight for this watch + coordinate, reuse it rather than starting a
         // duplicate train that would clone/push the same branches (a poll re-alert or a double click can trigger this).
         if (req.watchId() != null && req.coordinate() != null) {
             for (SnykFixTrain existing : trains.findByWatchIdAndCoordinate(req.watchId(), req.coordinate())) {
-                if (ACTIVE_STATUSES.contains(existing.getStatus())) {
+                if (SnykFixStatus.NON_TERMINAL.contains(existing.getStatus())) {
                     log.info("Snyk fix already in flight for {} on watch {} — reusing train {}",
                             req.coordinate(), req.watchId(), existing.getId());
                     return existing.getId();

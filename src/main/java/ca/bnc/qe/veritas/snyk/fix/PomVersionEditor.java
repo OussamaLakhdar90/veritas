@@ -1,5 +1,7 @@
 package ca.bnc.qe.veritas.snyk.fix;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -13,6 +15,9 @@ public final class PomVersionEditor {
 
     private static final Pattern DEPENDENCY = Pattern.compile("<dependency>(.*?)</dependency>", Pattern.DOTALL);
     private static final Pattern VERSION = Pattern.compile("<version>\\s*([^<]*?)\\s*</version>");
+
+    /** Compiled {@code <tag>…</tag>} patterns, cached by tag name — {@link #tag} runs in a per-dependency loop. */
+    private static final Map<String, Pattern> TAG_PATTERNS = new ConcurrentHashMap<>();
 
     private PomVersionEditor() {
     }
@@ -180,7 +185,8 @@ public final class PomVersionEditor {
     }
 
     private static String tag(String block, String name) {
-        Matcher m = Pattern.compile("<" + name + ">\\s*([^<]*?)\\s*</" + name + ">").matcher(block);
+        Matcher m = TAG_PATTERNS.computeIfAbsent(name, n -> Pattern.compile("<" + n + ">\\s*([^<]*?)\\s*</" + n + ">"))
+                .matcher(block);
         return m.find() ? m.group(1).trim() : "";
     }
 }

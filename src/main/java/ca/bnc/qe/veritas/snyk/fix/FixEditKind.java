@@ -8,8 +8,6 @@ public enum FixEditKind {
     MANAGED_BUMP,
     /** Add a new override (property + dependencyManagement entry) for an unmanaged transitive dependency. */
     ADD_OVERRIDE,
-    /** Bump a plugin's version. */
-    PLUGIN_BUMP,
     /** Bump the module's own {@code <project><version>} (release a new artifact version). */
     VERSION_BUMP
 }

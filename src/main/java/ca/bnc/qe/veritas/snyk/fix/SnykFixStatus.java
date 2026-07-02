@@ -1,5 +1,7 @@
 package ca.bnc.qe.veritas.snyk.fix;
 
+import java.util.List;
+
 /** The lifecycle states of a fix train and its steps (stored as strings so SQLite can ALTER-add freely). */
 public final class SnykFixStatus {
 
@@ -12,7 +14,6 @@ public final class SnykFixStatus {
     public static final String PR_OPEN = "PR_OPEN";                    // clean → train opened
     public static final String AWAITING_MANUAL_FIX = "AWAITING_MANUAL_FIX";  // breaking → branch pushed, PR held
     public static final String DONE = "DONE";                         // all PRs merged
-    public static final String NEEDS_ATTENTION = "NEEDS_ATTENTION";   // unresolvable (couldn't plan/push)
     public static final String FAILED = "FAILED";
 
     // Step status
@@ -26,6 +27,20 @@ public final class SnykFixStatus {
     // Who opened a step's PR
     public static final String BY_VERITAS = "VERITAS";
     public static final String BY_USER = "USER";
+
+    /**
+     * The non-terminal train states — a train in any of these is still "in flight": neither DONE nor FAILED.
+     * Used both by the submit dedup guard (don't start a second train while one is live) and by the managerial
+     * summary's "in progress" bucket. The single source of truth for "not finished".
+     */
+    public static final List<String> NON_TERMINAL = List.of(
+            PLANNING, AWAITING_CONFIRM, CHECKING, VERIFYING, OPENING_PRS, PR_OPEN, AWAITING_MANUAL_FIX);
+
+    /**
+     * The machine-driven states the reconciler may safely restart-recover or time out — never the human-wait
+     * states (AWAITING_CONFIRM / AWAITING_MANUAL_FIX / PR_OPEN), which are meant to sit until a person acts.
+     */
+    public static final List<String> MACHINE_DRIVEN = List.of(PLANNING, CHECKING, VERIFYING, OPENING_PRS);
 
     private SnykFixStatus() {
     }
