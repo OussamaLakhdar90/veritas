@@ -65,7 +65,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }:
       <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
         className={`relative w-full ${width} rounded-xl bg-surface shadow-pop ring-1 ring-border focus:outline-none`}>
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h3 id={titleId} className="text-[15px] font-semibold text-ink-900">{title}</h3>
+          <h3 id={titleId} className="text-md font-semibold text-ink-900">{title}</h3>
           <Button variant="ghost" size="sm" onClick={onClose} aria-label={t('common.close')}><X className="h-4 w-4" /></Button>
         </div>
         <div className="px-5 py-4">{children}</div>

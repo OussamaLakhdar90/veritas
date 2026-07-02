@@ -90,7 +90,7 @@ export function TestCases() {
                   <Td className="max-w-md font-medium text-ink-900">{tc.title}</Td>
                   <Td className="text-muted">{tc.technique ?? '—'}</Td>
                   <Td><Badge className={tone(tc.status)}>{tc.status}</Badge></Td>
-                  <Td className="font-mono text-[12px] text-muted">{tc.xrayKey ?? '—'}</Td>
+                  <Td className="font-mono text-xs text-muted">{tc.xrayKey ?? '—'}</Td>
                   <Td className="text-right whitespace-nowrap">
                     <span className="inline-flex gap-2">
                       <Button size="sm" variant="secondary" disabled={busyId === tc.id}

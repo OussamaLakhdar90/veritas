@@ -92,7 +92,7 @@ export function Settings() {
                   : <XCircle className="mt-0.5 h-4 w-4 text-danger" />}
               <div className="min-w-0">
                 <p className="text-sm font-medium text-ink-900">{c.name}</p>
-                <p className="text-[13px] text-muted">{c.detail}{c.remediation ? ` — ${c.remediation}` : ''}</p>
+                <p className="text-sm text-muted">{c.detail}{c.remediation ? ` — ${c.remediation}` : ''}</p>
               </div>
             </div>
           ))}
@@ -152,11 +152,11 @@ function EngineCard() {
     <Card className="mb-6">
       <CardHeader title={t('settings.engineTitle')}
         subtitle={t('settings.engineSubtitle')}
-        action={<span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${simulated ? 'bg-warning/10 text-warning ring-1 ring-warning/30' : 'bg-success/10 text-success ring-1 ring-success/30'}`}>
+        action={<span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-2xs font-semibold uppercase tracking-wide ${simulated ? 'bg-warning/10 text-warning ring-1 ring-warning/30' : 'bg-success/10 text-success ring-1 ring-success/30'}`}>
           {simulated ? t('settings.engineBadgeMock') : t('settings.engineBadgeLive')}</span>} />
       <CardBody className="space-y-4">
         {simulated && (
-          <div className="flex items-start gap-2 rounded-lg bg-warning/5 p-3 text-[13px] text-ink-700">
+          <div className="flex items-start gap-2 rounded-lg bg-warning/5 p-3 text-sm text-ink-700">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
             <span><Trans i18nKey="settings.engineMockWarning" components={{ b: <strong /> }}
               defaults="You're in <b>mock</b> mode — skill results are simulated and the Copilot sign-in below is not used. Switch to Copilot and restart to run real analysis." /></span>
@@ -174,7 +174,7 @@ function EngineCard() {
             onClick={() => save.mutate(desired)}>{t('settings.save')}</Button>
         </div>
         {pendingRestart && (
-          <p className="text-[12px] text-warning">
+          <p className="text-xs text-warning">
             <Trans i18nKey="settings.enginePendingRestart" values={{ desired, active }}
               components={{ d: <strong />, a: <strong /> }}
               defaults="Pending: <d>{{desired}}</d> will be active after the next restart (currently running <a>{{active}}</a>." />
@@ -285,7 +285,7 @@ function ServiceCard({ def, initial, secrets, onSaved, onError }: {
             </Select>
           </Field>}
         </div>
-        {note && !def.simple && <p className="text-[12px] text-muted">{t('settings.' + note)}</p>}
+        {note && !def.simple && <p className="text-xs text-muted">{t('settings.' + note)}</p>}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {def.tokens
             // Username only matters for username+secret schemes (BASIC / APP_PASSWORD); hide it for token-only auth.
@@ -308,7 +308,7 @@ function ServiceCard({ def, initial, secrets, onSaved, onError }: {
             })}
         </div>
         <div className="flex items-center justify-between">
-          {test ? <span className={`inline-flex items-center gap-1.5 text-[13px] ${testTone}`}>
+          {test ? <span className={`inline-flex items-center gap-1.5 text-sm ${testTone}`}>
             <KeyRound className="h-3.5 w-3.5" /> {test.message}</span> : <span />}
           <Button size="sm" loading={saving} onClick={save}>{t('settings.save')}</Button>
         </div>

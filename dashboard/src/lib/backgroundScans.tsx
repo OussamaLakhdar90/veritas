@@ -112,18 +112,18 @@ function BgScanCard({ scan, onDismiss }: { scan: BgScan; onDismiss: () => void }
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-2">
-            <p className="truncate text-[13px] font-semibold text-ink-900">{scan.service}</p>
+            <p className="truncate text-sm font-semibold text-ink-900">{scan.service}</p>
             <button onClick={onDismiss} aria-label={t('scan.dockDismiss')} className="shrink-0 text-muted hover:text-ink-700">
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
-          <p className="mt-0.5 truncate text-[12px] text-muted">
+          <p className="mt-0.5 truncate text-xs text-muted">
             {failed ? t('scan.dockFailed')
               : done ? t('scan.dockComplete', { count: findings })
               : `${t(`scan.${stage}.short`)} · ${formatElapsed(elapsed)}`}
           </p>
           {(done || failed) && (
-            <button onClick={open} className="mt-1.5 inline-flex items-center gap-1 text-[12px] font-medium text-brand-600 hover:underline">
+            <button onClick={open} className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline">
               {failed ? t('scan.dockOpenScan') : t('scan.dockViewFindings')} <ArrowRight className="h-3 w-3" />
             </button>
           )}

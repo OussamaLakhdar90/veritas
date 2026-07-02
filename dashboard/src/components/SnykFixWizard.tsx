@@ -129,7 +129,7 @@ export function SnykFixWizard({ open, onClose, issue, watchId, apps, defaultApp 
       {/* ── Setup ── */}
       {!trainId && (
         <div className="space-y-4">
-          <p className="text-[13px] text-muted">{t('snyk.fix.intro', {
+          <p className="text-sm text-muted">{t('snyk.fix.intro', {
             pkg: issue?.pkgName, from: issue?.pkgVersion, to: issue?.fixedIn })}</p>
 
           <Field label={t('snyk.fix.appsLabel')} hint={t('snyk.fix.appsHint')}>
@@ -139,7 +139,7 @@ export function SnykFixWizard({ open, onClose, issue, watchId, apps, defaultApp 
                   <input type="checkbox" className="accent-brand" checked={selected.has(a.slug)}
                     onChange={(e) => setSelected((p) => { const n = new Set(p); if (e.target.checked) n.add(a.slug); else n.delete(a.slug); return n; })} />
                   <span className="truncate text-ink-900">{a.name || a.slug}</span>
-                  <span className="ml-auto text-[11px] text-muted">{a.slug.toUpperCase()}</span>
+                  <span className="ml-auto text-2xs text-muted">{a.slug.toUpperCase()}</span>
                 </label>
               ))}
             </div>
@@ -157,7 +157,7 @@ export function SnykFixWizard({ open, onClose, issue, watchId, apps, defaultApp 
           <Field label={t('snyk.fix.reviewersLabel')} hint={t('snyk.fix.reviewersHint')}>
             <Input value={reviewers} onChange={(e) => setReviewers(e.target.value)} placeholder="alice, bob" />
           </Field>
-          <p className="rounded-lg bg-ink-50/60 px-3 py-2 text-[12px] text-muted">
+          <p className="rounded-lg bg-ink-50/60 px-3 py-2 text-xs text-muted">
             {t('snyk.fix.bitbucketNote')}
           </p>
         </div>
@@ -166,7 +166,7 @@ export function SnykFixWizard({ open, onClose, issue, watchId, apps, defaultApp 
       {/* ── Review the cascade (edit versions + reviewers) before it runs ── */}
       {trainId && reviewing && train && (
         <div className="space-y-4">
-          <p className="text-[13px] text-muted">{t('snyk.fix.reviewIntro')}</p>
+          <p className="text-sm text-muted">{t('snyk.fix.reviewIntro')}</p>
           <ol className="space-y-2">
             {train.steps.map((s) => (
               <ReviewRow key={s.order} step={s}
@@ -228,23 +228,23 @@ function ReviewRow({ step, version, onVersion, reviewers, onReviewers }:
   return (
     <li className={`rounded-lg ring-1 ring-border px-3 py-2 ${step.manual ? 'opacity-60' : ''}`}>
       <div className="flex items-center gap-2">
-        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-ink-100 text-[11px] font-semibold text-ink-700">{step.order}</span>
+        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-ink-100 text-2xs font-semibold text-ink-700">{step.order}</span>
         <GitBranch className="h-3.5 w-3.5 text-muted" />
         <span className="font-medium text-ink-900">{step.moduleLabel}</span>
-        <span className="truncate text-[12px] text-muted">{step.bitbucketProject}/{step.repoSlug}</span>
+        <span className="truncate text-xs text-muted">{step.bitbucketProject}/{step.repoSlug}</span>
         {step.manual && <Badge className={`ml-auto ${TONE.warn}`}>{t('snyk.fix.step.MANUAL')}</Badge>}
       </div>
-      <p className="mt-1 pl-7 text-[12px] text-muted">{step.manual ? step.reason : step.diffPreview}</p>
+      <p className="mt-1 pl-7 text-xs text-muted">{step.manual ? step.reason : step.diffPreview}</p>
       {!step.manual && (
         <div className="ml-7 mt-2 grid gap-2 sm:grid-cols-2">
           {isFramework && (
             <Field label={t('snyk.fix.newVersionLabel')}>
-              <Input value={version} onChange={(e) => onVersion(e.target.value)} className="h-8 text-[12px]" />
+              <Input value={version} onChange={(e) => onVersion(e.target.value)} className="h-8 text-xs" />
             </Field>
           )}
           <Field label={t('snyk.fix.reviewersLabel')} hint={t('snyk.fix.reviewersEditHint')}>
             <Input value={reviewers} onChange={(e) => onReviewers(e.target.value)}
-              placeholder="alice, bob" className="h-8 text-[12px]" />
+              placeholder="alice, bob" className="h-8 text-xs" />
           </Field>
         </div>
       )}
@@ -265,10 +265,10 @@ function TrainHeader({ train }: { train: SnykFixTrainView }) {
           : train.status === FIX_STATUS.AWAITING_MANUAL_FIX ? <AlertTriangle className="h-4 w-4 text-warning" />
           : <CheckCircle2 className="h-4 w-4 text-success" />}
         <Badge className={tone}>{t(`snyk.fix.status.${train.status}`, train.status)}</Badge>
-        {train.stageDetail && <span className="text-[13px] text-muted">{train.stageDetail}</span>}
+        {train.stageDetail && <span className="text-sm text-muted">{train.stageDetail}</span>}
       </div>
       {/* Advisory LLM verdict + the real reactor gate */}
-      <p className="mt-2 text-[12px] text-muted">
+      <p className="mt-2 text-xs text-muted">
         {train.verdict?.available
           ? (train.breaking ? t('snyk.fix.verdictBreaking', { c: train.verdict.confidence })
               : t('snyk.fix.verdictClean', { c: train.verdict.confidence }))
@@ -277,7 +277,7 @@ function TrainHeader({ train }: { train: SnykFixTrainView }) {
         {train.reactorPassed === false && ' · ' + t('snyk.fix.reactorFail', { where: train.reactorFailingLabel ?? '' })}
       </p>
       {train.status === FIX_STATUS.AWAITING_MANUAL_FIX && (
-        <p className="mt-1 text-[12px] text-warning">{t('snyk.fix.breakingHelp')}</p>
+        <p className="mt-1 text-xs text-warning">{t('snyk.fix.breakingHelp')}</p>
       )}
     </div>
   );
@@ -289,25 +289,25 @@ function StepRow({ step, awaiting, url, onUrl, onRecord }:
   return (
     <li className="rounded-lg ring-1 ring-border px-3 py-2">
       <div className="flex items-center gap-2">
-        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-ink-100 text-[11px] font-semibold text-ink-700">{step.order}</span>
+        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-ink-100 text-2xs font-semibold text-ink-700">{step.order}</span>
         <GitBranch className="h-3.5 w-3.5 text-muted" />
         <span className="font-medium text-ink-900">{step.moduleLabel}</span>
-        <span className="truncate text-[12px] text-muted">{step.bitbucketProject}/{step.repoSlug}</span>
+        <span className="truncate text-xs text-muted">{step.bitbucketProject}/{step.repoSlug}</span>
         <Badge className={`ml-auto ${stepTone(step.status)}`}>
           {step.manual ? t('snyk.fix.step.MANUAL') : t(`snyk.fix.step.${step.status}`, step.status)}
         </Badge>
       </div>
-      <p className="mt-1 pl-7 text-[12px] text-muted">{step.manual ? step.reason : step.diffPreview}</p>
+      <p className="mt-1 pl-7 text-xs text-muted">{step.manual ? step.reason : step.diffPreview}</p>
       {step.prUrl && isHttpUrl(step.prUrl) && (
         <a href={step.prUrl} target="_blank" rel="noreferrer"
-          className="ml-7 inline-flex items-center gap-1 text-[12px] text-gold hover:underline">
+          className="ml-7 inline-flex items-center gap-1 text-xs text-gold hover:underline">
           {t('snyk.fix.viewPr')} {step.prOpenedBy ? `(${step.prOpenedBy.toLowerCase()})` : ''} <ExternalLink className="h-3 w-3" />
         </a>
       )}
       {awaiting && !step.manual && !step.prUrl && (
         <div className="ml-7 mt-1.5 flex items-center gap-2">
           <Input value={url} onChange={(e) => onUrl(e.target.value)} placeholder={t('snyk.fix.prUrlPlaceholder')}
-            className="h-8 max-w-xs text-[12px]" />
+            className="h-8 max-w-xs text-xs" />
           <Button size="sm" variant="ghost" disabled={!url.trim()} onClick={onRecord}>{t('snyk.fix.recordPr')}</Button>
         </div>
       )}

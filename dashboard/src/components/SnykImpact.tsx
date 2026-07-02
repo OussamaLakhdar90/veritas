@@ -34,13 +34,13 @@ export function SnykImpactCard({ showLink = true }: { showLink?: boolean }) {
         <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3">
           <div className="flex items-center gap-2">
             <SnykLogo className="h-5 w-5" />
-            <span className="text-[15px] font-semibold text-ink-900">{t('snyk.impact.title')}</span>
-            <span className="text-[12px] text-muted">
+            <span className="text-md font-semibold text-ink-900">{t('snyk.impact.title')}</span>
+            <span className="text-xs text-muted">
               {t('snyk.impact.watching', { apps: s.watchedApps, projects: s.projects })}
             </span>
           </div>
           {showLink && (
-            <Link to="/snyk" className="inline-flex items-center gap-1 text-[13px] font-medium text-gold hover:underline">
+            <Link to="/snyk" className="inline-flex items-center gap-1 text-sm font-medium text-gold hover:underline">
               {t('snyk.impact.open')} <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           )}
@@ -49,15 +49,15 @@ export function SnykImpactCard({ showLink = true }: { showLink?: boolean }) {
         <div className="grid gap-px bg-border sm:grid-cols-2">
           {/* Found — open vulnerabilities, Critical emphasised */}
           <div className="bg-surface px-5 py-4">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">{t('snyk.impact.found')}</p>
+            <p className="mb-2 text-2xs font-semibold uppercase tracking-wide text-muted">{t('snyk.impact.found')}</p>
             <div className="flex items-baseline gap-2">
-              <span className={`text-[28px] font-bold tabular-nums leading-none ${s.critical > 0 ? 'text-sev-critical' : 'text-ink-900'}`}>
+              <span className={`text-display font-bold tabular-nums leading-none ${s.critical > 0 ? 'text-sev-critical' : 'text-ink-900'}`}>
                 {s.critical}
               </span>
-              <span className="text-[13px] text-ink-700">{t('snyk.sevCritical')}</span>
+              <span className="text-sm text-ink-700">{t('snyk.sevCritical')}</span>
               {s.critical > 0 && <span className="ml-1 h-2 w-2 animate-pulse rounded-full bg-sev-critical" aria-hidden="true" />}
             </div>
-            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
               {SEV.slice(1).map((sev) => (
                 <span key={sev.key} className="inline-flex items-center gap-1.5">
                   <span className={`h-2 w-2 rounded-sm ${sev.dot}`} />
@@ -66,14 +66,14 @@ export function SnykImpactCard({ showLink = true }: { showLink?: boolean }) {
                 </span>
               ))}
             </div>
-            <p className="mt-2 text-[12px] text-muted">
+            <p className="mt-2 text-xs text-muted">
               {t('snyk.impact.foundSub', { open, fixable: s.fixable })}
             </p>
           </div>
 
           {/* Fixed — Veritas remediation activity */}
           <div className="bg-surface px-5 py-4">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted">{t('snyk.impact.fixed')}</p>
+            <p className="mb-2 text-2xs font-semibold uppercase tracking-wide text-muted">{t('snyk.impact.fixed')}</p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-2">
               <Stat icon={<ShieldCheck className="h-3.5 w-3.5 text-success" />} value={s.fixesMerged} label={t('snyk.impact.merged')} />
               <Stat icon={<GitPullRequest className="h-3.5 w-3.5 text-gold" />} value={s.prsOpened} label={t('snyk.impact.prs')} />
@@ -92,9 +92,9 @@ function Stat({ icon, value, label }: { icon?: React.ReactNode; value: number | 
     <div className="min-w-0">
       <div className="flex items-center gap-1.5">
         {icon}
-        <span className="text-[20px] font-bold tabular-nums leading-none text-ink-900">{value}</span>
+        <span className="text-xl font-bold tabular-nums leading-none text-ink-900">{value}</span>
       </div>
-      <p className="mt-0.5 truncate text-[12px] text-muted">{label}</p>
+      <p className="mt-0.5 truncate text-xs text-muted">{label}</p>
     </div>
   );
 }

@@ -65,7 +65,7 @@ export function Defects() {
               <CardBody className="flex items-center gap-5">
                 <Donut slices={severitySlices(m.bySeverity)} ariaLabel={t('defects.bySeverityAria')}
                   centerValue={m.total} centerLabel={t('defects.defectsCenterLabel')} />
-                <div className="min-w-0 flex-1 space-y-1.5 text-[13px]">
+                <div className="min-w-0 flex-1 space-y-1.5 text-sm">
                   {Object.entries(m.bySeverity).map(([sev, n]) => (
                     <div key={sev} className="flex items-center gap-2">
                       <Badge className={severityTone(sev)}>{sev}</Badge>

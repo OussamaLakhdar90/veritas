@@ -65,12 +65,12 @@ export function TestConditions() {
           <div className="flex items-center gap-2">
             {id && (
               <a href={api.testConditionsReportUrl(id)} target="_blank" rel="noreferrer"
-                className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[13px] font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50">
+                className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50">
                 <FileText className="h-4 w-4" /> {t('testConditions.conditionListLink')} <ExternalLink className="h-3 w-3" />
               </a>
             )}
             <Link to={`/test-strategy/${id}`}
-              className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[13px] font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50">
+              className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50">
               <ListTree className="h-4 w-4" /> {t('testConditions.strategyLink')}
             </Link>
           </div>
@@ -83,7 +83,7 @@ export function TestConditions() {
           <Badge className={TONE.danger}>{t('testConditions.manualBadge', { n: split.MANUAL })}</Badge>
           <Badge className={TONE.warn}>{t('testConditions.candidateBadge', { n: split.CANDIDATE })}</Badge>
           <span className="text-muted">{t('testConditions.splitNote')}</span>
-          <span className="w-full text-[12px] text-muted">
+          <span className="w-full text-xs text-muted">
             <Trans i18nKey="testConditions.feedNote">
               AUTOMATED conditions feed <span className="font-medium text-ink-700">implement-tests</span>;
               MANUAL / CANDIDATE feed <span className="font-medium text-ink-700">create-test-cases</span>.
@@ -106,7 +106,7 @@ export function TestConditions() {
                 <Row key={c.id}>
                   <Td className="font-medium text-ink-900">{c.conditionRef}</Td>
                   <Td className="text-ink-900">{c.description}
-                    {c.qualityCharacteristic ? <span className="block text-[12px] text-muted">{c.qualityCharacteristic}</span> : null}
+                    {c.qualityCharacteristic ? <span className="block text-xs text-muted">{c.qualityCharacteristic}</span> : null}
                   </Td>
                   <Td className="text-muted">{c.sourceBasisItem ?? '—'}</Td>
                   <Td><Badge className={priorityTone(c.priority)}>{c.priority ?? '—'}</Badge></Td>
@@ -117,7 +117,7 @@ export function TestConditions() {
                       <Badge className={automationTone(c.automation)}>{(c.automation || 'CANDIDATE').toUpperCase()}</Badge>
                       <select
                         aria-label={t('testConditions.automationFor', { ref: c.conditionRef })}
-                        className="rounded-md border border-border bg-surface px-2 py-1 text-[12px] text-ink-700"
+                        className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-ink-700"
                         value={(c.automation || 'CANDIDATE').toUpperCase()}
                         disabled={setAutomation.isPending}
                         onChange={(e) => setAutomation.mutate({ condId: c.id, automation: e.target.value })}>

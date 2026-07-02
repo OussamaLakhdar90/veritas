@@ -25,12 +25,12 @@ function parseDeliverable(json?: string): ReviewDeliverable | null {
 function ReviewDetail({ r }: { r: ReviewResult }) {
   const { t } = useTranslation();
   const d = parseDeliverable(r.deliverableJson);
-  if (!d) return <p className="text-[13px] text-muted">{t('reviews.noDetail')}</p>;
+  if (!d) return <p className="text-sm text-muted">{t('reviews.noDetail')}</p>;
   return (
     <div className="space-y-5">
       {d.rubric?.length ? (
         <div>
-          <p className="mb-1.5 text-[13px] font-semibold text-ink-900">{t('reviews.rubricHeading')}</p>
+          <p className="mb-1.5 text-sm font-semibold text-ink-900">{t('reviews.rubricHeading')}</p>
           <Table head={<><Th>{t('reviews.thCriterion')}</Th><Th className="text-right">{t('reviews.thScore')}</Th><Th>{t('reviews.thNote')}</Th></>}>
             {d.rubric.map((c, i) => (
               <Row key={i}><Td className="font-medium text-ink-900">{c.criterion}</Td>
@@ -42,15 +42,15 @@ function ReviewDetail({ r }: { r: ReviewResult }) {
       ) : null}
       {d.gaps?.length ? (
         <div>
-          <p className="mb-1.5 text-[13px] font-semibold text-ink-900">{t('reviews.gapsHeading', { count: d.gaps.length })}</p>
-          <ul className="list-disc space-y-0.5 pl-5 text-[13px] text-ink-700">
+          <p className="mb-1.5 text-sm font-semibold text-ink-900">{t('reviews.gapsHeading', { count: d.gaps.length })}</p>
+          <ul className="list-disc space-y-0.5 pl-5 text-sm text-ink-700">
             {d.gaps.map((g, i) => <li key={i}>{g.criterion ? <span className="font-medium">{g.criterion}: </span> : null}{g.issue}{g.citation ? <span className="text-muted"> — {g.citation}</span> : null}</li>)}
           </ul>
         </div>
       ) : null}
       {d.correctedSteps?.length ? (
         <div>
-          <p className="mb-1.5 text-[13px] font-semibold text-ink-900">{t('reviews.correctedStepsHeading')}</p>
+          <p className="mb-1.5 text-sm font-semibold text-ink-900">{t('reviews.correctedStepsHeading')}</p>
           <Table head={<><Th>{t('reviews.thAction')}</Th><Th>{t('reviews.thData')}</Th><Th>{t('reviews.thExpected')}</Th></>}>
             {d.correctedSteps.map((s, i) => (
               <Row key={i}><Td className="text-ink-900">{s.action ?? '—'}</Td><Td className="text-muted">{s.data ?? '—'}</Td><Td className="text-muted">{s.expected ?? '—'}</Td></Row>
@@ -60,8 +60,8 @@ function ReviewDetail({ r }: { r: ReviewResult }) {
       ) : null}
       {d.selfReview?.blindSpots?.length ? (
         <div>
-          <p className="mb-1 text-[13px] font-semibold text-ink-900">{t('reviews.blindSpots')}{d.selfReview.confidence != null ? t('reviews.blindSpotsConfidence', { confidence: Math.round(d.selfReview.confidence) }) : ''}</p>
-          <ul className="list-disc space-y-0.5 pl-5 text-[13px] text-warning">{d.selfReview.blindSpots.map((b, i) => <li key={i}>{b}</li>)}</ul>
+          <p className="mb-1 text-sm font-semibold text-ink-900">{t('reviews.blindSpots')}{d.selfReview.confidence != null ? t('reviews.blindSpotsConfidence', { confidence: Math.round(d.selfReview.confidence) }) : ''}</p>
+          <ul className="list-disc space-y-0.5 pl-5 text-sm text-warning">{d.selfReview.blindSpots.map((b, i) => <li key={i}>{b}</li>)}</ul>
         </div>
       ) : null}
     </div>
@@ -128,7 +128,7 @@ export function Reviews() {
 
           {candidates != null && candidates.length > 0 && (
             <div className="rounded-lg border border-border">
-              <label className="flex items-center gap-2 px-3 py-2 text-[13px] text-ink-700">
+              <label className="flex items-center gap-2 px-3 py-2 text-sm text-ink-700">
                 <input type="checkbox" className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
                   checked={allSelected} onChange={toggleAll} aria-label={t('reviews.selectAll')} />
                 {t('reviews.selectedCount', { selected: selected.size, total: candidates.length })}
@@ -139,7 +139,7 @@ export function Reviews() {
                     <Td><input type="checkbox" aria-label={t('reviews.selectKey', { key: c.key })}
                       className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
                       checked={selected.has(c.key)} onChange={() => toggle(c.key)} /></Td>
-                    <Td className="font-mono text-[12.5px] text-ink-900">{c.key}</Td>
+                    <Td className="font-mono text-xs text-ink-900">{c.key}</Td>
                     <Td className="text-ink-900">{c.summary ?? '—'}</Td>
                     <Td className="text-muted">{c.testType ?? '—'}</Td>
                     <Td className="text-right tabular-nums text-muted">{c.steps}</Td>
@@ -150,7 +150,7 @@ export function Reviews() {
           )}
 
           <div className="flex items-center justify-between">
-            <label className="inline-flex items-center gap-2 text-[13px] text-ink-700">
+            <label className="inline-flex items-center gap-2 text-sm text-ink-700">
               <input type="checkbox" className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
                 checked={apply} onChange={(e) => setApply(e.target.checked)} />
               {t('reviews.applyLabel')}
@@ -198,7 +198,7 @@ function ResultsTable({ results, openId, setOpenId }:
         const main = (
           <Row key={r.id} className="cursor-pointer" onClick={() => setOpenId(open ? null : r.id)}>
             <Td className="text-muted">{open ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}</Td>
-            <Td className="font-mono text-[12.5px] text-ink-900">{r.targetKey ?? '—'}</Td>
+            <Td className="font-mono text-xs text-ink-900">{r.targetKey ?? '—'}</Td>
             <Td><Badge className={verdictTone(r.verdict)}>{r.verdict ?? '—'}</Badge></Td>
             <Td className="text-right tabular-nums text-ink-900">{r.score != null ? r.score : '—'}</Td>
             <Td className="text-right tabular-nums text-muted">{r.confidence != null ? `${Math.round(r.confidence)}%` : '—'}</Td>

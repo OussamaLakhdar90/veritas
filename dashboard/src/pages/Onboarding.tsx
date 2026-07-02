@@ -45,7 +45,7 @@ export function Onboarding() {
             {ready ? <CheckCircle2 className="mt-0.5 h-5 w-5 text-success" /> : <AlertTriangle className="mt-0.5 h-5 w-5 text-warning" />}
             <div>
               <p className="text-sm font-semibold text-ink-900">{ready ? t('onboarding.readyTitle') : t('onboarding.notReadyTitle')}</p>
-              <p className="mt-0.5 text-[13px] text-muted">
+              <p className="mt-0.5 text-sm text-muted">
                 {ready ? t('onboarding.readyBody')
                   : t('onboarding.notReadyBody')}
               </p>
@@ -74,7 +74,7 @@ function Step({ n, done, loading, icon: Icon, title, body, action }: {
         <p className="flex items-center gap-2 text-sm font-semibold text-ink-900">
           <span className="text-muted">{n}.</span><Icon className="h-4 w-4 text-muted" /> {title}
         </p>
-        <p className="mt-1 text-[13px] text-muted">{body}</p>
+        <p className="mt-1 text-sm text-muted">{body}</p>
       </div>
       <div className="shrink-0">{action}</div>
     </div>

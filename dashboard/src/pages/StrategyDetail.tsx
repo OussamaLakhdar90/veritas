@@ -86,7 +86,7 @@ function SectionView({ k, value }: { k: string; value: unknown }) {
       </div>
     );
   }
-  return <pre className="overflow-x-auto rounded bg-ink-50 p-2 text-[12px] text-ink-700">{pretty(value)}</pre>;
+  return <pre className="overflow-x-auto rounded bg-ink-50 p-2 text-xs text-ink-700">{pretty(value)}</pre>;
 }
 
 /** One section card: read view + a collapsible JSON editor with Save (revise) and Regenerate (AI). */
@@ -118,7 +118,7 @@ function StrategySection({ id, sectionKey, label, value, approved }: {
     <Card className="mb-4">
       <CardHeader title={label} action={
         approved ? null : (
-          <button className="text-[13px] font-medium text-gold hover:underline"
+          <button className="text-sm font-medium text-gold hover:underline"
             onClick={() => { setDraft(pretty(value)); setEditing((v) => !v); }}>
             {editing ? t('strategyDetail.close') : t('strategyDetail.edit')}
           </button>
@@ -128,7 +128,7 @@ function StrategySection({ id, sectionKey, label, value, approved }: {
         {editing && (
           <div className="space-y-3 border-t border-border pt-4">
             <Field label={t('strategyDetail.sectionContentLabel')} hint={t('strategyDetail.sectionContentHint')}>
-              <Textarea rows={8} className="font-mono text-[12.5px]" value={draft} onChange={(e) => setDraft(e.target.value)} />
+              <Textarea rows={8} className="font-mono text-xs" value={draft} onChange={(e) => setDraft(e.target.value)} />
             </Field>
             <div className="flex flex-wrap items-end gap-3">
               <Button size="sm" loading={save.isPending} onClick={() => save.mutate()}>
@@ -161,8 +161,8 @@ function ScorecardBanner({ sc }: { sc: StrategyScorecard }) {
         <div className="flex flex-wrap items-center gap-3">
           <Badge className={ok ? TONE.ok : TONE.warn}>{sc.verdict}</Badge>
           <span className="text-sm text-ink-900">{t('strategyDetail.qualityScorecard', { confidence: Math.round(sc.confidence) })}</span>
-          <span className="text-[13px] text-muted">{t('strategyDetail.featuresCovered', { count: sc.featuresCovered })}</span>
-          {sc.droppedSections > 0 && <span className="text-[13px] font-medium text-warning">{t('strategyDetail.sectionsDropped', { count: sc.droppedSections })}</span>}
+          <span className="text-sm text-muted">{t('strategyDetail.featuresCovered', { count: sc.featuresCovered })}</span>
+          {sc.droppedSections > 0 && <span className="text-sm font-medium text-warning">{t('strategyDetail.sectionsDropped', { count: sc.droppedSections })}</span>}
         </div>
         {sc.checks?.length ? (
           <ul className="space-y-1 text-sm">
@@ -220,16 +220,16 @@ export function StrategyDetail() {
         actions={
           <div className="flex items-center gap-2">
             <a href={api.strategyRationaleUrl(s.id)} target="_blank" rel="noreferrer"
-              className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[13px] font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50">
+              className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50">
               <FileText className="h-4 w-4" /> {t('strategyDetail.rationale')} <ExternalLink className="h-3 w-3" />
             </a>
             <Link to={`/test-conditions/${s.id}`}
-              className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[13px] font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50">
+              className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50">
               <ListTree className="h-4 w-4" /> {t('strategyDetail.testConditions')}
             </Link>
             {s.source === 'multi-source' && (
               <a href={api.strategyWhyDocUrl(s.id)} target="_blank" rel="noreferrer"
-                className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-[13px] font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50">
+                className="inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium text-ink-700 ring-1 ring-border hover:bg-ink-50">
                 <ScrollText className="h-4 w-4" /> {t('strategyDetail.evidence')} <ExternalLink className="h-3 w-3" />
               </a>
             )}
@@ -273,8 +273,8 @@ export function StrategyDetail() {
                     <Td className="text-muted">{vv.revisedBy ?? '—'}</Td>
                     <Td className="text-muted">{v.createdAt ? new Date(v.createdAt).toLocaleString() : '—'}</Td>
                     <Td className="text-right">
-                      {v.id === s.id ? <span className="text-[13px] text-muted">{t('strategyDetail.current')}</span> :
-                        <Link to={`/test-strategy/${v.id}`} className="text-[13px] font-medium text-gold hover:underline">{t('strategyDetail.open')}</Link>}
+                      {v.id === s.id ? <span className="text-sm text-muted">{t('strategyDetail.current')}</span> :
+                        <Link to={`/test-strategy/${v.id}`} className="text-sm font-medium text-gold hover:underline">{t('strategyDetail.open')}</Link>}
                     </Td>
                   </Row>
                 );

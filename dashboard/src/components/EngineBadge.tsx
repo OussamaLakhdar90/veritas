@@ -15,7 +15,7 @@ export function EngineBadge() {
   return (
     <span
       title={t('engine.mockTooltip')}
-      className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2.5 py-1 text-[11px] font-medium text-warning ring-1 ring-warning/30">
+      className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2.5 py-1 text-2xs font-medium text-warning ring-1 ring-warning/30">
       <FlaskConical className="h-3 w-3" /> {t('engine.simulatedData')}
     </span>
   );

@@ -125,14 +125,14 @@ export function Findings() {
             <FilterChip active={filter === 'ALL'} onClick={() => setFilter('ALL')} label={t('findings.filterAll', { count: findings.length })} />
             {SEV_ORDER.filter((s) => counts[s]).map((s) => (
               <button key={s} onClick={() => setFilter(s)}
-                className={cn('rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition',
+                className={cn('rounded-full px-2.5 py-1 text-2xs font-semibold uppercase tracking-wide transition',
                   filter === s ? severityBadge(s) : 'text-muted ring-1 ring-border hover:bg-ink-50')}>
                 {s} {counts[s]}
               </button>
             ))}
             {selected.size > 0 && (
               <div className="ml-auto flex items-center gap-2">
-                <span className="text-[13px] text-muted">{t('findings.selectedCount', { count: selected.size })}</span>
+                <span className="text-sm text-muted">{t('findings.selectedCount', { count: selected.size })}</span>
                 <Button size="sm" onClick={() => setBulkOpen(true)}><Bug className="h-4 w-4" /> {t('findings.raiseDefects', { count: selected.size })}</Button>
               </div>
             )}
@@ -164,7 +164,7 @@ export function Findings() {
                     <Td><Badge className={severityBadge(f.severity)}>{f.severity}</Badge></Td>
                     <Td>
                       {f.confidence ? (
-                        <span className={cn('inline-flex items-center gap-1 text-[13px]',
+                        <span className={cn('inline-flex items-center gap-1 text-sm',
                           riskyConfidence(f) ? 'font-medium text-warning' : 'text-muted')}
                           title={riskyConfidence(f) ? t('findings.riskyConfidenceTooltip') : undefined}>
                           {confidenceLabel(f.confidence)}
@@ -173,12 +173,12 @@ export function Findings() {
                       ) : <span className="text-muted">—</span>}
                     </Td>
                     <Td className="text-muted" title={f.layer}>{layerLabel(f.layer)}</Td>
-                    <Td className="font-mono text-[12.5px] text-ink-900">{f.endpoint}</Td>
+                    <Td className="font-mono text-xs text-ink-900">{f.endpoint}</Td>
                     <Td className="max-w-md">
                       <p className="text-ink-900">{f.summary}</p>
-                      {f.explanation && <p className="mt-1 text-[13px] text-muted">{f.explanation}</p>}
+                      {f.explanation && <p className="mt-1 text-sm text-muted">{f.explanation}</p>}
                     </Td>
-                    <Td className="font-mono text-[12px] text-muted">
+                    <Td className="font-mono text-xs text-muted">
                       {f.codeFile ? (
                         f.codeUrl ? (
                           <a href={f.codeUrl} target="_blank" rel="noreferrer"
@@ -200,7 +200,7 @@ export function Findings() {
                           </span>
                         )}
                         {f.status === 'JIRA_CREATED' ? (
-                          <span className="inline-flex items-center gap-1 text-[13px] text-success"><CheckCircle2 className="h-4 w-4" /> {t('findings.defectRaised')}</span>
+                          <span className="inline-flex items-center gap-1 text-sm text-success"><CheckCircle2 className="h-4 w-4" /> {t('findings.defectRaised')}</span>
                         ) : (
                           <>
                             <Button size="sm" variant="ghost" title={t('findings.acceptTooltip')}
@@ -238,8 +238,8 @@ export function Findings() {
               <X className="h-4 w-4" /> {t('findings.rejectFinding')}
             </Button>
           </>}>
-          <p className="text-[13px] text-ink-900">{rejectFor.summary}</p>
-          <p className="mt-3 text-[13px] text-muted">
+          <p className="text-sm text-ink-900">{rejectFor.summary}</p>
+          <p className="mt-3 text-sm text-muted">
             {t('findings.rejectModalBody')}
           </p>
         </Modal>
@@ -251,7 +251,7 @@ export function Findings() {
 function FilterChip({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
   return (
     <button onClick={onClick}
-      className={cn('rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide transition',
+      className={cn('rounded-full px-2.5 py-1 text-2xs font-semibold uppercase tracking-wide transition',
         active ? 'bg-brand text-white' : 'text-muted ring-1 ring-border hover:bg-ink-50')}>
       {label}
     </button>
@@ -296,11 +296,11 @@ function DefectModal({ findings, scanId, onClose }: { findings: Finding[]; scanI
       </>}>
       <div className="mb-4 flex items-start gap-3 rounded-lg bg-ink-50 p-3">
         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-        <div className="min-w-0 text-[13px]">
+        <div className="min-w-0 text-sm">
           {bulk
             ? <p className="font-medium text-ink-900">{t('findings.findingsGetBug', { count: findings.length })}</p>
             : <><p className="font-medium text-ink-900">{findings[0].summary}</p>
-                <p className="mt-0.5 font-mono text-[12px] text-muted">{findings[0].endpoint}</p></>}
+                <p className="mt-0.5 font-mono text-xs text-muted">{findings[0].endpoint}</p></>}
         </div>
       </div>
       <Field label={t('findings.projectKeyLabel')} hint={t('findings.projectKeyHint')}>

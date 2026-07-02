@@ -42,7 +42,7 @@ export function TestPlans() {
             <Field label={t('testPlans.projectKeyLabel')} hint={t('testPlans.projectKeyHint')}><Input placeholder="CIAM" value={projectKey} onChange={(e) => setProjectKey(e.target.value)} /></Field>
           </div>
           <div className="mt-4 flex items-center justify-between">
-            <label className="inline-flex items-center gap-2 text-[13px] text-ink-700">
+            <label className="inline-flex items-center gap-2 text-sm text-ink-700">
               <input type="checkbox" className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
                 checked={createGaps} onChange={(e) => setCreateGaps(e.target.checked)} />
               {t('testPlans.createGapTestsLabel')}
@@ -75,7 +75,7 @@ export function TestPlans() {
                   <Td className="text-right tabular-nums text-muted">{p.riskCount ?? '—'}</Td>
                   <Td className="text-right tabular-nums text-muted">${(p.estCostUsd ?? 0).toFixed(4)}</Td>
                   <Td className="text-right whitespace-nowrap">
-                    <Link to={`/test-plans/${p.id}`} className="inline-flex items-center gap-1 text-[13px] font-medium text-gold hover:underline">
+                    <Link to={`/test-plans/${p.id}`} className="inline-flex items-center gap-1 text-sm font-medium text-gold hover:underline">
                       {t('testPlans.open')} <ArrowRight className="h-3.5 w-3.5" /></Link>
                   </Td>
                 </Row>

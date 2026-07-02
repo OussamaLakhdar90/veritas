@@ -30,7 +30,7 @@ export function AlertBell() {
       <Bell className="h-[18px] w-[18px]" />
       {count > 0 && (
         <span className={cn(
-          'absolute -right-0.5 -top-0.5 grid h-4 min-w-[16px] place-items-center rounded-full px-1 text-[10px] font-bold text-white',
+          'absolute -right-0.5 -top-0.5 grid h-4 min-w-[16px] place-items-center rounded-full px-1 text-2xs font-bold text-white',
           hasCritical ? 'bg-danger' : 'bg-brand')}>
           {count > 9 ? '9+' : count}
         </span>

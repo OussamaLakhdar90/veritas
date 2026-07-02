@@ -92,7 +92,7 @@ export function MiniBar({ data, ariaLabel, format }: {
   return (
     <div role="img" aria-label={ariaLabel} className="space-y-2">
       {data.map((d) => (
-        <div key={d.label} className="flex items-center gap-3 text-[12px]">
+        <div key={d.label} className="flex items-center gap-3 text-xs">
           <span className="w-32 shrink-0 truncate text-ink-700" title={d.label}>{d.label}</span>
           <div className="h-2 flex-1 rounded-full bg-ink-100">
             <div className="h-2 rounded-full bg-brand" style={{ width: `${Math.max((d.value / max) * 100, 2)}%` }} />
