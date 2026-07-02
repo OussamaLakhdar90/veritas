@@ -33,6 +33,10 @@ public class FindingRecord extends AuditableEntity {
     private String origin;          // DETERMINISTIC | LLM
 
     private String endpoint;
+    /** CSV of every endpoint that shares this finding's root cause (a shared DTO field), when more than one. Null/blank
+     *  for the usual single-endpoint finding. Persisted so a live re-render keeps the cross-endpoint collapse. */
+    @Column(length = 2000)
+    private String affectedEndpoints;
     private String specSource;
 
     @Column(length = 2000)

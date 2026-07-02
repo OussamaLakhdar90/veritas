@@ -1,5 +1,6 @@
 package ca.bnc.qe.veritas.finding;
 
+import java.util.List;
 import ca.bnc.qe.veritas.engine.model.SourceRef;
 import lombok.Builder;
 import lombok.Value;
@@ -19,6 +20,8 @@ public class Finding {
     String origin;               // DETERMINISTIC | LLM
     String service;
     String endpoint;             // "METHOD /path" or null for global/L1
+    @Builder.Default
+    List<String> affectedEndpoints = List.of();  // >1 when several endpoints share this same root cause (e.g. a shared DTO field)
     String specSource;           // which spec this is about (or "code-vs-repo-spec", "repo-spec-vs-confluence-spec")
     String summary;              // deterministic one-liner
     String explanation;          // LLM (nullable)

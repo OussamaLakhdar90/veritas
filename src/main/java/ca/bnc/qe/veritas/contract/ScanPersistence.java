@@ -60,6 +60,8 @@ public class ScanPersistence {
             r.setConfidence(f.getConfidence() != null ? f.getConfidence().name() : null);
             r.setOrigin(f.getOrigin());
             r.setEndpoint(f.getEndpoint());
+            r.setAffectedEndpoints(f.getAffectedEndpoints() == null || f.getAffectedEndpoints().size() <= 1
+                    ? null : String.join(",", f.getAffectedEndpoints()));
             r.setSpecSource(f.getSpecSource());
             r.setSummary(f.getSummary());
             r.setCurrentYamlFragment(f.getCurrentYamlFragment());

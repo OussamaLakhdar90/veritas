@@ -284,6 +284,9 @@ public class ContractValidationService {
             findings = ca.bnc.qe.veritas.report.CoverageReconciler.stripFalseSourceDisclaimers(findings, code);
             // Collapse duplicate findings about the same endpoint+issue (deterministic + LLM) before scoring/render.
             findings = dedupCrossList(findings);
+            // Then collapse the SAME root cause across endpoints — a shared DTO field flagged once per endpoint that
+            // returns it — into one finding that lists every affected endpoint (so it's counted + scored once).
+            findings = collapseByCodeLocus(findings);
 
             // Graft the LLM per-finding enrichment (explanation / proposed fix) onto the in-memory findings so the
             // as-scanned disk report matches the live re-render (which reads the same enrichment from the persisted row).
@@ -582,7 +585,13 @@ public class ContractValidationService {
 
         String outputContract = "Code is the source of truth for behaviour. For each finding add a short "
                 + "explanation and a proposed fix; then produce a reconciled corrected OpenAPI YAML (code wins on "
-                + "behaviour). ALSO add L5 (design-quality) and L6 (test-basis adequacy) judgements in "
+                + "behaviour). FRAMING BY FINDING TYPE: additive/non-breaking drift where the code is a compatible "
+                + "superset of the spec (a field the code returns that the spec omits, an extra endpoint/param/status, "
+                + "a dead-spec entry) is a DOCUMENTATION update, not a defect — say 'document X in the spec'. A "
+                + "path-variable NAME mismatch (e.g. {app} vs {appId}) is POSITIONAL and non-breaking — frame it as a "
+                + "naming-convention decision for the API owner (align the spec to the code, OR keep the spec's more "
+                + "descriptive name and rename the code); do NOT prescribe changing the spec. ALSO add L5 "
+                + "(design-quality) and L6 (test-basis adequacy) judgements in "
                 + "designFindings — e.g. a spec with no examples/constraints/error responses is a weak test basis. "
                 + "SPEC_PRESENCE_FACTS reports what the FULLY-RESOLVED spec actually contains (examples, schema "
                 + "properties, constraints and error responses are resolved through $ref); NEVER assert any of these "
@@ -944,6 +953,51 @@ public class ContractValidationService {
             // otherwise keep the first (order-preserving); a later duplicate is dropped
         }
         return new ArrayList<>(byKey.values());
+    }
+
+    /**
+     * Collapse findings that share the SAME root cause across endpoints: same type + same code-evidence location +
+     * line (e.g. a shared DTO field flagged once for each endpoint that returns it). The first occurrence survives
+     * (keeping its findingId + evidence) and gains an {@code affectedEndpoints} list of every endpoint involved, so
+     * one shared defect is counted (and scored) once instead of per endpoint. Findings with no code evidence (e.g.
+     * endpoint-level param/status findings) have no anchor and are passed through untouched. Order-preserving.
+     */
+    static List<Finding> collapseByCodeLocus(List<Finding> in) {
+        Map<String, List<String>> endpointsByLocus = new LinkedHashMap<>();
+        for (Finding f : in) {
+            String key = codeLocusKey(f);
+            if (key != null && f.getEndpoint() != null) {
+                List<String> eps = endpointsByLocus.computeIfAbsent(key, k -> new ArrayList<>());
+                if (!eps.contains(f.getEndpoint())) {
+                    eps.add(f.getEndpoint());
+                }
+            }
+        }
+        List<Finding> out = new ArrayList<>();
+        java.util.Set<String> emitted = new java.util.HashSet<>();
+        for (Finding f : in) {
+            String key = codeLocusKey(f);
+            if (key == null) {
+                out.add(f);
+                continue;
+            }
+            if (!emitted.add(key)) {
+                continue;   // a later finding for a root cause already emitted
+            }
+            List<String> eps = endpointsByLocus.getOrDefault(key, List.of());
+            out.add(eps.size() > 1 ? f.toBuilder().affectedEndpoints(List.copyOf(eps)).build() : f);
+        }
+        return out;
+    }
+
+    /** Root-cause key for {@link #collapseByCodeLocus}: type + the exact code field location + line, or null when
+     *  there is no code evidence to anchor on (never collapse those). */
+    static String codeLocusKey(Finding f) {
+        if (f.getCodeEvidence() == null || f.getCodeEvidence().location() == null) {
+            return null;
+        }
+        Integer line = f.getCodeEvidence().startLine();
+        return f.getType() + "|" + f.getCodeEvidence().location() + "|" + (line == null ? "" : line);
     }
 
     /**

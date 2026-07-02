@@ -38,6 +38,10 @@ class DiffEnginePathNormalizationTest {
         Set<FindingType> types = f.stream().map(Finding::getType).collect(toSet());
         assertThat(types).doesNotContain(FindingType.MISSING_ENDPOINT, FindingType.EXTRA_ENDPOINT);
         assertThat(types).contains(FindingType.PATH_VAR_NAME_MISMATCH);
+        // The proposed fix frames it as a neutral owner naming-convention decision — never "rename the spec".
+        Finding pv = f.stream().filter(x -> x.getType() == FindingType.PATH_VAR_NAME_MISMATCH).findFirst().orElseThrow();
+        assertThat(pv.getProposedFix()).contains("positional").contains("naming convention")
+                .doesNotContain("rename the spec");
     }
 
     @Test
