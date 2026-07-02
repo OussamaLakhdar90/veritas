@@ -94,8 +94,38 @@ export function Spinner({ className }: { className?: string }) {
 }
 
 /* ── Skeleton ───────────────────────────────────────────────────────────── */
+/** The animate-pulse base (asserted by page tests) plus a token-var shimmer overlay; both stop under
+ *  reduced-motion (the shimmer via a @media rule in index.css). */
 export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn('animate-pulse rounded-md bg-ink-100', className)} />;
+  return <div className={cn('skeleton-shimmer animate-pulse rounded-md bg-ink-100', className)} />;
+}
+
+/** A loading placeholder for a data table: a header bar + N body rows. Announces itself politely
+ *  (role="status" + an sr-only label) so screen readers — and page tests asserting the *.loading string
+ *  — still see the loading state that the old lone spinner conveyed. */
+export function TableSkeleton({ rows = 5, label }: { rows?: number; label: string }) {
+  return (
+    <div role="status" aria-live="polite" className="space-y-2 p-5">
+      <span className="sr-only">{label}</span>
+      <Skeleton className="h-6 w-1/3" />
+      {Array.from({ length: rows }).map((_, i) => <Skeleton key={i} className="h-10" />)}
+    </div>
+  );
+}
+
+/** A loading placeholder card for a non-tabular panel — mirrors TableSkeleton's a11y contract. */
+export function CardSkeleton({ lines = 3, label }: { lines?: number; label: string }) {
+  return (
+    <Card>
+      <CardBody>
+        <div role="status" aria-live="polite" className="space-y-3">
+          <span className="sr-only">{label}</span>
+          <Skeleton className="h-6 w-1/4" />
+          {Array.from({ length: lines }).map((_, i) => <Skeleton key={i} className={cn('h-4', i === lines - 1 && 'w-2/3')} />)}
+        </div>
+      </CardBody>
+    </Card>
+  );
 }
 
 /* ── Empty state ────────────────────────────────────────────────────────── */
@@ -261,6 +291,16 @@ export function SortableTh({ label, sortKey, sort, className }:
       </button>
     </th>
   );
+}
+
+/* ── Page container ─────────────────────────────────────────────────────── */
+/** Centres a page's content and caps its width. `narrow` (reading/checklist pages) and `wide` (form
+ *  wizards) both mx-auto so they never left-hug on a wide monitor; `full` spans the whole content column
+ *  (dense tables). Use this instead of a hand-rolled `max-w-*` root (a Vitest guard enforces it). */
+export function PageContainer({ variant = 'full', className, children }:
+  { variant?: 'narrow' | 'wide' | 'full'; className?: string; children: React.ReactNode }) {
+  const width = { narrow: 'mx-auto max-w-3xl', wide: 'mx-auto max-w-4xl', full: '' }[variant];
+  return <div className={cn(width, className)}>{children}</div>;
 }
 
 /* ── Page header ────────────────────────────────────────────────────────── */

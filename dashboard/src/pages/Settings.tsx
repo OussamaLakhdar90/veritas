@@ -3,7 +3,7 @@ import { Trans, useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, XCircle, AlertTriangle, Plug, KeyRound, Github, RefreshCw } from 'lucide-react';
 import { api, type ConnectionsCfg, type EndpointCfg, type ConnectionTestResult, type CopilotLoginStart } from '../api';
-import { Button, Card, CardBody, CardHeader, Field, Input, Select, PageHeader, Spinner } from '../components/ui';
+import { Button, Card, CardBody, CardHeader, ErrorState, Field, Input, Select, PageContainer, PageHeader, Skeleton } from '../components/ui';
 import { DeviceFlowModal } from '../components/CopilotSignIn';
 import { useToast } from '../components/Toast';
 
@@ -76,7 +76,7 @@ export function Settings() {
   const preflight = useQuery({ queryKey: ['preflight'], queryFn: api.preflight });
 
   return (
-    <div className="mx-auto max-w-4xl">
+    <PageContainer variant="wide">
       <PageHeader title={t('settings.pageTitle')}
         subtitle={t('settings.pageSubtitle')} />
 
@@ -85,7 +85,15 @@ export function Settings() {
         <CardHeader title={t('settings.checklistTitle')} subtitle={t('settings.checklistSubtitle')}
           action={<Button variant="ghost" size="sm" onClick={() => preflight.refetch()}><RefreshCw className="h-4 w-4" /> {t('settings.refresh')}</Button>} />
         <CardBody className="space-y-2">
-          {preflight.isLoading ? <Spinner /> : (preflight.data ?? []).map((c) => (
+          {preflight.isLoading ? (
+            <div role="status" aria-live="polite" className="space-y-2">
+              <span className="sr-only">{t('settings.checklistLoading')}</span>
+              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-8" />)}
+            </div>
+          ) : preflight.isError ? (
+            // A failed readiness check must be visible — an empty list would read as "all clear".
+            <ErrorState message={t('settings.checklistError')} detail={(preflight.error as Error).message} />
+          ) : (preflight.data ?? []).map((c) => (
             <div key={c.name} className="flex items-start gap-3">
               {c.status === 'OK' ? <CheckCircle2 className="mt-0.5 h-4 w-4 text-success" />
                 : c.status === 'WARN' ? <AlertTriangle className="mt-0.5 h-4 w-4 text-warning" />
@@ -104,7 +112,13 @@ export function Settings() {
       <CopilotCard />
 
       {conns.isLoading || secrets.isLoading ? (
-        <Card><CardBody><Spinner /></CardBody></Card>
+        <Card><CardBody>
+          <div role="status" aria-live="polite" className="space-y-3">
+            <span className="sr-only">{t('settings.connectionsLoading')}</span>
+            <Skeleton className="h-6 w-1/4" />
+            {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-9" />)}
+          </div>
+        </CardBody></Card>
       ) : conns.data && secrets.data ? (
         <div className="space-y-6">
           {SERVICES.map((def) => (
@@ -120,8 +134,9 @@ export function Settings() {
               onError={(m) => toast.push('error', m)} />
           ))}
         </div>
-      ) : <p className="text-sm text-danger">{t('settings.couldNotLoad')}</p>}
-    </div>
+      ) : <ErrorState message={t('settings.couldNotLoad')}
+            detail={(conns.error as Error)?.message ?? (secrets.error as Error)?.message} />}
+    </PageContainer>
   );
 }
 

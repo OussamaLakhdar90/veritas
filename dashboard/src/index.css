@@ -101,6 +101,18 @@
   code, pre { font-family: 'JetBrains Mono', ui-monospace, monospace; }
 }
 
+/* Skeleton shimmer — a token-coloured highlight sweeping across the animate-pulse base. The pulse stays
+   (page tests assert `.animate-pulse`); the shimmer is a premium overlay only. Both disabled under reduced motion. */
+@keyframes skeletonShimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.skeleton-shimmer { position: relative; overflow: hidden; }
+.skeleton-shimmer::after {
+  content: ''; position: absolute; inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgb(var(--surface) / .55), transparent);
+  animation: skeletonShimmer 1.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) { .skeleton-shimmer::after { animation: none; content: none; } }
+
 /* Charts settle in on mount — disabled for users who prefer reduced motion. */
 @keyframes chartIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .chart-in { animation: chartIn .5s ease both; }

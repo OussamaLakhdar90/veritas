@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Bug, RefreshCw, ExternalLink } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, KpiTile, PageHeader, Spinner, Table, Td, Row, SortableTh, useSort } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, KpiTile, PageHeader, TableSkeleton, Table, Td, Row, SortableTh, useSort } from '../components/ui';
 import { Donut, Gauge, severitySlices } from '../components/charts';
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
@@ -88,7 +88,7 @@ export function Defects() {
       )}
 
       {q.isLoading ? (
-        <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('defects.loading')}</CardBody></Card>
+        <Card><CardBody className="p-0"><TableSkeleton label={t('defects.loading')} /></CardBody></Card>
       ) : q.isError ? (
         <Card><CardBody className="text-sm text-danger">{t('defects.loadError', { message: (q.error as Error).message })}</CardBody></Card>
       ) : rows.length === 0 ? (

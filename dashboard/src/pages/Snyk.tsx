@@ -6,7 +6,7 @@ import { RefreshCw, Trash2, Eye, ExternalLink, ShieldCheck, PackageOpen, X, Shie
   PlugZap, Settings as SettingsIcon } from 'lucide-react';
 import { api, type SnykIssueView } from '../api';
 import {
-  Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Input, Spinner,
+  Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Input, Skeleton, TableSkeleton,
   Table, Th, Td, Row, PageHeader,
 } from '../components/ui';
 import { SnykLogo } from '../components/SnykLogo';
@@ -134,7 +134,10 @@ export function Snyk() {
           {orgsQ.isError ? (
             <ConnectSnykPanel />
           ) : orgsQ.isLoading ? (
-            <div className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('snyk.loadingApps')}</div>
+            <div role="status" aria-live="polite" className="grid gap-2 sm:grid-cols-2">
+              <span className="sr-only">{t('snyk.loadingApps')}</span>
+              {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-8" />)}
+            </div>
           ) : (orgsQ.data ?? []).length === 0 ? (
             <div className="text-sm text-muted">
               <p>{t('snyk.noApps')}</p>
@@ -171,9 +174,9 @@ export function Snyk() {
 
       {/* Watched repos */}
       {watchesQ.isLoading ? (
-        <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('snyk.loading')}</CardBody></Card>
+        <Card><CardBody className="p-0"><TableSkeleton label={t('snyk.loading')} /></CardBody></Card>
       ) : watchesQ.isError ? (
-        <ErrorState message={(watchesQ.error as Error).message} />
+        <ErrorState detail={(watchesQ.error as Error).message} />
       ) : watches.length === 0 ? (
         <EmptyState icon={ShieldCheck} title={t('snyk.noWatchesTitle')} body={t('snyk.noWatchesBody')} />
       ) : (
@@ -219,7 +222,7 @@ export function Snyk() {
             action={<Button variant="ghost" size="sm" onClick={() => setSelectedWatch(null)}>{t('common.close')}</Button>} />
           <CardBody className="p-0">
             {issuesQ.isLoading ? (
-              <div className="flex items-center gap-2 p-5 text-sm text-muted"><Spinner /> {t('snyk.issuesLoading')}</div>
+              <TableSkeleton rows={4} label={t('snyk.issuesLoading')} />
             ) : issuesQ.isError ? (
               <div className="p-5 text-sm text-danger">{(issuesQ.error as Error).message}</div>
             ) : (issuesQ.data ?? []).length === 0 ? (

@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ListChecks, Play, ChevronRight, ChevronDown, Search } from 'lucide-react';
 import { api, ReviewResult, ReviewDeliverable, ReviewCandidate } from '../api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, Input, PageHeader, Table, Td, Th, Row } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Field, Input, PageContainer, PageHeader, Table, Td, Th, Row } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
@@ -109,7 +109,7 @@ export function Reviews() {
   const toggleAll = () => setSelected(allSelected ? new Set() : new Set((candidates ?? []).map((t) => t.key)));
 
   return (
-    <div>
+    <PageContainer variant="wide">
       <PageHeader title={t('reviews.pageTitle')} subtitle={t('reviews.pageSubtitle')} />
 
       <Card className="mb-6">
@@ -168,7 +168,10 @@ export function Reviews() {
       </Card>
 
       {results == null ? (
-        recent.length > 0 ? (
+        recentQ.isError ? (
+          // A fetch failure must not masquerade as "no reviews yet".
+          <ErrorState detail={(recentQ.error as Error).message} />
+        ) : recent.length > 0 ? (
           <Card>
             <CardHeader title={t('reviews.recentTitle')} subtitle={t('reviews.recentSubtitle')} />
             <CardBody className="p-0"><ResultsTable results={recent} openId={openId} setOpenId={setOpenId} /></CardBody>
@@ -184,7 +187,7 @@ export function Reviews() {
           <CardBody className="p-0"><ResultsTable results={results} openId={openId} setOpenId={setOpenId} /></CardBody>
         </Card>
       )}
-    </div>
+    </PageContainer>
   );
 }
 

@@ -224,9 +224,15 @@ export function Dashboard() {
 
           <Card>
             <CardHeader title={t('overview.chartResolution')} subtitle={t('overview.chartResolutionSub')} />
-            <CardBody className="flex justify-center">
-              <Gauge value={metricsQ.data?.closed ?? 0} max={metricsQ.data?.total ?? 0}
-                ariaLabel={t('overview.chartResolution')} centerLabel={t('overview.chartResolved')} />
+            <CardBody className="flex min-h-[152px] items-center justify-center">
+              {/* Gate on a resolved, non-empty metrics query — a 0% success-green gauge would misread as "nothing
+                  resolved" on a portfolio that simply has no defects yet. */}
+              {metricsQ.data && metricsQ.data.total > 0 ? (
+                <Gauge value={metricsQ.data.closed} max={metricsQ.data.total}
+                  ariaLabel={t('overview.chartResolution')} centerLabel={t('overview.chartResolved')} />
+              ) : (
+                <p className="text-sm text-muted">{t('overview.chartResolutionEmpty')}</p>
+              )}
             </CardBody>
           </Card>
 

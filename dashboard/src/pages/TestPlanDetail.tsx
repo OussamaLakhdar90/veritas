@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { FileText } from 'lucide-react';
 import { api, Deliverable } from '../api';
-import { Badge, Card, CardBody, PageHeader, Spinner, Table, Td, Th, Row } from '../components/ui';
+import { Badge, Card, CardBody, PageHeader, TableSkeleton, Table, Td, Th, Row, ErrorState } from '../components/ui';
 import { severityBadge, TONE } from '../theme/tokens';
 import { enumLabel } from '../lib/enumLabels';
 import { formatMoney } from '../lib/format';
@@ -35,8 +35,8 @@ export function TestPlanDetail() {
   const { id } = useParams();
   const q = useQuery({ queryKey: ['test-plan', id], queryFn: () => api.testPlan(id!), enabled: !!id });
 
-  if (q.isLoading) return <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('testPlanDetail.loading')}</CardBody></Card>;
-  if (q.isError || !q.data) return <Card><CardBody className="text-sm text-danger">{t('testPlanDetail.couldNotLoad')}: {(q.error as Error)?.message}</CardBody></Card>;
+  if (q.isLoading) return <Card><CardBody className="p-0"><TableSkeleton label={t('testPlanDetail.loading')} /></CardBody></Card>;
+  if (q.isError || !q.data) return <ErrorState message={t('testPlanDetail.couldNotLoad')} detail={(q.error as Error)?.message} />;
 
   const { plan, coverage = [] } = q.data;
   let d: Deliverable = {};

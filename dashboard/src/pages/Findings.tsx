@@ -4,7 +4,7 @@ import { useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bug, FileText, CheckCircle2, AlertTriangle, Check, X, ExternalLink, Download } from 'lucide-react';
 import { api, Finding } from '../api';
-import { Badge, Button, Card, CardBody, EmptyState, ErrorState, Field, Input, PageHeader, Spinner, Table, Td, Th, Row, SortableTh, useSort } from '../components/ui';
+import { Badge, Button, Card, CardBody, EmptyState, ErrorState, Field, Input, PageHeader, TableSkeleton, Table, Td, Th, Row, SortableTh, useSort } from '../components/ui';
 import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toast';
 import { severityBadge, TONE } from '../theme/tokens';
@@ -113,9 +113,9 @@ export function Findings() {
         )} />
 
       {q.isLoading ? (
-        <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('findings.loading')}</CardBody></Card>
+        <Card><CardBody className="p-0"><TableSkeleton label={t('findings.loading')} /></CardBody></Card>
       ) : q.isError ? (
-        <ErrorState message={(q.error as Error).message} />
+        <ErrorState detail={(q.error as Error).message} />
       ) : findings.length === 0 ? (
         <EmptyState icon={CheckCircle2} title={t('findings.emptyTitle')}
           body={t('findings.emptyBody')} />

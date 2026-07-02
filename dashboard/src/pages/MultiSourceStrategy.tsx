@@ -7,7 +7,7 @@ import {
   Pin, Pencil, Check, X, GitMerge, RefreshCw,
 } from 'lucide-react';
 import { api, MultiSourceStrategyRequest, StrategyPreview } from '../api';
-import { Badge, Button, Card, CardBody, CardHeader, Field, Input, PageHeader } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Field, Input, PageContainer, PageHeader } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
@@ -160,7 +160,7 @@ export function MultiSourceStrategy() {
   const busy = renameM.isPending || mergeM.isPending || pinM.isPending || recheckM.isPending;
 
   return (
-    <div className="max-w-3xl">
+    <PageContainer variant="narrow">
       <PageHeader title={t('multiSource.pageTitle')}
         subtitle={t('multiSource.pageSubtitle')} />
 
@@ -188,6 +188,9 @@ export function MultiSourceStrategy() {
               <Field label={t('multiSource.rootPageIdLabel')} hint={t('multiSource.rootPageIdHint')}><Input value={rootPageId} onChange={(e) => setRootPageId(e.target.value)} placeholder="987654" /></Field>
             </SourceToggle>
 
+            {/* Inline failure surface — the toast is transient; a persistent error state is honest about what broke. */}
+            {previewM.isError && <ErrorState message={t('multiSource.previewError')} detail={(previewM.error as Error).message} />}
+
             <div className="flex justify-end pt-1">
               <Button onClick={() => previewM.mutate()} loading={previewM.isPending} disabled={!ready}>
                 <Layers className="h-4 w-4" /> {t('multiSource.previewBtn')}
@@ -195,6 +198,17 @@ export function MultiSourceStrategy() {
             </div>
           </CardBody>
         </Card>
+      ) : preview.features.length === 0 && preview.gaps.length === 0 ? (
+        // A preview that came back with nothing usable — say so instead of showing an empty index + a live Generate button.
+        <div className="space-y-4">
+          {preview.fetchFailures.length > 0 && (
+            <Card className="border-l-4 border-l-warning"><CardBody className="text-sm text-muted">
+              <span className="font-medium text-ink-900">{t('multiSource.someItemsNotFetched')}</span> {preview.fetchFailures.join('; ')}
+            </CardBody></Card>
+          )}
+          <EmptyState icon={Layers} title={t('multiSource.emptyPreviewTitle')} body={t('multiSource.emptyPreviewBody')}
+            action={<Button variant="secondary" onClick={() => setPreview(null)}><ArrowLeft className="h-4 w-4" /> {t('multiSource.backBtn')}</Button>} />
+        </div>
       ) : (
         <div className="space-y-4">
           {/* Banners */}
@@ -352,6 +366,6 @@ export function MultiSourceStrategy() {
           <ShieldCheck className="h-3.5 w-3.5" /> {t('multiSource.footerNote')}
         </p>
       )}
-    </div>
+    </PageContainer>
   );
 }

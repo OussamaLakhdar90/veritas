@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Trans, useTranslation } from 'react-i18next';
 import { FileText, ExternalLink, ListTree } from 'lucide-react';
 import { api, TestCondition } from '../api';
-import { Badge, Card, CardBody, CardHeader, PageHeader, Spinner, Table, Td, Th, Row, ErrorState } from '../components/ui';
+import { Badge, Card, CardBody, CardHeader, PageHeader, TableSkeleton, Table, Td, Th, Row, ErrorState } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
 import { enumLabel } from '../lib/enumLabels';
@@ -52,8 +52,8 @@ export function TestConditions() {
     return s;
   }, [conditions]);
 
-  if (q.isLoading) return <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('testConditions.loading')}</CardBody></Card>;
-  if (q.isError) return <ErrorState message={t('testConditions.loadError', { message: (q.error as Error)?.message ?? t('testConditions.unknownError') })} />;
+  if (q.isLoading) return <Card><CardBody className="p-0"><TableSkeleton label={t('testConditions.loading')} /></CardBody></Card>;
+  if (q.isError) return <ErrorState message={t('testConditions.loadError')} detail={(q.error as Error)?.message ?? t('testConditions.unknownError')} />;
 
   const service = strategyQ.data?.serviceName ?? t('testConditions.serviceFallback');
 

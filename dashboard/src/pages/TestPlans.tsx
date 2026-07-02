@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ClipboardList, Play, ArrowRight } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Field, Input, PageHeader, Spinner, Table, Td, Th, Row } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Field, Input, PageHeader, TableSkeleton, Table, Td, Th, Row } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
 import { enumLabel } from '../lib/enumLabels';
@@ -58,9 +58,9 @@ export function TestPlans() {
       </Card>
 
       {q.isLoading ? (
-        <Card><CardBody className="flex items-center gap-2 text-sm text-muted"><Spinner /> {t('testPlans.loading')}</CardBody></Card>
+        <Card><CardBody className="p-0"><TableSkeleton label={t('testPlans.loading')} /></CardBody></Card>
       ) : q.isError ? (
-        <ErrorState message={(q.error as Error).message} />
+        <ErrorState detail={(q.error as Error).message} />
       ) : plans.length === 0 ? (
         <EmptyState icon={ClipboardList} title={t('testPlans.emptyTitle')} body={t('testPlans.emptyBody')} />
       ) : (

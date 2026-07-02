@@ -1,6 +1,6 @@
 import { BookOpen } from 'lucide-react';
 import { Trans, useTranslation } from 'react-i18next';
-import { Badge, Card, CardBody, CardHeader, PageHeader } from '../components/ui';
+import { Badge, Card, CardBody, CardHeader, PageContainer, PageHeader } from '../components/ui';
 import { SEVERITY_BADGE, TONE } from '../theme/tokens';
 import { enumLabel } from '../lib/enumLabels';
 
@@ -34,7 +34,7 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
 export function Glossary() {
   const { t } = useTranslation();
   return (
-    <div className="max-w-3xl">
+    <PageContainer variant="narrow">
       <PageHeader
         title={t('glossary.pageTitle')}
         subtitle={t('glossary.pageSubtitle')}
@@ -139,6 +139,6 @@ export function Glossary() {
           {t('glossary.estAnalysisCostBody')}
         </Term>
       </Section>
-    </div>
+    </PageContainer>
   );
 }
