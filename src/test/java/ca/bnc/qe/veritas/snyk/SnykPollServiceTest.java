@@ -21,11 +21,19 @@ class SnykPollServiceTest {
 
     private final SnykWatchRepository watches = mock(SnykWatchRepository.class);
     private final SnykSnapshotRepository snapshots = mock(SnykSnapshotRepository.class);
+    private final SnykVulnRepository vulns = mock(SnykVulnRepository.class);
     private final SnykAlertRepository alerts = mock(SnykAlertRepository.class);
     private final SnykScanPersistence persistence = mock(SnykScanPersistence.class);
     private final SnykClient client = mock(SnykClient.class);
     private final SnykPollService service =
-            new SnykPollService(watches, snapshots, alerts, persistence, client);
+            new SnykPollService(watches, snapshots, vulns, alerts, persistence, client);
+
+    private SnykVuln vuln(String issueId, String severity) {
+        SnykVuln v = new SnykVuln();
+        v.setIssueId(issueId);
+        v.setSeverity(severity);
+        return v;
+    }
 
     private SnykWatch watch() {
         SnykWatch w = new SnykWatch();
@@ -76,10 +84,46 @@ class SnykPollServiceTest {
         prev.setCritical(1);
         prev.setHigh(1);
         when(snapshots.findFirstByWatchIdOrderByTakenAtDesc(any())).thenReturn(Optional.of(prev));
+        // Same issue ids as the current poll → nothing new/escalated.
+        when(vulns.findBySnapshotId(any())).thenReturn(List.of(vuln("SNYK-1", "critical"), vuln("SNYK-2", "high")));
 
         service.poll(watch());
 
         verify(alerts, never()).save(any());
+    }
+
+    @Test
+    void severityEscalationAtAnUnchangedTotalRaisesAnAlert() {
+        // The same issue (SNYK-2) escalates medium → high: total is still 1, so a naive total-diff would miss it.
+        stubClient(highFixable());   // SNYK-2, now "high"
+        SnykSnapshot prev = new SnykSnapshot();
+        prev.setMedium(1);
+        when(snapshots.findFirstByWatchIdOrderByTakenAtDesc(any())).thenReturn(Optional.of(prev));
+        when(vulns.findBySnapshotId(any())).thenReturn(List.of(vuln("SNYK-2", "medium")));
+
+        service.poll(watch());
+
+        ArgumentCaptor<SnykAlert> cap = ArgumentCaptor.forClass(SnykAlert.class);
+        verify(alerts).save(cap.capture());
+        assertThat(cap.getValue().getMessage()).contains("severity increased");
+    }
+
+    @Test
+    void aNewSevereIssueReplacingAFixedOneAtTheSameCountRaisesAnAlert() {
+        // A high (SNYK-3) replaces a remediated high (SNYK-OLD): count 2 == 2, but a NEW severe issue appeared.
+        SnykIssue high3 = new SnykIssue("SNYK-3", "high", "XXE", "rhino", "1.7.14", "CVE-3", "CWE-611",
+                7.1, 150, true, List.of("1.7.15"));
+        stubClient(highFixable(), high3);   // SNYK-2 + SNYK-3
+        SnykSnapshot prev = new SnykSnapshot();
+        prev.setHigh(2);
+        when(snapshots.findFirstByWatchIdOrderByTakenAtDesc(any())).thenReturn(Optional.of(prev));
+        when(vulns.findBySnapshotId(any())).thenReturn(List.of(vuln("SNYK-2", "high"), vuln("SNYK-OLD", "high")));
+
+        service.poll(watch());
+
+        ArgumentCaptor<SnykAlert> cap = ArgumentCaptor.forClass(SnykAlert.class);
+        verify(alerts).save(cap.capture());
+        assertThat(cap.getValue().getMessage()).contains("New high-severity");
     }
 
     @Test

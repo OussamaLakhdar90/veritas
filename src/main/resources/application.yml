@@ -99,6 +99,10 @@ veritas:
       branch: "develop"           # integration branch the cascade branches off + opens PRs against (main/master on some setups)
       consumer-repo: "application-tests"   # repo under each watched app-id holding the consumer poms Veritas bumps
       # default-reviewers: []      # Bitbucket usernames added when git history yields no reviewer suggestion
+    retention:                    # prune the Snyk growth tables (latest snapshot per watch is always kept). 0 disables.
+      snapshot-days: 30
+      alert-days: 60
+      fix-train-days: 90
 
 logging:
   level:

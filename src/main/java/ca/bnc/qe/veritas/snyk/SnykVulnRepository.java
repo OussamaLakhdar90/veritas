@@ -6,4 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface SnykVulnRepository extends JpaRepository<SnykVuln, String> {
 
     List<SnykVuln> findBySnapshotId(String snapshotId);
+
+    /** Companion delete when a snapshot is pruned (SnykVuln has no JPA cascade from its snapshot). */
+    void deleteBySnapshotId(String snapshotId);
 }
