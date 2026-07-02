@@ -28,7 +28,9 @@ export function Snyk() {
 
   const orgsQ = useQuery({ queryKey: ['snyk-orgs'], queryFn: api.snykOrgs });
   const watchesQ = useQuery({ queryKey: ['snyk-watches'], queryFn: api.snykWatches });
-  const alertsQ = useQuery({ queryKey: ['snyk-alerts', 'unseen'], queryFn: () => api.snykAlerts(true) });
+  // Poll so a new Critical raised by the daily/startup backend poll surfaces without a manual refresh.
+  const alertsQ = useQuery({ queryKey: ['snyk-alerts', 'unseen'], queryFn: () => api.snykAlerts(true),
+    refetchInterval: 30000, refetchOnWindowFocus: true });
   const issuesQ = useQuery({
     queryKey: ['snyk-issues', selectedWatch], queryFn: () => api.snykIssues(selectedWatch as string),
     enabled: !!selectedWatch,
@@ -87,25 +89,23 @@ export function Snyk() {
         actions={<Button variant="secondary" loading={refresh.isPending} onClick={() => refresh.mutate()}>
           <RefreshCw className="h-4 w-4" /> {t('snyk.refresh')}</Button>} />
 
-      {/* New-alert notifications (Critical in red) */}
-      {alerts.length > 0 && (
-        <div className="mb-6 space-y-2">
-          {alerts.map((a) => (
-            <div key={a.id} role="alert"
-              className={`flex items-start justify-between gap-3 rounded-lg border-l-4 px-4 py-3 text-[13px] ${
-                a.severity === 'critical' ? 'border-l-danger bg-danger/5' : 'border-l-warning bg-warning/5'}`}>
-              <div className="flex items-start gap-2">
-                <Badge className={snykSeverityBadge(a.severity)}>{a.severity}</Badge>
-                <span className="text-ink-900">{a.message}</span>
-              </div>
-              <button type="button" onClick={() => dismissAlert.mutate(a.id)} aria-label={t('snyk.alertDismiss')}
-                className="shrink-0 rounded p-0.5 text-muted hover:text-ink-900">
-                <X className="h-4 w-4" />
-              </button>
+      {/* New-alert notifications (Critical in red). Persistent aria-live region so new arrivals are announced. */}
+      <div className={alerts.length > 0 ? 'mb-6 space-y-2' : ''} aria-live="assertive" aria-atomic="false">
+        {alerts.map((a) => (
+          <div key={a.id} role="alert"
+            className={`flex items-start justify-between gap-3 rounded-lg border-l-4 px-4 py-3 text-[13px] ${
+              a.severity === 'critical' ? 'border-l-danger bg-danger/5' : 'border-l-warning bg-warning/5'}`}>
+            <div className="flex items-start gap-2">
+              <Badge className={snykSeverityBadge(a.severity)}>{a.severity}</Badge>
+              <span className="text-ink-900">{a.message}</span>
             </div>
-          ))}
-        </div>
-      )}
+            <button type="button" onClick={() => dismissAlert.mutate(a.id)} aria-label={t('snyk.alertDismiss')}
+              className="shrink-0 rounded p-0.5 text-muted hover:text-ink-900">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+      </div>
 
       {/* Watch applications (app-id-centric — each watch targets that app's application-tests repo) */}
       <Card className="mb-6">

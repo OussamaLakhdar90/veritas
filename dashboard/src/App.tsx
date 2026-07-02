@@ -32,6 +32,7 @@ import { BackgroundScansProvider } from './lib/backgroundScans';
 import { cn } from './components/cn';
 import { NAV_GROUPS, NAV_ITEMS } from './lib/nav';
 import { CommandPalette } from './components/CommandPalette';
+import { AlertBell } from './components/AlertBell';
 
 /** EN/FR segmented toggle — French is the default (NBC/Québec); the choice persists to localStorage. */
 function LanguageToggle() {
@@ -154,6 +155,7 @@ function TopBar({ onOpenMobile, onOpenPalette, dark, onToggleDark }:
           <Search className="h-3.5 w-3.5" /> <span className="hidden sm:inline">{t('palette.open')}</span>
           <kbd className="hidden rounded bg-surface px-1.5 py-0.5 text-[10px] font-medium ring-1 ring-border sm:inline">⌘K</kbd>
         </button>
+        <AlertBell />
         <LanguageToggle />
         <button onClick={onToggleDark} aria-label={t('header.toggleTheme')}
           className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-ink-600 hover:bg-ink-50">

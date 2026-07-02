@@ -36,7 +36,8 @@
     "language": "Language",
     "menu": "Open menu",
     "collapse": "Collapse sidebar",
-    "expand": "Expand sidebar"
+    "expand": "Expand sidebar",
+    "alerts": "{{count}} new vulnerability alert(s) — open Snyk"
   },
   "common": {
     "errorTitle": "Couldn’t load this data",
