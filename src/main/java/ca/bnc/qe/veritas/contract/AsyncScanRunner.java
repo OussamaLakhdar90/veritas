@@ -4,8 +4,11 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import ca.bnc.qe.veritas.persistence.RunStatus;
 import ca.bnc.qe.veritas.persistence.Scan;
 import ca.bnc.qe.veritas.persistence.ScanRepository;
@@ -36,6 +39,10 @@ public class AsyncScanRunner {
         return t;
     });
 
+    /** In-flight worker per scan id, so the stale-timeout reconciler can interrupt a hung scan and free its
+     *  pool slot (otherwise two hung scans would block every queued scan until a restart). */
+    private final ConcurrentMap<String, Future<?>> inFlight = new ConcurrentHashMap<>();
+
     public AsyncScanRunner(WorkspaceService workspace, SpecResolver specResolver,
                            ContractValidationService validation, ScanRepository scans, Preflight preflight) {
         this.workspace = workspace;
@@ -59,13 +66,34 @@ public class AsyncScanRunner {
         scan.setOwner(owner);
         scan.setStatus(RunStatus.RUNNING);
         scan.setStage(ScanStages.QUEUED);
+        // startedAt is provisional while queued (the UI elapsed timer needs a value) — run() re-stamps it at
+        // dequeue so queue wait never counts against the runtime ceiling.
+        scan.setQueuedAt(Instant.now());
         scan.setStartedAt(Instant.now());
         scan = scans.save(scan);
         final Scan saved = scan;
+        final String id = scan.getId();
         log.info("Scan {} [{}] queued — validating {} on branch '{}'",
-                scan.getId(), scan.getServiceName(), repoSlug, branch);
-        pool.submit(() -> run(saved, appId, repoSlug, branch, repoPath, specs, llmEnabled, owner, thoroughness));
-        return scan.getId();
+                id, scan.getServiceName(), repoSlug, branch);
+        Future<?> worker = pool.submit(() -> {
+            try {
+                run(saved, appId, repoSlug, branch, repoPath, specs, llmEnabled, owner, thoroughness);
+            } finally {
+                inFlight.remove(id);
+            }
+        });
+        inFlight.put(id, worker);
+        if (worker.isDone()) {
+            inFlight.remove(id);   // the worker finished before we registered it — don't leak the entry
+        }
+        return id;
+    }
+
+    /** Interrupt the worker running (or queued for) this scan, freeing its pool slot. Called by the stale-timeout
+     *  reconciler; returns false when no in-flight worker exists in this process (already finished, or pre-restart). */
+    public boolean cancel(String scanId) {
+        Future<?> worker = inFlight.remove(scanId);
+        return worker != null && worker.cancel(true);
     }
 
     /** Updates the live progress stage — drives the dashboard stepper AND logs the advance to the console. */
@@ -90,6 +118,7 @@ public class AsyncScanRunner {
                      List<SpecRef> specRefs, boolean llmEnabled, String owner, Thoroughness thoroughness) {
         Path repo = null;
         try {
+            scan.setStartedAt(Instant.now());   // actual start — the scan just left the queue
             stage(scan, ScanStages.CLONING);
             repo = workspace.resolve(appId, repoSlug, branch, repoPath);
 
