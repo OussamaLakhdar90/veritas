@@ -28,11 +28,11 @@ import { useDarkMode, useSidebarCollapsed } from './lib/theme';
 import { pageTransition, navSpring, isTestEnv } from './lib/motion';
 import { setLanguage, type Lang } from './i18n';
 import { CopilotAuthProvider } from './lib/copilotAuth';
-import { BackgroundScansProvider } from './lib/backgroundScans';
+import { ActivityCenterProvider } from './lib/activityCenter';
 import { cn } from './components/cn';
 import { NAV_GROUPS, NAV_ITEMS } from './lib/nav';
 import { CommandPalette } from './components/CommandPalette';
-import { AlertBell } from './components/AlertBell';
+import { ActivityBell } from './components/ActivityBell';
 import { VeritasLogo } from './components/VeritasLogo';
 
 /** EN/FR segmented toggle — French is the default (NBC/Québec); the choice persists to localStorage. */
@@ -158,7 +158,7 @@ function TopBar({ onOpenMobile, onOpenPalette, dark, onToggleDark }:
           <Search className="h-3.5 w-3.5" /> <span className="hidden sm:inline">{t('palette.open')}</span>
           <kbd className="hidden rounded bg-surface px-1.5 py-0.5 text-2xs font-medium ring-1 ring-border sm:inline">⌘K</kbd>
         </button>
-        <AlertBell />
+        <ActivityBell />
         <LanguageToggle />
         <button onClick={onToggleDark} aria-label={t('header.toggleTheme')}
           className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-ink-600 hover:bg-ink-50">
@@ -223,7 +223,7 @@ export function App() {
   return (
     <MotionConfig reducedMotion="user">
     <HashRouter>
-      <BackgroundScansProvider>
+      <ActivityCenterProvider>
       <div className="flex min-h-screen">
         {mobileOpen && (
           <div className="fixed inset-0 z-40 bg-ink-900/50 lg:hidden" onClick={() => setMobileOpen(false)} aria-hidden="true" />
@@ -241,7 +241,7 @@ export function App() {
         </div>
       </div>
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} />
-      </BackgroundScansProvider>
+      </ActivityCenterProvider>
     </HashRouter>
     </MotionConfig>
   );

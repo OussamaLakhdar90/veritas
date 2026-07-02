@@ -36,8 +36,7 @@
     "language": "Langue",
     "menu": "Ouvrir le menu",
     "collapse": "Réduire la barre latérale",
-    "expand": "Agrandir la barre latérale",
-    "alerts": "{{count}} nouvelle(s) alerte(s) de vulnérabilité — ouvrir Snyk"
+    "expand": "Agrandir la barre latérale"
   },
   "common": {
     "errorTitle": "Impossible de charger ces données",
@@ -1171,16 +1170,7 @@
     },
     "FAILED": {
       "short": "Échec"
-    },
-    "dockFailed": "Échec de la validation",
-    "dockComplete_one": "Terminé · {{count}} constat",
-    "dockComplete_other": "Terminé · {{count}} constats",
-    "dockOpenScan": "Ouvrir l’analyse",
-    "dockViewFindings": "Voir les constats",
-    "dockDismiss": "Rejeter",
-    "toastComplete_one": "{{service}} : analyse terminée — {{count}} constat.",
-    "toastComplete_other": "{{service}} : analyse terminée — {{count}} constats.",
-    "toastFailed": "{{service}} : échec de la validation."
+    }
   },
   "palette": {
     "title": "Palette de commandes",
@@ -1191,5 +1181,23 @@
     "toSelect": "pour sélectionner",
     "toNavigate": "pour naviguer",
     "open": "Rechercher"
+  },
+  "activity": {
+    "title": "Activité",
+    "empty": "Rien ne requiert votre attention.",
+    "security": "Sécurité",
+    "alertsRow": "{{count}} alerte(s) de vulnérabilité non vue(s)",
+    "dismiss": "Fermer",
+    "bellAria": "Notifications",
+    "status": {
+      "QUEUED": "En file d'attente",
+      "RUNNING": "En cours",
+      "WAITING_FOR_YOU": "En attente de vous",
+      "COMPLETED": "Terminé",
+      "FAILED": "Échec"
+    },
+    "toastDone": "{{label}} terminé",
+    "toastFailed": "{{label}} a échoué",
+    "toastWaiting": "{{label}} attend votre décision"
   }
 }

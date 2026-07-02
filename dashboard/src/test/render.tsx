@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { ToastProvider } from '../components/Toast'
 import { CopilotAuthProvider } from '../lib/copilotAuth'
-import { BackgroundScansProvider } from '../lib/backgroundScans'
+import { ActivityCenterProvider } from '../lib/activityCenter'
 
 /** A fresh, retry-free, cache-free QueryClient per test so polling/mutations are deterministic. */
 function freshClient() {
@@ -33,7 +33,7 @@ export function renderPage(
     <QueryClientProvider client={freshClient()}>
       <ToastProvider>
         <MemoryRouter initialEntries={[route]}>
-          <BackgroundScansProvider>
+          <ActivityCenterProvider>
             <CopilotAuthProvider>
               <Routes>
                 <Route path={path} element={ui} />
@@ -42,7 +42,7 @@ export function renderPage(
                 ))}
               </Routes>
             </CopilotAuthProvider>
-          </BackgroundScansProvider>
+          </ActivityCenterProvider>
         </MemoryRouter>
       </ToastProvider>
     </QueryClientProvider>,

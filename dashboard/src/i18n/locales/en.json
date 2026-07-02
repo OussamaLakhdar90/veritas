@@ -36,8 +36,7 @@
     "language": "Language",
     "menu": "Open menu",
     "collapse": "Collapse sidebar",
-    "expand": "Expand sidebar",
-    "alerts": "{{count}} new vulnerability alert(s) — open Snyk"
+    "expand": "Expand sidebar"
   },
   "common": {
     "errorTitle": "Couldn’t load this data",
@@ -1171,16 +1170,7 @@
     },
     "FAILED": {
       "short": "Failed"
-    },
-    "dockFailed": "Validation failed",
-    "dockComplete_one": "Complete · {{count}} finding",
-    "dockComplete_other": "Complete · {{count}} findings",
-    "dockOpenScan": "Open scan",
-    "dockViewFindings": "View findings",
-    "dockDismiss": "Dismiss",
-    "toastComplete_one": "{{service}}: scan complete — {{count}} finding.",
-    "toastComplete_other": "{{service}}: scan complete — {{count}} findings.",
-    "toastFailed": "{{service}}: validation failed."
+    }
   },
   "palette": {
     "title": "Command palette",
@@ -1191,5 +1181,23 @@
     "toSelect": "to select",
     "toNavigate": "to navigate",
     "open": "Search"
+  },
+  "activity": {
+    "title": "Activity",
+    "empty": "Nothing needs your attention.",
+    "security": "Security",
+    "alertsRow": "{{count}} unseen vulnerability alert(s)",
+    "dismiss": "Dismiss",
+    "bellAria": "Notifications",
+    "status": {
+      "QUEUED": "Waiting to start",
+      "RUNNING": "Running",
+      "WAITING_FOR_YOU": "Waiting for you",
+      "COMPLETED": "Completed",
+      "FAILED": "Failed"
+    },
+    "toastDone": "{{label}} finished",
+    "toastFailed": "{{label}} failed",
+    "toastWaiting": "{{label}} is waiting for you"
   }
 }

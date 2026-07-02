@@ -504,6 +504,26 @@ export interface SnykFixTrainView {
   steps: SnykFixStepView[];
 }
 
+// ── Activity Center ───────────────────────────────────────────────────────────
+/**
+ * One row of the unified server-truth activity feed (scans, fix trains, codegen runs). `status` is one of the
+ * FIVE plain states the whole app shares; `link` is the dashboard route that shows the task; `acked` means the
+ * user dismissed the item (persisted server-side, so a reload or another browser agrees).
+ */
+export interface ActivityItem {
+  id: string
+  type: 'SCAN' | 'FIX_TRAIN' | 'CODEGEN'
+  label: string
+  status: 'QUEUED' | 'RUNNING' | 'WAITING_FOR_YOU' | 'COMPLETED' | 'FAILED'
+  stage?: string
+  detail?: string
+  needsAttention: boolean
+  startedAt?: string
+  finishedAt?: string
+  link: string
+  acked: boolean
+}
+
 export const api = {
   scans: (service?: string) => get<Scan[]>(`/scans${service ? `?service=${encodeURIComponent(service)}` : ''}`),
   scan: (id: string) => get<Scan>(`/scans/${encodeURIComponent(id)}`),
@@ -696,4 +716,9 @@ export const api = {
     send<SnykFixTrainView>('POST', `/snyk/fixes/${encodeURIComponent(id)}/steps/${order}/pr`, { prUrl }),
   markSnykFixMerged: (id: string) =>
     send<SnykFixTrainView>('POST', `/snyk/fixes/${encodeURIComponent(id)}/mark-merged`),
+
+  // ── Activity Center ──
+  activity: () => get<ActivityItem[]>('/activity'),
+  // Routes through send() because the controller returns a bodyless 200 — post() would choke parsing it as JSON.
+  ackActivity: (ids: string[]) => send<void>('POST', '/activity/ack', { ids }),
 }

@@ -1,33 +1,35 @@
 import { describe, expect, it } from "vitest"
 import { screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { useQueryClient } from "@tanstack/react-query"
 import { http, HttpResponse } from "msw"
 import { server } from "./msw/server"
 import { renderPage } from "./render"
 import { api } from "../api"
-import { useBackgroundScans } from "../lib/backgroundScans"
 import { useCopilotAuth } from "../lib/copilotAuth"
 
-// ── backgroundScans harness ──────────────────────────────────────────────────
-// A tiny consumer that drives the BackgroundScansProvider through its public hook. Clicking "Track" registers
-// a scan, which mounts the floating dock card that polls GET /scans/:id. Returning a TERMINAL status on the
-// very first fetch lets the card resolve without fake timers.
-function BgHarness({ id = "scan-1", service = "ciam-policies" }: { id?: string; service?: string }) {
-  const { track } = useBackgroundScans()
+// ── activityCenter harness ───────────────────────────────────────────────────
+// The ActivityCenterProvider (mounted by renderPage) owns the ['activity'] poll. This harness forces the next
+// poll on demand so a test can observe a status TRANSITION (RUNNING → COMPLETED) without fake timers.
+function RefetchHarness() {
+  const qc = useQueryClient()
   return (
-    <button onClick={() => track({ id, service })}>Track</button>
+    <button onClick={() => qc.invalidateQueries({ queryKey: ["activity"] })}>Refetch</button>
   )
 }
 
-const completedScan = (over: Record<string, unknown> = {}) => ({
-  id: "scan-1",
-  serviceName: "ciam-policies",
-  status: "COMPLETED",
-  stage: "DONE",
-  totalFindings: 3,
-  totalEstCostUsd: 0,
+const activityItem = (over: Record<string, unknown> = {}) => ({
+  id: "act-1",
+  type: "SCAN",
+  label: "ciam-policies",
+  status: "RUNNING",
+  stage: "DIFFING",
+  detail: "",
+  needsAttention: false,
   startedAt: new Date().toISOString(),
-  specSources: "",
+  finishedAt: null,
+  link: "/findings/scan-1",
+  acked: false,
   ...over,
 })
 
@@ -61,113 +63,89 @@ const loginStart = {
   expiresIn: 900,
 }
 
-describe("backgroundScans provider", () => {
-  it("track() mounts a dock card that shows the tracked service name", async () => {
-    server.use(http.get("*/api/v1/scans/:id", () => HttpResponse.json(completedScan())))
-    const user = userEvent.setup()
-    renderPage(<BgHarness />)
+describe("activityCenter provider", () => {
+  it("shows a dock card with the label and plain-language status for a RUNNING item", async () => {
+    server.use(http.get("*/api/v1/activity", () => HttpResponse.json([activityItem()])))
+    renderPage(<div />)
 
-    await user.click(screen.getByRole("button", { name: "Track" }))
     expect(await screen.findByText("ciam-policies")).toBeInTheDocument()
+    expect(screen.getByText("Running")).toBeInTheDocument()
   })
 
-  it("resolves a COMPLETED scan: success toast + a Complete summary with the finding count", async () => {
-    server.use(http.get("*/api/v1/scans/:id", () => HttpResponse.json(completedScan({ totalFindings: 3 }))))
-    const user = userEvent.setup()
-    renderPage(<BgHarness />)
+  it("hides terminal items unless they need attention and are not yet acked", async () => {
+    server.use(http.get("*/api/v1/activity", () => HttpResponse.json([
+      activityItem({ id: "a", label: "done-quiet", status: "COMPLETED" }),
+      activityItem({ id: "b", label: "done-acked", status: "COMPLETED", needsAttention: true, acked: true }),
+      activityItem({ id: "c", label: "failed-loud", status: "FAILED", needsAttention: true }),
+    ])))
+    renderPage(<div />)
 
-    await user.click(screen.getByRole("button", { name: "Track" }))
-    // The dock announces the outcome once via a success toast (the modal is gone).
-    expect(await screen.findByText("ciam-policies: scan complete — 3 findings.")).toBeInTheDocument()
-    expect(await screen.findByText(/Complete · 3 findings/)).toBeInTheDocument()
+    expect(await screen.findByText("failed-loud")).toBeInTheDocument()
+    expect(screen.queryByText("done-quiet")).not.toBeInTheDocument()
+    expect(screen.queryByText("done-acked")).not.toBeInTheDocument()
   })
 
-  it("singular-izes the finding count when exactly one finding is reported", async () => {
-    server.use(http.get("*/api/v1/scans/:id", () => HttpResponse.json(completedScan({ totalFindings: 1 }))))
+  it("the card label links to the item's dashboard route", async () => {
+    server.use(http.get("*/api/v1/activity", () => HttpResponse.json([activityItem()])))
     const user = userEvent.setup()
-    renderPage(<BgHarness />)
-
-    await user.click(screen.getByRole("button", { name: "Track" }))
-    expect(await screen.findByText("ciam-policies: scan complete — 1 finding.")).toBeInTheDocument()
-  })
-
-  it("a COMPLETED scan offers a View findings link that navigates to the findings route", async () => {
-    server.use(http.get("*/api/v1/scans/:id", () => HttpResponse.json(completedScan())))
-    const user = userEvent.setup()
-    renderPage(<BgHarness />, {
+    renderPage(<div />, {
       extraRoutes: [{ path: "/findings/:scanId", element: <div>findings-page</div> }],
     })
 
-    await user.click(screen.getByRole("button", { name: "Track" }))
-    const link = await screen.findByRole("button", { name: /View findings/ })
-    await user.click(link)
+    await user.click(await screen.findByRole("link", { name: "ciam-policies" }))
     expect(await screen.findByText("findings-page")).toBeInTheDocument()
   })
 
-  it("a FAILED scan shows a validation-failed toast and an Open scan link", async () => {
-    server.use(http.get("*/api/v1/scans/:id", () =>
-      HttpResponse.json(completedScan({ status: "FAILED", stage: "DIFFING", totalFindings: 0 }))))
-    const user = userEvent.setup()
-    renderPage(<BgHarness />)
-
-    await user.click(screen.getByRole("button", { name: "Track" }))
-    expect(await screen.findByText("ciam-policies: validation failed.")).toBeInTheDocument()
-    expect(await screen.findByText("Validation failed")).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /Open scan/ })).toBeInTheDocument()
-  })
-
-  it("the Dismiss (x) button removes the card from the dock", async () => {
-    server.use(http.get("*/api/v1/scans/:id", () => HttpResponse.json(completedScan())))
-    const user = userEvent.setup()
-    renderPage(<BgHarness />)
-
-    await user.click(screen.getByRole("button", { name: "Track" }))
-    expect(await screen.findByText(/Complete · 3 findings/)).toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Dismiss" }))
-    await waitFor(() => expect(screen.queryByText(/Complete · 3 findings/)).not.toBeInTheDocument())
-  })
-
-  it("persists tracked scans to localStorage under veritas-bg-scans", async () => {
-    server.use(http.get("*/api/v1/scans/:id", () => HttpResponse.json(completedScan())))
-    const user = userEvent.setup()
-    renderPage(<BgHarness />)
-
-    await user.click(screen.getByRole("button", { name: "Track" }))
-    await screen.findByText("ciam-policies")
-    await waitFor(() => {
-      const raw = localStorage.getItem("veritas-bg-scans")
-      expect(raw).toBeTruthy()
-      const list = JSON.parse(raw as string)
-      expect(list).toHaveLength(1)
-      expect(list[0].id).toBe("scan-1")
-      expect(list[0].service).toBe("ciam-policies")
-    })
-  })
-
-  it("track() is idempotent — tracking the same id twice keeps a single card", async () => {
-    server.use(http.get("*/api/v1/scans/:id", () => HttpResponse.json(completedScan())))
-    const user = userEvent.setup()
-    renderPage(<BgHarness />)
-
-    await user.click(screen.getByRole("button", { name: "Track" }))
-    await user.click(screen.getByRole("button", { name: "Track" }))
-    expect(await screen.findByText("ciam-policies")).toBeInTheDocument()
-    await waitFor(() => {
-      const list = JSON.parse(localStorage.getItem("veritas-bg-scans") as string)
-      expect(list).toHaveLength(1)
-    })
-  })
-
-  it("restores a previously tracked scan from localStorage on mount (no Track click needed)", async () => {
-    localStorage.setItem(
-      "veritas-bg-scans",
-      JSON.stringify([{ id: "scan-1", service: "restored-svc", startedAt: Date.now() }]),
+  it("the Dismiss X acks the item on the server and removes its card optimistically", async () => {
+    let ackedIds: string[] = []
+    server.use(
+      http.get("*/api/v1/activity", () =>
+        HttpResponse.json([activityItem({ label: "broken-train", status: "FAILED", needsAttention: true })])),
+      http.post("*/api/v1/activity/ack", async ({ request }) => {
+        ackedIds = ((await request.json()) as { ids: string[] }).ids
+        return new HttpResponse(null, { status: 200 })
+      }),
     )
-    server.use(http.get("*/api/v1/scans/:id", () => HttpResponse.json(completedScan({ totalFindings: 2 }))))
-    renderPage(<BgHarness />)
+    const user = userEvent.setup()
+    renderPage(<div />)
 
-    expect(await screen.findByText("restored-svc")).toBeInTheDocument()
-    expect(await screen.findByText(/Complete · 2 findings/)).toBeInTheDocument()
+    expect(await screen.findByText("broken-train")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Dismiss" }))
+    await waitFor(() => expect(screen.queryByText("broken-train")).not.toBeInTheDocument())
+    await waitFor(() => expect(ackedIds).toEqual(["act-1"]))
+  })
+
+  it("toasts on an observed RUNNING → COMPLETED transition and records the dedup key", async () => {
+    let polls = 0
+    server.use(http.get("*/api/v1/activity", () => {
+      polls += 1
+      return HttpResponse.json([activityItem({ status: polls === 1 ? "RUNNING" : "COMPLETED", needsAttention: true })])
+    }))
+    const user = userEvent.setup()
+    renderPage(<RefetchHarness />)
+
+    expect(await screen.findByText("Running")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Refetch" }))
+    expect(await screen.findByText("ciam-policies finished")).toBeInTheDocument()
+    const notified = JSON.parse(localStorage.getItem("veritas.activity.notified") as string)
+    expect(notified).toContain("act-1:COMPLETED")
+  })
+
+  it("never re-toasts a transition already recorded in the dedup store (reload safety)", async () => {
+    localStorage.setItem("veritas.activity.notified", JSON.stringify(["act-1:COMPLETED"]))
+    let polls = 0
+    server.use(http.get("*/api/v1/activity", () => {
+      polls += 1
+      return HttpResponse.json([activityItem({ status: polls === 1 ? "RUNNING" : "COMPLETED", needsAttention: true })])
+    }))
+    const user = userEvent.setup()
+    renderPage(<RefetchHarness />)
+
+    expect(await screen.findByText("Running")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Refetch" }))
+    // The card flips to its terminal state, but the already-announced toast must NOT reappear.
+    expect(await screen.findByText("Completed")).toBeInTheDocument()
+    expect(screen.queryByText("ciam-policies finished")).not.toBeInTheDocument()
   })
 })
 

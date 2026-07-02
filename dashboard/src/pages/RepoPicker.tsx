@@ -9,7 +9,6 @@ import { Button, Card, CardBody, EmptyState, Field, Input, PageHeader, Select, S
 import { Modal } from '../components/Modal';
 import { useToast } from '../components/Toast';
 import { useCopilotAuth } from '../lib/copilotAuth';
-import { useBackgroundScans } from '../lib/backgroundScans';
 import { SCAN_STEPS, STAGE_ORDER, stagePct, formatElapsed, useElapsed, useStageElapsed } from '../lib/scanStages';
 import { cn } from '../components/cn';
 
@@ -178,7 +177,6 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
   const { t } = useTranslation();
   const toast = useToast();
   const navigate = useNavigate();
-  const { track } = useBackgroundScans();
   const { needsCopilot, connected, signIn } = useCopilotAuth();
   const [branch, setBranch] = useState(repo.defaultBranch || '');
   const [specKind, setSpecKind] = useState<'REPO_PATH' | 'LIVE_DOCS' | 'CONFLUENCE'>('REPO_PATH');
@@ -253,11 +251,8 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
 
   const retry = () => { setScanId(null); setStartedAtMs(null); setNavigated(false); };
 
-  // Hand the running scan to the floating dock so it stays visible, then close the modal.
-  const runInBackground = () => {
-    if (scanId) track({ id: scanId, service: repo.slug });
-    onClose();
-  };
+  // Just close — the server-truth Activity dock already shows every running scan automatically.
+  const runInBackground = () => onClose();
 
   const title = scanId ? t('repos.modalTitleValidating', { slug: repo.slug }) : t('repos.modalTitleValidate', { slug: repo.slug });
 
