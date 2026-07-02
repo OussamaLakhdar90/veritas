@@ -8,6 +8,7 @@ import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.ColumnDefault;
 
 /** Persisted form of a {@code finding.Finding}: evidence + current/proposed YAML + status, per scan. */
 @Entity
@@ -70,6 +71,9 @@ public class FindingRecord extends AuditableEntity {
 
     // The reconcile LLM flagged this deterministic finding as a likely false positive (excluded from the release gate
     // but still listed). Persisted so a live re-render reproduces the as-scanned view; severity is never altered.
+    // @ColumnDefault so ddl-auto=update can ADD this NOT NULL column to a pre-existing `finding` table — SQLite
+    // rejects adding a NOT NULL column without a non-null default (portable: "false" is valid on SQLite + Postgres).
+    @ColumnDefault("false")
     private boolean aiDisputed;
     @Column(length = 1000)
     private String aiDisputeReason;

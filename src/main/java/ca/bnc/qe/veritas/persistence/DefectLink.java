@@ -7,6 +7,7 @@ import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.ColumnDefault;
 
 /** Links a finding to the Jira defect created from it (tracks "Jira created or not" + cached status). */
 @Entity
@@ -25,6 +26,9 @@ public class DefectLink extends AuditableEntity {
     private String jiraUrl;
     private String jiraStatus;
     private String jiraStatusCategory;
+    // @ColumnDefault so ddl-auto=update can ADD this NOT NULL column to a pre-existing table (SQLite rejects a
+    // NOT NULL column added without a non-null default).
+    @ColumnDefault("false")
     private boolean createdInJira;
     private String createdBy;
     private Instant lastSyncedAt;
