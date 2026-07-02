@@ -89,18 +89,60 @@ public class CascadePlanner {
     }
 
     private CascadeStep consumerStep(int order, AppInput app, Map<String, String> newVersions) {
-        AppUsageDetector.AppUsage use = usage.detect(app.pomContent());
+        String pom = app.pomContent();
+        AppUsageDetector.AppUsage use = usage.detect(pom);
         List<PomEdit> edits = new ArrayList<>();
-        maybeBump(app.pomContent(), edits, fw.getBomVersionProperty(), use.usesBom(), newVersions);
-        maybeBump(app.pomContent(), edits, fw.getCoreVersionProperty(), use.usesCore(), newVersions);
-        maybeBump(app.pomContent(), edits, fw.getApiVersionProperty(), use.usesApi(), newVersions);
-        maybeBump(app.pomContent(), edits, fw.getWebVersionProperty(), use.usesWeb(), newVersions);
+        // A consumer picks up a (usually transitive) fix by advancing its framework-version pointer. Bump whichever
+        // pointer it actually has — a <lsist-*.version> property OR an inline dependency/BOM-import version.
+        boolean usesButInherited = false;
+        usesButInherited |= addConsumerBump(pom, edits, fw.getBomVersionProperty(), fw.getBomRepo(), use.usesBom(), newVersions);
+        usesButInherited |= addConsumerBump(pom, edits, fw.getCoreVersionProperty(), fw.getCoreRepo(), use.usesCore(), newVersions);
+        usesButInherited |= addConsumerBump(pom, edits, fw.getApiVersionProperty(), fw.getApiRepo(), use.usesApi(), newVersions);
+        usesButInherited |= addConsumerBump(pom, edits, fw.getWebVersionProperty(), fw.getWebRepo(), use.usesWeb(), newVersions);
         String label = "consumer:" + app.appId();
-        if (edits.isEmpty()) {
-            return CascadeStep.manual(order, app.appId(), fw.getConsumerRepo(), "pom.xml", label,
-                    "This app does not use the affected framework artifact — nothing to bump.");
+        if (!edits.isEmpty()) {
+            return build(order, app.appId(), fw.getConsumerRepo(), "pom.xml", label, edits, null, pom);
         }
-        return build(order, app.appId(), fw.getConsumerRepo(), "pom.xml", label, edits, null, app.pomContent());
+        if (use.usesAny() || usesButInherited) {
+            // Honest, actionable state — NOT "doesn't use it": the app uses the framework but the version comes
+            // from a parent pom or is BOM-managed, so there's no local pointer here to bump.
+            return CascadeStep.manual(order, app.appId(), fw.getConsumerRepo(), "pom.xml", label,
+                    "This app uses the framework but pins its version upstream (a parent pom or the BOM) — "
+                            + "no local <lsist-*.version> or inline version to bump. Update the parent by hand.");
+        }
+        return CascadeStep.manual(order, app.appId(), fw.getConsumerRepo(), "pom.xml", label,
+                "This app does not use the affected framework artifact — nothing to bump.");
+    }
+
+    /**
+     * Bump a consumer's pointer to one framework module: prefer its {@code <lsist-*.version>} property, else its
+     * inline dependency/BOM-import version. Returns {@code true} when the app uses the module but has no local
+     * pointer to bump (version inherited from a parent / managed by the BOM) — surfaced as an honest manual step.
+     */
+    private boolean addConsumerBump(String pom, List<PomEdit> edits, String prop, String artifactId,
+                                    boolean uses, Map<String, String> newVersions) {
+        if (!uses) {
+            return false;
+        }
+        String newVal = newVersions.get(prop);
+        if (newVal == null) {
+            return false;   // this module isn't part of this fix's version set (its pom wasn't fetched)
+        }
+        String curProp = PomVersionEditor.propertyValue(pom, prop);
+        if (curProp != null) {
+            if (!curProp.equals(newVal)) {
+                edits.add(PomEdit.property(prop, curProp, newVal));
+            }
+            return false;
+        }
+        String token = PomVersionEditor.dependencyVersionToken(pom, fw.getGroup(), artifactId);
+        if (token != null && !token.startsWith("${")) {
+            if (!token.equals(newVal)) {
+                edits.add(PomEdit.managed(fw.getGroup(), artifactId, token, newVal));
+            }
+            return false;
+        }
+        return true;   // uses the module, but no local property/inline version to bump
     }
 
     /** Bump each framework version property that is present in this pom to its new value. */

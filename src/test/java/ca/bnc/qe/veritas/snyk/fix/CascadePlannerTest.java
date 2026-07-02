@@ -119,6 +119,64 @@ class CascadePlannerTest {
     }
 
     @Test
+    void consumerThatImportsTheBomWithAnInlineVersionGetsThatVersionBumped() {
+        // Very common: the app imports the framework BOM with an explicit <version> (no <lsist-bom.version> property).
+        String app = """
+            <project>
+                <modelVersion>4.0.0</modelVersion>
+                <groupId>ca.bnc.api.tests</groupId>
+                <artifactId>ciam-eligibility-tests</artifactId>
+                <version>1.0.0</version>
+                <dependencyManagement>
+                    <dependencies>
+                        <dependency>
+                            <groupId>ca.bnc.lsist</groupId>
+                            <artifactId>lsist-test-framework-bom</artifactId>
+                            <version>1.0.9</version>
+                            <type>pom</type>
+                            <scope>import</scope>
+                        </dependency>
+                    </dependencies>
+                </dependencyManagement>
+            </project>
+            """;
+        CascadeStep consumer = planner.plan("com.fasterxml.jackson.core", "jackson-databind", "2.15.0",
+                allFour(), List.of(new AppInput("app7580", "CIAM Eligibility", app))).get(4);
+        assertThat(consumer.manual()).isFalse();
+        assertThat(consumer.edits()).anySatisfy(e -> assertThat(e.kind()).isEqualTo(FixEditKind.MANAGED_BUMP));
+        String edited = CascadePlanner.applyEdits(app, consumer.edits());
+        // The BOM import version advances to the new BOM release; the project version is untouched.
+        assertThat(edited).contains("<artifactId>lsist-test-framework-bom</artifactId>");
+        assertThat(edited).contains("<version>1.0.10</version>");
+        assertThat(edited).contains("<version>1.0.0</version>");   // project version untouched
+    }
+
+    @Test
+    void consumerThatInheritsTheFrameworkVersionIsAnHonestManualStepNotDroppedAsUnused() {
+        // The app uses the framework (declares a dep) but its version is BOM-managed / inherited from a parent —
+        // there is no local pointer to bump, so it must be an honest manual step, NOT "does not use it".
+        String app = """
+            <project>
+                <modelVersion>4.0.0</modelVersion>
+                <parent>
+                    <groupId>ca.bnc.api.tests</groupId><artifactId>parent</artifactId><version>2.0.0</version>
+                </parent>
+                <artifactId>ciam-access-tests</artifactId>
+                <dependencies>
+                    <dependency>
+                        <groupId>ca.bnc.lsist</groupId>
+                        <artifactId>lsist-test-framework-api</artifactId>
+                    </dependency>
+                </dependencies>
+            </project>
+            """;
+        CascadeStep consumer = planner.plan("com.fasterxml.jackson.core", "jackson-databind", "2.15.0",
+                allFour(), List.of(new AppInput("app7590", "CIAM Access", app))).get(4);
+        assertThat(consumer.manual()).isTrue();
+        assertThat(consumer.reason()).contains("upstream").doesNotContain("does not use");
+    }
+
+    @Test
     void consumerRepoSlugIsConfigurable() {
         fw.setConsumerRepo("ciam-autotests");
         CascadeStep consumer = planner.plan("com.fasterxml.jackson.core", "jackson-databind", "2.15.0",
