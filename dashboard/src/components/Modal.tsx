@@ -1,8 +1,10 @@
 import React, { useEffect, useRef } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import { Button } from './ui';
+import { exitEase, isTestEnv, overlaySpring } from '../lib/motion';
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), '
   + 'textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -57,21 +59,49 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }:
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
   const width = size === 'lg' ? 'max-w-2xl' : 'max-w-md';
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-ink-900/50 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
-      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
-        className={`relative w-full ${width} rounded-xl bg-surface shadow-pop ring-1 ring-border focus:outline-none`}>
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h3 id={titleId} className="text-md font-semibold text-ink-900">{title}</h3>
-          <Button variant="ghost" size="sm" onClick={onClose} aria-label={t('common.close')}><X className="h-4 w-4" /></Button>
-        </div>
-        <div className="px-5 py-4">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-border px-5 py-3">{footer}</div>}
+  // The body scrolls inside the panel — a tall wizard must never push its footer past a projector viewport.
+  const panel = (
+    <>
+      <div className="flex items-center justify-between border-b border-border px-5 py-4">
+        <h3 id={titleId} className="text-md font-semibold text-ink-900">{title}</h3>
+        <Button variant="ghost" size="sm" onClick={onClose} aria-label={t('common.close')}><X className="h-4 w-4" /></Button>
       </div>
-    </div>,
+      <div className="max-h-[70vh] overflow-y-auto px-5 py-4">{children}</div>
+      {footer && <div className="flex justify-end gap-2 border-t border-border px-5 py-3">{footer}</div>}
+    </>
+  );
+  const panelCls = `relative w-full ${width} rounded-xl bg-surface shadow-pop ring-1 ring-border focus:outline-none`;
+  if (isTestEnv) {
+    if (!open) return null;
+    return createPortal(
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-ink-900/50 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
+        <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} className={panelCls}>
+          {panel}
+        </div>
+      </div>,
+      document.body,
+    );
+  }
+  // The dialog settles in from where the user was looking; exits are faster than entries.
+  return createPortal(
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <motion.div className="absolute inset-0 bg-ink-900/50 backdrop-blur-sm" onClick={onClose} aria-hidden="true"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: { duration: 0.14 } }}
+            transition={{ duration: 0.15 }} />
+          <motion.div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}
+            className={panelCls}
+            initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.14, ease: exitEase } }}
+            transition={overlaySpring}>
+            {panel}
+          </motion.div>
+        </div>
+      )}
+    </AnimatePresence>,
     document.body,
   );
 }

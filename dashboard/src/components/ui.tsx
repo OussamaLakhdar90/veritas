@@ -1,5 +1,5 @@
 import React from 'react';
-import { Loader2, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { Loader2, ArrowUp, ArrowDown, ArrowUpDown, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { cn } from './cn';
@@ -165,20 +165,23 @@ export function KpiTile({ label, value, sub, tone = 'ink', trend }:
   { label: string; value: React.ReactNode; sub?: React.ReactNode;
     tone?: 'ink' | 'brand' | 'success' | 'warning' | 'danger'; trend?: KpiTrend }) {
   const toneCls = { ink: 'text-ink-900', brand: 'text-brand', success: 'text-success', warning: 'text-warning', danger: 'text-danger' }[tone];
+  // A coloured cap only when the tone is a true STATUS — red on a brand tile would read as an alarm.
+  const capCls = { success: 'bg-success', warning: 'bg-warning', danger: 'bg-danger' }[tone as string];
   const trendTone = trend?.good === undefined ? TONE.muted : trend.good ? TONE.ok : TONE.danger;
-  const arrow = trend?.dir === 'up' ? '▲' : trend?.dir === 'down' ? '▼' : '•';
+  const TrendIcon = trend?.dir === 'up' ? TrendingUp : trend?.dir === 'down' ? TrendingDown : Minus;
   const numeric = typeof value === 'number';
   const counted = useCountUp(numeric ? (value as number) : 0);
   const shown = numeric ? counted : value;
   return (
-    <Card className="flex-1 transition-transform duration-base ease-calm motion-safe:hover:-translate-y-0.5">
+    <Card className="relative flex-1 overflow-hidden transition-transform duration-base ease-calm motion-safe:hover:-translate-y-0.5">
+      {capCls && <span aria-hidden="true" className={cn('absolute inset-x-0 top-0 h-[3px]', capCls)} />}
       <CardBody>
         <p className="text-xs font-medium uppercase tracking-wide text-muted">{label}</p>
         <p className={cn('mt-1 text-4xl font-semibold tracking-tight tabular-nums', toneCls)}>{shown}</p>
         {sub && <p className="mt-1 text-sm text-muted">{sub}</p>}
         {trend && (
           <span className={cn('mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold', trendTone)}>
-            <span aria-hidden="true">{arrow}</span> {trend.label}
+            <TrendIcon className="h-3 w-3" aria-hidden="true" /> {trend.label}
           </span>
         )}
       </CardBody>

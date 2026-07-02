@@ -34,12 +34,13 @@ export function Donut({ slices, ariaLabel, centerValue, centerLabel, size = 120 
   let offset = 0;
   return (
     <svg viewBox="0 0 140 140" role="img" aria-label={ariaLabel} style={{ width: size, height: size }} className="chart-in shrink-0">
-      <g transform="rotate(-90 70 70)" fill="none" strokeWidth={16}>
+      <g transform="rotate(-90 70 70)" fill="none" strokeWidth={15}>
         <circle cx="70" cy="70" r={R} className="stroke-border/60" />
-        {total > 0 && slices.map((s) => {
+        {total > 0 && slices.map((s, i) => {
           const len = (s.value / total) * C;
           const seg = (
-            <circle key={s.label} cx="70" cy="70" r={R} className={s.stroke}
+            <circle key={s.label} cx="70" cy="70" r={R} className={`arc-sweep ${s.stroke}`}
+              style={{ animationDelay: `${i * 80}ms` }}
               strokeDasharray={`${len.toFixed(2)} ${(C - len).toFixed(2)}`} strokeDashoffset={(-offset).toFixed(2)} />
           );
           offset += len;
@@ -52,18 +53,21 @@ export function Donut({ slices, ariaLabel, centerValue, centerLabel, size = 120 
   );
 }
 
-export function Gauge({ value, max, ariaLabel, centerLabel, size = 120, tone = 'stroke-success' }: {
+export function Gauge({ value, max, ariaLabel, centerLabel, size = 120, tone }: {
   value: number; max: number; ariaLabel: string; centerLabel?: string; size?: number; tone?: string }) {
   const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+  const shownPct = useCountUp(pct);
   const len = (pct / 100) * C;
+  // Threshold tone by default — a 20% resolution rate must never render success-green.
+  const stroke = tone ?? (pct >= 75 ? 'stroke-success' : pct >= 40 ? 'stroke-warning' : 'stroke-danger');
   return (
     <svg viewBox="0 0 140 140" role="img" aria-label={ariaLabel} style={{ width: size, height: size }} className="chart-in shrink-0">
       <g transform="rotate(-90 70 70)" fill="none" strokeWidth={15}>
         <circle cx="70" cy="70" r={R} className="stroke-border/60" />
-        <circle cx="70" cy="70" r={R} className={tone} strokeLinecap="round"
+        <circle cx="70" cy="70" r={R} className={`arc-sweep ${stroke}`} strokeLinecap="round"
           strokeDasharray={`${len.toFixed(2)} ${(C - len).toFixed(2)}`} />
       </g>
-      <text x="70" y="68" textAnchor="middle" className="fill-ink-900 font-bold" fontSize="24">{pct}%</text>
+      <text x="70" y="68" textAnchor="middle" className="fill-ink-900 font-bold" fontSize="24">{shownPct}%</text>
       {centerLabel && <text x="70" y="86" textAnchor="middle" className="fill-muted" fontSize="10">{centerLabel}</text>}
     </svg>
   );
@@ -81,30 +85,11 @@ export function Sparkline({ values, ariaLabel }: { values: number[]; ariaLabel: 
   const [lx, ly] = coords[coords.length - 1];
   return (
     <svg viewBox={`0 0 ${w} ${h}`} role="img" aria-label={ariaLabel} preserveAspectRatio="none" className="chart-in h-20 w-full">
-      <polyline fill="none" className="stroke-brand" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" points={pts} />
-      <circle cx={lx.toFixed(1)} cy={ly.toFixed(1)} r={3.5} className="fill-brand" />
+      <polyline fill="none" className="spark-draw stroke-brand" pathLength={1} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" points={pts} />
+      <circle cx={lx.toFixed(1)} cy={ly.toFixed(1)} r={3.5} className="spark-dot fill-brand" />
     </svg>
   );
 }
-
-export function MiniBar({ data, ariaLabel, format }: {
-  data: { label: string; value: number }[]; ariaLabel: string; format?: (n: number) => string }) {
-  const max = Math.max(...data.map((d) => d.value), 1);
-  return (
-    <div role="img" aria-label={ariaLabel} className="space-y-2">
-      {data.map((d) => (
-        <div key={d.label} className="flex items-center gap-3 text-xs">
-          <span className="w-32 shrink-0 truncate text-ink-700" title={d.label}>{d.label}</span>
-          <div className="h-2 flex-1 rounded-full bg-ink-100">
-            <div className="h-2 rounded-full bg-brand" style={{ width: `${Math.max((d.value / max) * 100, 2)}%` }} />
-          </div>
-          <span className="w-16 shrink-0 text-right tabular-nums text-ink-900">{format ? format(d.value) : d.value}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /** Threshold tone for a fidelity score — mirrors the release gate language (>=90 passes). */
 export function scoreTone(score: number): string {
   if (score >= 90) return 'stroke-success';

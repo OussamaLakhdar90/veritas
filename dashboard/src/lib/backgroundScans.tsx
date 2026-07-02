@@ -7,6 +7,7 @@ import { api } from '../api';
 import { useToast } from '../components/Toast';
 import { cn } from '../components/cn';
 import { stagePct, formatElapsed, useElapsed } from './scanStages';
+import { SuccessCheck } from '../components/SuccessCheck';
 
 /**
  * Keeps "Run in background" scans visible after the modal closes — the missing piece that made
@@ -107,7 +108,7 @@ function BgScanCard({ scan, onDismiss }: { scan: BgScan; onDismiss: () => void }
             : done ? 'bg-success/10 text-success ring-success/30'
             : 'bg-gold/10 text-gold ring-gold/30')}>
           {failed ? <AlertTriangle className="h-4 w-4" />
-            : done ? <Check className="h-4 w-4" />
+            : done ? <SuccessCheck className="h-5 w-5" />
             : <Loader2 className="h-4 w-4 animate-spin" />}
         </span>
         <div className="min-w-0 flex-1">

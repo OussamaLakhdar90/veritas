@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import { Donut, Gauge, Sparkline, MiniBar, severitySlices } from '../components/charts'
+import { Donut, Gauge, Sparkline, severitySlices } from '../components/charts'
 
 describe('charts', () => {
   it('severitySlices keeps non-zero buckets in severity order', () => {
@@ -34,10 +34,4 @@ describe('charts', () => {
     expect(container.querySelector('polyline')).not.toBeInTheDocument()
   })
 
-  it('renders a MiniBar row per datum', () => {
-    render(<MiniBar data={[{ label: 'generate', value: 2 }, { label: 'review', value: 1 }]} ariaLabel="By skill" />)
-    const img = screen.getByRole('img', { name: 'By skill' })
-    expect(img).toHaveTextContent('generate')
-    expect(img).toHaveTextContent('review')
-  })
 })
