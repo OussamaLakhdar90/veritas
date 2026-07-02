@@ -10,6 +10,9 @@ public interface SnykAlertRepository extends JpaRepository<SnykAlert, String> {
 
     List<SnykAlert> findBySeenFalseOrderByCreatedAtDesc();
 
+    /** Ops gauge: how many alerts are still unseen. */
+    long countBySeenFalse();
+
     /** Retention: drop already-seen alerts older than a cutoff. */
     int deleteBySeenTrueAndCreatedAtBefore(Instant cutoff);
 

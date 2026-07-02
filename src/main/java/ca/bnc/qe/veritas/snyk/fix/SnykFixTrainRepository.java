@@ -15,6 +15,13 @@ public interface SnykFixTrainRepository extends JpaRepository<SnykFixTrain, Stri
     /** Existing trains for a watch + coordinate — the submit dedup guard checks these for an in-flight one. */
     List<SnykFixTrain> findByWatchIdAndCoordinate(String watchId, String coordinate);
 
+    // Ops gauges (scrape-time counts).
+    long countByStatus(String status);
+
+    long countByStatusIn(List<String> statuses);
+
+    long countByBreakingTrue();
+
     /** Terminal (finished) trains older than a cutoff — the retention sweep prunes these + their steps. */
     List<SnykFixTrain> findByFinishedAtBefore(Instant cutoff);
 }
