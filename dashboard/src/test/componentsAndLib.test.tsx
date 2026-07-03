@@ -1,5 +1,5 @@
 import React from 'react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import {
@@ -11,6 +11,8 @@ import {
   Row,
   SortableTh,
   useSort,
+  FreshnessStamp,
+  useCountUp,
   type SortState,
 } from '../components/ui'
 import { Modal } from '../components/Modal'
@@ -30,6 +32,34 @@ import {
 } from '../theme/tokens'
 import i18n from '../i18n'
 import { enumLabel } from '../lib/enumLabels'
+
+/* ── FreshnessStamp + useCountUp ───────────────────────────────────────────── */
+describe('FreshnessStamp', () => {
+  it('shows the relative update time and refetches on click', async () => {
+    const user = userEvent.setup()
+    const onRefresh = vi.fn()
+    render(<FreshnessStamp updatedAt={Date.now() - 2 * 60_000} onRefresh={onRefresh} />)
+    expect(screen.getByRole('button')).toBeInTheDocument()
+    await user.click(screen.getByRole('button'))
+    expect(onRefresh).toHaveBeenCalledOnce()
+  })
+
+  it('omits the timestamp when updatedAt is missing and disables while refreshing', () => {
+    const { rerender } = render(<FreshnessStamp onRefresh={() => {}} refreshing />)
+    expect(screen.getByRole('button')).toBeDisabled()
+    rerender(<FreshnessStamp onRefresh={() => {}} />)
+    expect(screen.getByRole('button')).not.toBeDisabled()
+  })
+})
+
+describe('useCountUp', () => {
+  it('resolves to the target immediately in tests (no rAF flake)', () => {
+    let seen = -1
+    function Probe() { seen = useCountUp(84); return <span>{seen}</span> }
+    render(<Probe />)
+    expect(seen).toBe(84)
+  })
+})
 
 /* ── components/cn.ts ──────────────────────────────────────────────────────── */
 describe('cn', () => {
