@@ -4,7 +4,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ClipboardList, Play, FileText, ExternalLink, ScrollText, ArrowRight } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, PageHeader, Select, TableSkeleton, Table, Td, Th, Row, Textarea } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Field, PageHeader, Select, TableSkeleton, Table, Td, Th, Row, Textarea } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { Tooltip } from '../components/Tooltip';
 import { ServiceField } from '../components/ServiceField';
@@ -75,6 +75,8 @@ export function TestStrategy() {
         <EmptyState icon={ClipboardList} title={t('testStrategy.noStrategyYet')} body={t('testStrategy.noStrategyYetBody')} />
       ) : list.isLoading ? (
         <Card><CardBody className="p-0"><TableSkeleton label={t('testStrategy.loading')} /></CardBody></Card>
+      ) : list.isError ? (
+        <ErrorState message={t('testStrategy.loadError')} detail={(list.error as Error)?.message} />
       ) : rows.length === 0 ? (
         <EmptyState icon={ClipboardList} title={t('testStrategy.noStrategiesForService', { service: loaded })} />
       ) : (
