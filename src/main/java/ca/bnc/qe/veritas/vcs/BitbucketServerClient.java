@@ -111,6 +111,9 @@ public class BitbucketServerClient implements GitHost {
     @SuppressWarnings("try")
     public Path clone(RepoInfo repo, String branch, Path destinationParent) {
         Path target = destinationParent.resolve(repo.slug());
+        // TODO(insecure-tls): JGit uses its own TLS stack, not CorpHttp. When veritas.http.insecure-tls is on and a
+        // corporate proxy intercepts git-over-HTTPS, clone still fails cert validation. Follow-up: honour the flag
+        // here too (e.g. http.sslVerify=false via the clone's git config, same server-profile fail-closed guard).
         CloneCommand cmd = Git.cloneRepository()
                 .setURI(repo.cloneUrl())
                 .setDirectory(target.toFile())

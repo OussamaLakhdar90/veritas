@@ -62,6 +62,9 @@ veritas:
   http:                  # BNC-facing HTTP transport (Jira v2 + Copilot)
     powershell-fallback: false      # set true if the JVM is blocked by the corporate firewall but powershell.exe is allowed
     powershell-timeout-seconds: 60
+    insecure-tls: false             # disables TLS certificate AND hostname verification (MITM exposure) — for
+                                    # dev/pilot behind a corporate TLS-intercepting proxy ONLY, never production.
+                                    # Fail-closed: ignored (verification stays on) whenever the 'server' profile is active.
   copilot:               # used when llm.mode=http — the device-flow HTTP gateway (see docs/reference-contract-validator.md)
     client-id: "Iv1.b507a08c87ecfe98"
     github-base: "https://github.com"

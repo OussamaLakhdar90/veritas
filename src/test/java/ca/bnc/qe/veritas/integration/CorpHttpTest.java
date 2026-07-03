@@ -45,6 +45,37 @@ class CorpHttpTest {
     }
 
     @Test
+    void insecureTlsDefaultsOffAndPlainCallsStillWork() {
+        // Flag off (the default) → SimpleClientHttpRequestFactory path, unchanged behavior.
+        wm.stubFor(get(urlPathEqualTo("/thing")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json").withBody("{\"ok\":true}")));
+        CorpHttp corp = new CorpHttp(retries, 10000, 60000, 180000, false,
+                new org.springframework.mock.env.MockEnvironment());
+        assertThat(corp.get("http://localhost:" + wm.port() + "/thing", Map.of())).contains("\"ok\":true");
+    }
+
+    @Test
+    void insecureTlsOnConstructsAndServesPlainHttp() {
+        // Flag on → JDK-HttpClient trust-all factory; must construct without throwing and still serve plain HTTP.
+        wm.stubFor(get(urlPathEqualTo("/thing")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json").withBody("{\"ok\":true}")));
+        CorpHttp corp = new CorpHttp(retries, 10000, 60000, 180000, true,
+                new org.springframework.mock.env.MockEnvironment());
+        assertThat(corp.get("http://localhost:" + wm.port() + "/thing", Map.of())).contains("\"ok\":true");
+    }
+
+    @Test
+    void insecureTlsRefusedOnServerProfile() {
+        // Fail-closed: on the 'server' profile the flag is ignored (construction succeeds, verification stays on).
+        wm.stubFor(get(urlPathEqualTo("/thing")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json").withBody("{\"ok\":true}")));
+        var env = new org.springframework.mock.env.MockEnvironment();
+        env.setActiveProfiles("server");
+        CorpHttp corp = new CorpHttp(retries, 10000, 60000, 180000, true, env);
+        assertThat(corp.get("http://localhost:" + wm.port() + "/thing", Map.of())).contains("\"ok\":true");
+    }
+
+    @Test
     void powerShellScriptReadsSecretsFromEnvNotCommandLine() {
         String script = CorpHttp.buildPowerShellScript("POST", "https://jira.bnc/rest/api/2/issue",
                 java.util.List.of("Authorization"), true, "application/json");

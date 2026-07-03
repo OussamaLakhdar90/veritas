@@ -44,22 +44,96 @@ public class CorpHttp {
     public CorpHttp(Retries retries,
                     @Value("${veritas.http.connect-timeout-ms:10000}") int connectTimeoutMs,
                     @Value("${veritas.http.read-timeout-ms:60000}") int readTimeoutMs,
-                    @Value("${veritas.llm.http-read-timeout-ms:180000}") int llmReadTimeoutMs) {
+                    @Value("${veritas.llm.http-read-timeout-ms:180000}") int llmReadTimeoutMs,
+                    @Value("${veritas.http.insecure-tls:false}") boolean insecureTls,
+                    org.springframework.core.env.Environment env) {
         this.retries = retries;
-        this.http = client(connectTimeoutMs, readTimeoutMs);
-        this.longHttp = client(connectTimeoutMs, llmReadTimeoutMs);
+        boolean insecure = resolveInsecureTls(insecureTls, env);
+        this.http = client(connectTimeoutMs, readTimeoutMs, insecure);
+        this.longHttp = client(connectTimeoutMs, llmReadTimeoutMs, insecure);
     }
 
-    private static RestClient client(int connectTimeoutMs, int readTimeoutMs) {
+    /**
+     * Decide whether trust-all TLS is actually in effect. FAIL-CLOSED on the {@code server} profile: a
+     * MITM-exposing trust-all is never acceptable on the shared EC2 host, so there the flag is logged-and-ignored
+     * (verification stays on) rather than obeyed. Otherwise honour the flag, with a loud one-time WARN when on.
+     */
+    private static boolean resolveInsecureTls(boolean requested, org.springframework.core.env.Environment env) {
+        if (!requested) {
+            return false;
+        }
+        if (env != null && env.acceptsProfiles(org.springframework.core.env.Profiles.of("server"))) {
+            log.error("veritas.http.insecure-tls=true was IGNORED on the 'server' profile — trust-all TLS is unsafe "
+                    + "on a shared host. TLS certificate + hostname verification remain ON.");
+            return false;
+        }
+        log.warn("TLS verification DISABLED for all corporate HTTP calls (veritas.http.insecure-tls=true) — "
+                + "certificates AND hostnames are NOT checked. MITM exposure: dev/pilot behind a TLS-intercepting "
+                + "corporate proxy ONLY, never production.");
+        return true;
+    }
+
+    private static RestClient client(int connectTimeoutMs, int readTimeoutMs, boolean insecureTls) {
+        if (insecureTls) {
+            // JDK-HttpClient-backed factory so we can install a trust-all SSLContext (SimpleClientHttpRequestFactory
+            // has no SSLContext hook). Same bounded connect/read timeouts as the secure path.
+            java.net.http.HttpClient httpClient = java.net.http.HttpClient.newBuilder()
+                    .connectTimeout(java.time.Duration.ofMillis(connectTimeoutMs))
+                    .sslContext(trustAllSslContext())
+                    .sslParameters(noHostnameVerification())
+                    .build();
+            var factory = new org.springframework.http.client.JdkClientHttpRequestFactory(httpClient);
+            factory.setReadTimeout(java.time.Duration.ofMillis(readTimeoutMs));
+            return RestClient.builder().requestFactory(factory).build();
+        }
         var factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(connectTimeoutMs);   // bounded so a hung host fails fast (PowerShell fallback can engage)
         factory.setReadTimeout(readTimeoutMs);
         return RestClient.builder().requestFactory(factory).build();
     }
 
-    /** Convenience for tests: default bounded timeouts. */
+    /** An SSLContext that trusts every certificate — paired with disabled hostname verification below. */
+    private static javax.net.ssl.SSLContext trustAllSslContext() {
+        try {
+            javax.net.ssl.TrustManager[] trustAll = { new javax.net.ssl.X509TrustManager() {
+                @Override
+                public void checkClientTrusted(java.security.cert.X509Certificate[] chain, String authType) {
+                    // trust-all: no-op by design (gated behind veritas.http.insecure-tls, off by default)
+                }
+
+                @Override
+                public void checkServerTrusted(java.security.cert.X509Certificate[] chain, String authType) {
+                    // trust-all: no-op by design (gated behind veritas.http.insecure-tls, off by default)
+                }
+
+                @Override
+                public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+                    return new java.security.cert.X509Certificate[0];
+                }
+            } };
+            javax.net.ssl.SSLContext ctx = javax.net.ssl.SSLContext.getInstance("TLS");
+            ctx.init(null, trustAll, new java.security.SecureRandom());
+            return ctx;
+        } catch (java.security.GeneralSecurityException e) {
+            throw new IllegalStateException("Failed to build trust-all SSLContext: " + e.getMessage(), e);
+        }
+    }
+
+    /** Clearing the endpoint-identification algorithm makes the JDK client skip hostname verification. */
+    private static javax.net.ssl.SSLParameters noHostnameVerification() {
+        javax.net.ssl.SSLParameters params = new javax.net.ssl.SSLParameters();
+        params.setEndpointIdentificationAlgorithm(null);
+        return params;
+    }
+
+    /** Convenience for tests: default bounded timeouts, secure TLS, no server profile. */
     public CorpHttp(Retries retries) {
-        this(retries, 10000, 60000, 180000);
+        this(retries, 10000, 60000, 180000, false, null);
+    }
+
+    /** Convenience for tests: custom timeouts, secure TLS (the pre-insecure-tls behavior), no server profile. */
+    public CorpHttp(Retries retries, int connectTimeoutMs, int readTimeoutMs, int llmReadTimeoutMs) {
+        this(retries, connectTimeoutMs, readTimeoutMs, llmReadTimeoutMs, false, null);
     }
 
     public String get(String url, Map<String, String> headers) {
