@@ -15,6 +15,7 @@ import ca.bnc.qe.veritas.engine.model.FieldModel;
 import ca.bnc.qe.veritas.engine.model.HttpMethod;
 import ca.bnc.qe.veritas.engine.model.ParamLocation;
 import ca.bnc.qe.veritas.engine.model.ParamModel;
+import ca.bnc.qe.veritas.engine.model.RequestBodyModel;
 import ca.bnc.qe.veritas.engine.model.ResponseModel;
 import ca.bnc.qe.veritas.engine.model.SchemaModel;
 import ca.bnc.qe.veritas.engine.model.SourceRef;
@@ -194,6 +195,13 @@ class DiffEngineBranch2Test {
         return model("repo-spec", List.of(get("/r", List.of(), List.of(okRef("SPEC", ref)))), schemas);
     }
 
+    private ApiModel withRequestBody(String source, String origin, String bodyRef, Map<String, SchemaModel> schemas) {
+        Endpoint ep = new Endpoint(HttpMethod.POST, "/r", "op", List.of(),
+                new RequestBodyModel(bodyRef, true, false, List.of("application/json"), src),
+                List.of(ok(origin)), null, null, List.of(), src);
+        return model(source, List.of(ep), schemas);
+    }
+
     @Test
     void enumSchemaVsObjectSchemaUnderDifferentNamesIsCoarseResponseMismatch() {
         // code response binds an ENUM-valued schema; spec binds an OBJECT schema. Names differ, neither is structureless,
@@ -226,22 +234,24 @@ class DiffEngineBranch2Test {
     }
 
     @Test
-    void nestedFieldKeySetDivergenceMakesStructuralVerdictDiffer() {
-        // Same-named TOP schemas can't reach structuralVerdict (normRef equal -> coarse-check short-circuits). So use
-        // differently-named top schemas whose OWN field-name sets are EQUAL (so compareSchema at top emits nothing) but
-        // whose SAME-NAMED nested children diverge by key set -> propsEqual hits `!cf.keySet().equals(sf.keySet())`.
-        // The nested pair is SAME-named so fieldDiffByBinding skips compareSchema there -> no precise field finding ->
-        // the coarse RESPONSE_SCHEMA_MISMATCH is the only signal and IS emitted.
+    void nestedFieldKeySetDivergenceIsChargedOnceByTheComponentsLoopNotCoarse() {
+        // Differently-named top schemas whose OWN field-name sets are EQUAL (so compareSchema at top emits nothing) but
+        // whose SAME-NAMED nested child 'Kid' diverges by key set. The components-schema loop field-diffs the same-named
+        // 'Kid' and emits the PRECISE SCHEMA_FIELD_MISSING for 'Kid.a'. fieldDiffByBinding skips compareSchema for that
+        // same-named pair (the loop owns it) but now REPORTS the divergence via its return, so the coarse
+        // RESPONSE_SCHEMA_MISMATCH is suppressed — one wire defect is charged ONCE (S13j-3), not twice.
         Map<String, SchemaModel> codeSchemas = Map.of(
                 "Top", schema("Top", List.of(refField("child", "Kid"))),
                 "Kid", schema("Kid", List.of(field("a", "string"))));
         Map<String, SchemaModel> specSchemas = Map.of(
                 "TopS", schema("TopS", List.of(refField("child", "Kid"))),
                 "Kid", schema("Kid", List.of(field("b", "string"))));   // different key set in the SAME-named nested
-        Finding f = diff.diffCodeVsSpec(codeWithResponse("Top", codeSchemas), specWithResponse("TopS", specSchemas))
-                .stream().filter(x -> x.getType() == FindingType.RESPONSE_SCHEMA_MISMATCH).findFirst().orElseThrow();
-        assertThat(f.getConfidence()).isEqualTo(Confidence.MEDIUM);
-        assertThat(f.getSummary()).contains("Top").contains("TopS");
+        List<Finding> findings =
+                diff.diffCodeVsSpec(codeWithResponse("Top", codeSchemas), specWithResponse("TopS", specSchemas));
+        assertThat(types(findings)).contains(FindingType.SCHEMA_FIELD_MISSING)
+                .doesNotContain(FindingType.RESPONSE_SCHEMA_MISMATCH);
+        assertThat(findings).filteredOn(x -> x.getType() == FindingType.SCHEMA_FIELD_MISSING)
+                .anySatisfy(x -> assertThat(x.getSummary()).contains("Kid").contains("a"));
     }
 
     @Test
@@ -297,19 +307,45 @@ class DiffEngineBranch2Test {
     }
 
     @Test
-    void nestedFieldTypeMismatchTwoLevelsDeepViaSameNamedChildIsCoarseMismatch() {
+    void nestedFieldTypeMismatchTwoLevelsDeepViaSameNamedChildIsChargedOncePrecisely() {
         // Differently named tops (equal field set); SAME-named nested 'Leaf' with a scalar type divergence (string vs
-        // integer, neither 'object') -> propsEqual's typeCompatible returns false on 'v' -> DIFFER. The nested pair is
-        // same-named so fieldDiffByBinding emits no precise finding -> coarse RESPONSE_SCHEMA_MISMATCH is the signal.
+        // integer, neither 'object'). The components-schema loop field-diffs the same-named 'Leaf' and emits the PRECISE
+        // SCHEMA_FIELD_TYPE_MISMATCH for 'Leaf.v'. fieldDiffByBinding skips compareSchema for that same-named pair (the
+        // loop owns it) but now REPORTS the divergence via its return, so the coarse RESPONSE_SCHEMA_MISMATCH is
+        // suppressed — one wire defect is charged ONCE (S13j-3), not twice.
         Map<String, SchemaModel> codeSchemas = Map.of(
                 "Top", schema("Top", List.of(refField("leaf", "Leaf"))),
                 "Leaf", schema("Leaf", List.of(field("v", "string"))));
         Map<String, SchemaModel> specSchemas = Map.of(
                 "TopS", schema("TopS", List.of(refField("leaf", "Leaf"))),
                 "Leaf", schema("Leaf", List.of(field("v", "integer"))));
-        Finding f = diff.diffCodeVsSpec(codeWithResponse("Top", codeSchemas), specWithResponse("TopS", specSchemas))
-                .stream().filter(x -> x.getType() == FindingType.RESPONSE_SCHEMA_MISMATCH).findFirst().orElseThrow();
-        assertThat(f.getSummary()).contains("Top").contains("TopS");
+        List<Finding> findings =
+                diff.diffCodeVsSpec(codeWithResponse("Top", codeSchemas), specWithResponse("TopS", specSchemas));
+        assertThat(types(findings)).contains(FindingType.SCHEMA_FIELD_TYPE_MISMATCH)
+                .doesNotContain(FindingType.RESPONSE_SCHEMA_MISMATCH);
+        assertThat(findings).filteredOn(x -> x.getType() == FindingType.SCHEMA_FIELD_TYPE_MISMATCH)
+                .anySatisfy(x -> assertThat(x.getSummary()).contains("v"));
+    }
+
+    @Test
+    void requestBodyNestedSameNamedChildDivergenceIsChargedOncePrecisely() {
+        // Mirror of the response case on the REQUEST-BODY path: differently-named top body schemas (equal field set)
+        // whose SAME-named nested 'Leaf' diverges by scalar type. The components loop emits the precise
+        // SCHEMA_FIELD_TYPE_MISMATCH for 'Leaf.v'; fieldDiffByBinding reports the same-named divergence via its return
+        // so the coarse REQUEST_BODY_SCHEMA_MISMATCH is suppressed — one wire defect charged ONCE, not twice.
+        Map<String, SchemaModel> codeSchemas = Map.of(
+                "Body", schema("Body", List.of(refField("leaf", "Leaf"))),
+                "Leaf", schema("Leaf", List.of(field("v", "string"))));
+        Map<String, SchemaModel> specSchemas = Map.of(
+                "BodyS", schema("BodyS", List.of(refField("leaf", "Leaf"))),
+                "Leaf", schema("Leaf", List.of(field("v", "integer"))));
+        List<Finding> findings = diff.diffCodeVsSpec(
+                withRequestBody("code", "RETURN", "Body", codeSchemas),
+                withRequestBody("repo-spec", "SPEC", "BodyS", specSchemas));
+        assertThat(types(findings)).contains(FindingType.SCHEMA_FIELD_TYPE_MISMATCH)
+                .doesNotContain(FindingType.REQUEST_BODY_SCHEMA_MISMATCH);
+        assertThat(findings).filteredOn(x -> x.getType() == FindingType.SCHEMA_FIELD_TYPE_MISMATCH)
+                .anySatisfy(x -> assertThat(x.getSummary()).contains("v"));
     }
 
     @Test

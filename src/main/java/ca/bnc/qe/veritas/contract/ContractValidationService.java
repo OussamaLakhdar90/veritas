@@ -10,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import ca.bnc.qe.veritas.cost.BillingMode;
 import ca.bnc.qe.veritas.cost.CostRecorder;
 import ca.bnc.qe.veritas.cost.CostResult;
@@ -1011,11 +1012,19 @@ public class ContractValidationService {
         Map<String, List<String>> endpointsByRoot = new LinkedHashMap<>();
         for (Finding f : in) {
             String key = rootCauseKey(f);
-            if (key != null && f.getEndpoint() != null) {
-                List<String> eps = endpointsByRoot.computeIfAbsent(key, k -> new ArrayList<>());
-                if (!eps.contains(f.getEndpoint())) {
-                    eps.add(f.getEndpoint());
-                }
+            if (key == null || f.getEndpoint() == null) {
+                continue;
+            }
+            // A spec-keyed ("S|") merge can pull a components-loop finding (endpoint like "Order.total") in with the
+            // per-endpoint ones — but a schema locus is not an HTTP endpoint, so accruing it into affectedEndpoints
+            // would falsely claim a second endpoint. Exclude non-HTTP loci from the S| accrual; with it filtered the
+            // duplicate is still dropped and the score still charges once, but no false multi-endpoint claim is made.
+            if (key.startsWith("S|") && !isHttpEndpoint(f.getEndpoint())) {
+                continue;
+            }
+            List<String> eps = endpointsByRoot.computeIfAbsent(key, k -> new ArrayList<>());
+            if (!eps.contains(f.getEndpoint())) {
+                eps.add(f.getEndpoint());
             }
         }
         List<Finding> out = new ArrayList<>();
@@ -1054,6 +1063,16 @@ public class ContractValidationService {
             return "S|" + f.getType() + "|" + nzs(f.getSpecSource()) + "|" + f.getSpecLocus();
         }
         return codeLocusKey(f);
+    }
+
+    /** An {@code affectedEndpoints} entry is a real HTTP endpoint ("METHOD /path") — not a schema locus like
+     *  "Order.total" a components-loop finding carries. Used to keep non-HTTP loci out of a spec-keyed merge's
+     *  endpoint accrual (else a shared-schema survivor falsely claims a schema locus as a second endpoint). */
+    private static final Pattern HTTP_ENDPOINT =
+            Pattern.compile("^(GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS|TRACE)\\s");
+
+    static boolean isHttpEndpoint(String endpoint) {
+        return endpoint != null && HTTP_ENDPOINT.matcher(endpoint).find();
     }
 
     /** Code-locus key: type + specSource + the exact code evidence location + line + normalized summary, or null when

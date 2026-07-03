@@ -349,12 +349,14 @@ public class DiffEngine {
             String specBodyRef = se.requestBody().schemaRef();
             if (codeBodyRef != null && specBodyRef != null) {
                 int before = findings.size();
-                fieldDiffByBinding(findings, code, spec, codeBodyRef, specBodyRef, label(ce) + " request body",
-                        new HashSet<>(), MAX_SCHEMA_DEPTH);
+                boolean nestedDivergence = fieldDiffByBinding(findings, code, spec, codeBodyRef, specBodyRef,
+                        label(ce) + " request body", new HashSet<>(), MAX_SCHEMA_DEPTH);
                 // Coarse fallback mirroring the response path: an array-vs-object (or otherwise diverging) BODY shape is
                 // a hard consumer break (POST a JSON array to an object endpoint → 400). fieldDiffByBinding returns
                 // early on an array-vs-object top-level body, so without this the cardinality mismatch was dropped.
-                boolean bodyFieldEmitted = findings.size() > before;
+                // A same-named nested divergence adds nothing to `findings` (the components loop owns it) but is
+                // reported via the return, so the coarse mismatch below doesn't double-charge it.
+                boolean bodyFieldEmitted = findings.size() > before || nestedDivergence;
                 if (!bodyFieldEmitted
                         && (arrayRef(codeBodyRef) != arrayRef(specBodyRef) || !normRef(codeBodyRef).equals(normRef(specBodyRef)))
                         && structuralVerdict(code, spec, codeBodyRef, specBodyRef) == SchemaComparator.SchemaVerdict.DIFFER) {
@@ -489,9 +491,12 @@ public class DiffEngine {
         boolean fieldLevelEmitted = false;
         if (codeRef != null && specRef != null) {
             int before = findings.size();
-            fieldDiffByBinding(findings, code, spec, codeRef, specRef, label(ce) + " response",
+            // A same-named nested divergence is EMITTED by the components loop, not here, so it adds nothing to
+            // `findings` — but fieldDiffByBinding reports it via the return so the coarse mismatch below doesn't
+            // double-charge the same defect.
+            boolean nestedDivergence = fieldDiffByBinding(findings, code, spec, codeRef, specRef, label(ce) + " response",
                     new HashSet<>(), MAX_SCHEMA_DEPTH);
-            fieldLevelEmitted = findings.size() > before;
+            fieldLevelEmitted = findings.size() > before || nestedDivergence;
         }
         // Emit the COARSE RESPONSE_SCHEMA_MISMATCH only when the precise field-level diff did NOT already describe the
         // same response divergence — otherwise one schema defect would be penalised twice (the coarse mismatch AND its
