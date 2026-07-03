@@ -217,7 +217,7 @@ export function TrendChart({ points, ariaLabel, tone = 'neutral', domain, target
           <g key={v}>
             <line x1={TREND_PAD.left} x2={TREND_W - TREND_PAD.right} y1={y(v)} y2={y(v)}
               className="stroke-border/60" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-            <text x={TREND_PAD.left - 6} y={y(v) + 3} textAnchor="end" className="fill-muted" fontSize="9">{fmt(v)}</text>
+            <text x={TREND_PAD.left - 6} y={y(v) + 3} textAnchor="end" className="fill-muted" fontSize="11">{fmt(v)}</text>
           </g>
         ))}
 
@@ -234,8 +234,8 @@ export function TrendChart({ points, ariaLabel, tone = 'neutral', domain, target
           strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
 
         {/* First + last date x-labels. */}
-        <text x={TREND_PAD.left} y={TREND_H - 6} textAnchor="start" className="fill-muted" fontSize="9">{formatShortDate(points[0].date)}</text>
-        <text x={TREND_W - TREND_PAD.right} y={TREND_H - 6} textAnchor="end" className="fill-muted" fontSize="9">{formatShortDate(points[points.length - 1].date)}</text>
+        <text x={TREND_PAD.left} y={TREND_H - 6} textAnchor="start" className="fill-muted" fontSize="11">{formatShortDate(points[0].date)}</text>
+        <text x={TREND_W - TREND_PAD.right} y={TREND_H - 6} textAnchor="end" className="fill-muted" fontSize="11">{formatShortDate(points[points.length - 1].date)}</text>
 
         {/* Hover crosshair + point marker. */}
         {hp && (
