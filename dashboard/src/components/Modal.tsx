@@ -64,7 +64,7 @@ export function Modal({ open, onClose, title, children, footer, size = 'md' }:
   const panel = (
     <>
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
-        <h3 id={titleId} className="text-md font-semibold text-ink-900">{title}</h3>
+        <h2 id={titleId} className="text-md font-semibold text-ink-900">{title}</h2>
         <Button variant="ghost" size="sm" onClick={onClose} aria-label={t('common.close')}><X className="h-4 w-4" /></Button>
       </div>
       <div className="max-h-[70vh] overflow-y-auto px-5 py-4">{children}</div>
