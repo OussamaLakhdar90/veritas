@@ -15,6 +15,7 @@ import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.PBEKeySpec;
 import javax.crypto.spec.SecretKeySpec;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -27,6 +28,7 @@ import org.springframework.stereotype.Component;
  */
 @Component
 @Order(100)
+@Slf4j
 public class EncryptedFileSecretStore implements SecretProvider {
 
     private static final int ITERATIONS = 65_536;
@@ -57,10 +59,20 @@ public class EncryptedFileSecretStore implements SecretProvider {
         if (disabled()) {
             return Optional.empty();
         }
+        Path f = file();
+        if (!Files.exists(f)) {
+            return Optional.empty();   // genuine "never set" for this principal — silent, not an error
+        }
         try {
             return Optional.ofNullable(load().get(key)).filter(v -> !v.isBlank());
         } catch (Exception e) {
-            return Optional.empty();   // wrong passphrase / corrupt file → treat as "not found"
+            // File EXISTS but couldn't be read (wrong passphrase / AEADBadTag / corrupt/truncated). This is NOT
+            // "never set" — flag it so a silently-unreadable store is diagnosable. Never log the secret value; the
+            // exception message is masked in case it echoes ciphertext-derived content.
+            log.warn("Encrypted secret store present but unreadable at {} (principal '{}') — treating '{}' as not set: {}",
+                    f, safePrincipal(), key,
+                    LogMasker.mask(e.getMessage(), SecretRegistry.snapshot()));
+            return Optional.empty();
         }
     }
 
@@ -69,9 +81,12 @@ public class EncryptedFileSecretStore implements SecretProvider {
             throw new IllegalStateException("Encrypted secret store is disabled — set veritas.secret.passphrase.");
         }
         try {
-            Map<String, String> secrets = Files.exists(file()) ? load() : new LinkedHashMap<>();
+            Path f = file();
+            Map<String, String> secrets = Files.exists(f) ? load() : new LinkedHashMap<>();
             secrets.put(key, value);
             save(secrets);
+            // Key name + resolved path/principal only — never the value (which SecretRegistry masks in logs anyway).
+            log.debug("Stored secret '{}' for principal '{}' at {}", key, safePrincipal(), f);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to store secret '" + key + "': " + e.getMessage(), e);
         }

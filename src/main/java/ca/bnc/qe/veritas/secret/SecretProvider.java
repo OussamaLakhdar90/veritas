@@ -11,7 +11,8 @@ public interface SecretProvider {
     Optional<String> get(String key);
 
     default String require(String key) {
-        return get(key).orElseThrow(() ->
-                new IllegalStateException("Missing required secret '" + key + "'. Configure it for the current user."));
+        // A missing per-user token is the user's config problem, not a server fault: surface it as a friendly
+        // 422 (code "secret-required") the dashboard keys on, not an opaque 500.
+        return get(key).orElseThrow(() -> new SecretRequiredException(key));
     }
 }

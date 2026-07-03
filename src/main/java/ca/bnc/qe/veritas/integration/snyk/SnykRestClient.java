@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import ca.bnc.qe.veritas.config.ConnectionsProperties;
 import ca.bnc.qe.veritas.integration.CorpHttp;
+import ca.bnc.qe.veritas.preflight.PreconditionException;
 import ca.bnc.qe.veritas.secret.SecretProvider;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -51,6 +52,8 @@ public class SnykRestClient implements SnykClient {
                 name = attrs.path("username").asText("authenticated");
             }
             return name.isBlank() ? "authenticated" : name;
+        } catch (PreconditionException e) {
+            throw e;   // e.g. the Snyk token isn't set — surface the friendly 422, don't bury it in a 500
         } catch (Exception e) {
             throw new IllegalStateException("Snyk /rest/self failed: " + e.getMessage(), e);
         }
@@ -114,6 +117,8 @@ public class SnykRestClient implements SnykClient {
                 out.add(toIssue(issue));
             }
             return out;
+        } catch (PreconditionException e) {
+            throw e;   // e.g. the Snyk token isn't set — surface the friendly 422, don't bury it in a 500
         } catch (Exception e) {
             throw new IllegalStateException("Snyk aggregatedIssues failed for project " + projectId
                     + ": " + e.getMessage(), e);
@@ -159,6 +164,8 @@ public class SnykRestClient implements SnykClient {
                 path = next.isBlank() ? null : (next.startsWith("http") ? stripBase(next) : next);
             }
             return out;
+        } catch (PreconditionException e) {
+            throw e;   // e.g. the Snyk token isn't set — surface the friendly 422, don't bury it in a 500
         } catch (Exception e) {
             throw new IllegalStateException(call + " failed: " + e.getMessage(), e);
         }
