@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Bug, FileText, CheckCircle2, AlertTriangle, Check, X, ExternalLink, Download } from 'lucide-react';
 import { api, Finding } from '../api';
@@ -49,7 +49,14 @@ export function Findings() {
   const { t } = useTranslation();
   const { scanId } = useParams();
   const q = useQuery({ queryKey: ['findings', scanId], queryFn: () => api.findings(scanId!), enabled: !!scanId });
-  const [filter, setFilter] = useState<string>('ALL');
+  // The severity filter is URL-addressable (?severity=…) so the chips are shareable + deep-linkable.
+  const [params, setParams] = useSearchParams();
+  const filter = (params.get('severity') || 'ALL').toUpperCase();
+  const setFilter = (sev: string) => setParams((p) => {
+    const n = new URLSearchParams(p);
+    if (sev && sev !== 'ALL') n.set('severity', sev); else n.delete('severity');
+    return n;
+  }, { replace: true });
   const [defectFor, setDefectFor] = useState<Finding | null>(null);
   const [rejectFor, setRejectFor] = useState<Finding | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { http, HttpResponse, delay } from 'msw'
 import { server } from './msw/server'
 import { renderPage } from './render'
@@ -172,6 +173,35 @@ describe('TestPlanDetail (RTM)', () => {
     // Self-review rubric + blind spots
     expect(screen.getByText(/Every requirement traced/)).toBeInTheDocument()
     expect(screen.getByText('Performance under load not modelled')).toBeInTheDocument()
+  })
+
+  it('lazily reads execution status on demand: prefilled JQL, segmented bar and verdict', async () => {
+    stubPlan({ plan, coverage })
+    let called = false
+    server.use(
+      http.get('*/api/v1/execution/completion', ({ request }) => {
+        called = true
+        // The JQL is prefilled from the plan's fixVersion.
+        expect(new URL(request.url).searchParams.get('jql')).toContain('2.4.0')
+        return HttpResponse.json({
+          jql: 'fixVersion = "2.4.0"', total: 10, passed: 6, failed: 2, blocked: 1, notRun: 1,
+          deviations: [{ testKey: 'CIAM-T9', rawStatus: 'ABORTED', outcome: 'failed' }], verdict: 'FAIL',
+        })
+      }),
+    )
+    const user = userEvent.setup()
+    renderDetail()
+
+    // The card renders but does NOT fetch until the button is clicked (lazy).
+    expect(await screen.findByText('Execution status')).toBeInTheDocument()
+    expect(called).toBe(false)
+
+    await user.click(screen.getByRole('button', { name: /Check execution/ }))
+
+    expect(await screen.findByText('10 tests')).toBeInTheDocument()
+    expect(screen.getByText('Fail')).toBeInTheDocument()          // verdict badge (humanized)
+    expect(screen.getByText('CIAM-T9')).toBeInTheDocument()       // a deviation row
+    expect(called).toBe(true)
   })
 
   it('handles a minimal plan: empty coverage, no deliverable, confidence from the plan field', async () => {

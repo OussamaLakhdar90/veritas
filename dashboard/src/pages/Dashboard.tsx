@@ -1,12 +1,12 @@
 import { useMemo } from 'react';
-import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { Link, useSearchParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { ShieldCheck, AlertTriangle, Activity, FileText, ArrowRight, Settings as SettingsIcon } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, Activity, FileText, ArrowRight, Settings as SettingsIcon, Download } from 'lucide-react';
 import { api, Scan } from '../api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, KpiTile, PageHeader, Skeleton } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, FreshnessStamp, KpiTile, PageHeader, Skeleton } from '../components/ui';
 import type { KpiTrend } from '../components/ui';
-import { Donut, Gauge, Sparkline, severitySlices, SEV_SWATCH } from '../components/charts';
+import { Donut, Gauge, TrendChart, severitySlices, SEV_SWATCH } from '../components/charts';
 import { SnykImpactCard } from '../components/SnykImpact';
 import { FidelityScorecard, letterGrade } from '../components/FidelityScorecard';
 import { ValueStrip } from '../components/ValueStrip';
@@ -17,6 +17,7 @@ import { StaggerItem, StaggerList } from '../components/motion';
 import { TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
 import { formatDuration, formatMoney, formatDateTime, formatRelative } from '../lib/format';
+import { downloadScorecardCsv } from '../lib/exportCsv';
 
 /** Map a validation status to a status-pill tone. */
 function statusTone(status?: string): string {
@@ -43,8 +44,16 @@ function ScorePill({ score }: { score?: number | null }) {
   return <Badge className={tone}>{letterGrade(score)} · {score}</Badge>;
 }
 
+/** The trend-card time ranges, in days. 30 is the default (matches the historical sparkline window). */
+const TREND_RANGES = [7, 30, 90] as const;
+type TrendRange = (typeof TREND_RANGES)[number];
+
 export function Dashboard() {
   const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [params, setParams] = useSearchParams();
+  const rawRange = Number(params.get('range'));
+  const range: TrendRange = (TREND_RANGES as readonly number[]).includes(rawRange) ? (rawRange as TrendRange) : 30;
 
   /** Plain-language, localized status label — never show the raw enum. */
   const statusLabel = (status?: string): string => {
@@ -65,7 +74,8 @@ export function Dashboard() {
   const servicesQ = useQuery({ queryKey: ['services'], queryFn: api.services });
   const services = servicesQ.data ?? [];
   const metricsQ = useQuery({ queryKey: ['defect-metrics'], queryFn: api.defectMetrics });
-  const scansTrendQ = useQuery({ queryKey: ['scans-trend'], queryFn: () => api.scansTrend(30) });
+  // Only the findings trend follows the 7/30/90 range picker; the cost WoW pill needs a fixed 14+-day window.
+  const scansTrendQ = useQuery({ queryKey: ['scans-trend', range], queryFn: () => api.scansTrend(range) });
   const costTrendQ = useQuery({ queryKey: ['cost-trend'], queryFn: () => api.costTrend(30) });
   const summaryQ = useQuery({ queryKey: ['executive-summary'], queryFn: api.executiveSummary });
 
@@ -96,13 +106,61 @@ export function Dashboard() {
   const perServiceSummary = useMemo(
     () => new Map((summary?.perService ?? []).map((s) => [s.service, s])), [summary]);
 
-  const findingsSeries = useMemo(() => (scansTrendQ.data ?? []).map((p) => p.findings), [scansTrendQ.data]);
+  // The service holding the most blocking findings — the DecisionQueue's blocking row links straight to it.
+  const worstBlockingService = useMemo(() => {
+    const worst = (summary?.perService ?? [])
+      .filter((s) => s.blockingCount > 0)
+      .sort((a, b) => b.blockingCount - a.blockingCount)[0];
+    return worst ? { service: worst.service, scanId: worst.latestScanId } : undefined;
+  }, [summary]);
+
+  /**
+   * Portfolio fidelity over time — the score history a VP expects. For each scan day, replay the
+   * latest-per-service score AS OF that day and take the mean (the same honest definition the hero uses,
+   * never a running average over history). Client-side only: derived from the scans already loaded.
+   */
+  const fidelityHistory = useMemo(() => {
+    const scored = scans
+      .filter((s) => (s.status || '').toUpperCase() === 'COMPLETED' && s.fidelityScore != null && s.startedAt)
+      .sort((a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? ''));
+    const latest = new Map<string, number>();
+    const byDay = new Map<string, number>();
+    for (const s of scored) {
+      latest.set(s.serviceName, s.fidelityScore as number);
+      const day = (s.startedAt as string).slice(0, 10);
+      const vals = [...latest.values()];
+      byDay.set(day, Math.round(vals.reduce((a, b) => a + b, 0) / vals.length));
+    }
+    return [...byDay.entries()].map(([date, value]) => ({ date, value }));
+  }, [scans]);
+
+  // Findings-per-day, keeping the date so the TrendChart can label its axis (Dashboard.tsx:99 used to discard it).
+  const findingsTrend = useMemo(
+    () => (scansTrendQ.data ?? []).map((p) => ({ date: p.date, value: p.findings })), [scansTrendQ.data]);
+  const findingsSeries = useMemo(() => findingsTrend.map((p) => p.value), [findingsTrend]);
+  const findingsWeekly = useMemo(() => weeklyDelta(findingsSeries), [findingsSeries]);
+  const lastFindings = findingsTrend.length ? findingsTrend[findingsTrend.length - 1].value : null;
+
   const costTrend: KpiTrend | undefined = useMemo(() => {
     const d = weeklyDelta((costTrendQ.data ?? []).map((p) => p.totalUsd));
     if (d == null || Math.abs(d) < 0.005) return undefined;
     return { dir: d < 0 ? 'down' : 'up',
       label: t(d < 0 ? 'overview.trendCostDown' : 'overview.trendCostUp', { amount: formatMoney(Math.abs(d)) }) };
   }, [costTrendQ.data, t]);
+
+  // Findings WoW pill on the Breaking tile. Label stays "findings" (not "breaking changes") — the /trend
+  // series is total findings/day; calling it breaking would overclaim. Fewer is good.
+  const findingsTrendPill: KpiTrend | undefined = useMemo(() => {
+    if (findingsWeekly == null || findingsWeekly === 0) return undefined;
+    return { dir: findingsWeekly < 0 ? 'down' : 'up', good: findingsWeekly < 0,
+      label: t(findingsWeekly < 0 ? 'overview.trendWeekFewer' : 'overview.trendWeekMore', { count: Math.abs(findingsWeekly) }) };
+  }, [findingsWeekly, t]);
+
+  // Audits/week pill on the Services tile — scans run in the last 7 days from the /trend series.
+  const auditsThisWeek = useMemo(
+    () => (scansTrendQ.data ?? []).slice(-7).reduce((n, p) => n + p.scans, 0), [scansTrendQ.data]);
+  const auditsPill: KpiTrend | undefined = auditsThisWeek > 0
+    ? { dir: 'flat', label: t('overview.trendAuditsWeek', { count: auditsThisWeek }) } : undefined;
 
   const recent: Scan[] = [...scans]
     .sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))
@@ -115,13 +173,19 @@ export function Dashboard() {
   const hasData = !scansQ.isLoading && !loadError && scans.length > 0;
   const hasHero = hasData && !!summary && summary.perService.length > 0;
 
+  // Manual refresh — the data does NOT poll while idle, so this is functional. Invalidate every dashboard query.
+  const refreshing = scansQ.isFetching || summaryQ.isFetching || costQ.isFetching || defectsQ.isFetching;
+  const refreshAll = () => qc.invalidateQueries();
+  // Print / scorecard-CSV export (the frontend-buildable equivalent of scheduled report subscriptions).
+  const exportCsv = () => downloadScorecardCsv(t, services, perServiceSummary, latestByService);
+
   const kpiTiles = (
     <>
       <StaggerItem><KpiTile label={t('overview.kpiServices')} value={totals.services} tone="brand"
-        sub={t('overview.kpiServicesSub', { count: scans.length })} /></StaggerItem>
+        sub={t('overview.kpiServicesSub', { count: scans.length })} trend={auditsPill} /></StaggerItem>
       <StaggerItem><KpiTile label={t('overview.kpiBreaking')} value={summary?.totals.breakingFindingsCaught ?? 0}
         tone={(summary?.totals.breakingFindingsCaught ?? 0) > 0 ? 'danger' : 'success'}
-        sub={t('overview.kpiBreakingSub')} /></StaggerItem>
+        sub={t('overview.kpiBreakingSub')} trend={findingsTrendPill} /></StaggerItem>
       <StaggerItem><KpiTile label={t('overview.kpiDefects')} value={totals.openDefects}
         tone={totals.openDefects > 0 ? 'danger' : 'success'} sub={t('overview.kpiDefectsSub')} /></StaggerItem>
       <StaggerItem><KpiTile label={t('overview.kpiCost')} value={formatMoney(totals.spend)}
@@ -136,9 +200,18 @@ export function Dashboard() {
         title={t('overview.title')}
         subtitle={t('overview.subtitle')}
         actions={
-          <Link to="/repos">
-            <Button><ShieldCheck className="h-4 w-4" /> {t('overview.validateBtn')}</Button>
-          </Link>
+          <div className="flex items-center gap-2 print:hidden">
+            <FreshnessStamp updatedAt={scansQ.dataUpdatedAt} onRefresh={refreshAll} refreshing={refreshing} />
+            <Button variant="secondary" size="sm" onClick={() => window.print()}>
+              <FileText className="h-4 w-4" /> {t('overview.print')}
+            </Button>
+            <Button variant="secondary" size="sm" onClick={exportCsv} disabled={services.length === 0}>
+              <Download className="h-4 w-4" /> {t('overview.exportCsv')}
+            </Button>
+            <Link to="/repos">
+              <Button><ShieldCheck className="h-4 w-4" /> {t('overview.validateBtn')}</Button>
+            </Link>
+          </div>
         }
       />
 
@@ -200,6 +273,22 @@ export function Dashboard() {
       {/* Human-in-the-loop proof: acceptance rate + the AI's own disputes. */}
       {hasData && summary && <PrecisionStrip summary={summary} />}
 
+      {/* Everything waiting on a named human — moved above the fold (the governance selling point should be
+          the first thing after the hero + ROI, not buried below the charts). */}
+      {hasData && <DecisionQueue blockingOpen={summary?.totals.blockingOpen ?? 0} worstService={worstBlockingService} />}
+
+      {/* Portfolio fidelity over time — the score history a VP expects, on a fixed 50–100 scale with the
+          release gate (90) drawn in. Full width so the line has room to read. */}
+      {hasData && fidelityHistory.length >= 2 && (
+        <Card className="mb-6">
+          <CardHeader title={t('overview.chartFidelityHistory')} subtitle={t('overview.chartFidelityHistorySub')} />
+          <CardBody>
+            <TrendChart points={fidelityHistory} ariaLabel={t('overview.chartFidelityHistory')} tone="brand"
+              domain={[50, 100]} target={90} targetLabel={t('overview.chartFidelityTarget')} />
+          </CardBody>
+        </Card>
+      )}
+
       {/* Charts row — severity mix, resolution, findings trend */}
       {hasData && (
         <div className="mb-6 grid gap-4 lg:grid-cols-3">
@@ -212,11 +301,14 @@ export function Dashboard() {
                 {sevSlices.length === 0 ? (
                   <span className="text-muted">—</span>
                 ) : sevSlices.map((s) => (
-                  <div key={s.label} className="flex items-center gap-2">
+                  // Drill-down: a legend row opens the Defects list filtered to that severity.
+                  <Link key={s.label} to={`/defects?severity=${s.label}`}
+                    className="group -mx-1 flex items-center gap-2 rounded px-1 py-0.5 hover:bg-ink-50/60">
                     <span className={`h-2.5 w-2.5 shrink-0 rounded-sm ${SEV_SWATCH[s.label] ?? 'bg-sev-info'}`} />
-                    <span className="text-ink-700">{t(`severity.${s.label}`)}</span>
+                    <span className="text-ink-700 group-hover:text-ink-900">{t(`severity.${s.label}`)}</span>
                     <span className="ml-auto font-semibold tabular-nums text-ink-900">{s.value}</span>
-                  </div>
+                    <ArrowRight className="h-3 w-3 text-muted opacity-0 group-hover:opacity-100" />
+                  </Link>
                 ))}
               </div>
             </CardBody>
@@ -237,9 +329,38 @@ export function Dashboard() {
           </Card>
 
           <Card>
-            <CardHeader title={t('overview.chartTrend')} subtitle={t('overview.chartTrendSub')} />
+            <CardHeader title={t('overview.chartTrend')}
+              subtitle={t('overview.chartTrendSub', { count: range })}
+              action={
+                <div className="flex items-center gap-2">
+                  {findingsWeekly != null && findingsWeekly !== 0 && (
+                    <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold',
+                      findingsWeekly < 0 ? TONE.ok : TONE.muted)}>
+                      {t(findingsWeekly < 0 ? 'overview.trendWeekFewer' : 'overview.trendWeekMore', { count: Math.abs(findingsWeekly) })}
+                    </span>
+                  )}
+                  <div className="inline-flex rounded-md bg-ink-50 p-0.5 text-2xs font-semibold ring-1 ring-border"
+                    role="group" aria-label={t('overview.rangeLabel')}>
+                    {TREND_RANGES.map((r) => (
+                      <button key={r} type="button" aria-pressed={range === r}
+                        onClick={() => setParams((p) => { const n = new URLSearchParams(p); n.set('range', String(r)); return n; }, { replace: true })}
+                        className={cn('rounded px-1.5 py-0.5 transition-colors',
+                          range === r ? 'bg-surface text-ink-900 shadow-card' : 'text-muted hover:text-ink-900')}>
+                        {t('overview.rangeDays', { count: r })}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              } />
             <CardBody>
-              <Sparkline values={findingsSeries} ariaLabel={t('overview.chartTrend')} />
+              <div className="relative">
+                {lastFindings != null && (
+                  <span className="absolute right-0 top-0 z-10 text-2xs text-muted">
+                    {t('overview.trendLast', { count: lastFindings })}
+                  </span>
+                )}
+                <TrendChart points={findingsTrend} ariaLabel={t('overview.chartTrend')} tone="brand" />
+              </div>
             </CardBody>
           </Card>
         </div>
@@ -247,9 +368,6 @@ export function Dashboard() {
 
       {/* Dependency-security posture (Snyk) — found vs fixed; renders only when app-ids are watched. */}
       <SnykImpactCard />
-
-      {/* Everything waiting on a named human — the governance selling point. */}
-      {hasData && <DecisionQueue />}
 
       {/* Scorecard by service — letter grades, deltas, coverage honesty, assets, deep links. */}
       {services.length > 0 && (

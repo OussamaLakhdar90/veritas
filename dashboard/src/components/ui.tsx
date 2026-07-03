@@ -1,10 +1,11 @@
 import React from 'react';
-import { Loader2, ArrowUp, ArrowDown, ArrowUpDown, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { Loader2, ArrowUp, ArrowDown, ArrowUpDown, TrendingUp, TrendingDown, Minus, RefreshCw } from 'lucide-react';
 import { useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { cn } from './cn';
 import { TONE } from '../theme/tokens';
 import { isTestEnv } from '../lib/motion';
+import { formatRelativeEpoch } from '../lib/format';
 
 /** Animate 0 → target on mount; resolves instantly under reduced-motion or in tests (no rAF flicker / flake). */
 export function useCountUp(target: number): number {
@@ -301,6 +302,37 @@ export function PageContainer({ variant = 'full', className, children }:
   { variant?: 'narrow' | 'wide' | 'full'; className?: string; children: React.ReactNode }) {
   const width = { narrow: 'mx-auto max-w-3xl', wide: 'mx-auto max-w-4xl', full: '' }[variant];
   return <div className={cn(width, className)}>{children}</div>;
+}
+
+/* ── Freshness + manual refresh ─────────────────────────────────────────── */
+/** Re-render every `intervalMs` so a relative timestamp ("2 min ago") keeps ticking. Off in tests (no timers). */
+export function useNow(intervalMs = 30_000): number {
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    if (isTestEnv) return;
+    const id = window.setInterval(() => setNow(Date.now()), intervalMs);
+    return () => window.clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
+
+/**
+ * "Updated 2 min ago" + a refresh button. `updatedAt` is react-query's `dataUpdatedAt` (epoch ms). The data
+ * does NOT poll while idle, so this is a real freshness signal, not decoration — the button refetches on demand.
+ */
+export function FreshnessStamp({ updatedAt, onRefresh, refreshing }:
+  { updatedAt?: number; onRefresh: () => void; refreshing?: boolean }) {
+  const { t } = useTranslation();
+  useNow(30_000); // tick the relative label
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-muted">
+      {updatedAt ? <span aria-live="polite">{t('common.updatedAgo', { time: formatRelativeEpoch(updatedAt) })}</span> : null}
+      <button type="button" onClick={onRefresh} disabled={refreshing} aria-label={t('common.refresh')}
+        className="grid h-8 w-8 place-items-center rounded-md text-ink-600 hover:bg-ink-50 disabled:opacity-50">
+        <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
+      </button>
+    </span>
+  );
 }
 
 /* ── Page header ────────────────────────────────────────────────────────── */

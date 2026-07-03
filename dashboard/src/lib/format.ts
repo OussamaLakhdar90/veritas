@@ -31,6 +31,43 @@ export function formatDateTime(iso?: string | null): string {
   return f.format(d);
 }
 
+const shortDateCache = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * "20 juin" (fr-CA) / "Jun 20" (en-CA) — a compact day+month label for chart axes. Accepts an ISO date
+ * ("2026-06-20") or a full timestamp; em dash for null/invalid.
+ */
+export function formatShortDate(iso?: string | null): string {
+  if (!iso) {
+    return '—';
+  }
+  // A bare YYYY-MM-DD (the /trend series) parses as UTC midnight, which slips to the previous day west of
+  // UTC — read it as a LOCAL calendar date so the axis label names the day the API meant.
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return '—';
+  }
+  const locale = appLocale();
+  let f = shortDateCache.get(locale);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' });
+    shortDateCache.set(locale, f);
+  }
+  return f.format(d);
+}
+
+/**
+ * Relative time from an epoch-millisecond instant (react-query's `dataUpdatedAt`), e.g. "il y a 2 min".
+ * 0/undefined → em dash. Delegates to {@link formatRelative} once the epoch is turned into an ISO string.
+ */
+export function formatRelativeEpoch(epochMs?: number | null): string {
+  if (!epochMs) {
+    return '—';
+  }
+  return formatRelative(new Date(epochMs).toISOString());
+}
+
 const moneyCache = new Map<string, Intl.NumberFormat>();
 
 /**

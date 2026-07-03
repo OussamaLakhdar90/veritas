@@ -37,7 +37,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <Ctx.Provider value={{ push }}>
       {children}
       {/* Live region so screen readers announce toasts; errors assert, others are polite. */}
-      <div className="fixed bottom-4 right-4 z-[60] flex w-80 flex-col gap-2" aria-live="polite" aria-atomic="false">
+      <div className="fixed bottom-4 right-4 z-[60] flex w-80 flex-col gap-2 print:hidden" aria-live="polite" aria-atomic="false">
         <AnimatePresence mode="sync" initial={false}>
           {toasts.map((t) => (
             <ToastCard key={t.id} toast={t} onDismiss={() => remove(t.id)} />

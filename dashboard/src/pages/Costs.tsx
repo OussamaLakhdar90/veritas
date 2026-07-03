@@ -1,21 +1,30 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Coins } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
-import { Card, CardBody, CardHeader, EmptyState, ErrorState, KpiTile, PageHeader, Skeleton, Table, Td, Th, Row } from '../components/ui';
+import { Card, CardBody, CardHeader, EmptyState, ErrorState, FreshnessStamp, KpiTile, PageHeader, Skeleton, Table, Td, Th, Row } from '../components/ui';
+import { TrendChart } from '../components/charts';
 import { enumLabel } from '../lib/enumLabels';
 import { formatMoney } from '../lib/format';
 
 export function Costs() {
   const { t } = useTranslation();
+  const qc = useQueryClient();
   const q = useQuery({ queryKey: ['costs'], queryFn: api.costSummary });
+  const trendQ = useQuery({ queryKey: ['cost-trend'], queryFn: () => api.costTrend(30) });
   const s = q.data;
   const rows = Object.entries(s?.bySkill ?? {}).sort((a, b) => b[1] - a[1]);
   const max = rows.length ? rows[0][1] : 0;
+  const trend = useMemo(() => (trendQ.data ?? []).map((p) => ({ date: p.date, value: p.totalUsd })), [trendQ.data]);
+
+  const refreshing = q.isFetching || trendQ.isFetching;
 
   return (
     <div>
-      <PageHeader title={t('costs.pageTitle')} subtitle={t('costs.pageSubtitle')} />
+      <PageHeader title={t('costs.pageTitle')} subtitle={t('costs.pageSubtitle')}
+        actions={<FreshnessStamp updatedAt={q.dataUpdatedAt} refreshing={refreshing}
+          onRefresh={() => { qc.invalidateQueries({ queryKey: ['costs'] }); qc.invalidateQueries({ queryKey: ['cost-trend'] }); }} />} />
 
       <div className="mb-6 grid grid-cols-2 gap-4 sm:max-w-md">
         {q.isLoading ? (
@@ -27,6 +36,17 @@ export function Costs() {
           </>
         )}
       </div>
+
+      {/* Daily spend trend — the "where is this heading" line a budget owner reads first. */}
+      {trend.length >= 2 && (
+        <Card className="mb-6">
+          <CardHeader title={t('costs.trendTitle')} subtitle={t('costs.trendSubtitle')} />
+          <CardBody>
+            <TrendChart points={trend} ariaLabel={t('costs.trendTitle')} tone="brand"
+              format={(v) => formatMoney(v, v < 1 ? 4 : 2)} />
+          </CardBody>
+        </Card>
+      )}
 
       <Card>
         <CardHeader title={t('costs.bySkillTitle')} subtitle={t('costs.bySkillSubtitle')} />

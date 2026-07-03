@@ -1,11 +1,14 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { ArrowRight, BellRing, CheckCircle2, GitPullRequestArrow, RefreshCw, ShieldAlert, AlertTriangle } from 'lucide-react';
+import { ArrowRight, BellRing, CheckCircle2, GitPullRequestArrow, RefreshCw, ShieldAlert, AlertTriangle, OctagonAlert } from 'lucide-react';
 import { api } from '../api';
 import { Card, CardBody, CardHeader, Skeleton } from './ui';
 
 const HUMAN_WAIT = new Set(['AWAITING_CONFIRM', 'AWAITING_MANUAL_FIX']);
+
+/** The worst service by blocking-finding count — the blocking row links straight to its findings. */
+export interface WorstService { service: string; scanId: string }
 
 /**
  * The governance card: everything currently waiting on a NAMED HUMAN — pending approval gates, unseen
@@ -15,7 +18,8 @@ const HUMAN_WAIT = new Set(['AWAITING_CONFIRM', 'AWAITING_MANUAL_FIX']);
  * It must never fake green: a failed check reads as "couldn't check" (not "nothing awaits") so a silent
  * fetch failure can't hide a pending approval.
  */
-export function DecisionQueue() {
+export function DecisionQueue({ blockingOpen = 0, worstService }:
+  { blockingOpen?: number; worstService?: WorstService }) {
   const { t } = useTranslation();
   const gatesQ = useQuery({ queryKey: ['gates', 'PENDING'], queryFn: () => api.gates('PENDING') });
   const snykQ = useQuery({ queryKey: ['snyk-summary'], queryFn: api.snykSummary });
@@ -27,12 +31,17 @@ export function DecisionQueue() {
   const pendingGates = (gatesQ.data ?? []).length;
   const unseenAlerts = snykQ.data?.unseenAlerts ?? 0;
   const heldTrains = (fixesQ.data ?? []).filter((x) => HUMAN_WAIT.has(x.status)).length;
-  const total = pendingGates + unseenAlerts + heldTrains;
+  // blockingOpen is included in the total so the empty state can never false-green while a release is blocked.
+  const total = pendingGates + unseenAlerts + heldTrains + blockingOpen;
 
+  // The blocking-findings row is danger-toned and leads to the worst service's findings (or the Defects list).
+  const blockingTo = worstService ? `/findings/${worstService.scanId}` : '/defects';
   const rows = [
-    { count: pendingGates, icon: GitPullRequestArrow, label: t('queue.gates', { count: pendingGates }), to: '/gates' },
-    { count: unseenAlerts, icon: ShieldAlert, label: t('queue.alerts', { count: unseenAlerts }), to: '/snyk' },
-    { count: heldTrains, icon: BellRing, label: t('queue.trains', { count: heldTrains }), to: '/snyk' },
+    { count: blockingOpen, icon: OctagonAlert, tone: 'text-danger',
+      label: t('queue.blocking', { count: blockingOpen }), to: blockingTo },
+    { count: pendingGates, icon: GitPullRequestArrow, tone: 'text-warning', label: t('queue.gates', { count: pendingGates }), to: '/gates' },
+    { count: unseenAlerts, icon: ShieldAlert, tone: 'text-warning', label: t('queue.alerts', { count: unseenAlerts }), to: '/snyk' },
+    { count: heldTrains, icon: BellRing, tone: 'text-warning', label: t('queue.trains', { count: heldTrains }), to: '/snyk' },
   ].filter((r) => r.count > 0);
 
   const refetchAll = () => { gatesQ.refetch(); snykQ.refetch(); fixesQ.refetch(); };
@@ -61,7 +70,7 @@ export function DecisionQueue() {
         {rows.map((r) => (
           <li key={r.to + r.label}>
             <Link to={r.to} className="group flex items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-ink-50/60">
-              <r.icon className="h-4 w-4 shrink-0 text-warning" />
+              <r.icon className={`h-4 w-4 shrink-0 ${r.tone}`} />
               <span className="text-sm text-ink-900">{r.label}</span>
               <ArrowRight className="ml-auto h-3.5 w-3.5 text-muted group-hover:text-ink-900" />
             </Link>

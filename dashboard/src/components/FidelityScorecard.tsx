@@ -35,11 +35,10 @@ export function FidelityScorecard({ summary, coverageGaps }: { summary: Executiv
   }
   const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
   const portfolio = Math.round(mean(scored.map((s) => s.fidelity as number)));
-  // Delta of means vs each service's previous audit — defined, not vibes.
+  // Delta = the mean change across ONLY the services that were re-audited (have a prior score). Averaging over
+  // all services would dilute a real move with the unchanged ones and misstate the trend.
   const withDelta = scored.filter((s) => s.delta != null);
-  const delta = withDelta.length === 0 ? null
-    : Math.round(mean(scored.map((s) => s.fidelity as number))
-      - mean(scored.map((s) => (s.fidelity as number) - (s.delta ?? 0))));
+  const delta = withDelta.length === 0 ? null : Math.round(mean(withDelta.map((s) => s.delta as number)));
   const safe = summary.perService.filter((s) => s.releaseSafe === 'PASS').length;
 
   return (
@@ -53,8 +52,9 @@ export function FidelityScorecard({ summary, coverageGaps }: { summary: Executiv
               {t('overview.heroGrade', { grade: letterGrade(portfolio) })}
             </span>
             {delta != null && delta !== 0 && (
-              <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold',
-                delta > 0 ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger')}>
+              <span title={t('overview.heroDeltaBasis', { count: withDelta.length })}
+                className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold',
+                  delta > 0 ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger')}>
                 {delta > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                 {t('overview.heroDelta', { n: `${delta > 0 ? '+' : ''}${delta}` })}
               </span>

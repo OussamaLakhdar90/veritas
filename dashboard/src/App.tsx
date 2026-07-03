@@ -59,7 +59,7 @@ function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile }:
   const { t } = useTranslation();
   return (
     <aside className={cn(
-      'z-50 flex flex-col bg-sidebar text-white/80',
+      'z-50 flex flex-col bg-sidebar text-white/80 print:hidden',
       'fixed inset-y-0 left-0 w-60 transition-transform duration-200',
       mobileOpen ? 'translate-x-0' : '-translate-x-full',
       'lg:static lg:translate-x-0 lg:transition-[width] lg:duration-200',
@@ -140,7 +140,7 @@ function TopBar({ onOpenMobile, onOpenPalette, dark, onToggleDark }:
   const { t } = useTranslation();
   const crumb = useCrumb();
   return (
-    <header className="flex h-14 items-center justify-between gap-3 border-b border-border bg-surface px-4 sm:px-6">
+    <header className="flex h-14 items-center justify-between gap-3 border-b border-border bg-surface px-4 sm:px-6 print:hidden">
       <div className="flex min-w-0 items-center gap-3">
         <button type="button" onClick={onOpenMobile} aria-label={t('header.menu')}
           className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-ink-600 hover:bg-ink-50 lg:hidden">
