@@ -87,13 +87,19 @@ class SharedSpecSchemaCollapseTest {
         List<Finding> rawMissing = excludeAttributesMissing(raw);
 
         // Pre-collapse: BOTH endpoints flag excludeAttributes as missing on the SAME shared spec schema — same spec
-        // locus, distinct endpoints, and NO code-locus anchor (the extractor attaches no per-field source), so only
-        // the spec locus can collapse them (a code-locus key never could — the round-2 regression).
+        // locus, distinct endpoints. Since S13i-5, each finding also traces to its OWN DTO field (non-null code
+        // location + startLine), and the two locations DIFFER (different DTO files) — so a code-locus key could never
+        // merge them; only the shared spec locus can (the round-2 regression).
         assertThat(rawMissing).hasSize(2);
         assertThat(rawMissing).allSatisfy(f -> assertThat(f.getSpecLocus()).isEqualTo("policies#excludeAttributes"));
         assertThat(rawMissing.get(0).getEndpoint()).isNotEqualTo(rawMissing.get(1).getEndpoint());
-        assertThat(rawMissing).allSatisfy(f ->
-                assertThat(f.getCodeEvidence() == null || f.getCodeEvidence().location() == null).isTrue());
+        assertThat(rawMissing).allSatisfy(f -> {
+            assertThat(f.getCodeEvidence()).isNotNull();
+            assertThat(f.getCodeEvidence().location()).isNotNull();
+            assertThat(f.getCodeEvidence().startLine()).isNotNull();
+        });
+        assertThat(rawMissing.get(0).getCodeEvidence().location())
+                .isNotEqualTo(rawMissing.get(1).getCodeEvidence().location());
 
         List<Finding> collapsed = ContractValidationService.collapseByRootCause(raw);
         List<Finding> collapsedMissing = excludeAttributesMissing(collapsed);

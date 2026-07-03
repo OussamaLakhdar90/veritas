@@ -402,8 +402,9 @@ class GoldenDiscrepancyCatalogTest {
                 // DTOs (different files) each carrying `excludeAttributes`; both endpoints $ref ONE shared component
                 // schema that lacks the field. The engine emits SCHEMA_FIELD_MISSING for each endpoint — the SAME spec
                 // locus (shared schema + field). Precision: the excludeAttributes findings carry pairwise-EQUAL non-null
-                // specLocus, which is the ONLY anchor that can collapse them (the extractor attaches no per-field code
-                // source, so a code-locus key is null for both — pre-fix these two MAJORs could never merge).
+                // specLocus (the anchor that collapses them) AND — since S13i-5 populates the per-field code source —
+                // DIFFERENT non-null code locations with a real startLine (the two DTOs live in different files). A
+                // code-locus key could never merge those differing locations; only the shared spec locus can.
                 emitPrecise("regression_shared_spec_schema_two_wrapper_dtos",
                         js(
                                 ctrl("PoliciesController", "/policies", "  @GetMapping\n  public PolicyWrapperA get(){return null;}\n"),
@@ -438,12 +439,14 @@ class GoldenDiscrepancyCatalogTest {
                             }
                             boolean sameNonNullLocus = ea.get(0).getSpecLocus() != null
                                     && ea.get(0).getSpecLocus().equals(ea.get(1).getSpecLocus());
-                            // Distinct endpoints, and neither carries a code-evidence location — so the spec locus is
-                            // the only anchor that can collapse the pair (the whole point of S13i-1).
                             boolean distinctEndpoints = !ea.get(0).getEndpoint().equals(ea.get(1).getEndpoint());
-                            boolean noCodeLocusAnchor = ea.stream()
-                                    .allMatch(x -> x.getCodeEvidence() == null || x.getCodeEvidence().location() == null);
-                            return sameNonNullLocus && distinctEndpoints && noCodeLocusAnchor;
+                            // Each finding now traces to its own DTO field: non-null code location + startLine, and the
+                            // two locations DIFFER (different DTO files) — so only the shared spec locus can collapse them.
+                            boolean tracedToOwnField = ea.stream().allMatch(x -> x.getCodeEvidence() != null
+                                    && x.getCodeEvidence().location() != null && x.getCodeEvidence().startLine() != null);
+                            boolean differentCodeLocations = tracedToOwnField
+                                    && !ea.get(0).getCodeEvidence().location().equals(ea.get(1).getCodeEvidence().location());
+                            return sameNonNullLocus && distinctEndpoints && tracedToOwnField && differentCodeLocations;
                         },
                         FindingType.SCHEMA_FIELD_MISSING));
     }

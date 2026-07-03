@@ -94,6 +94,54 @@ class ContractReportRendererTest {
         assertThat(html).contains("conf-pill").contains("conf-high").contains("High confidence");
     }
 
+    /** S13i-5 end-to-end lock: now that the extractor populates each field's SourceRef, a schema-field finding
+     *  carries codeEvidence, so the report MUST render the clickable code link the user asked for. */
+    @Test
+    void aSchemaFieldFindingWithFieldSourceRendersAClickableCodeLink() {
+        ConnectionsProperties cp = new ConnectionsProperties();
+        cp.getBitbucket().setEdition("SERVER_DC");
+        cp.getBitbucket().setBaseUrl("https://git.bnc.ca");
+        ContractReportRenderer renderer = new ContractReportRenderer(new BitbucketLinkBuilder(cp));
+
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        scan.setAppId("APP7571");
+        scan.setRepoSlug("ciam-policies");
+        scan.setGitRef("develop");
+        Finding f = Finding.builder()
+                .findingId("sf1").type(FindingType.SCHEMA_FIELD_MISSING).layer(Layer.L4).severity(Severity.MAJOR)
+                .confidence(Confidence.HIGH).origin("DETERMINISTIC").service("ciam-policies").specSource("code-vs-spec")
+                .endpoint("GET /policies response.excludeAttributes")
+                .specLocus("policies#excludeAttributes")
+                .summary("Field 'excludeAttributes' is in code but missing from the spec schema")
+                .codeEvidence(SourceRef.code("src/main/java/ca/bnc/PasswordComplexity.java", 42, 42, null))
+                .build();
+
+        String html = renderer.renderHtml(scan, List.of(f));
+        assertThat(html).contains("class=\"code-link\"")
+                .contains("/browse/src/main/java/ca/bnc/PasswordComplexity.java")
+                .contains(">PasswordComplexity.java:42</a>");
+    }
+
+    /** Without a link builder (no-arg constructor) the same field source still renders as a plain, traceable
+     *  "File.java:line" code-trace line — the code location is never silently dropped. */
+    @Test
+    void aSchemaFieldFindingRendersPlainCodeTraceWhenNoLinkBuilder() {
+        Finding f = Finding.builder()
+                .findingId("sf2").type(FindingType.SCHEMA_FIELD_MISSING).layer(Layer.L4).severity(Severity.MAJOR)
+                .confidence(Confidence.HIGH).origin("DETERMINISTIC").service("ciam-policies").specSource("code-vs-spec")
+                .endpoint("GET /policies response.excludeAttributes")
+                .specLocus("policies#excludeAttributes")
+                .summary("Field 'excludeAttributes' is in code but missing from the spec schema")
+                .codeEvidence(SourceRef.code("src/main/java/ca/bnc/PasswordComplexity.java", 42, 42, null))
+                .build();
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(f));
+        assertThat(html).contains("code-trace").contains("PasswordComplexity.java:42")
+                .doesNotContain("/browse/").doesNotContain("class=\"code-link\"");
+    }
+
     @Test
     void codeEvidenceStaysPlainTextWhenNoLinkBuilder() {
         // The no-arg constructor (tests / non-Spring use) has no link builder → evidence renders as plain text.
