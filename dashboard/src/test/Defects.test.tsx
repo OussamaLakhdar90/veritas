@@ -69,7 +69,7 @@ describe('Defects page', () => {
     )
     renderDefects()
 
-    expect(await screen.findByText(/Could not load defects:/)).toBeInTheDocument()
+    expect(await screen.findByText(/Could not load defects/)).toBeInTheDocument()
   })
 
   it('renders the defect rows with a linked Jira key, status badge, author and synced time', async () => {

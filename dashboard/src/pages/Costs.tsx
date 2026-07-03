@@ -1,10 +1,11 @@
 import { useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Coins } from 'lucide-react';
+import { Coins, Download } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { Card, CardBody, CardHeader, EmptyState, ErrorState, FreshnessStamp, KpiTile, PageHeader, Skeleton, Table, Td, Th, Row } from '../components/ui';
 import { TrendChart } from '../components/charts';
+import { downloadTrendCsv } from '../lib/exportCsv';
 import { enumLabel } from '../lib/enumLabels';
 import { formatMoney } from '../lib/format';
 
@@ -40,7 +41,10 @@ export function Costs() {
       {/* Daily spend trend — the "where is this heading" line a budget owner reads first. */}
       {trend.length >= 2 && (
         <Card className="mb-6">
-          <CardHeader title={t('costs.trendTitle')} subtitle={t('costs.trendSubtitle')} />
+          <CardHeader title={t('costs.trendTitle')} subtitle={t('costs.trendSubtitle')}
+            action={<button type="button" aria-label={t('overview.exportCsv')} title={t('overview.exportCsv')}
+              onClick={() => downloadTrendCsv('veritas-cost-trend', t('overview.csvDate'), t('costs.csvSpend'), trend)}
+              className="grid h-8 w-8 place-items-center rounded-md text-ink-600 hover:bg-ink-50"><Download className="h-4 w-4" /></button>} />
           <CardBody>
             <TrendChart points={trend} ariaLabel={t('costs.trendTitle')} tone="brand"
               format={(v) => formatMoney(v, v < 1 ? 4 : 2)} />

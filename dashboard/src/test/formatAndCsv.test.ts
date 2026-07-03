@@ -3,7 +3,7 @@ import i18n from '../i18n';
 import {
   appLocale, formatDateTime, formatDuration, formatMoney, formatRelative, formatRelativeEpoch, formatShortDate,
 } from '../lib/format';
-import { buildScorecardCsv, downloadCsv, toCsv } from '../lib/exportCsv';
+import { buildScorecardCsv, downloadCsv, downloadTrendCsv, toCsv } from '../lib/exportCsv';
 import type { ExecutiveServiceSummary, Scan, ServiceSummary } from '../api';
 
 const t = ((key: string, opts?: { count?: number; defaultValue?: string }) => {
@@ -78,6 +78,25 @@ describe('CSV export', () => {
     const latest = new Map<string, Scan>([['x', { coverageGaps: 2 } as Scan]]);
     const csv = buildScorecardCsv(t, services, new Map(), latest);
     expect(csv.split('\r\n')[1]).toBe('x,,,,,2 gaps,,0');
+  });
+
+  it('downloadTrendCsv serializes a header row + one row per point, dated filename', () => {
+    let filename = '';
+    let blobSize = 0;
+    const realCreate = document.createElement.bind(document);
+    vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const el = realCreate(tag) as HTMLAnchorElement;
+      if (tag === 'a') { el.click = () => {}; Object.defineProperty(el, 'download', { set: (v: string) => { filename = v; }, get: () => filename }); }
+      return el;
+    });
+    (URL as unknown as { createObjectURL: (b: Blob) => string }).createObjectURL = (b) => { blobSize = b.size; return 'blob:x'; };
+    (URL as unknown as { revokeObjectURL: () => void }).revokeObjectURL = () => {};
+
+    downloadTrendCsv('veritas-trend', 'Date', 'Score', [{ date: '2026-06-01', value: 71 }, { date: '2026-06-02', value: 84 }]);
+
+    expect(filename).toMatch(/^veritas-trend-\d{4}-\d{2}-\d{2}\.csv$/);
+    // BOM(3) + "Date,Score\r\n2026-06-01,71\r\n2026-06-02,84" = 3 + 40 = 43 bytes.
+    expect(blobSize).toBe(43);
   });
 
   it('downloadCsv clicks a named anchor with a BOM-prefixed blob', () => {

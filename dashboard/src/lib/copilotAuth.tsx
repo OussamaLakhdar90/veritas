@@ -110,7 +110,7 @@ export function useCopilotGate() {
   const blocked = needsCopilot && !connected && !loading;
   const notice = blocked ? (
     <button type="button" onClick={signIn}
-      className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:underline">
+      className="inline-flex items-center gap-1.5 text-xs font-medium text-gold hover:underline">
       <Github className="h-3.5 w-3.5" /> Connect GitHub Copilot to use this
     </button>
   ) : null;

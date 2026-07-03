@@ -238,11 +238,11 @@ export function Snyk() {
             {issuesQ.isLoading ? (
               <TableSkeleton rows={4} label={t('snyk.issuesLoading')} />
             ) : issuesQ.isError ? (
-              <div className="p-5 text-sm text-danger">{(issuesQ.error as Error).message}</div>
+              <div className="p-5"><ErrorState message={t('snyk.issuesLoadError')} detail={(issuesQ.error as Error).message} /></div>
             ) : (issuesQ.data ?? []).length === 0 ? (
               <div className="p-5"><EmptyState icon={ShieldCheck} title={t('snyk.issuesEmpty')} /></div>
             ) : (
-              <Table head={<>
+              <Table stickyHead head={<>
                 <SortableTh label={t('snyk.colSeverity')} sortKey="severity" sort={issueSort} />
                 <SortableTh label={t('snyk.colPackage')} sortKey="package" sort={issueSort} />
                 <SortableTh label={t('snyk.colProject')} sortKey="project" sort={issueSort} />

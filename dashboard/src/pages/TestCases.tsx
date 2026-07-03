@@ -85,7 +85,7 @@ export function TestCases() {
       ) : (
         <Card>
           <CardBody className="p-0">
-            <Table head={<><Th>{t('testCases.colTitle')}</Th><Th>{t('testCases.colTechnique')}</Th><Th>{t('testCases.colStatus')}</Th><Th>{t('testCases.colXray')}</Th><Th className="text-right">{t('testCases.colActions')}</Th></>}>
+            <Table stickyHead head={<><Th>{t('testCases.colTitle')}</Th><Th>{t('testCases.colTechnique')}</Th><Th>{t('testCases.colStatus')}</Th><Th>{t('testCases.colXray')}</Th><Th className="text-right">{t('testCases.colActions')}</Th></>}>
               {rows.map((tc, i) => (
                 <Row key={tc.id} index={i}>
                   <Td className="max-w-md font-medium text-ink-900">{tc.title}</Td>

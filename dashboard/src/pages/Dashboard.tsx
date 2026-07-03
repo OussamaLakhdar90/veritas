@@ -18,7 +18,7 @@ import { Tooltip } from '../components/Tooltip';
 import { TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
 import { formatDuration, formatMoney, formatDateTime, formatRelative } from '../lib/format';
-import { downloadScorecardCsv } from '../lib/exportCsv';
+import { downloadScorecardCsv, downloadTrendCsv } from '../lib/exportCsv';
 
 /** Map a validation status to a status-pill tone. */
 function statusTone(status?: string): string {
@@ -282,7 +282,10 @@ export function Dashboard() {
           release gate (90) drawn in. Full width so the line has room to read. */}
       {hasData && fidelityHistory.length >= 2 && (
         <Card className="mb-6">
-          <CardHeader title={t('overview.chartFidelityHistory')} subtitle={t('overview.chartFidelityHistorySub')} />
+          <CardHeader title={t('overview.chartFidelityHistory')} subtitle={t('overview.chartFidelityHistorySub')}
+            action={<button type="button" aria-label={t('overview.exportCsv')} title={t('overview.exportCsv')}
+              onClick={() => downloadTrendCsv('veritas-fidelity-history', t('overview.csvDate'), t('overview.csvScore'), fidelityHistory)}
+              className="grid h-8 w-8 place-items-center rounded-md text-ink-600 hover:bg-ink-50"><Download className="h-4 w-4" /></button>} />
           <CardBody>
             <TrendChart points={fidelityHistory} ariaLabel={t('overview.chartFidelityHistory')} tone="brand"
               domain={[50, 100]} target={90} targetLabel={t('overview.chartFidelityTarget')} />
@@ -351,6 +354,9 @@ export function Dashboard() {
                       </button>
                     ))}
                   </div>
+                  <button type="button" aria-label={t('overview.exportCsv')} title={t('overview.exportCsv')}
+                    onClick={() => downloadTrendCsv('veritas-findings-trend', t('overview.csvDate'), t('overview.csvFindings'), findingsTrend)}
+                    className="grid h-8 w-8 place-items-center rounded-md text-ink-600 hover:bg-ink-50"><Download className="h-4 w-4" /></button>
                 </div>
               } />
             <CardBody>
