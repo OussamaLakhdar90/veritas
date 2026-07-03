@@ -270,4 +270,72 @@ class ContractReportRendererTest {
         // PDF magic header — proves the strict-XHTML render succeeded with the new detail rows
         assertThat(new String(pdf, 0, 4)).isEqualTo("%PDF");
     }
+
+    // ───────────────────────── S13i-3: undocumented error-responses note ─────────────────────────
+
+    /** A blanket-advice-demoted STATUS_CODE_MISSING (DETERMINISTIC + LOW) — the exact set demoted to §6 manual review. */
+    private Finding demotedAdviceStatus(String id, String endpoint, int status) {
+        return Finding.builder().findingId(id).type(FindingType.STATUS_CODE_MISSING).layer(Layer.L4)
+                .severity(Severity.MAJOR).confidence(Confidence.LOW).origin("DETERMINISTIC").service("ciam-policies")
+                .specSource("code-vs-spec").endpoint(endpoint)
+                .summary("Code can return " + status + " but the spec doesn't document it").build();
+    }
+
+    @Test
+    void undocumentedErrorResponsesNoteGroupsByStatusWithDistinctEndpointCounts() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        // Two endpoints for 500, one for 406 — 500 must render once with a 2-endpoint count, 406 once.
+        Finding a = demotedAdviceStatus("a", "GET /policies", 500);
+        Finding b = demotedAdviceStatus("b", "GET /policies/{app}", 500);
+        Finding c = demotedAdviceStatus("c", "GET /policies", 406);
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(a, b, c));
+        assertThat(html).contains("Undocumented error responses").contains("not counted in the score")
+                .contains("HTTP 500 — a global exception handler can return this status")
+                .contains("(2 endpoints).")
+                .contains("HTTP 406 — a global exception handler can return this status")
+                .contains("(1 endpoint).");
+        // Bilingual — the French heading + line are present too.
+        assertThat(html).contains("Réponses d'erreur non documentées").contains("gestionnaire d'exceptions global");
+    }
+
+    @Test
+    void errorNoteAbsentWhenTheStatusIsCountedMediumNotDemoted() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        // MEDIUM confidence => counted, not demoted to §6 => the note must NOT appear.
+        Finding counted = demotedAdviceStatus("m", "GET /policies", 500).toBuilder()
+                .confidence(Confidence.MEDIUM).build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(counted));
+        assertThat(html).doesNotContain("Undocumented error responses");
+    }
+
+    @Test
+    void errorNoteAbsentForAnLlmOriginLookalike() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        // Same type + LOW confidence but LLM origin — NOT the deterministic blanket-advice set => no note.
+        Finding llm = demotedAdviceStatus("l", "GET /policies", 500).toBuilder().origin("LLM").build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(llm));
+        assertThat(html).doesNotContain("Undocumented error responses");
+    }
+
+    @Test
+    void errorNoteAbsentWhenThereAreNoFindings() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        String html = new ContractReportRenderer().renderHtml(scan, List.of());
+        assertThat(html).doesNotContain("Undocumented error responses");
+    }
+
+    @Test
+    void errorNoteRendersOnThePdfPathWhichStillStartsWithPdfMagic() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        byte[] pdf = new ContractReportRenderer().renderPdf(scan,
+                List.of(demotedAdviceStatus("a", "GET /policies", 500),
+                        demotedAdviceStatus("b", "GET /policies/{app}", 500)));
+        assertThat(pdf).isNotEmpty();
+        assertThat(new String(pdf, 0, 4)).isEqualTo("%PDF");
+    }
 }

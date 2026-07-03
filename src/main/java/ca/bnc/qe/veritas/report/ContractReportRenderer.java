@@ -223,6 +223,11 @@ public class ContractReportRenderer {
                     .append("</p>");
         }
 
+        // Surface undocumented error responses (500/406/…) that were DEMOTED to manual review (§6) as low-confidence
+        // blanket-advice statuses — so the team is still told, prominently, that those error statuses exist even though
+        // they don't count toward the score. Renders for both the interactive and PDF paths (same code path here).
+        sb.append(errorContractNote(attention));
+
         // KPI scorecard (built once, then laid out next to the severity breakdown for a single management snapshot).
         // Coverage = deterministic per-scan gaps (unparsed files / unresolved types); fall back to the blind-spots
         // text only for older scans that predate the coverageGaps count.
@@ -640,6 +645,60 @@ public class ContractReportRenderer {
         return blocking == 0 && score < FidelityScore.PASS_THRESHOLD && total > 0 && allNonBreaking;
     }
 
+    /** An HTTP status code (3xx/4xx/5xx) as a standalone token in an advice-status summary. */
+    private static final java.util.regex.Pattern ERROR_STATUS = java.util.regex.Pattern.compile("\\b([3-5]\\d\\d)\\b");
+
+    /**
+     * A compact §1 note listing the undocumented ERROR responses (500/406/…) that were demoted to §6 manual review —
+     * exactly the blanket-advice statuses ({@code STATUS_CODE_MISSING && DETERMINISTIC && LOW}, produced only by the
+     * one blanket-{@code @ControllerAdvice} branch in the diff engine). It names each status once, sorted ascending,
+     * with the number of DISTINCT endpoints it can reach, so the team is still told these error statuses exist even
+     * though they are not counted in the score. Returns "" (no heading) when there is nothing to surface.
+     */
+    private String errorContractNote(List<Finding> attention) {
+        // status -> distinct endpoints that can return it (sorted status keys for a stable ascending render).
+        java.util.Map<Integer, java.util.Set<String>> byStatus = new java.util.TreeMap<>();
+        for (Finding f : attention) {
+            boolean adviceDemoted = f.getType() != null && "STATUS_CODE_MISSING".equals(f.getType().name())
+                    && "DETERMINISTIC".equalsIgnoreCase(f.getOrigin())
+                    && f.getConfidence() != null && "LOW".equals(f.getConfidence().name());
+            if (!adviceDemoted || isBlank(f.getSummary())) {
+                continue;
+            }
+            java.util.regex.Matcher m = ERROR_STATUS.matcher(f.getSummary());
+            if (!m.find()) {
+                continue;   // defensive: no parseable status in the summary → skip rather than guess
+            }
+            int status = Integer.parseInt(m.group(1));
+            byStatus.computeIfAbsent(status, k -> new java.util.LinkedHashSet<>()).addAll(endpointsOf(f));
+        }
+        if (byStatus.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("<div class=\"err-note\"><div class=\"err-note-h\">").append(bi(
+                "Undocumented error responses — not counted in the score; see section 6",
+                "Réponses d'erreur non documentées — non comptées dans le score; voir la section 6")).append("</div>");
+        for (java.util.Map.Entry<Integer, java.util.Set<String>> e : byStatus.entrySet()) {
+            int n = e.getValue().size();
+            sb.append("<div class=\"err-note-line\">").append(bi(
+                    "HTTP " + e.getKey() + " — a global exception handler can return this status, but the spec does not "
+                            + "document it (" + n + (n == 1 ? " endpoint)." : " endpoints)."),
+                    "HTTP " + e.getKey() + " — un gestionnaire d'exceptions global peut retourner ce code, mais la spéc "
+                            + "ne le documente pas (" + n + (n == 1 ? " point de terminaison)." : " points de terminaison)."))).append("</div>");
+        }
+        return sb.append("</div>").toString();
+    }
+
+    /** The distinct endpoints a finding covers — its {@code affectedEndpoints} when collapsed across several, else its
+     *  single endpoint (or none). */
+    private static List<String> endpointsOf(Finding f) {
+        if (f.getAffectedEndpoints() != null && f.getAffectedEndpoints().size() > 1) {
+            return f.getAffectedEndpoints();
+        }
+        return f.getEndpoint() == null ? List.of() : List.of(f.getEndpoint());
+    }
+
     /** The plain "is it safe to release?" verdict box — first thing management sees. Release RISK (breaking changes)
      *  drives the action; the fidelity score is the separate quality bar. */
     private String bottomLine(int score, long blocking, int total, int missing, int wrong, int dead, long disputed,
@@ -1000,6 +1059,9 @@ public class ContractReportRenderer {
                 + ".gate{display:inline-block;font-weight:700;font-size:.9rem;padding:.4rem .9rem;border-radius:8px;margin:.3rem 0}"
                 + ".gate-pass{background:#e6f4ea;color:#1E8E5A}.gate-fail{background:#fdecef;color:#C2122D}"
                 + ".gate-note{font-size:.82rem;color:#475069;margin:.15rem 0 .3rem;max-width:640px}"
+                + ".err-note{background:#fbf7ee;border:1px solid #ecdfc4;border-left:3px solid #b5852a;border-radius:0 8px 8px 0;padding:.6rem .85rem;margin:.6rem 0}"
+                + ".err-note-h{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:#8a6a1e;font-weight:700;margin-bottom:.3rem}"
+                + ".err-note-line{font-size:.85rem;color:#475069;margin:.12rem 0}"
                 + ".trend{font-size:.85rem;margin:.2rem 0}.trend-up{color:#1E8E5A}.trend-down{color:#C2122D}.trend-flat{color:#475069}"
                 + "table.actions{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e3e6eb;border-radius:10px;overflow:hidden}"
                 + "table.actions th,table.actions td{text-align:left;padding:8px 12px;font-size:.86rem;border-top:1px solid #eef1f5;vertical-align:top}"
