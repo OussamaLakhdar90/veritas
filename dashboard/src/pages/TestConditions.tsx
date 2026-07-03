@@ -110,7 +110,7 @@ export function TestConditions() {
                     {c.qualityCharacteristic ? <span className="block text-xs text-muted">{c.qualityCharacteristic}</span> : null}
                   </Td>
                   <Td className="text-muted">{c.sourceBasisItem ?? '—'}</Td>
-                  <Td><Badge className={priorityTone(c.priority)}>{c.priority ?? '—'}</Badge></Td>
+                  <Td><Badge className={priorityTone(c.priority)}>{c.priority ? enumLabel(t, 'riskLevel', c.priority) : '—'}</Badge></Td>
                   <Td className="text-muted">{c.riskRef ?? '—'}</Td>
                   <Td className="text-muted">{c.technique ?? '—'}</Td>
                   <Td>

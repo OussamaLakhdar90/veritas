@@ -198,12 +198,16 @@ function RoutedMain() {
     </Routes>
   );
   return (
-    <main className="min-w-0 flex-1 overflow-auto p-6">
-      {isTestEnv ? routes : (
-        <motion.div key={location.pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageTransition}>
-          {routes}
-        </motion.div>
-      )}
+    <main className="min-w-0 flex-1 overflow-auto">
+      {/* Cap the content column so the flagship + dense tables don't render full-bleed / edge-to-edge on a
+          wide external monitor. Narrow/wide PageContainer variants still nest correctly inside this. */}
+      <div className="mx-auto max-w-[1600px] p-6">
+        {isTestEnv ? routes : (
+          <motion.div key={location.pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={pageTransition}>
+            {routes}
+          </motion.div>
+        )}
+      </div>
     </main>
   );
 }

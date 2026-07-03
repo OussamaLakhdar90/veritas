@@ -60,7 +60,7 @@ function SectionView({ k, value }: { k: string; value: unknown }) {
         {(risks || []).map((r, i) => (
           <Row key={r.id ?? i}>
             <Td className="font-medium text-ink-900">{r.id}</Td><Td className="text-ink-900">{r.description}</Td>
-            <Td><Badge className={riskTone(r.level)}>{r.level}</Badge></Td><Td className="text-muted">{r.mitigation ?? '—'}</Td>
+            <Td><Badge className={riskTone(r.level)}>{enumLabel(t, 'riskLevel', r.level)}</Badge></Td><Td className="text-muted">{r.mitigation ?? '—'}</Td>
           </Row>
         ))}
       </Table>
@@ -161,7 +161,7 @@ function ScorecardBanner({ sc }: { sc: StrategyScorecard }) {
     <Card className={`mb-6 border-l-4 ${ok ? 'border-l-success' : 'border-l-warning'}`}>
       <CardBody className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">
-          <Badge className={ok ? TONE.ok : TONE.warn}>{sc.verdict}</Badge>
+          <Badge className={ok ? TONE.ok : TONE.warn}>{enumLabel(t, 'scorecardVerdict', sc.verdict)}</Badge>
           <span className="text-sm text-ink-900">{t('strategyDetail.qualityScorecard', { confidence: Math.round(sc.confidence) })}</span>
           <span className="text-sm text-muted">{t('strategyDetail.featuresCovered', { count: sc.featuresCovered })}</span>
           {sc.droppedSections > 0 && <span className="text-sm font-medium text-warning">{t('strategyDetail.sectionsDropped', { count: sc.droppedSections })}</span>}

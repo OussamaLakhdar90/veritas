@@ -171,7 +171,7 @@ export function TestPlanDetail() {
               <Row key={r.id}>
                 <Td className="font-medium text-ink-900">{r.id}</Td><Td className="text-ink-900">{r.description}</Td>
                 <Td className="text-muted">{r.qualityCharacteristic ?? '—'}</Td><Td className="text-muted">{r.likelihood ?? '—'}</Td><Td className="text-muted">{r.impact ?? '—'}</Td>
-                <Td><Badge className={riskBadge(r.level)}>{r.level}</Badge></Td>
+                <Td><Badge className={riskBadge(r.level)}>{enumLabel(t, 'riskLevel', r.level)}</Badge></Td>
                 <Td className="text-muted">{r.mitigation ?? '—'}</Td><Td className="text-xs text-muted">{r.citation ?? ''}</Td>
               </Row>
             ))}

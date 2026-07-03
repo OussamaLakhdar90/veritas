@@ -127,6 +127,8 @@
       "REPAIRED": "Auto-réparée",
       "SKIPPED": "Compilation ignorée"
     },
+    "riskLevel": { "HIGH": "Élevé", "MEDIUM": "Moyen", "LOW": "Faible" },
+    "scorecardVerdict": { "OK": "Sain", "DEGRADED": "Dégradé" },
     "verdict": {
       "PASS": "Réussite",
       "FAIL": "Échec"

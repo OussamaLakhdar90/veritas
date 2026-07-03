@@ -127,6 +127,8 @@
       "REPAIRED": "Self-repaired",
       "SKIPPED": "Build skipped"
     },
+    "riskLevel": { "HIGH": "High", "MEDIUM": "Medium", "LOW": "Low" },
+    "scorecardVerdict": { "OK": "Healthy", "DEGRADED": "Degraded" },
     "verdict": {
       "PASS": "Pass",
       "FAIL": "Fail"
