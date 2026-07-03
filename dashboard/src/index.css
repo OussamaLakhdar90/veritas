@@ -53,7 +53,7 @@
   --brand-50: 42 11 18;
   --brand-600: 255 77 106;
   --brand-700: 227 24 55;
-  --gold: 216 178 90;
+  --gold: 227 184 94;         /* BRAND_GOLD #E3B85E — one verification gold across favicon, logo and app */
   --gold-tint: 42 36 18;
 
   --ink-50: 26 36 56;
@@ -88,6 +88,11 @@
 }
 
 @layer base {
+  /* Tell the UA which mode we're in — native form controls, spellcheck squiggles and the DEFAULT scrollbar
+     track all follow this. Set per-theme (the class toggles :root). */
+  :root { color-scheme: light; }
+  :root.dark { color-scheme: dark; }
+
   html, body, #root { height: 100%; }
   body {
     margin: 0;
@@ -99,6 +104,14 @@
     -webkit-font-smoothing: antialiased;
   }
   code, pre { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+  /* Themed scrollbars — STANDARD properties only. Chromium 121+ disables the ::-webkit-scrollbar rules the
+     moment `scrollbar-color` is set, so mixing the two makes the webkit rules dead code; we ship only the
+     standard ones, which Chromium, Firefox and Safari 18+ all honour. Thumb = ink-100 on a transparent track. */
+  * { scrollbar-width: thin; scrollbar-color: rgb(var(--ink-100)) transparent; }
+  /* The sidebar is always navy in BOTH themes, so its scrollbar needs the dark-mode thumb even in light mode
+     (the light --ink-100 is near-invisible on navy). Scoped to the sidebar's own scroll container. */
+  aside .overflow-y-auto { scrollbar-color: rgb(148 163 184) transparent; }
 }
 
 /* Skeleton shimmer — a token-coloured highlight sweeping across the animate-pulse base. The pulse stays

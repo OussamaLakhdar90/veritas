@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { TrendingDown, TrendingUp } from 'lucide-react';
 import type { ExecutiveSummary } from '../api';
 import { Card, CardBody } from './ui';
+import { Tooltip } from './Tooltip';
 import { ScoreRing, scoreTextTone } from './charts';
 import { cn } from './cn';
 
@@ -52,12 +53,13 @@ export function FidelityScorecard({ summary, coverageGaps }: { summary: Executiv
               {t('overview.heroGrade', { grade: letterGrade(portfolio) })}
             </span>
             {delta != null && delta !== 0 && (
-              <span title={t('overview.heroDeltaBasis', { count: withDelta.length })}
-                className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold',
+              <Tooltip label={t('overview.heroDeltaBasis', { count: withDelta.length })}>
+                <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold',
                   delta > 0 ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger')}>
-                {delta > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                {t('overview.heroDelta', { n: `${delta > 0 ? '+' : ''}${delta}` })}
-              </span>
+                  {delta > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                  {t('overview.heroDelta', { n: `${delta > 0 ? '+' : ''}${delta}` })}
+                </span>
+              </Tooltip>
             )}
           </div>
           <p className="mt-2 text-sm font-semibold text-ink-900">
@@ -65,11 +67,12 @@ export function FidelityScorecard({ summary, coverageGaps }: { summary: Executiv
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {summary.perService.map((s) => (
-              <Link key={s.service} to={`/findings/${s.latestScanId}`}
-                title={t('overview.serviceChipTooltip', { service: s.service })}
-                className={cn('rounded-full px-2 py-0.5 text-2xs font-medium hover:opacity-80', SAFE_CHIP[s.releaseSafe])}>
-                {s.service}{s.fidelity != null ? ` · ${s.fidelity}` : ''}
-              </Link>
+              <Tooltip key={s.service} label={t('overview.serviceChipTooltip', { service: s.service })}>
+                <Link to={`/findings/${s.latestScanId}`}
+                  className={cn('rounded-full px-2 py-0.5 text-2xs font-medium hover:opacity-80', SAFE_CHIP[s.releaseSafe])}>
+                  {s.service}{s.fidelity != null ? ` · ${s.fidelity}` : ''}
+                </Link>
+              </Tooltip>
             ))}
           </div>
           <p className="mt-3 text-xs text-muted">

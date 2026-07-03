@@ -59,8 +59,8 @@ export function Costs() {
             <div className="p-5"><EmptyState icon={Coins} title={t('costs.emptyTitle')} body={t('costs.emptyBody')} /></div>
           ) : (
             <Table head={<><Th>{t('costs.colSkill')}</Th><Th className="w-1/2">{t('costs.colShare')}</Th><Th className="text-right">{t('costs.colEstCost')}</Th></>}>
-              {rows.map(([skill, cost]) => (
-                <Row key={skill}>
+              {rows.map(([skill, cost], i) => (
+                <Row key={skill} index={i}>
                   <Td className="font-medium text-ink-900">{enumLabel(t, 'skill', skill)}</Td>
                   <Td>
                     <div className="h-2 w-full rounded-full bg-ink-100">

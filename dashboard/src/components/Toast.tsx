@@ -96,7 +96,7 @@ function ToastCard({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }
     return body;
   }
   return (
-    <motion.div layout initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }}
+    <motion.div layout={!reduce} initial={reduce ? false : { opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }}
       exit={reduce ? { opacity: 0, transition: { duration: 0 } }
         : { opacity: 0, height: 0, marginTop: -8, transition: { duration: 0.15, ease: exitEase } }}
       transition={toastSpring}>

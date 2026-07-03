@@ -60,9 +60,9 @@ function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile }:
   return (
     <aside className={cn(
       'z-50 flex flex-col bg-sidebar text-white/80 print:hidden',
-      'fixed inset-y-0 left-0 w-60 transition-transform duration-200',
+      'fixed inset-y-0 left-0 w-60 transition-transform duration-base',
       mobileOpen ? 'translate-x-0' : '-translate-x-full',
-      'lg:static lg:translate-x-0 lg:transition-[width] lg:duration-200',
+      'lg:static lg:translate-x-0 lg:transition-[width] lg:duration-base',
       collapsed ? 'lg:w-16' : 'lg:w-60',
     )}>
       <div className={cn('flex items-center gap-2 px-5 py-5', collapsed && 'lg:justify-center lg:px-0')}>
@@ -95,7 +95,7 @@ function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile }:
                   <span className="relative z-10 flex flex-1 items-center gap-3">
                     <span className={cn('h-4 w-0.5 rounded-full', isActive ? 'bg-brand' : 'bg-transparent',
                       collapsed && 'lg:hidden')} />
-                    <Icon className="h-[18px] w-[18px] shrink-0" />
+                    <Icon className="h-4.5 w-4.5 shrink-0" />
                     <span className={cn('flex-1', collapsed && 'lg:hidden')}>{t(`nav.${key}`)}</span>
                     {adv && (
                       <span aria-hidden="true"
@@ -162,7 +162,7 @@ function TopBar({ onOpenMobile, onOpenPalette, dark, onToggleDark }:
         <LanguageToggle />
         <button onClick={onToggleDark} aria-label={t('header.toggleTheme')}
           className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-ink-600 hover:bg-ink-50">
-          {dark ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
+          {dark ? <Sun className="h-4.5 w-4.5" /> : <Moon className="h-4.5 w-4.5" />}
         </button>
       </div>
     </header>

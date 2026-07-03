@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { GitPullRequestArrow, Check, X } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, Card, CardBody, EmptyState, ErrorState, PageHeader, TableSkeleton, Table, Td, Th, Row } from '../components/ui';
+import { Badge, Button, Card, CardBody, EmptyState, ErrorState, PageHeader, TableSkeleton, Table, Td, Th, Row, SortableTh, useSort } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
@@ -12,6 +12,16 @@ import { formatDateTime } from '../lib/format';
 
 const FILTERS = ['PENDING', 'APPROVED', 'REJECTED'];
 const tone = (s?: string) => s === 'APPROVED' ? TONE.ok : s === 'REJECTED' ? TONE.danger : TONE.warn;
+
+/** Sort accessors — module-level so the reference is stable across renders (useSort memoizes on it). */
+type GateRow = { action?: string; runId?: string; status?: string; approver?: string | null; decidedAt?: string | null; createdAt?: string };
+const GATE_ACCESSORS: Record<string, (g: GateRow) => string | number> = {
+  action: (g) => g.action ?? '',
+  run: (g) => g.runId ?? '',
+  status: (g) => g.status ?? '',
+  approver: (g) => g.approver ?? '',
+  when: (g) => new Date(g.decidedAt ?? g.createdAt ?? 0).getTime(),
+};
 
 export function Gates() {
   const { t } = useTranslation();
@@ -28,6 +38,7 @@ export function Gates() {
   });
 
   const rows = q.data ?? [];
+  const { sorted, ...sort } = useSort(rows, { key: 'when', dir: 'desc' }, GATE_ACCESSORS);
   return (
     <div>
       <PageHeader title={t('gates.title')} subtitle={t('gates.subtitle')}
@@ -53,9 +64,16 @@ export function Gates() {
       ) : (
         <Card>
           <CardBody className="p-0">
-            <Table head={<><Th>{t('gates.colAction')}</Th><Th>{t('gates.colRun')}</Th><Th>{t('gates.colStatus')}</Th><Th>{t('gates.colApprover')}</Th><Th>{t('gates.colWhen')}</Th><Th /></>}>
-              {rows.map((g) => (
-                <Row key={g.id}>
+            <Table head={<>
+              <SortableTh label={t('gates.colAction')} sortKey="action" sort={sort} />
+              <SortableTh label={t('gates.colRun')} sortKey="run" sort={sort} />
+              <SortableTh label={t('gates.colStatus')} sortKey="status" sort={sort} />
+              <SortableTh label={t('gates.colApprover')} sortKey="approver" sort={sort} />
+              <SortableTh label={t('gates.colWhen')} sortKey="when" sort={sort} />
+              <Th />
+            </>}>
+              {sorted.map((g, i) => (
+                <Row key={g.id} index={i}>
                   <Td className="font-medium text-ink-900">{enumLabel(t, 'gateAction', g.action)}</Td>
                   <Td className="font-mono text-xs text-muted">{g.runId}</Td>
                   <Td><Badge className={tone(g.status)}>{enumLabel(t, 'gateStatus', g.status)}</Badge></Td>

@@ -33,7 +33,7 @@ export function DeviceFlowModal({ flow, onDone }: { flow: CopilotLoginStart | nu
       <ol className="space-y-3 text-sm text-ink-900">
         <li>{t('copilot.step1Open')} <a className="font-medium text-gold underline" href={flow.verificationUri} target="_blank" rel="noreferrer">{flow.verificationUri}</a></li>
         <li>{t('copilot.step2')}
-          <div className="mt-2 rounded-lg bg-ink-50 px-4 py-3 text-center font-mono text-2xl font-semibold tracking-[0.3em] text-ink-900">{flow.userCode}</div>
+          <div className="mt-2 rounded-lg bg-ink-50 px-4 py-3 text-center font-mono text-title font-semibold tracking-[0.3em] text-ink-900">{flow.userCode}</div>
         </li>
         <li className="flex items-center gap-2 text-muted">
           {state === 'PENDING' && <><Spinner /> {t('copilot.waiting')}</>}

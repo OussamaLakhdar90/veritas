@@ -35,8 +35,8 @@ function SourceToggle({ on, setOn, icon: Icon, label, children }:
     <div className={cn('rounded-lg border p-4 transition', on ? 'border-brand/40 bg-brand/5' : 'border-border')}>
       <label className="flex cursor-pointer items-center gap-3">
         <input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)}
-          className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40" />
-        <Icon className="h-[18px] w-[18px] text-muted" />
+          className="h-4 w-4 accent-brand" />
+        <Icon className="h-4.5 w-4.5 text-muted" />
         <span className="text-sm font-medium text-ink-900">{label}</span>
       </label>
       {on && <div className="mt-3 space-y-3 pl-7">{children}</div>}
@@ -281,7 +281,7 @@ export function MultiSourceStrategy() {
                       <div className="flex items-center gap-2">
                         <input type="checkbox" checked={isSel} onChange={() => toggleSelect(f.featureId)}
                           aria-label={t('multiSource.selectToMergeAria', { name: f.displayName })}
-                          className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40" />
+                          className="h-4 w-4 accent-brand" />
 
                         {renaming === f.featureId ? (
                           <form className="flex flex-1 items-center gap-1.5"

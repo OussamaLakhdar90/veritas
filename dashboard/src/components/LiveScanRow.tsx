@@ -2,9 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCircle2, Radio, X } from 'lucide-react';
 import type { Scan } from '../api';
 import { Card, CardBody, useCountUp } from './ui';
+import { isTestEnv, overlaySpring, exitEase } from '../lib/motion';
 import { STAGE_ORDER, SCAN_STEPS, formatElapsed, stagePct, useElapsed } from '../lib/scanStages';
 
 /**
@@ -34,13 +36,44 @@ export function LiveScanRow({ scans }: { scans: Scan[] }) {
     }
   }, [scans, qc]);
 
-  if (running.length === 0 && !flash) {
-    return null;
+  // Tests keep the plain early return (jsdom rAF doesn't tick, and the "renders nothing" test asserts no gold
+  // strip when idle). In the app the container stays mounted past this point so AnimatePresence can play the
+  // LAST strip's exit before the row empties — otherwise the final dismissal blinks.
+  if (isTestEnv) {
+    if (running.length === 0 && !flash) return null;
+    return (
+      <div className="mb-6 space-y-3">
+        {flash && <CompletedStrip scan={flash} onDismiss={() => setFlash(null)} />}
+        {running.map((s) => <RunningStrip key={s.id} scan={s} />)}
+      </div>
+    );
   }
+  const empty = running.length === 0 && !flash;
   return (
-    <div className="mb-6 space-y-3">
-      {flash && <CompletedStrip scan={flash} onDismiss={() => setFlash(null)} />}
-      {running.map((s) => <RunningStrip key={s.id} scan={s} />)}
+    <div className={empty ? '' : 'mb-6 space-y-3'}>
+      <AnimatePresence initial={false}>
+        {flash && (
+          // Shared layoutId with the running strip of the same scan — framer morphs the gold RunningStrip into
+          // this green CompletedStrip (position + size) instead of a hard swap. Exit collapses its height so the
+          // row closes smoothly when dismissed.
+          <motion.div key={`live-${flash.id}`} layoutId={`live-${flash.id}`}
+            exit={{ opacity: 0, height: 0, marginBottom: 0, transition: { duration: 0.16, ease: exitEase } }}
+            transition={overlaySpring}>
+            <CompletedStrip scan={flash} onDismiss={() => setFlash(null)} />
+          </motion.div>
+        )}
+        {running.map((s) => (
+          // The just-completed scan is rendered as the CompletedStrip above (same layoutId) — skip it here so
+          // the two don't fight over the shared id.
+          !(flash && flash.id === s.id) && (
+            <motion.div key={`live-${s.id}`} layoutId={`live-${s.id}`}
+              exit={{ opacity: 0, transition: { duration: 0.14, ease: exitEase } }}
+              transition={overlaySpring}>
+              <RunningStrip scan={s} />
+            </motion.div>
+          )
+        ))}
+      </AnimatePresence>
     </div>
   );
 }
@@ -55,7 +88,7 @@ function RunningStrip({ scan }: { scan: Scan }) {
     <Card className="border-l-4 border-l-gold">
       <CardBody className="py-4">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <Radio className="h-4 w-4 animate-pulse text-gold" aria-hidden="true" />
+          <Radio className="h-4 w-4 motion-safe:animate-pulse text-gold" aria-hidden="true" />
           <span className="font-semibold text-ink-900">{scan.serviceName}</span>
           <span className="text-sm text-muted">
             {t('live.step', { n: Math.max(1, stepNo), m: SCAN_STEPS.length, label: t(`scan.${stage}.short`, { defaultValue: stage }) })}
@@ -65,7 +98,7 @@ function RunningStrip({ scan }: { scan: Scan }) {
         </div>
         {scan.stageDetail && <p className="mt-1.5 truncate text-sm text-muted">{scan.stageDetail}</p>}
         <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-ink-100">
-          <div className="h-full rounded-full bg-gradient-to-r from-gold to-brand-700 transition-[width] duration-700 ease-calm"
+          <div className="h-full rounded-full bg-gradient-to-r from-gold to-brand-700 transition-[width] duration-progress ease-calm"
             style={{ width: `${stagePct(stage)}%` }} />
         </div>
       </CardBody>

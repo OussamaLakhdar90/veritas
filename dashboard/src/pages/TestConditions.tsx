@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Trans, useTranslation } from 'react-i18next';
-import { FileText, ExternalLink, ListTree } from 'lucide-react';
+import { FileText, ExternalLink, ListTree, ChevronDown } from 'lucide-react';
 import { api, TestCondition } from '../api';
 import { Badge, Card, CardBody, CardHeader, PageHeader, TableSkeleton, Table, Td, Th, Row, ErrorState } from '../components/ui';
 import { useToast } from '../components/Toast';
@@ -77,7 +77,7 @@ export function TestConditions() {
           </div>
         } />
 
-      <Card className="mb-5">
+      <Card className="mb-6">
         <CardBody className="flex flex-wrap items-center gap-3 text-sm">
           <span className="font-semibold text-ink-900">{t('testConditions.automationSplit')}</span>
           <Badge className={TONE.ok}>{t('testConditions.automatedBadge', { count: split.AUTOMATED })}</Badge>
@@ -103,8 +103,8 @@ export function TestConditions() {
             </p>
           ) : (
             <Table head={<><Th>{t('testConditions.colId')}</Th><Th>{t('testConditions.colCondition')}</Th><Th>{t('testConditions.colSource')}</Th><Th>{t('testConditions.colPriority')}</Th><Th>{t('testConditions.colRisk')}</Th><Th>{t('testConditions.colTechnique')}</Th><Th>{t('testConditions.colAutomation')}</Th></>}>
-              {conditions.map((c: TestCondition) => (
-                <Row key={c.id}>
+              {conditions.map((c: TestCondition, i: number) => (
+                <Row key={c.id} index={i}>
                   <Td className="font-medium text-ink-900">{c.conditionRef}</Td>
                   <Td className="text-ink-900">{c.description}
                     {c.qualityCharacteristic ? <span className="block text-xs text-muted">{c.qualityCharacteristic}</span> : null}
@@ -116,14 +116,17 @@ export function TestConditions() {
                   <Td>
                     <div className="flex items-center gap-2">
                       <Badge className={automationTone(c.automation)}>{enumLabel(t, 'automation', c.automation ?? 'CANDIDATE')}</Badge>
-                      <select
-                        aria-label={t('testConditions.automationFor', { ref: c.conditionRef })}
-                        className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-ink-700"
-                        value={(c.automation || 'CANDIDATE').toUpperCase()}
-                        disabled={setAutomation.isPending}
-                        onChange={(e) => setAutomation.mutate({ condId: c.id, automation: e.target.value })}>
-                        {AUTOMATION.map((a) => <option key={a} value={a}>{enumLabel(t, 'automation', a)}</option>)}
-                      </select>
+                      <span className="relative inline-block">
+                        <select
+                          aria-label={t('testConditions.automationFor', { ref: c.conditionRef })}
+                          className="appearance-none rounded-md border border-border bg-surface py-1 pl-2 pr-7 text-xs text-ink-700 focus:outline-none focus:ring-2 focus:ring-brand/40"
+                          value={(c.automation || 'CANDIDATE').toUpperCase()}
+                          disabled={setAutomation.isPending}
+                          onChange={(e) => setAutomation.mutate({ condId: c.id, automation: e.target.value })}>
+                          {AUTOMATION.map((a) => <option key={a} value={a}>{enumLabel(t, 'automation', a)}</option>)}
+                        </select>
+                        <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" aria-hidden="true" />
+                      </span>
                     </div>
                   </Td>
                 </Row>

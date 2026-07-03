@@ -179,8 +179,8 @@ export function Defects() {
               <SortableTh label={t('defects.colCreatedBy')} sortKey="createdBy" sort={sort} />
               <SortableTh label={t('defects.colLastSynced')} sortKey="lastSyncedAt" sort={sort} />
             </>}>
-              {rows.map((d) => (
-                <Row key={d.id}>
+              {rows.map((d, i) => (
+                <Row key={d.id} index={i}>
                   <Td className="font-medium text-ink-900">
                     {d.jiraUrl
                       ? <a href={d.jiraUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-gold hover:underline">{d.jiraKey} <ExternalLink className="h-3.5 w-3.5" /></a>

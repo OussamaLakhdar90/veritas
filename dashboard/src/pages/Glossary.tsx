@@ -19,7 +19,7 @@ function Term({ chip, children }: { chip: React.ReactNode; children: React.React
 
 function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <Card className="mb-5">
+    <Card className="mb-6">
       <CardHeader title={title} subtitle={subtitle} />
       <CardBody className="divide-y divide-border/60 py-1">{children}</CardBody>
     </Card>
@@ -40,7 +40,7 @@ export function Glossary() {
         subtitle={t('glossary.pageSubtitle')}
       />
 
-      <Card className="mb-5 border-l-4 border-l-brand">
+      <Card className="mb-6 border-l-4 border-l-brand">
         <CardBody className="flex items-start gap-3">
           <BookOpen className="mt-0.5 h-5 w-5 shrink-0 text-brand" />
           <p className="text-sm leading-relaxed text-ink-900">

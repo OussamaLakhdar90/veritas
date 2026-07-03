@@ -75,7 +75,11 @@
     "disputed": "The AI disputed {{count}} of its own findings first."
   },
   "enums": {
-    "gateStatus": { "PENDING": "Pending", "APPROVED": "Approved", "REJECTED": "Rejected" },
+    "gateStatus": {
+      "PENDING": "Pending",
+      "APPROVED": "Approved",
+      "REJECTED": "Rejected"
+    },
     "gateAction": {
       "CREATE_DEFECT": "Create a Jira defect",
       "OPEN_PR": "Open a pull request",
@@ -83,9 +87,19 @@
       "XRAY_CREATE_GAP_TESTS": "Create gap tests in Xray",
       "XRAY_UPDATE_STEPS": "Update test steps in Xray"
     },
-    "strategyStatus": { "DRAFT": "Draft", "IN_REVIEW": "In review", "APPROVED": "Approved" },
-    "planKind": { "RELEASE": "Release" },
-    "planStatus": { "DRAFT": "Draft", "NEEDS_REVIEW": "Needs review", "APPROVED": "Approved" },
+    "strategyStatus": {
+      "DRAFT": "Draft",
+      "IN_REVIEW": "In review",
+      "APPROVED": "Approved"
+    },
+    "planKind": {
+      "RELEASE": "Release"
+    },
+    "planStatus": {
+      "DRAFT": "Draft",
+      "NEEDS_REVIEW": "Needs review",
+      "APPROVED": "Approved"
+    },
     "caseStatus": {
       "DRAFT": "Draft",
       "PROPOSED": "Proposed",
@@ -95,10 +109,28 @@
       "ATTACHED": "Attached in Xray",
       "IMPLEMENTED": "Implemented"
     },
-    "automation": { "AUTOMATED": "Automated", "MANUAL": "Manual", "CANDIDATE": "Candidate" },
-    "matchStatus": { "MATCHED": "Covered", "CREATED": "Created", "GAP": "Gap", "ORPHAN": "Orphaned", "DEAD": "Outdated" },
-    "buildStatus": { "PASS": "Build passed", "FAIL": "Build failed", "REPAIRED": "Self-repaired", "SKIPPED": "Build skipped" },
-    "verdict": { "PASS": "Pass", "FAIL": "Fail" },
+    "automation": {
+      "AUTOMATED": "Automated",
+      "MANUAL": "Manual",
+      "CANDIDATE": "Candidate"
+    },
+    "matchStatus": {
+      "MATCHED": "Covered",
+      "CREATED": "Created",
+      "GAP": "Gap",
+      "ORPHAN": "Orphaned",
+      "DEAD": "Outdated"
+    },
+    "buildStatus": {
+      "PASS": "Build passed",
+      "FAIL": "Build failed",
+      "REPAIRED": "Self-repaired",
+      "SKIPPED": "Build skipped"
+    },
+    "verdict": {
+      "PASS": "Pass",
+      "FAIL": "Fail"
+    },
     "layer": {
       "L1": "Specification structure",
       "L2": "API completeness",
@@ -107,7 +139,11 @@
       "L5": "Design quality",
       "L6": "Test coverage"
     },
-    "confidence": { "HIGH": "High confidence", "MEDIUM": "Medium confidence", "LOW": "Low confidence" },
+    "confidence": {
+      "HIGH": "High confidence",
+      "MEDIUM": "Medium confidence",
+      "LOW": "Low confidence"
+    },
     "skill": {
       "VALIDATE-CONTRACT": "Contract validation",
       "TEST-STRATEGY": "Test strategy",
@@ -941,7 +977,8 @@
     "colConfidence": "Confidence",
     "colRisks": "Risks",
     "colEstCost": "Est. cost",
-    "open": "Open"
+    "open": "Open",
+    "fieldRequired": "Required."
   },
   "testPlanDetail": {
     "loading": "Loading…",

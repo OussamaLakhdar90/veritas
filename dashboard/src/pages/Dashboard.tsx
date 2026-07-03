@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { ShieldCheck, AlertTriangle, Activity, FileText, ArrowRight, Settings as SettingsIcon, Download } from 'lucide-react';
 import { api, Scan } from '../api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, FreshnessStamp, KpiTile, PageHeader, Skeleton } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, FreshnessStamp, KpiTile, PageHeader, Skeleton, Table, Th, Td, Row } from '../components/ui';
 import type { KpiTrend } from '../components/ui';
 import { Donut, Gauge, TrendChart, severitySlices, SEV_SWATCH } from '../components/charts';
 import { SnykImpactCard } from '../components/SnykImpact';
@@ -14,6 +14,7 @@ import { LiveScanRow } from '../components/LiveScanRow';
 import { PrecisionStrip } from '../components/PrecisionStrip';
 import { DecisionQueue } from '../components/DecisionQueue';
 import { StaggerItem, StaggerList } from '../components/motion';
+import { Tooltip } from '../components/Tooltip';
 import { TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
 import { formatDuration, formatMoney, formatDateTime, formatRelative } from '../lib/format';
@@ -374,76 +375,69 @@ export function Dashboard() {
         <Card className="mb-6">
           <CardHeader title={t('overview.pipelineTitle')} subtitle={t('overview.pipelineSubtitle')} />
           <CardBody className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
-                    <th className="px-5 py-3 font-medium">{t('overview.colService')}</th>
-                    <th className="px-5 py-3 font-medium">{t('overview.colGrade')}</th>
-                    <th className="px-5 py-3 font-medium text-right">{t('overview.colCoverage')}</th>
-                    <th className="px-5 py-3 font-medium">{t('overview.colAssets')}</th>
-                    <th className="px-5 py-3 font-medium text-right">{t('overview.colScans')}</th>
-                    <th className="px-5 py-3" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {services.map((s) => {
-                    const sum = perServiceSummary.get(s.name);
-                    const latest = latestByService.get(s.name);
-                    const assets: Array<[string, number]> = [
-                      [t('overview.assetStrategies'), s.strategies], [t('overview.assetConditions'), s.conditions],
-                      [t('overview.assetCases'), s.cases], [t('overview.assetPlans'), s.plans],
-                      [t('overview.assetCodegen'), s.codegenRuns]];
-                    return (
-                      <tr key={s.name} className="border-b border-border/60 last:border-0 hover:bg-ink-50/60">
-                        <td className="px-5 py-3 font-medium text-ink-900">{s.name}</td>
-                        <td className="px-5 py-3">
-                          <span className="inline-flex items-center gap-1.5">
-                            <ScorePill score={sum?.fidelity} />
-                            {sum?.delta != null && sum.delta !== 0 && (
-                              <span className={cn('text-2xs font-semibold tabular-nums',
-                                sum.delta > 0 ? 'text-success' : 'text-danger')}>
-                                {sum.delta > 0 ? '+' : ''}{sum.delta}
-                              </span>
-                            )}
+            <Table head={<>
+              <Th>{t('overview.colService')}</Th>
+              <Th>{t('overview.colGrade')}</Th>
+              <Th className="text-right">{t('overview.colCoverage')}</Th>
+              <Th>{t('overview.colAssets')}</Th>
+              <Th className="text-right">{t('overview.colScans')}</Th>
+              <Th />
+            </>}>
+              {services.map((s, i) => {
+                const sum = perServiceSummary.get(s.name);
+                const latest = latestByService.get(s.name);
+                const assets: Array<[string, number]> = [
+                  [t('overview.assetStrategies'), s.strategies], [t('overview.assetConditions'), s.conditions],
+                  [t('overview.assetCases'), s.cases], [t('overview.assetPlans'), s.plans],
+                  [t('overview.assetCodegen'), s.codegenRuns]];
+                return (
+                  <Row key={s.name} index={i}>
+                    <Td className="font-medium text-ink-900">{s.name}</Td>
+                    <Td>
+                      <span className="inline-flex items-center gap-1.5">
+                        <ScorePill score={sum?.fidelity} />
+                        {sum?.delta != null && sum.delta !== 0 && (
+                          <span className={cn('text-2xs font-semibold tabular-nums',
+                            sum.delta > 0 ? 'text-success' : 'text-danger')}>
+                            {sum.delta > 0 ? '+' : ''}{sum.delta}
                           </span>
-                        </td>
-                        <td className="px-5 py-3 text-right text-muted">
-                          {latest?.coverageGaps != null
-                            ? (latest.coverageGaps === 0
-                              ? t('overview.coverageFull')
-                              : t('overview.coverageGaps', { count: latest.coverageGaps }))
-                            : '—'}
-                        </td>
-                        <td className="px-5 py-3">
-                          <span className="flex flex-wrap gap-1">
-                            {assets.filter(([, n]) => n > 0).map(([label, n]) => (
-                              <span key={label} className="rounded-full bg-ink-50 px-2 py-0.5 text-2xs text-ink-700 ring-1 ring-border">
-                                {n} {label}
-                              </span>
-                            ))}
-                            {assets.every(([, n]) => !n) && <span className="text-muted">—</span>}
+                        )}
+                      </span>
+                    </Td>
+                    <Td className="text-right text-muted">
+                      {latest?.coverageGaps != null
+                        ? (latest.coverageGaps === 0
+                          ? t('overview.coverageFull')
+                          : t('overview.coverageGaps', { count: latest.coverageGaps }))
+                        : '—'}
+                    </Td>
+                    <Td>
+                      <span className="flex flex-wrap gap-1">
+                        {assets.filter(([, n]) => n > 0).map(([label, n]) => (
+                          <span key={label} className="rounded-full bg-ink-50 px-2 py-0.5 text-2xs text-ink-700 ring-1 ring-border">
+                            {n} {label}
                           </span>
-                        </td>
-                        <td className="px-5 py-3 text-right tabular-nums text-muted">{s.scans || '—'}</td>
-                        <td className="px-5 py-3 text-right whitespace-nowrap">
-                          {sum && (
-                            <Link to={`/findings/${sum.latestScanId}`}
-                              className="inline-flex items-center gap-1 text-sm font-medium text-gold hover:underline">
-                              {t('overview.latestFindings')} <ArrowRight className="h-3.5 w-3.5" />
-                            </Link>
-                          )}
-                          <Link to={`/test-strategy?service=${encodeURIComponent(s.name)}`}
-                            className="ml-3 inline-flex items-center gap-1 text-sm font-medium text-muted hover:text-ink-900">
-                            {t('overview.openStrategy')} <ArrowRight className="h-3.5 w-3.5" />
-                          </Link>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                        ))}
+                        {assets.every(([, n]) => !n) && <span className="text-muted">—</span>}
+                      </span>
+                    </Td>
+                    <Td className="text-right tabular-nums text-muted">{s.scans || '—'}</Td>
+                    <Td className="text-right whitespace-nowrap">
+                      {sum && (
+                        <Link to={`/findings/${sum.latestScanId}`}
+                          className="inline-flex items-center gap-1 text-sm font-medium text-gold hover:underline">
+                          {t('overview.latestFindings')} <ArrowRight className="h-3.5 w-3.5" />
+                        </Link>
+                      )}
+                      <Link to={`/test-strategy?service=${encodeURIComponent(s.name)}`}
+                        className="ml-3 inline-flex items-center gap-1 text-sm font-medium text-muted hover:text-ink-900">
+                        {t('overview.openStrategy')} <ArrowRight className="h-3.5 w-3.5" />
+                      </Link>
+                    </Td>
+                  </Row>
+                );
+              })}
+            </Table>
           </CardBody>
         </Card>
       )}
@@ -462,49 +456,44 @@ export function Dashboard() {
                 action={<Link to="/repos"><Button><ShieldCheck className="h-4 w-4" /> {t('overview.validateFirst')}</Button></Link>} />
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">
-                    <th className="px-5 py-3 font-medium">{t('overview.colService')}</th>
-                    <th className="px-5 py-3 font-medium">{t('overview.colStatus')}</th>
-                    <th className="px-5 py-3 font-medium">{t('overview.colScore')}</th>
-                    <th className="px-5 py-3 font-medium text-right">{t('overview.colFindings')}</th>
-                    <th className="px-5 py-3 font-medium">{t('overview.colAudit')}</th>
-                    <th className="px-5 py-3 font-medium">{t('overview.colStarted')}</th>
-                    <th className="px-5 py-3" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {recent.map((s) => {
-                    const dur = formatDuration(s.startedAt, s.finishedAt);
-                    return (
-                      <tr key={s.id} className="border-b border-border/60 last:border-0 hover:bg-ink-50/60">
-                        <td className="px-5 py-3 font-medium text-ink-900">{s.serviceName}</td>
-                        <td className="px-5 py-3"><Badge className={statusTone(s.status)}>{statusLabel(s.status)}</Badge></td>
-                        <td className="px-5 py-3"><ScorePill score={s.fidelityScore} /></td>
-                        <td className="px-5 py-3 text-right tabular-nums text-ink-900">{s.totalFindings}</td>
-                        <td className="px-5 py-3 text-muted">
-                          {dur ? t('overview.auditedIn', { dur, cost: formatMoney(s.totalEstCostUsd ?? 0) }) : '—'}
-                        </td>
-                        <td className="px-5 py-3 text-muted" title={formatDateTime(s.startedAt)}>
-                          {formatRelative(s.startedAt)}
-                        </td>
-                        <td className="px-5 py-3 text-right whitespace-nowrap">
-                          <Link to={`/findings/${s.id}`} className="inline-flex items-center gap-1 text-sm font-medium text-gold hover:underline">
-                            {t('overview.view')} <ArrowRight className="h-3.5 w-3.5" />
-                          </Link>
-                          <a href={api.reportUrl(s.id)} target="_blank" rel="noreferrer"
-                            className="ml-3 inline-flex items-center gap-1 text-sm font-medium text-muted hover:text-ink-900">
-                            <FileText className="h-3.5 w-3.5" /> {t('overview.report')}
-                          </a>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <Table head={<>
+              <Th>{t('overview.colService')}</Th>
+              <Th>{t('overview.colStatus')}</Th>
+              <Th>{t('overview.colScore')}</Th>
+              <Th className="text-right">{t('overview.colFindings')}</Th>
+              <Th>{t('overview.colAudit')}</Th>
+              <Th>{t('overview.colStarted')}</Th>
+              <Th />
+            </>}>
+              {recent.map((s, i) => {
+                const dur = formatDuration(s.startedAt, s.finishedAt);
+                return (
+                  <Row key={s.id} index={i}>
+                    <Td className="font-medium text-ink-900">{s.serviceName}</Td>
+                    <Td><Badge className={statusTone(s.status)}>{statusLabel(s.status)}</Badge></Td>
+                    <Td><ScorePill score={s.fidelityScore} /></Td>
+                    <Td className="text-right tabular-nums text-ink-900">{s.totalFindings}</Td>
+                    <Td className="text-muted">
+                      {dur ? t('overview.auditedIn', { dur, cost: formatMoney(s.totalEstCostUsd ?? 0) }) : '—'}
+                    </Td>
+                    <Td className="text-muted">
+                      <Tooltip label={formatDateTime(s.startedAt)}>
+                        <span>{formatRelative(s.startedAt)}</span>
+                      </Tooltip>
+                    </Td>
+                    <Td className="text-right whitespace-nowrap">
+                      <Link to={`/findings/${s.id}`} className="inline-flex items-center gap-1 text-sm font-medium text-gold hover:underline">
+                        {t('overview.view')} <ArrowRight className="h-3.5 w-3.5" />
+                      </Link>
+                      <a href={api.reportUrl(s.id)} target="_blank" rel="noreferrer"
+                        className="ml-3 inline-flex items-center gap-1 text-sm font-medium text-muted hover:text-ink-900">
+                        <FileText className="h-3.5 w-3.5" /> {t('overview.report')}
+                      </a>
+                    </Td>
+                  </Row>
+                );
+              })}
+            </Table>
           )}
         </CardBody>
       </Card>

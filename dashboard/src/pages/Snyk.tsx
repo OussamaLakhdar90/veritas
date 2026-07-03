@@ -7,7 +7,7 @@ import { RefreshCw, Trash2, Eye, ExternalLink, ShieldCheck, PackageOpen, X, Shie
 import { api, type SnykIssueView } from '../api';
 import {
   Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Input, Skeleton, TableSkeleton,
-  Table, Th, Td, Row, PageHeader,
+  Table, Td, Row, SortableTh, useSort, PageHeader,
 } from '../components/ui';
 import { SnykLogo } from '../components/SnykLogo';
 import { SnykImpactCard } from '../components/SnykImpact';
@@ -24,6 +24,18 @@ function when(iso?: string): string | null {
 /** Snyk sends raw lowercase severities ("critical"…); map to the localized Critical/High/Medium/Low label. */
 const SEV_KEY: Record<string, string> = {
   critical: 'snyk.sevCritical', high: 'snyk.sevHigh', medium: 'snyk.sevMedium', low: 'snyk.sevLow',
+};
+
+/** Severity has no alphabetical order that reads right (critical < high < low ≠ meaningful), so sort by a
+ *  rank instead — critical first when descending. Module-level for a stable useSort accessor reference. */
+const SEV_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+const ISSUE_ACCESSORS: Record<string, (i: SnykIssueView) => string | number> = {
+  severity: (i) => SEV_RANK[(i.severity || '').toLowerCase()] ?? 0,
+  package: (i) => i.pkgName ?? '',
+  project: (i) => i.projectName ?? '',
+  cve: (i) => i.cve ?? '',
+  cvss: (i) => i.cvss ?? -1,
+  fix: (i) => (i.fixable ? 1 : 0),
 };
 
 export function Snyk() {
@@ -44,6 +56,8 @@ export function Snyk() {
     queryKey: ['snyk-issues', selectedWatch], queryFn: () => api.snykIssues(selectedWatch as string),
     enabled: !!selectedWatch,
   });
+  // Severity-ranked by default (Critical first) — the order a security reviewer works top-down.
+  const { sorted: sortedIssues, ...issueSort } = useSort(issuesQ.data ?? [], { key: 'severity', dir: 'desc' }, ISSUE_ACCESSORS);
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['snyk-watches'] });
@@ -113,7 +127,7 @@ export function Snyk() {
                 critical ? 'border-l-danger bg-danger/10 ring-1 ring-danger/25 shadow-sm' : 'border-l-warning bg-warning/5'}`}>
               <div className="flex items-start gap-2.5">
                 {critical
-                  ? <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 animate-pulse text-danger" aria-hidden="true" />
+                  ? <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 motion-safe:animate-pulse text-danger" aria-hidden="true" />
                   : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />}
                 <Badge className={snykSeverityBadge(a.severity)}>{t(SEV_KEY[a.severity] ?? a.severity)}</Badge>
                 <span className={critical ? 'font-semibold text-danger' : 'text-ink-900'}>{a.message}</span>
@@ -229,15 +243,15 @@ export function Snyk() {
               <div className="p-5"><EmptyState icon={ShieldCheck} title={t('snyk.issuesEmpty')} /></div>
             ) : (
               <Table head={<>
-                <Th>{t('snyk.colSeverity')}</Th>
-                <Th>{t('snyk.colPackage')}</Th>
-                <Th>{t('snyk.colProject')}</Th>
-                <Th><span title={t('snyk.tipCve')}>{t('snyk.colCve')}</span></Th>
-                <Th><span title={t('snyk.tipCvss')}>{t('snyk.colCvss')}</span></Th>
-                <Th><span title={t('snyk.tipFixable')}>{t('snyk.colFix')}</span></Th>
+                <SortableTh label={t('snyk.colSeverity')} sortKey="severity" sort={issueSort} />
+                <SortableTh label={t('snyk.colPackage')} sortKey="package" sort={issueSort} />
+                <SortableTh label={t('snyk.colProject')} sortKey="project" sort={issueSort} />
+                <SortableTh label={t('snyk.colCve')} sortKey="cve" sort={issueSort} />
+                <SortableTh label={t('snyk.colCvss')} sortKey="cvss" sort={issueSort} />
+                <SortableTh label={t('snyk.colFix')} sortKey="fix" sort={issueSort} />
               </>}>
-                {(issuesQ.data ?? []).map((i: SnykIssueView) => (
-                  <Row key={i.issueId + i.projectName}>
+                {sortedIssues.map((i: SnykIssueView, idx: number) => (
+                  <Row key={i.issueId + i.projectName} index={idx}>
                     <Td><Badge className={snykSeverityBadge(i.severity)}>{t(SEV_KEY[i.severity] ?? i.severity)}</Badge></Td>
                     <Td>
                       <span className="font-medium text-ink-900">{i.pkgName}</span>

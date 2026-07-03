@@ -4,7 +4,7 @@ import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { FileText, PlayCircle } from 'lucide-react';
 import { api, Deliverable, TestPlan } from '../api';
-import { Badge, Button, Card, CardBody, Field, Input, PageHeader, TableSkeleton, Table, Td, Th, Row, ErrorState } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, Field, Input, PageHeader, TableSkeleton, Table, Td, Th, Row, ErrorState } from '../components/ui';
 import { severityBadge, TONE } from '../theme/tokens';
 import { enumLabel } from '../lib/enumLabels';
 import { formatMoney } from '../lib/format';
@@ -17,15 +17,15 @@ const riskBadge = (lvl?: string) => severityBadge(RISK_TO_SEV[(lvl || '').toUppe
 const matchTone = (m?: string) => {
   const v = (m || '').toUpperCase();
   if (v === 'MATCHED') return TONE.ok;
-  if (v === 'CREATED') return 'bg-gold/10 text-gold ring-1 ring-gold/30';
+  if (v === 'CREATED') return TONE.info;   // a routine "created" state is informational blue, not brand gold
   if (v === 'GAP') return TONE.warn;
   return TONE.muted; // ORPHAN / DEAD
 };
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <Card className="mb-5">
-      <div className="border-b border-border px-5 py-3"><h2 className="text-md font-semibold text-ink-900">{title}</h2></div>
+    <Card className="mb-6">
+      <CardHeader title={title} />
       <CardBody>{children}</CardBody>
     </Card>
   );
@@ -144,7 +144,7 @@ export function TestPlanDetail() {
 
       {conf != null && (
         <Card className="mb-5"><CardBody className="flex items-center gap-4">
-          <div className={`text-4xl font-semibold tabular-nums ${conf >= 70 ? 'text-success' : 'text-warning'}`}>{Math.round(conf)}%</div>
+          <div className={`text-stat font-semibold tabular-nums ${conf >= 70 ? 'text-success' : 'text-warning'}`}>{Math.round(conf)}%</div>
           <div className="text-sm text-muted">{t('testPlanDetail.selfReviewConfidence')}</div>
         </CardBody></Card>
       )}
