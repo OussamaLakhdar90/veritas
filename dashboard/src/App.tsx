@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Moon, Sun, Search, Menu, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Dashboard } from './pages/Dashboard';
 import { Onboarding } from './pages/Onboarding';
+import { Activity } from './pages/Activity';
 import { RepoPicker } from './pages/RepoPicker';
 import { Findings } from './pages/Findings';
 import { TestStrategy } from './pages/TestStrategy';

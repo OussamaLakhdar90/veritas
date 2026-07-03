@@ -78,6 +78,13 @@ export function ActivityBell() {
       {attention.length === 0 && alerts.length === 0 && (
         <p className="px-2 py-1.5 text-sm text-muted">{t('activity.empty')}</p>
       )}
+      {/* Always offer the way to the full page + history — the bell only ever shows what needs you now. */}
+      <div className={cn((attention.length > 0 || alerts.length > 0) && 'mt-2 border-t border-border pt-2')}>
+        <Link to="/activity" onClick={() => setOpen(false)}
+          className="block rounded-lg px-2 py-1.5 text-2xs font-semibold uppercase tracking-wide text-brand hover:bg-ink-50">
+          {t('activity.seeAll')}
+        </Link>
+      </div>
     </>
   );
 
