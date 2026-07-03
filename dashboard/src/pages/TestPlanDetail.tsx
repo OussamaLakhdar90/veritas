@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { FileText, PlayCircle } from 'lucide-react';
+import { FileText, PlayCircle, Check, X } from 'lucide-react';
 import { api, Deliverable, TestPlan } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, Field, Input, PageHeader, TableSkeleton, Table, Td, Th, Row, ErrorState } from '../components/ui';
 import { severityBadge, TONE } from '../theme/tokens';
@@ -212,7 +212,7 @@ export function TestPlanDetail() {
         <Section title={t('testPlanDetail.exitCriteria')}>
           <Table head={<><Th>{t('testPlanDetail.thCriterion')}</Th><Th>{t('testPlanDetail.thMetric')}</Th><Th>{t('testPlanDetail.thSmart')}</Th><Th>{t('testPlanDetail.thCite')}</Th></>}>
             {d.exitCriteria.map((e, i) => (
-              <Row key={i}><Td className="text-ink-900">{e.criterion}</Td><Td className="text-muted">{e.metric ?? '—'}</Td><Td>{e.smart ? '✓' : '—'}</Td><Td className="text-xs text-muted">{e.citation ?? ''}</Td></Row>
+              <Row key={i}><Td className="text-ink-900">{e.criterion}</Td><Td className="text-muted">{e.metric ?? '—'}</Td><Td>{e.smart ? <Check className="inline h-4 w-4 text-success" /> : '—'}</Td><Td className="text-xs text-muted">{e.citation ?? ''}</Td></Row>
             ))}
           </Table>
         </Section>
@@ -228,7 +228,7 @@ export function TestPlanDetail() {
         <Section title={t('testPlanDetail.selfReview')}>
           {d.selfReview.rubricChecks?.length ? (
             <ul className="space-y-1 text-sm">{d.selfReview.rubricChecks.map((c, i) => (
-              <li key={i} className="text-ink-700"><span className={c.pass ? 'text-success' : 'text-danger'}>{c.pass ? '✓' : '✗'}</span> {c.check}{c.note ? <span className="text-muted"> — {c.note}</span> : null}</li>
+              <li key={i} className="text-ink-700">{c.pass ? <Check className="inline h-4 w-4 text-success" /> : <X className="inline h-4 w-4 text-danger" />} {c.check}{c.note ? <span className="text-muted"> — {c.note}</span> : null}</li>
             ))}</ul>
           ) : null}
           {d.selfReview.blindSpots?.length ? (

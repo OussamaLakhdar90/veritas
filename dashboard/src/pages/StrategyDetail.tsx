@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Trans, useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FileText, ExternalLink, ScrollText, CheckCircle2, XCircle, RefreshCw, Save, History, ListTree } from 'lucide-react';
+import { FileText, ExternalLink, ScrollText, CheckCircle2, XCircle, RefreshCw, Save, History, ListTree, Check, X } from 'lucide-react';
 import { api, Deliverable, StrategyScorecard } from '../api';
 import {
   Badge, Button, Card, CardBody, CardHeader, Field, Input, PageHeader, TableSkeleton, Table, Td, Th, Row, Textarea, ErrorState,
@@ -76,14 +76,14 @@ function SectionView({ k, value }: { k: string; value: unknown }) {
   }
   if (k === 'exitCriteria' && Array.isArray(value)) {
     const ex = value as Deliverable['exitCriteria'];
-    return <ul className="list-disc space-y-0.5 pl-5 text-sm text-ink-700">{(ex || []).map((e, i) => <li key={i}>{e.criterion}{e.metric ? <span className="text-muted"> — {e.metric}</span> : null} {e.smart ? '✓' : ''}</li>)}</ul>;
+    return <ul className="list-disc space-y-0.5 pl-5 text-sm text-ink-700">{(ex || []).map((e, i) => <li key={i}>{e.criterion}{e.metric ? <span className="text-muted"> — {e.metric}</span> : null} {e.smart ? <Check className="inline h-4 w-4 text-success" /> : null}</li>)}</ul>;
   }
   if (k === 'selfReview' && value && typeof value === 'object') {
     const sr = value as Deliverable['selfReview'];
     return (
       <div className="text-sm">
         {sr?.confidence != null && <p className="mb-2 text-ink-900">{t('strategyDetail.confidence')} <span className="font-semibold">{Math.round(sr.confidence)}%</span></p>}
-        {sr?.rubricChecks?.length ? <ul className="space-y-1">{sr.rubricChecks.map((c, i) => <li key={i} className="text-ink-700"><span className={c.pass ? 'text-success' : 'text-danger'}>{c.pass ? '✓' : '✗'}</span> {c.check}{c.note ? <span className="text-muted"> — {c.note}</span> : null}</li>)}</ul> : null}
+        {sr?.rubricChecks?.length ? <ul className="space-y-1">{sr.rubricChecks.map((c, i) => <li key={i} className="text-ink-700">{c.pass ? <Check className="inline h-4 w-4 text-success" /> : <X className="inline h-4 w-4 text-danger" />} {c.check}{c.note ? <span className="text-muted"> — {c.note}</span> : null}</li>)}</ul> : null}
         {sr?.blindSpots?.length ? <><p className="mb-1 mt-2 font-semibold text-ink-900">{t('strategyDetail.blindSpots')}</p><ul className="list-disc space-y-0.5 pl-5 text-warning">{sr.blindSpots.map((b, i) => <li key={i}>{b}</li>)}</ul></> : null}
       </div>
     );

@@ -123,7 +123,7 @@ export function Findings() {
       {q.isLoading ? (
         <Card><CardBody className="p-0"><TableSkeleton label={t('findings.loading')} /></CardBody></Card>
       ) : q.isError ? (
-        <ErrorState detail={(q.error as Error).message} />
+        <ErrorState message={t('findings.loadError')} detail={(q.error as Error).message} />
       ) : findings.length === 0 ? (
         <EmptyState icon={CheckCircle2} title={t('findings.emptyTitle')}
           body={t('findings.emptyBody')} />

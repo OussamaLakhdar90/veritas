@@ -190,7 +190,7 @@ export function Snyk() {
       {watchesQ.isLoading ? (
         <Card><CardBody className="p-0"><TableSkeleton label={t('snyk.loading')} /></CardBody></Card>
       ) : watchesQ.isError ? (
-        <ErrorState detail={(watchesQ.error as Error).message} />
+        <ErrorState message={t('snyk.watchesLoadError')} detail={(watchesQ.error as Error).message} />
       ) : watches.length === 0 ? (
         <EmptyState icon={ShieldCheck} title={t('snyk.noWatchesTitle')} body={t('snyk.noWatchesBody')} />
       ) : (
@@ -206,9 +206,9 @@ export function Snyk() {
                       <p className="text-xs text-muted">{w.orgSlug}</p>
                     </div>
                     <div className="flex shrink-0 gap-1">
-                      <button type="button" onClick={() => setSelectedWatch(w.id)} title={t('snyk.viewIssues')}
+                      <button type="button" onClick={() => setSelectedWatch(w.id)} title={t('snyk.viewIssues')} aria-label={t('snyk.viewIssues')}
                         className="rounded p-1.5 text-muted hover:bg-ink-50 hover:text-ink-900"><Eye className="h-4 w-4" /></button>
-                      <button type="button" onClick={() => removeWatch.mutate(w.id)} title={t('snyk.remove')}
+                      <button type="button" onClick={() => removeWatch.mutate(w.id)} title={t('snyk.remove')} aria-label={t('snyk.remove')}
                         className="rounded p-1.5 text-muted hover:bg-ink-50 hover:text-danger"><Trash2 className="h-4 w-4" /></button>
                     </div>
                   </div>

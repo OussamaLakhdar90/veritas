@@ -98,4 +98,29 @@ class ExecutiveSummaryControllerTest {
                 .andExpect(jsonPath("$.totals.breakingFindingsCaught").value(0))
                 .andExpect(jsonPath("$.perService").isEmpty());
     }
+
+    @Test
+    void fidelityTrendBucketsPerDayIntoARisingSeries() throws Exception {
+        // payments improves 60→90 (5d ago → 1d ago); loans joins the portfolio at 70 (3d ago). The daily mean must
+        // start at 60 (only payments), jump when loans appears, and finish at 80 = mean(90, 70) — a rising series.
+        when(scans.findAll()).thenReturn(List.of(
+                scan("p1", "payments", 60, null, 5),
+                scan("p2", "payments", 90, 60, 1),
+                scan("l1", "loans", 70, null, 3)));
+
+        mvc.perform(get("/api/v1/summary/fidelity-trend").param("days", "7"))
+                .andExpect(status().isOk())
+                // Leading days with no data are skipped: the series starts the day payments first scored (60)…
+                .andExpect(jsonPath("$[0].value").value(60))
+                // …and ends today at the portfolio mean of both services' latest scores, mean(90, 70) = 80.
+                .andExpect(jsonPath("$[-1].value").value(80));
+    }
+
+    @Test
+    void fidelityTrendIsEmptyWithoutData() throws Exception {
+        when(scans.findAll()).thenReturn(List.of());
+        mvc.perform(get("/api/v1/summary/fidelity-trend"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$").isEmpty());
+    }
 }

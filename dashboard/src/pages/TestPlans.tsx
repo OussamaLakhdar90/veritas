@@ -84,7 +84,7 @@ export function TestPlans() {
       {q.isLoading ? (
         <Card><CardBody className="p-0"><TableSkeleton label={t('testPlans.loading')} /></CardBody></Card>
       ) : q.isError ? (
-        <ErrorState detail={(q.error as Error).message} />
+        <ErrorState message={t('testPlans.loadError')} detail={(q.error as Error).message} />
       ) : plans.length === 0 ? (
         <EmptyState icon={ClipboardList} title={t('testPlans.emptyTitle')} body={t('testPlans.emptyBody')} />
       ) : (

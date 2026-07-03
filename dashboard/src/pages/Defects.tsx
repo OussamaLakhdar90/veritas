@@ -77,6 +77,18 @@ export function Defects() {
     () => (severityFilter ? all.filter((d) => (d.severity || '').toUpperCase() === severityFilter) : all),
     [all, severityFilter]);
 
+  // Aging signal: open defects (status not "done") whose createdAt is older than 7 days. Computed honestly —
+  // a defect with no createdAt can't be aged, so it's excluded from the count (never inflates the number).
+  const openOver7Days = useMemo(() => {
+    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    return all.filter((d) => {
+      if ((d.jiraStatusCategory || '').toLowerCase() === 'done') return false;
+      if (!d.createdAt) return false;
+      const created = Date.parse(d.createdAt);
+      return !Number.isNaN(created) && created < cutoff;
+    }).length;
+  }, [all]);
+
   // Defects grouped by service (from metrics) → a simple horizontal bar card.
   const byService = useMemo(
     () => Object.entries(m?.byService ?? {}).sort((a, b) => b[1] - a[1]), [m]);
@@ -92,10 +104,12 @@ export function Defects() {
 
       {m && m.total > 0 && (
         <div className="mb-6 space-y-4">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <KpiTile label={t('defects.totalDefects')} value={m.total} />
             <KpiTile label={t('defects.open')} value={m.open} tone={m.open > 0 ? 'warning' : 'success'} />
             <KpiTile label={t('defects.closed')} value={m.closed} tone="success" />
+            <KpiTile label={t('defects.openOver7Days')} value={openOver7Days} sub={t('defects.openOver7DaysHint')}
+              tone={openOver7Days > 0 ? 'warning' : 'success'} />
           </div>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Card>

@@ -101,7 +101,7 @@ export function RepoPicker() {
               ))}
             </div>
           )}
-          {err && <div className="mt-3"><ErrorState detail={err} /></div>}
+          {err && <div className="mt-3"><ErrorState message={t('repos.loadError')} detail={err} /></div>}
         </CardBody>
       </Card>
 

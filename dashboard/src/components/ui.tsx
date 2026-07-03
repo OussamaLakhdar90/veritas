@@ -343,7 +343,7 @@ export function SortableTh({ label, sortKey, sort, className }:
  *  (dense tables). Use this instead of a hand-rolled `max-w-*` root (a Vitest guard enforces it). */
 export function PageContainer({ variant = 'full', className, children }:
   { variant?: 'narrow' | 'wide' | 'full'; className?: string; children: React.ReactNode }) {
-  const width = { narrow: 'mx-auto max-w-3xl', wide: 'mx-auto max-w-4xl', full: '' }[variant];
+  const width = { narrow: 'mx-auto max-w-3xl', wide: 'mx-auto max-w-4xl', full: 'mx-auto max-w-[1600px]' }[variant];
   return <div className={cn(width, className)}>{children}</div>;
 }
 
