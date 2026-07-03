@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { RefreshCw, Trash2, Eye, ExternalLink, ShieldCheck, PackageOpen, X, ShieldAlert, AlertTriangle,
   PlugZap, Settings as SettingsIcon } from 'lucide-react';
-import { api, type SnykIssueView } from '../api';
+import { api, type ApiError, type SnykIssueView } from '../api';
 import {
   Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Input, Skeleton, TableSkeleton,
   Table, Td, Row, SortableTh, useSort, PageHeader,
@@ -19,6 +19,12 @@ import { formatDateTime } from '../lib/format';
 /** Plain-language "time ago"-ish label using the locale date. */
 function when(iso?: string): string | null {
   return iso ? formatDateTime(iso) : null;
+}
+
+/** True when a failed call is really "the Snyk token isn't configured" (server code: secret-required), so we can
+ *  show an inline "connect your token" affordance instead of a generic red error. Mirrors the copilot-auth gate. */
+function isSecretRequired(err: unknown): boolean {
+  return (err as ApiError | null)?.code === 'secret-required';
 }
 
 /** Snyk sends raw lowercase severities ("critical"…); map to the localized Critical/High/Medium/Low label. */
@@ -101,6 +107,11 @@ export function Snyk() {
   const watches = watchesQ.data ?? [];
   const alerts = alertsQ.data ?? [];
 
+  // "Connect your Snyk token" takes over the moment any Snyk read fails because the token isn't set — a config
+  // gap, not a broken page. Shown once at the top; the per-section error states below defer to it.
+  const tokenRequired = isSecretRequired(orgsQ.error) || isSecretRequired(watchesQ.error)
+    || isSecretRequired(issuesQ.error) || isSecretRequired(refresh.error);
+
   return (
     <div>
       {/* Snyk-branded header */}
@@ -114,6 +125,9 @@ export function Snyk() {
 
       {/* Managerial impact strip — found vs fixed (renders once at least one app-id is watched). */}
       <SnykImpactCard showLink={false} />
+
+      {/* Token-missing takes precedence over every other error: a config gap, surfaced as an actionable panel. */}
+      {tokenRequired && <SnykTokenRequiredBanner />}
 
       {/* New-alert notifications. Critical is deliberately alarming (strong red + a pulsing shield); lower severities
           stay calm. Each row is role="alert" (an implicit assertive live region) so screen readers announce arrivals
@@ -145,7 +159,10 @@ export function Snyk() {
       <Card className="mb-6">
         <CardHeader title={t('snyk.addTitle')} subtitle={t('snyk.addBody')} />
         <CardBody>
-          {orgsQ.isError ? (
+          {tokenRequired ? (
+            // The top banner already owns the "connect your token" call-to-action — don't repeat it here.
+            <p className="text-sm text-muted">{t('snyk.tokenRequiredHint')}</p>
+          ) : orgsQ.isError ? (
             <ConnectSnykPanel />
           ) : orgsQ.isLoading ? (
             <div role="status" aria-live="polite" className="grid gap-2 sm:grid-cols-2">
@@ -238,7 +255,9 @@ export function Snyk() {
             {issuesQ.isLoading ? (
               <TableSkeleton rows={4} label={t('snyk.issuesLoading')} />
             ) : issuesQ.isError ? (
-              <div className="p-5"><ErrorState message={t('snyk.issuesLoadError')} detail={(issuesQ.error as Error).message} /></div>
+              isSecretRequired(issuesQ.error)
+                ? <div className="p-5 text-sm text-muted">{t('snyk.tokenRequiredHint')}</div>
+                : <div className="p-5"><ErrorState message={t('snyk.issuesLoadError')} detail={(issuesQ.error as Error).message} /></div>
             ) : (issuesQ.data ?? []).length === 0 ? (
               <div className="p-5"><EmptyState icon={ShieldCheck} title={t('snyk.issuesEmpty')} /></div>
             ) : (
@@ -289,6 +308,25 @@ export function Snyk() {
       <SnykFixWizard open={!!fixIssue} onClose={() => setFixIssue(null)} issue={fixIssue} watchId={selectedWatch ?? undefined}
         apps={Array.from(new Map(watches.map((w) => [w.orgSlug, { slug: w.orgSlug, name: w.orgName }])).values())}
         defaultApp={watches.find((w) => w.id === selectedWatch)?.orgSlug} />
+    </div>
+  );
+}
+
+/** Inline "your Snyk token isn't set" panel — shown when a call fails with code: secret-required. Non-technical,
+ *  with a one-click deep-link to Settings → Snyk (mirrors the copilot-auth gate's "connect" affordance). */
+function SnykTokenRequiredBanner() {
+  const { t } = useTranslation();
+  return (
+    <div role="alert"
+      className="mb-6 flex items-start justify-between gap-3 rounded-lg border-l-4 border-l-warning bg-warning/10 px-4 py-3 text-sm">
+      <span className="flex items-start gap-2.5">
+        <PlugZap className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+        <span className="text-ink-900"><strong>{t('snyk.tokenRequiredTitle')}</strong> {t('snyk.tokenRequiredBody')}</span>
+      </span>
+      <Link to="/settings"
+        className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-brand px-3 py-1 font-medium text-white hover:bg-brand-700">
+        <SettingsIcon className="h-3.5 w-3.5" /> {t('snyk.tokenRequiredCta')}
+      </Link>
     </div>
   );
 }

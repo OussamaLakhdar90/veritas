@@ -2,6 +2,7 @@ package ca.bnc.qe.veritas.web;
 
 import ca.bnc.qe.veritas.preflight.CopilotAuthRequiredException;
 import ca.bnc.qe.veritas.preflight.PreconditionException;
+import ca.bnc.qe.veritas.secret.SecretRequiredException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
@@ -22,6 +23,18 @@ public class ApiExceptionHandler {
         ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
         pd.setTitle("Connect GitHub Copilot");
         pd.setProperty("code", CopilotAuthRequiredException.CODE);
+        pd.setProperty("problems", e.problems());
+        return pd;
+    }
+
+    @ExceptionHandler(SecretRequiredException.class)
+    public ProblemDetail onSecretRequired(SecretRequiredException e) {
+        // Same 422 + problem list as any precondition, plus a stable code + the missing key so the dashboard can
+        // pop an inline "connect this token" panel (deep-linking Settings) instead of a red toast.
+        ProblemDetail pd = ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
+        pd.setTitle("Connect a required secret");
+        pd.setProperty("code", SecretRequiredException.CODE);
+        pd.setProperty("key", e.getKey());
         pd.setProperty("problems", e.problems());
         return pd;
     }
