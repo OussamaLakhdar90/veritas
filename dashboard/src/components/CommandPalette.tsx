@@ -19,6 +19,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const activeRef = useRef<HTMLLIElement>(null);
   // Only fetch the service list while the palette is open (cheap, cached, shared key).
   const servicesQ = useQuery({ queryKey: ['services'], queryFn: api.services, enabled: open });
 
@@ -35,6 +36,9 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
 
   useEffect(() => { setActive(0); }, [q, open]);
   useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
+  // Keep the highlighted row in view when the selection moves past the fold (the list caps at max-h-80,
+  // ~8–10 rows). `scrollIntoView` is a no-op under jsdom, so the optional call keeps tests green.
+  useEffect(() => { activeRef.current?.scrollIntoView?.({ block: 'nearest' }); }, [active]);
 
   const go = (c?: Cmd) => { if (!c) return; setQ(''); onClose(); navigate(c.to); };
 
@@ -65,7 +69,7 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           {filtered.length === 0 ? (
             <li className="px-3 py-6 text-center text-sm text-muted">{t('palette.noResults')}</li>
           ) : filtered.map((c, i) => (
-            <li key={c.id} role="option" aria-selected={i === active}>
+            <li key={c.id} role="option" aria-selected={i === active} ref={i === active ? activeRef : undefined}>
               <button type="button" onMouseEnter={() => setActive(i)} onClick={() => go(c)}
                 className={cn('flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-sm',
                   i === active ? 'bg-brand/10 text-ink-900' : 'text-ink-700 hover:bg-ink-50')}>
