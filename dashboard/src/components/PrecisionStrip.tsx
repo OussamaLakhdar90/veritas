@@ -14,15 +14,17 @@ export function PrecisionStrip({ summary }: { summary: ExecutiveSummary }) {
   if (d.reviewed === 0) {
     return null;
   }
-  const decided = d.accepted + d.rejected;
-  const acceptedPct = decided === 0 ? null : Math.round((d.accepted / decided) * 100);
+  // "Decided" is every finding a human ruled on — accepted, rejected, OR raised straight to Jira (an implicit
+  // acceptance). The kept rate is (accepted + jiraCreated) / decided, and the copy states that base explicitly.
+  const decided = d.accepted + d.rejected + d.jiraCreated;
+  const acceptedPct = decided === 0 ? null : Math.round(((d.accepted + d.jiraCreated) / decided) * 100);
   return (
     <Card className="mb-6 border-l-4 border-l-gold">
       <CardBody className="flex flex-wrap items-center gap-x-2 gap-y-1 py-3.5 text-sm text-ink-700">
         <UserCheck className="h-4 w-4 shrink-0 text-gold" aria-hidden="true" />
         <span>
           {acceptedPct != null
-            ? t('precision.summary', { reviewed: d.reviewed, pct: acceptedPct, jira: d.jiraCreated })
+            ? t('precision.summary', { reviewed: d.reviewed, decided, pct: acceptedPct, jira: d.jiraCreated })
             : t('precision.summaryNoRate', { reviewed: d.reviewed, jira: d.jiraCreated })}
         </span>
         {d.aiDisputed > 0 && (

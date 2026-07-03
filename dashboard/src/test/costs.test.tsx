@@ -18,12 +18,20 @@ const summary = (over: Record<string, unknown> = {}) => ({
   ...over,
 })
 
-function stubSummary(body: unknown, init?: { status?: number }) {
+// A daily-spend series (>= 2 points → the trend card renders).
+const trend = [
+  { date: '2026-06-18', totalUsd: 0.5, actions: 3 },
+  { date: '2026-06-19', totalUsd: 0.9, actions: 5 },
+  { date: '2026-06-20', totalUsd: 1.4, actions: 9 },
+]
+
+function stubSummary(body: unknown, init?: { status?: number }, trendBody: unknown = trend) {
   server.use(
     http.get('*/api/v1/costs/summary', () =>
       init?.status
         ? HttpResponse.json(body as Record<string, unknown>, { status: init.status })
         : HttpResponse.json(body as Record<string, unknown>)),
+    http.get('*/api/v1/costs/trend', () => HttpResponse.json(trendBody as unknown[])),
     http.get('*/api/v1/costs', () => HttpResponse.json([])),
   )
 }
@@ -77,6 +85,23 @@ describe('Costs page', () => {
     expect(within(table).getByText('$0.8000')).toBeInTheDocument()
     expect(within(table).getByText('$0.3000')).toBeInTheDocument()
     expect(within(table).getByText('$0.1345')).toBeInTheDocument()
+  })
+
+  it('renders the daily-spend trend chart from /costs/trend', async () => {
+    stubSummary(summary())
+    renderCosts()
+
+    // The trend card title + its accessible chart (TrendChart) render once the series has >= 2 points.
+    expect(await screen.findByText('Daily spend')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Daily spend' })).toBeInTheDocument()
+  })
+
+  it('omits the trend card when the series is too short to chart', async () => {
+    stubSummary(summary(), undefined, [{ date: '2026-06-20', totalUsd: 1.4, actions: 9 }])
+    renderCosts()
+
+    expect(await screen.findByText('By skill')).toBeInTheDocument()
+    expect(screen.queryByText('Daily spend')).not.toBeInTheDocument()
   })
 
   it('shows the empty state when there is no spend yet', async () => {

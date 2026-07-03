@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import { Donut, Gauge, Sparkline, severitySlices } from '../components/charts'
+import { render, screen, fireEvent } from '@testing-library/react'
+import { Donut, Gauge, Sparkline, TrendChart, severitySlices } from '../components/charts'
 
 describe('charts', () => {
   it('severitySlices keeps non-zero buckets in severity order', () => {
@@ -34,4 +34,51 @@ describe('charts', () => {
     expect(container.querySelector('polyline')).not.toBeInTheDocument()
   })
 
+  describe('TrendChart', () => {
+    const points = [
+      { date: '2026-06-01', value: 60 },
+      { date: '2026-06-02', value: 72 },
+      { date: '2026-06-03', value: 88 },
+    ]
+
+    it('renders an accessible line + area path with first/last date labels', () => {
+      const { container } = render(<TrendChart points={points} ariaLabel="Score history" />)
+      expect(screen.getByRole('img', { name: 'Score history' })).toBeInTheDocument()
+      // Two <path>: the gradient area fill and the line itself.
+      expect(container.querySelectorAll('path').length).toBeGreaterThanOrEqual(2)
+      // First + last date x-labels are locale-true short dates (en-CA in tests): "Jun 1" / "Jun 3".
+      expect(screen.getByText('Jun 1')).toBeInTheDocument()
+      expect(screen.getByText('Jun 3')).toBeInTheDocument()
+    })
+
+    it('renders a placeholder (no path) for fewer than two points', () => {
+      const { container } = render(<TrendChart points={[{ date: '2026-06-01', value: 5 }]} ariaLabel="Sparse" />)
+      expect(screen.getByRole('img', { name: 'Sparse' })).toBeInTheDocument()
+      expect(container.querySelector('path')).not.toBeInTheDocument()
+    })
+
+    it('draws the target reference line when the target is inside the domain', () => {
+      const { container } = render(
+        <TrendChart points={points} ariaLabel="Fidelity" domain={[50, 100]} target={90} targetLabel="Release gate 90" />)
+      // The dashed target line carries a <title> with the label.
+      expect(container.querySelector('line[stroke-dasharray]')).toBeInTheDocument()
+      expect(screen.getByText('Release gate 90')).toBeInTheDocument()
+    })
+
+    it('uses the value formatter for the y-axis min/max labels', () => {
+      render(<TrendChart points={points} ariaLabel="Spend" domain={[0, 10]} format={(v) => `$${v.toFixed(0)}`} />)
+      expect(screen.getByText('$10')).toBeInTheDocument()
+      expect(screen.getByText('$0')).toBeInTheDocument()
+    })
+
+    it('shows an HTML tooltip with the value + date on hover', () => {
+      const { container } = render(<TrendChart points={points} ariaLabel="Trend" />)
+      const hit = container.querySelectorAll('rect')[1] // the 2nd point's hit column (value 72)
+      fireEvent.mouseEnter(hit)
+      // Tooltip text is HTML (a status region), not inside the <svg role=img>.
+      const tip = screen.getByRole('status')
+      expect(tip).toHaveTextContent('72')
+      expect(tip).toHaveTextContent('Jun 2')
+    })
+  })
 })

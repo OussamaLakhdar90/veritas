@@ -151,6 +151,43 @@ describe('Defects page', () => {
     expect(screen.getByText(/Sync failed:/)).toBeInTheDocument()
   })
 
+  it('renders the severity + service columns and filters by a severity chip', async () => {
+    server.use(
+      http.get('*/api/v1/defects', () =>
+        HttpResponse.json([
+          defect({ id: 'a', jiraKey: 'CIAM-1', jiraUrl: undefined, severity: 'BLOCKER', serviceName: 'policies-api' }),
+          defect({ id: 'b', jiraKey: 'CIAM-2', jiraUrl: undefined, severity: 'MINOR', serviceName: 'claims-api' }),
+        ])),
+    )
+    const user = userEvent.setup()
+    renderDefects()
+
+    // Both rows + the new columns render.
+    expect(await screen.findByText('CIAM-1')).toBeInTheDocument()
+    expect(screen.getByText('policies-api')).toBeInTheDocument()
+    expect(screen.getByText('Severity')).toBeInTheDocument()
+
+    // Filter to BLOCKER via its chip → only the blocker row survives.
+    await user.click(screen.getByRole('button', { name: /^Blocker$/ }))
+    expect(screen.getByText('CIAM-1')).toBeInTheDocument()
+    expect(screen.queryByText('CIAM-2')).not.toBeInTheDocument()
+  })
+
+  it('honours the ?severity= URL param and clears it from the empty state', async () => {
+    server.use(
+      http.get('*/api/v1/defects', () =>
+        HttpResponse.json([defect({ id: 'a', jiraKey: 'CIAM-1', jiraUrl: undefined, severity: 'MINOR' })])),
+    )
+    const user = userEvent.setup()
+    // Arrive pre-filtered to a severity that matches nothing → the clear-filter empty state.
+    renderPage(<Defects />, { path: '/defects', route: '/defects?severity=BLOCKER' })
+
+    expect(await screen.findByText('No Blocker defects')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Clear filter/ }))
+    // Clearing the filter reveals the (MINOR) defect again.
+    expect(await screen.findByText('CIAM-1')).toBeInTheDocument()
+  })
+
   it('sorts the table when a column header is clicked', async () => {
     server.use(
       http.get('*/api/v1/defects', () =>

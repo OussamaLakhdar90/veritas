@@ -134,3 +134,22 @@
 @media (prefers-reduced-motion: reduce) {
   .arc-sweep, .spark-draw, .spark-dot { animation: none; }
 }
+
+/* ── Print: a clean, paper-white executive export of whatever is on screen. Force the LIGHT token palette in
+   both modes (a navy dark-mode surface wastes toner and reads poorly), drop app chrome (sidebar, top bar,
+   toasts, activity dock), let the scroll containers expand, and keep cards from splitting across a page. */
+@media print {
+  :root, .dark {
+    --bg: 255 255 255; --surface: 255 255 255; --border: 214 218 224; --text: 14 23 38;
+    --ink-50: 247 249 252; --ink-100: 227 230 235; --ink-600: 90 98 112; --ink-700: 45 58 87; --ink-900: 14 23 38;
+    --muted: 90 98 112; --sidebar: 255 255 255;
+    --success: 21 110 70; --warning: 160 52 8; --danger: 168 16 40; --info: 30 84 150;
+    --sev-blocker: 107 33 168; --sev-critical: 168 16 40; --sev-major: 160 52 8; --sev-minor: 150 100 4; --sev-info: 58 70 88;
+    --shadow-card: none; --shadow-lift: none; --shadow-pop: none;
+  }
+  .print\:hidden { display: none !important; }
+  main { overflow: visible !important; }
+  .overflow-x-auto, .overflow-auto, .overflow-y-auto { overflow: visible !important; }
+  .rounded-xl.bg-surface, .shadow-card { break-inside: avoid; page-break-inside: avoid; }
+  body { background: #fff !important; }
+}

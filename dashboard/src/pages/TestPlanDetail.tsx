@@ -1,9 +1,10 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { FileText } from 'lucide-react';
-import { api, Deliverable } from '../api';
-import { Badge, Card, CardBody, PageHeader, TableSkeleton, Table, Td, Th, Row, ErrorState } from '../components/ui';
+import { FileText, PlayCircle } from 'lucide-react';
+import { api, Deliverable, TestPlan } from '../api';
+import { Badge, Button, Card, CardBody, Field, Input, PageHeader, TableSkeleton, Table, Td, Th, Row, ErrorState } from '../components/ui';
 import { severityBadge, TONE } from '../theme/tokens';
 import { enumLabel } from '../lib/enumLabels';
 import { formatMoney } from '../lib/format';
@@ -27,6 +28,86 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <div className="border-b border-border px-5 py-3"><h2 className="text-md font-semibold text-ink-900">{title}</h2></div>
       <CardBody>{children}</CardBody>
     </Card>
+  );
+}
+
+const VERDICT_TONE: Record<string, string> = {
+  PASS: TONE.ok, PASSED: TONE.ok, GREEN: TONE.ok,
+  FAIL: TONE.danger, FAILED: TONE.danger, RED: TONE.danger,
+  BLOCKED: TONE.warn, AMBER: TONE.warn, PARTIAL: TONE.warn,
+};
+
+/**
+ * Read-back of how the plan's tests actually ran, from Xray — the one piece of live data the plan detail can
+ * add. Lazy by design (`enabled: false` + a button): the demo portfolio seeds NO execution data, so an
+ * eager fetch would render an empty card on every plan; the user pulls it only when they want live status.
+ * The JQL is prefilled from the plan's fixVersion when one exists.
+ */
+function ExecutionStatusCard({ plan }: { plan: TestPlan }) {
+  const { t } = useTranslation();
+  const [jql, setJql] = useState(plan.fixVersion ? `fixVersion = "${plan.fixVersion}"` : '');
+  const q = useQuery({
+    queryKey: ['execution-completion', plan.serviceName, jql],
+    queryFn: () => api.executionCompletion(jql, plan.serviceName),
+    enabled: false,
+  });
+  const e = q.data;
+  const bar: Array<[keyof typeof BAR_TONE, number]> = e
+    ? [['passed', e.passed], ['failed', e.failed], ['blocked', e.blocked], ['notRun', e.notRun]] : [];
+  const BAR_TONE = { passed: 'bg-success', failed: 'bg-danger', blocked: 'bg-warning', notRun: 'bg-ink-100' } as const;
+
+  return (
+    <Section title={t('testPlanDetail.executionStatus')}>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-[16rem] flex-1">
+          <Field label={t('testPlanDetail.execJqlLabel')} hint={t('testPlanDetail.execJqlHint')}>
+            <Input value={jql} onChange={(ev) => setJql(ev.target.value)} placeholder='fixVersion = "2.4.0"' />
+          </Field>
+        </div>
+        <Button variant="secondary" loading={q.isFetching} disabled={!jql.trim()} onClick={() => q.refetch()}>
+          <PlayCircle className="h-4 w-4" /> {t('testPlanDetail.execCheck')}
+        </Button>
+      </div>
+
+      {q.isError && <div className="mt-4"><ErrorState message={t('testPlanDetail.execFailed')} detail={(q.error as Error)?.message} /></div>}
+
+      {e && (
+        e.total === 0 ? (
+          <p className="mt-4 text-sm text-muted">{t('testPlanDetail.execEmpty')}</p>
+        ) : (
+          <div className="mt-4 space-y-3">
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted">{t('testPlanDetail.execTotal', { count: e.total })}</span>
+              {e.verdict && <Badge className={VERDICT_TONE[e.verdict.toUpperCase()] ?? TONE.muted}>{enumLabel(t, 'verdict', e.verdict)}</Badge>}
+            </div>
+            {/* Segmented pass/fail/blocked/not-run bar. */}
+            <div className="flex h-3 w-full overflow-hidden rounded-full bg-ink-100">
+              {bar.filter(([, n]) => n > 0).map(([k, n]) => (
+                <div key={k} className={BAR_TONE[k]} style={{ width: `${(n / e.total) * 100}%` }} title={`${t(`testPlanDetail.exec_${k}`)}: ${n}`} />
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+              {bar.map(([k, n]) => (
+                <span key={k} className="inline-flex items-center gap-1.5 text-ink-700">
+                  <span className={`h-2.5 w-2.5 rounded-sm ${BAR_TONE[k]}`} /> {t(`testPlanDetail.exec_${k}`)}
+                  <span className="font-semibold tabular-nums text-ink-900">{n}</span>
+                </span>
+              ))}
+            </div>
+            {e.deviations.length > 0 && (
+              <div className="pt-1">
+                <p className="mb-1 text-sm font-semibold text-ink-900">{t('testPlanDetail.execDeviations', { count: e.deviations.length })}</p>
+                <ul className="space-y-0.5 text-sm text-muted">
+                  {e.deviations.map((d) => (
+                    <li key={d.testKey}><span className="font-mono text-xs text-ink-700">{d.testKey}</span> — {d.outcome}{d.rawStatus ? ` (${d.rawStatus})` : ''}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )
+      )}
+    </Section>
   );
 }
 
@@ -123,6 +204,9 @@ export function TestPlanDetail() {
           ))}
         </Table>
       </Section>
+
+      {/* Live execution read-back (lazy — the demo seeds none). */}
+      <ExecutionStatusCard plan={plan} />
 
       {d.exitCriteria?.length ? (
         <Section title={t('testPlanDetail.exitCriteria')}>

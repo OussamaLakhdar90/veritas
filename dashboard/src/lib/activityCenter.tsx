@@ -86,7 +86,7 @@ export function ActivityCenterProvider({ children }: { children: ReactNode }) {
       {children}
       {dockItems.length > 0 && (
         // Same corner as toasts but one notch lower z — a passing toast briefly overlays it, by design.
-        <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2">
+        <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2 print:hidden">
           {dockItems.map((item) => (
             <ActivityCard key={item.id} item={item} onDismiss={() => ack([item.id])} />
           ))}
