@@ -1,7 +1,6 @@
 package ca.bnc.qe.veritas.engine.extract.java;
 
 import static ca.bnc.qe.veritas.engine.extract.java.AnnotationSupport.getAnnotation;
-import static ca.bnc.qe.veritas.engine.extract.java.AnnotationSupport.literal;
 import static ca.bnc.qe.veritas.engine.extract.java.AnnotationSupport.memberExpr;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -163,10 +162,12 @@ final class PathResolver {
                 for (Expression x : elems) {
                     // consumes/produces values may be MediaType.*_VALUE constants — resolve them to the real media type
                     // (e.g. application/json) via the same resolver the @ControllerAdvice path uses, not the raw literal.
+                    // When it stays UNRESOLVED, SKIP it: emitting the raw source text ("MediaType.FOO_VALUE") as a media
+                    // type fires a false CONSUMES_PRODUCES_MISMATCH. Leaving it out keeps consumes/produces honestly
+                    // empty, which the DiffEngine's empty-code guard then suppresses.
                     String mt = mediaTypeFromExpr(x);
-                    String v = mt != null ? mt : literal(x.toString());
-                    if (v != null && !v.isBlank()) {
-                        out.add(v);
+                    if (mt != null && !mt.isBlank()) {
+                        out.add(mt);
                     }
                 }
                 return out;
@@ -488,10 +489,25 @@ final class PathResolver {
             }
         }
         String t = e.toString().trim();
-        String suffix = t.contains(".") ? t.substring(t.lastIndexOf('.') + 1) : t;
-        if (suffix.endsWith("_VALUE")) {
-            suffix = suffix.substring(0, suffix.length() - "_VALUE".length());
+        String field = t.contains(".") ? t.substring(t.lastIndexOf('.') + 1) : t;
+        String suffix = field.endsWith("_VALUE") ? field.substring(0, field.length() - "_VALUE".length()) : field;
+        String mapped = MEDIA_TYPE_CONSTANTS.get(suffix);
+        if (mapped != null) {
+            return mapped;   // fast path — the common constants, no reflection
         }
-        return MEDIA_TYPE_CONSTANTS.get(suffix);
+        // Fall back to reflecting the real value of a MediaType.*_VALUE String constant not in the fast-path map
+        // (MULTIPART_FORM_DATA_VALUE, TEXT_EVENT_STREAM_VALUE, IMAGE_*_VALUE, …). Without this the raw source text
+        // ("MediaType.MULTIPART_FORM_DATA_VALUE") leaks out as a media type and fires a false CONSUMES_PRODUCES_MISMATCH.
+        if (field.endsWith("_VALUE")) {
+            try {
+                Object v = org.springframework.http.MediaType.class.getField(field).get(null);
+                if (v instanceof String s) {
+                    return s;
+                }
+            } catch (ReflectiveOperationException ignore) {
+                // not a resolvable MediaType constant — fall through to null (caller leaves consumes/produces empty)
+            }
+        }
+        return null;
     }
 }

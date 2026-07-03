@@ -204,10 +204,13 @@ final class TypeMappingSupport {
         return null;
     }
 
-    /** Single-element collection field types (Map is excluded — it is a dictionary, not an array). */
+    /** Single-element collection field types that serialize as a bare JSON array (Map is excluded — it is a dictionary,
+     *  not an array). Page/Slice/PagedModel/CollectionModel are DELIBERATELY absent: they serialize as an OBJECT
+     *  envelope ({@link #PAGED_OBJECT_WRAPPERS}), so modelling a {@code Page<Item>} field as {@code Item[]} would
+     *  contradict that and fire a false array-vs-object SCHEMA_FIELD_TYPE_MISMATCH — they fall through to an object. */
     private static final Set<String> COLLECTION_TYPES = Set.of(
             "List", "Set", "Collection", "Iterable", "SortedSet", "NavigableSet", "Queue", "Deque",
-            "Flux", "Page", "Slice", "PagedModel", "CollectionModel", "Stream");
+            "Flux", "Stream");
 
     /** The primitive inner type of OptionalInt/OptionalLong/OptionalDouble, or null when not a primitive optional. */
     static String optionalPrimitive(Type t) {
