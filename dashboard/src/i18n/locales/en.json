@@ -167,6 +167,7 @@
     "server": "The server hit a problem finishing that. Try again shortly — if it keeps happening, check the server logs."
   },
   "snyk": {
+    "watchesLoadError": "Couldn't load the watched repositories.",
     "title": "Snyk",
     "subtitle": "Dependency security — watch your repositories and act on vulnerabilities.",
     "impact": {
@@ -516,6 +517,7 @@
     "estAnalysisCostBody": "The estimated cost of the AI calls used for this validation. Most checks are done without AI; it's used only where a deterministic check isn't enough."
   },
   "costs": {
+    "loadError": "Couldn't load the AI spend breakdown.",
     "pageTitle": "AI spend",
     "pageSubtitle": "Estimated Copilot spend in this environment, broken down by skill.",
     "totalEstCost": "Total est. cost",
@@ -538,6 +540,8 @@
     "totalDefects": "Total defects",
     "open": "Open",
     "closed": "Closed",
+    "openOver7Days": "Open over 7 days",
+    "openOver7DaysHint": "Aging — still open past a week",
     "bySeverity": "By severity",
     "bySeverityAria": "Defects by severity",
     "byService": "By service",
@@ -566,6 +570,7 @@
     "syncFailed": "Sync failed: {{message}}"
   },
   "gates": {
+    "loadError": "Couldn't load the approval gates.",
     "title": "Approval gates",
     "subtitle": "Before Veritas writes anything to Jira, Xray or Git, it asks you first. Approvals wait here.",
     "filter_PENDING": "Pending",
@@ -585,6 +590,7 @@
     "rejectedToast": "Rejected."
   },
   "repos": {
+    "loadError": "Couldn't load the repositories.",
     "pageTitle": "Validate a service",
     "pageSubtitle": "Find a service by its app-id, then check whether its API spec matches the code.",
     "appIdLabel": "App-id",
@@ -660,6 +666,7 @@
     "adjustAndRetry": "Adjust the inputs and try again"
   },
   "reviews": {
+    "loadError": "Couldn't load the recent reviews.",
     "noDetail": "No detail captured for this review.",
     "rubricHeading": "Rubric (C1–C6)",
     "thCriterion": "Criterion",
@@ -706,6 +713,7 @@
     "thConfidence": "Confidence"
   },
   "findings": {
+    "loadError": "Couldn't load the findings.",
     "title": "Findings",
     "subtitle": "Differences between the documented API and what the code actually does. Review each one, mark it Accepted or Rejected, then raise a Jira defect if it needs fixing.",
     "reportTooltip": "Open the management report — findings, the accuracy score and recommendations, for managers and developers.",
@@ -959,6 +967,7 @@
     "toastStrategyGenerated": "Multi-source strategy generated."
   },
   "testPlans": {
+    "loadError": "Couldn't load the test plans.",
     "pageTitle": "Test plans",
     "pageSubtitle": "Release test plans with ISTQB risk analysis and a requirements-traceability matrix.",
     "newPlanTitle": "New release plan",
@@ -1071,6 +1080,7 @@
     "toastUpdated": "Updated."
   },
   "codegen": {
+    "loadError": "Couldn't load the generated test runs.",
     "pageTitle": "Generate tests (local paths)",
     "pageSubtitle": "Advanced: template-driven generation from local filesystem paths. For the guided, git-native flow with a coverage plan and a Jira-linked PR, use Generate API Tests.",
     "newGenerationTitle": "New generation",

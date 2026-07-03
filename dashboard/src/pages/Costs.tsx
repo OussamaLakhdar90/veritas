@@ -58,7 +58,7 @@ export function Costs() {
           {q.isLoading ? (
             <div className="space-y-2 p-5">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-8" />)}</div>
           ) : q.isError ? (
-            <div className="p-5"><ErrorState detail={(q.error as Error).message} /></div>
+            <div className="p-5"><ErrorState message={t('costs.loadError')} detail={(q.error as Error).message} /></div>
           ) : rows.length === 0 ? (
             <div className="p-5"><EmptyState icon={Coins} title={t('costs.emptyTitle')} body={t('costs.emptyBody')} /></div>
           ) : (

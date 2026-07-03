@@ -77,7 +77,7 @@ export function Codegen() {
       {q.isLoading ? (
         <CardSkeleton label={t('codegen.loading')} />
       ) : q.isError ? (
-        <ErrorState detail={(q.error as Error).message} />
+        <ErrorState message={t('codegen.loadError')} detail={(q.error as Error).message} />
       ) : runs.length === 0 ? (
         <EmptyState icon={Code2} title={t('codegen.noRunsTitle')}
           body={t('codegen.noRunsBody')} />

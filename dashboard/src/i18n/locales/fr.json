@@ -167,6 +167,7 @@
     "server": "Le serveur a rencontré un problème. Réessayez sous peu — si cela persiste, consultez les journaux du serveur."
   },
   "snyk": {
+    "watchesLoadError": "Impossible de charger les dépôts surveillés.",
     "title": "Snyk",
     "subtitle": "Sécurité des dépendances — surveillez vos dépôts et corrigez les vulnérabilités.",
     "impact": {
@@ -516,6 +517,7 @@
     "estAnalysisCostBody": "Le coût estimé des appels d'IA utilisés pour cette validation. La plupart des vérifications se font sans IA; elle n'est utilisée que là où une vérification déterministe ne suffit pas."
   },
   "costs": {
+    "loadError": "Impossible de charger la répartition des dépenses d’IA.",
     "pageTitle": "Dépenses d’IA",
     "pageSubtitle": "Dépense Copilot estimée dans cet environnement, ventilée par compétence.",
     "totalEstCost": "Coût total estimé",
@@ -538,6 +540,8 @@
     "totalDefects": "Total des anomalies",
     "open": "Ouvertes",
     "closed": "Fermées",
+    "openOver7Days": "Ouvertes depuis 7 jours",
+    "openOver7DaysHint": "Vieillissantes — ouvertes depuis plus d’une semaine",
     "bySeverity": "Par gravité",
     "bySeverityAria": "Anomalies par gravité",
     "byService": "Par service",
@@ -566,6 +570,7 @@
     "syncFailed": "Échec de la synchronisation : {{message}}"
   },
   "gates": {
+    "loadError": "Impossible de charger les approbations.",
     "title": "Approbations",
     "subtitle": "Avant d'écrire quoi que ce soit dans Jira, Xray ou Git, Veritas vous demande d'abord. Les approbations attendent ici.",
     "filter_PENDING": "En attente",
@@ -585,6 +590,7 @@
     "rejectedToast": "Rejeté."
   },
   "repos": {
+    "loadError": "Impossible de charger les dépôts.",
     "pageTitle": "Valider un service",
     "pageSubtitle": "Trouvez un service à partir de son app-id, puis vérifiez si sa spécification d'API correspond au code.",
     "appIdLabel": "App-id",
@@ -660,6 +666,7 @@
     "adjustAndRetry": "Ajustez les paramètres et réessayez"
   },
   "reviews": {
+    "loadError": "Impossible de charger les révisions récentes.",
     "noDetail": "Aucun détail enregistré pour ce constat.",
     "rubricHeading": "Grille (C1 à C6)",
     "thCriterion": "Critère",
@@ -706,6 +713,7 @@
     "thConfidence": "Confiance"
   },
   "findings": {
+    "loadError": "Impossible de charger les constats.",
     "title": "Constats",
     "subtitle": "Écarts entre l'API documentée et ce que le code fait réellement. Examinez chacun, marquez-le Accepté ou Rejeté, puis créez une anomalie Jira s'il doit être corrigé.",
     "reportTooltip": "Ouvrir le rapport de gestion — constats, score d'exactitude et recommandations, destiné aux gestionnaires et aux développeurs.",
@@ -959,6 +967,7 @@
     "toastStrategyGenerated": "Stratégie multisource générée."
   },
   "testPlans": {
+    "loadError": "Impossible de charger les plans de test.",
     "pageTitle": "Plans de test",
     "pageSubtitle": "Plans de test de version avec analyse de risque ISTQB et matrice de traçabilité des exigences.",
     "newPlanTitle": "Nouveau plan de version",
@@ -1071,6 +1080,7 @@
     "toastUpdated": "Mis à jour."
   },
   "codegen": {
+    "loadError": "Impossible de charger les exécutions de tests générés.",
     "pageTitle": "Générer des tests (chemins locaux)",
     "pageSubtitle": "Avancé : génération pilotée par gabarit à partir de chemins du système de fichiers local. Pour le flux guidé et natif à git avec un plan de couverture et une demande de tirage liée à Jira, utilisez Générer des tests d'API.",
     "newGenerationTitle": "Nouvelle génération",

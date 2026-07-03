@@ -170,7 +170,7 @@ export function Reviews() {
       {results == null ? (
         recentQ.isError ? (
           // A fetch failure must not masquerade as "no reviews yet".
-          <ErrorState detail={(recentQ.error as Error).message} />
+          <ErrorState message={t('reviews.loadError')} detail={(recentQ.error as Error).message} />
         ) : recent.length > 0 ? (
           <Card>
             <CardHeader title={t('reviews.recentTitle')} subtitle={t('reviews.recentSubtitle')} />

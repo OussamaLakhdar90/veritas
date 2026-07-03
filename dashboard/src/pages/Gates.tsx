@@ -57,7 +57,7 @@ export function Gates() {
       {q.isLoading ? (
         <Card><CardBody className="p-0"><TableSkeleton label={t('gates.loading')} /></CardBody></Card>
       ) : q.isError ? (
-        <ErrorState detail={(q.error as Error).message} />
+        <ErrorState message={t('gates.loadError')} detail={(q.error as Error).message} />
       ) : rows.length === 0 ? (
         <EmptyState icon={GitPullRequestArrow} title={t('gates.emptyTitle', { statusLabel: enumLabel(t, 'gateStatus', status).toLowerCase() })}
           body={status === 'PENDING' ? t('gates.emptyBody') : undefined} />

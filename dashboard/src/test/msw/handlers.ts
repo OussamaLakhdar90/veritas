@@ -19,6 +19,8 @@ export const handlers = [
   // The Overview pulls daily cost + scan trends for its sparkline + weekly deltas; default to empty series.
   http.get('*/api/v1/costs/trend', () => HttpResponse.json([])),
   http.get('*/api/v1/scans/trend', () => HttpResponse.json([])),
+  // The Overview's fidelity score-history chart pulls a daily-bucket series; default to empty (drawn only on data).
+  http.get('*/api/v1/summary/fidelity-trend', () => HttpResponse.json([])),
   // TestPlanDetail's execution-status card fetches this LAZILY (only on button click), but stub a default empty
   // read-back so any test that does trigger it doesn't see an unhandled request. Tests override via server.use(...).
   http.get('*/api/v1/execution/completion', () =>

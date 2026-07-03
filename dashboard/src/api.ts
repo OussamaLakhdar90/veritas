@@ -554,6 +554,7 @@ export const api = {
   costTrend: (days = 30) => get<CostTrendPoint[]>(`/costs/trend?days=${days}`),
   scansTrend: (days = 30) => get<ScanTrendPoint[]>(`/scans/trend?days=${days}`),
   executiveSummary: () => get<ExecutiveSummary>('/summary/executive'),
+  fidelityTrend: (days = 30) => get<{ date: string; value: number }[]>(`/summary/fidelity-trend?days=${days}`),
   preflight: () => get<PreflightCheck[]>('/preflight'),
   defects: () => get<DefectLink[]>('/defects'),
   defectMetrics: () => get<DefectMetrics>('/defects/metrics'),

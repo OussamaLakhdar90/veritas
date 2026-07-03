@@ -79,6 +79,8 @@ export function Dashboard() {
   const scansTrendQ = useQuery({ queryKey: ['scans-trend', range], queryFn: () => api.scansTrend(range) });
   const costTrendQ = useQuery({ queryKey: ['cost-trend'], queryFn: () => api.costTrend(30) });
   const summaryQ = useQuery({ queryKey: ['executive-summary'], queryFn: api.executiveSummary });
+  // Portfolio fidelity score history — a proper daily-bucket backend series (not capped by the loaded scan window).
+  const fidelityTrendQ = useQuery({ queryKey: ['fidelity-trend'], queryFn: () => api.fidelityTrend(30) });
 
   const scans = scansQ.data ?? [];
   const summary = summaryQ.data;
@@ -116,24 +118,11 @@ export function Dashboard() {
   }, [summary]);
 
   /**
-   * Portfolio fidelity over time — the score history a VP expects. For each scan day, replay the
-   * latest-per-service score AS OF that day and take the mean (the same honest definition the hero uses,
-   * never a running average over history). Client-side only: derived from the scans already loaded.
+   * Portfolio fidelity over time — the score history a VP expects, on a fixed 50–100 scale with the release gate
+   * drawn in. Served by GET /summary/fidelity-trend as a proper daily-bucket series (each day = the mean of every
+   * service's latest score as of that day), so the horizon is not capped by the loaded /scans window.
    */
-  const fidelityHistory = useMemo(() => {
-    const scored = scans
-      .filter((s) => (s.status || '').toUpperCase() === 'COMPLETED' && s.fidelityScore != null && s.startedAt)
-      .sort((a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? ''));
-    const latest = new Map<string, number>();
-    const byDay = new Map<string, number>();
-    for (const s of scored) {
-      latest.set(s.serviceName, s.fidelityScore as number);
-      const day = (s.startedAt as string).slice(0, 10);
-      const vals = [...latest.values()];
-      byDay.set(day, Math.round(vals.reduce((a, b) => a + b, 0) / vals.length));
-    }
-    return [...byDay.entries()].map(([date, value]) => ({ date, value }));
-  }, [scans]);
+  const fidelityHistory = fidelityTrendQ.data ?? [];
 
   // Findings-per-day, keeping the date so the TrendChart can label its axis (Dashboard.tsx:99 used to discard it).
   const findingsTrend = useMemo(
