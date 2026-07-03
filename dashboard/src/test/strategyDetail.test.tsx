@@ -65,7 +65,7 @@ describe('StrategyDetail', () => {
     stub()
     renderDetail()
     expect(await screen.findByRole('heading', { name: /ciam-policies — Test Strategy/ })).toBeInTheDocument()
-    expect(screen.getByText(/v2 · DRAFT · 78% confidence/)).toBeInTheDocument()
+    expect(screen.getByText(/v2 · Draft · 78% confidence/)).toBeInTheDocument()
     // Sections
     expect(screen.getByText(/risk-based strategy for the policies service/)).toBeInTheDocument()
     expect(screen.getByText('Cover the create-policy contract')).toBeInTheDocument()

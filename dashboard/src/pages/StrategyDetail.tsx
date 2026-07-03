@@ -218,7 +218,7 @@ export function StrategyDetail() {
     <div>
       <PageHeader
         title={t('strategyDetail.pageTitle', { service: s.serviceName ?? t('strategyDetail.strategyFallback') })}
-        subtitle={`v${(s as { version?: number }).version ?? 1} · ${s.status ?? 'DRAFT'}${s.confidence != null ? t('strategyDetail.confidenceSuffix', { confidence: Math.round(s.confidence) }) : ''}`}
+        subtitle={`v${(s as { version?: number }).version ?? 1} · ${enumLabel(t, 'strategyStatus', s.status ?? 'DRAFT')}${s.confidence != null ? t('strategyDetail.confidenceSuffix', { confidence: Math.round(s.confidence) }) : ''}`}
         actions={
           <div className="flex items-center gap-2">
             <a href={api.strategyRationaleUrl(s.id)} target="_blank" rel="noreferrer"
