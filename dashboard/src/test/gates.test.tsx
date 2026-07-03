@@ -163,4 +163,27 @@ describe('Approval gates', () => {
     expect(within(row).getByText('alice')).toBeInTheDocument()
     expect(within(row).getByText('Approved')).toBeInTheDocument()
   })
+
+  it('sorts by each column header (action, run, status, approver, when)', async () => {
+    const g2 = { ...approvedGate, id: 'gate-3', runId: 'run-zzz', action: 'OPEN_PR', approver: 'zoe' }
+    server.use(http.get('*/api/v1/gates', () => HttpResponse.json([approvedGate, g2])))
+    const user = userEvent.setup()
+    renderGates()
+
+    await screen.findByText('Create an Xray test')
+    // Clicking each sortable header runs its accessor and re-orders the rows.
+    for (const col of ['Action', 'Run', 'Status', 'Approver', 'When']) {
+      await user.click(screen.getByRole('button', { name: col }))
+    }
+    // Clicking Approver again (it wasn't the last-clicked column) makes it the active key, ascending.
+    await user.click(screen.getByRole('button', { name: 'Approver' }))
+    expect(screen.getByText('zoe')).toBeInTheDocument()
+    expect(screen.getByText('alice')).toBeInTheDocument()
+    const approverTh = screen.getByRole('button', { name: 'Approver' }).closest('th')
+    expect(approverTh).toHaveAttribute('aria-sort', 'ascending')
+    // One more click flips it to descending → zoe (last alphabetically) leads.
+    await user.click(screen.getByRole('button', { name: 'Approver' }))
+    expect(approverTh).toHaveAttribute('aria-sort', 'descending')
+    expect(within(screen.getAllByRole('row')[1]).getByText('zoe')).toBeInTheDocument()
+  })
 })

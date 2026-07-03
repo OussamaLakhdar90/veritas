@@ -7,8 +7,8 @@ import { Search, CornerDownLeft } from 'lucide-react';
 import { api } from '../api';
 import { NAV_ITEMS } from '../lib/nav';
 import { cn } from './cn';
-import { motion } from 'framer-motion';
-import { isTestEnv, overlaySpring } from '../lib/motion';
+import { AnimatePresence, motion } from 'framer-motion';
+import { exitEase, isTestEnv, overlaySpring } from '../lib/motion';
 
 interface Cmd { id: string; label: string; group: string; to: string; Icon?: ComponentType<{ className?: string }> }
 
@@ -36,8 +36,6 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
   useEffect(() => { setActive(0); }, [q, open]);
   useEffect(() => { if (open) inputRef.current?.focus(); }, [open]);
 
-  if (!open) return null;
-
   const go = (c?: Cmd) => { if (!c) return; setQ(''); onClose(); navigate(c.to); };
 
   const onKey = (e: React.KeyboardEvent) => {
@@ -47,12 +45,15 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
     else if (e.key === 'Escape') { e.preventDefault(); onClose(); }
   };
 
-  return createPortal(
+  const overlay = (
     <div className="fixed inset-0 z-[70] flex items-start justify-center p-4 pt-[12vh]"
       role="dialog" aria-modal="true" aria-label={t('palette.title')}>
-      <div className="absolute inset-0 bg-ink-900/50 backdrop-blur-sm" onClick={onClose} aria-hidden="true" />
+      <motion.div className="absolute inset-0 bg-ink-900/50 backdrop-blur-sm" onClick={onClose} aria-hidden="true"
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: { duration: 0.14 } }}
+        transition={{ duration: 0.15 }} />
       <motion.div className="relative w-full max-w-lg overflow-hidden rounded-xl bg-surface shadow-pop ring-1 ring-border"
-        initial={isTestEnv ? false : { opacity: 0, y: -8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+        initial={{ opacity: 0, y: -8, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.98, transition: { duration: 0.14, ease: exitEase } }}
         transition={overlaySpring}>
         <div className="flex items-center gap-2 border-b border-border px-4">
           <Search className="h-4 w-4 shrink-0 text-muted" />
@@ -82,7 +83,13 @@ export function CommandPalette({ open, onClose }: { open: boolean; onClose: () =
           <span className="ml-auto">esc</span>
         </div>
       </motion.div>
-    </div>,
-    document.body,
+    </div>
   );
+
+  // Tests keep the plain conditional (jsdom rAF doesn't tick, and the Escape test asserts synchronous unmount);
+  // in the app AnimatePresence lets the backdrop fade and the panel scale out on close.
+  if (isTestEnv) {
+    return open ? createPortal(overlay, document.body) : null;
+  }
+  return createPortal(<AnimatePresence>{open && overlay}</AnimatePresence>, document.body);
 }

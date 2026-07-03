@@ -180,7 +180,9 @@ describe('RepoPicker — Validate modal inputs', () => {
     // Switch to LIVE_DOCS → the ref empties; running now must complain instead of POSTing.
     await user.selectOptions(screen.getByDisplayValue('File in the repo'), 'LIVE_DOCS')
     await user.click(screen.getByRole('button', { name: /Run validation/ }))
-    expect(await screen.findByText(/Enter the api docs url/i)).toBeInTheDocument()
+    // The empty required field now complains BOTH inline (a red Field error) and via a toast — both carry the
+    // same message, so assert at least one appears rather than a single match.
+    expect((await screen.findAllByText(/Enter the api docs url/i)).length).toBeGreaterThan(0)
   })
 
   it('lets you pick a Thoroughness option', async () => {

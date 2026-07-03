@@ -75,7 +75,11 @@
     "disputed": "L’IA a contesté {{count}} de ses propres constats en premier."
   },
   "enums": {
-    "gateStatus": { "PENDING": "En attente", "APPROVED": "Approuvé", "REJECTED": "Rejeté" },
+    "gateStatus": {
+      "PENDING": "En attente",
+      "APPROVED": "Approuvé",
+      "REJECTED": "Rejeté"
+    },
     "gateAction": {
       "CREATE_DEFECT": "Créer une anomalie Jira",
       "OPEN_PR": "Ouvrir une demande de tirage",
@@ -83,9 +87,19 @@
       "XRAY_CREATE_GAP_TESTS": "Créer des tests d’écart dans Xray",
       "XRAY_UPDATE_STEPS": "Mettre à jour les étapes de test dans Xray"
     },
-    "strategyStatus": { "DRAFT": "Brouillon", "IN_REVIEW": "En révision", "APPROVED": "Approuvée" },
-    "planKind": { "RELEASE": "Livraison" },
-    "planStatus": { "DRAFT": "Brouillon", "NEEDS_REVIEW": "À réviser", "APPROVED": "Approuvé" },
+    "strategyStatus": {
+      "DRAFT": "Brouillon",
+      "IN_REVIEW": "En révision",
+      "APPROVED": "Approuvée"
+    },
+    "planKind": {
+      "RELEASE": "Livraison"
+    },
+    "planStatus": {
+      "DRAFT": "Brouillon",
+      "NEEDS_REVIEW": "À réviser",
+      "APPROVED": "Approuvé"
+    },
     "caseStatus": {
       "DRAFT": "Brouillon",
       "PROPOSED": "Proposé",
@@ -95,10 +109,28 @@
       "ATTACHED": "Rattaché dans Xray",
       "IMPLEMENTED": "Implémenté"
     },
-    "automation": { "AUTOMATED": "Automatisée", "MANUAL": "Manuelle", "CANDIDATE": "Candidate" },
-    "matchStatus": { "MATCHED": "Couvert", "CREATED": "Créé", "GAP": "Écart", "ORPHAN": "Orphelin", "DEAD": "Périmé" },
-    "buildStatus": { "PASS": "Compilation réussie", "FAIL": "Compilation échouée", "REPAIRED": "Auto-réparée", "SKIPPED": "Compilation ignorée" },
-    "verdict": { "PASS": "Réussite", "FAIL": "Échec" },
+    "automation": {
+      "AUTOMATED": "Automatisée",
+      "MANUAL": "Manuelle",
+      "CANDIDATE": "Candidate"
+    },
+    "matchStatus": {
+      "MATCHED": "Couvert",
+      "CREATED": "Créé",
+      "GAP": "Écart",
+      "ORPHAN": "Orphelin",
+      "DEAD": "Périmé"
+    },
+    "buildStatus": {
+      "PASS": "Compilation réussie",
+      "FAIL": "Compilation échouée",
+      "REPAIRED": "Auto-réparée",
+      "SKIPPED": "Compilation ignorée"
+    },
+    "verdict": {
+      "PASS": "Réussite",
+      "FAIL": "Échec"
+    },
     "layer": {
       "L1": "Structure de la spécification",
       "L2": "Complétude de l’API",
@@ -107,7 +139,11 @@
       "L5": "Qualité de la conception",
       "L6": "Couverture de test"
     },
-    "confidence": { "HIGH": "Confiance élevée", "MEDIUM": "Confiance moyenne", "LOW": "Confiance faible" },
+    "confidence": {
+      "HIGH": "Confiance élevée",
+      "MEDIUM": "Confiance moyenne",
+      "LOW": "Confiance faible"
+    },
     "skill": {
       "VALIDATE-CONTRACT": "Validation de contrat",
       "TEST-STRATEGY": "Stratégie de test",
@@ -941,7 +977,8 @@
     "colConfidence": "Confiance",
     "colRisks": "Risques",
     "colEstCost": "Coût est.",
-    "open": "Ouvrir"
+    "open": "Ouvrir",
+    "fieldRequired": "Requis."
   },
   "testPlanDetail": {
     "loading": "Chargement…",

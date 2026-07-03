@@ -2,10 +2,12 @@ import { createContext, useCallback, useContext, useEffect, useRef, ReactNode } 
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { AlertTriangle, BellRing, Loader2, X } from 'lucide-react';
 import { api, ActivityItem } from '../api';
 import { useToast } from '../components/Toast';
 import { cn } from '../components/cn';
+import { isTestEnv, exitEase, toastSpring } from '../lib/motion';
 import { SuccessCheck } from '../components/SuccessCheck';
 
 /**
@@ -84,22 +86,26 @@ export function ActivityCenterProvider({ children }: { children: ReactNode }) {
   return (
     <ActivityCtx.Provider value={{ items, ack }}>
       {children}
-      {dockItems.length > 0 && (
-        // Same corner as toasts but one notch lower z — a passing toast briefly overlays it, by design.
-        <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2 print:hidden">
+      {/* Same corner as toasts but one notch lower z — a passing toast briefly overlays it, by design. The
+          container is rendered UNCONDITIONALLY so AnimatePresence can play the LAST card's exit before the
+          dock empties (a `dockItems.length > 0` gate would unmount the whole thing and swallow that exit). */}
+      <div className="pointer-events-none fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2 print:hidden">
+        <AnimatePresence initial={false} mode="sync">
           {dockItems.map((item) => (
             <ActivityCard key={item.id} item={item} onDismiss={() => ack([item.id])} />
           ))}
-        </div>
-      )}
+        </AnimatePresence>
+      </div>
     </ActivityCtx.Provider>
   );
 }
 
-/** Icon-chip tone per status (kept as whole class strings so Tailwind's content scan never purges them). */
+/** Icon-chip tone per status (kept as whole class strings so Tailwind's content scan never purges them).
+ *  In-flight work (QUEUED/RUNNING) is informational blue — gold is reserved for the verification brand, not
+ *  a routine "still running" state. */
 const CARD_TONE: Record<ActivityItem['status'], string> = {
-  QUEUED: 'bg-gold/10 text-gold ring-gold/30',
-  RUNNING: 'bg-gold/10 text-gold ring-gold/30',
+  QUEUED: 'bg-info/10 text-info ring-info/30',
+  RUNNING: 'bg-info/10 text-info ring-info/30',
   WAITING_FOR_YOU: 'bg-warning/10 text-warning ring-warning/30',
   COMPLETED: 'bg-success/10 text-success ring-success/30',
   FAILED: 'bg-danger/10 text-danger ring-danger/30',
@@ -112,10 +118,12 @@ function StatusIcon({ status }: { status: ActivityItem['status'] }) {
   return <Loader2 className="h-4 w-4 animate-spin" />;
 }
 
-/** One dock card: status chip, label linking to the task, plain-language status line, dismiss X. */
+/** One dock card: status chip, label linking to the task, plain-language status line, dismiss X. Enters and
+ *  exits on the toast recipe (slide-in, height-collapse out, `layout` so siblings slide up); static in tests. */
 function ActivityCard({ item, onDismiss }: { item: ActivityItem; onDismiss: () => void }) {
   const { t } = useTranslation();
-  return (
+  const reduce = useReducedMotion();
+  const body = (
     <div className="pointer-events-auto overflow-hidden rounded-xl bg-surface p-3 shadow-pop ring-1 ring-border">
       <div className="flex items-start gap-3">
         <span className={cn('grid h-8 w-8 shrink-0 place-items-center rounded-lg ring-1', CARD_TONE[item.status])}>
@@ -137,5 +145,16 @@ function ActivityCard({ item, onDismiss }: { item: ActivityItem; onDismiss: () =
         </div>
       </div>
     </div>
+  );
+  if (isTestEnv) {
+    return body;
+  }
+  return (
+    <motion.div layout={!reduce} initial={reduce ? false : { opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }}
+      exit={reduce ? { opacity: 0, transition: { duration: 0 } }
+        : { opacity: 0, height: 0, marginTop: -8, transition: { duration: 0.15, ease: exitEase } }}
+      transition={toastSpring}>
+      {body}
+    </motion.div>
   );
 }

@@ -30,7 +30,7 @@ export function severitySlices(counts: Record<string, number>): DonutSlice[] {
     .map(({ key, value }) => ({ label: key, value, stroke: SEV_STROKE[key] ?? 'stroke-sev-info' }));
 }
 
-export function Donut({ slices, ariaLabel, centerValue, centerLabel, size = 120 }: {
+export function Donut({ slices, ariaLabel, centerValue, centerLabel, size = 140 }: {
   slices: DonutSlice[]; ariaLabel: string; centerValue?: React.ReactNode; centerLabel?: string; size?: number }) {
   const total = slices.reduce((n, s) => n + s.value, 0);
   let offset = 0;
@@ -50,12 +50,13 @@ export function Donut({ slices, ariaLabel, centerValue, centerLabel, size = 120 
         })}
       </g>
       {centerValue != null && <text x="70" y="68" textAnchor="middle" className="fill-ink-900 font-bold" fontSize="26">{centerValue}</text>}
-      {centerLabel && <text x="70" y="86" textAnchor="middle" className="fill-muted" fontSize="10">{centerLabel}</text>}
+      {/* fontSize 12 at the 140 render size renders ≈12px — above the ~10px legibility floor a VP reads at a glance. */}
+      {centerLabel && <text x="70" y="87" textAnchor="middle" className="fill-muted" fontSize="12">{centerLabel}</text>}
     </svg>
   );
 }
 
-export function Gauge({ value, max, ariaLabel, centerLabel, size = 120, tone }: {
+export function Gauge({ value, max, ariaLabel, centerLabel, size = 140, tone }: {
   value: number; max: number; ariaLabel: string; centerLabel?: string; size?: number; tone?: string }) {
   const pct = max > 0 ? Math.round((value / max) * 100) : 0;
   const shownPct = useCountUp(pct);
@@ -70,12 +71,21 @@ export function Gauge({ value, max, ariaLabel, centerLabel, size = 120, tone }: 
           strokeDasharray={`${len.toFixed(2)} ${(C - len).toFixed(2)}`} />
       </g>
       <text x="70" y="68" textAnchor="middle" className="fill-ink-900 font-bold" fontSize="24">{shownPct}%</text>
-      {centerLabel && <text x="70" y="86" textAnchor="middle" className="fill-muted" fontSize="10">{centerLabel}</text>}
+      {centerLabel && <text x="70" y="87" textAnchor="middle" className="fill-muted" fontSize="12">{centerLabel}</text>}
     </svg>
   );
 }
 
-export function Sparkline({ values, ariaLabel }: { values: number[]; ariaLabel: string }) {
+/** Line-colour token per chart tone → a text-* utility whose `currentColor` the stroke/fill inherit. Neutral
+ *  by default: a sparkline is data, not a call to action, so it shouldn't spend the brand red. */
+const TONE_TEXT: Record<ChartTone, string> = {
+  neutral: 'text-ink-700', brand: 'text-brand', success: 'text-success',
+  info: 'text-info', warning: 'text-warning', danger: 'text-danger',
+};
+export type ChartTone = 'neutral' | 'brand' | 'success' | 'info' | 'warning' | 'danger';
+
+export function Sparkline({ values, ariaLabel, tone = 'neutral' }:
+  { values: number[]; ariaLabel: string; tone?: ChartTone }) {
   if (values.length < 2) return <div role="img" aria-label={ariaLabel} className="h-20" />;
   const w = 320, h = 80;
   const max = Math.max(...values), min = Math.min(...values), range = (max - min) || 1;
@@ -86,9 +96,10 @@ export function Sparkline({ values, ariaLabel }: { values: number[]; ariaLabel: 
   const pts = coords.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(' ');
   const [lx, ly] = coords[coords.length - 1];
   return (
-    <svg viewBox={`0 0 ${w} ${h}`} role="img" aria-label={ariaLabel} preserveAspectRatio="none" className="chart-in h-20 w-full">
-      <polyline fill="none" className="spark-draw stroke-brand" pathLength={1} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" points={pts} />
-      <circle cx={lx.toFixed(1)} cy={ly.toFixed(1)} r={3.5} className="spark-dot fill-brand" />
+    <svg viewBox={`0 0 ${w} ${h}`} role="img" aria-label={ariaLabel} preserveAspectRatio="none"
+      className={`chart-in h-20 w-full ${TONE_TEXT[tone]}`}>
+      <polyline fill="none" className="spark-draw stroke-current" pathLength={1} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" points={pts} />
+      <circle cx={lx.toFixed(1)} cy={ly.toFixed(1)} r={3.5} className="spark-dot fill-current" />
     </svg>
   );
 }
@@ -122,7 +133,7 @@ export function ScoreRing({ score, size = 190, ariaLabel, centerLabel }: {
       </g>
       <text x="70" y="66" textAnchor="middle" className="fill-ink-900 font-bold tabular-nums" fontSize="34">{shown}</text>
       <text x="70" y="82" textAnchor="middle" className="fill-muted" fontSize="10">/100</text>
-      {centerLabel && <text x="70" y="96" textAnchor="middle" className="fill-muted" fontSize="8.5">{centerLabel}</text>}
+      {centerLabel && <text x="70" y="96" textAnchor="middle" className="fill-muted" fontSize="10">{centerLabel}</text>}
     </svg>
   );
 }
@@ -141,11 +152,12 @@ const TREND_PAD = { top: 12, right: 12, bottom: 22, left: 34 };
  * rendered OUTSIDE the SVG (crisp text at any zoom). Accepts an optional fixed y-domain (e.g. 50–100 for a
  * fidelity score) and a target reference line (e.g. the release gate at 90). Reduced-motion skips the draw-in.
  */
-export function TrendChart({ points, ariaLabel, tone = 'brand', domain, target, targetLabel, format }: {
+export function TrendChart({ points, ariaLabel, tone = 'neutral', domain, target, targetLabel, format }: {
   points: TrendPoint[];
   ariaLabel: string;
-  /** Line colour token base — 'brand' | 'success' | 'info' … maps to stroke-/fill-/text- utilities. */
-  tone?: 'brand' | 'success' | 'info' | 'warning' | 'danger';
+  /** Line colour token base — neutral (default) | 'brand' | 'success' | 'info' … maps to stroke-/fill-/text-
+   *  utilities. Neutral by default: a history chart is data, not an action, so it doesn't spend the brand red. */
+  tone?: ChartTone;
   /** Fixed [min,max] y-domain; omit to fit the data (with a little headroom). */
   domain?: [number, number];
   /** A horizontal reference line value (e.g. a target score). */
@@ -183,8 +195,8 @@ export function TrendChart({ points, ariaLabel, tone = 'brand', domain, target, 
   const area = `${line} L${x(points.length - 1).toFixed(1)} ${(TREND_H - TREND_PAD.bottom).toFixed(1)} `
     + `L${x(0).toFixed(1)} ${(TREND_H - TREND_PAD.bottom).toFixed(1)} Z`;
 
-  const stroke = { brand: 'stroke-brand', success: 'stroke-success', info: 'stroke-info', warning: 'stroke-warning', danger: 'stroke-danger' }[tone];
-  const fill = { brand: 'text-brand', success: 'text-success', info: 'text-info', warning: 'text-warning', danger: 'text-danger' }[tone];
+  const stroke = { neutral: 'stroke-current', brand: 'stroke-brand', success: 'stroke-success', info: 'stroke-info', warning: 'stroke-warning', danger: 'stroke-danger' }[tone];
+  const fill = TONE_TEXT[tone];
 
   const hp = hover != null ? points[hover] : null;
   const hx = hover != null ? x(hover) : 0;

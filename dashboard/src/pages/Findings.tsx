@@ -6,6 +6,7 @@ import { Bug, FileText, CheckCircle2, AlertTriangle, Check, X, ExternalLink, Dow
 import { api, Finding } from '../api';
 import { Badge, Button, Card, CardBody, EmptyState, ErrorState, Field, Input, PageHeader, TableSkeleton, Table, Td, Th, Row, SortableTh, useSort } from '../components/ui';
 import { Modal } from '../components/Modal';
+import { Tooltip } from '../components/Tooltip';
 import { useToast } from '../components/Toast';
 import { severityBadge, TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
@@ -150,7 +151,7 @@ export function Findings() {
             <CardBody className="p-0">
               <Table head={<>
                 <Th className="w-10">
-                  <input type="checkbox" aria-label={t('findings.selectAll')} className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
+                  <input type="checkbox" aria-label={t('findings.selectAll')} className="h-4 w-4 accent-brand"
                     checked={allSelected} onChange={toggleAll} />
                 </Th>
                 <SortableTh label={t('findings.colSeverity')} sortKey="severity" sort={sort} />
@@ -161,23 +162,29 @@ export function Findings() {
                 <Th>{t('findings.colEvidence')}</Th>
                 <SortableTh label={t('findings.colReviewStatus')} sortKey="status" sort={sort} className="text-right" />
               </>}>
-                {shown.map((f) => (
-                  <Row key={f.id}>
+                {shown.map((f, i) => (
+                  <Row key={f.id} index={i}>
                     <Td>
                       {raiseable(f) && (
-                        <input type="checkbox" aria-label={t('findings.selectRow', { endpoint: f.endpoint })} className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
+                        <input type="checkbox" aria-label={t('findings.selectRow', { endpoint: f.endpoint })} className="h-4 w-4 accent-brand"
                           checked={selected.has(f.id)} onChange={() => toggle(f.id)} />
                       )}
                     </Td>
                     <Td><Badge className={severityBadge(f.severity)}>{enumLabel(t, 'severity', f.severity)}</Badge></Td>
                     <Td>
                       {f.confidence ? (
-                        <span className={cn('inline-flex items-center gap-1 text-sm',
-                          riskyConfidence(f) ? 'font-medium text-warning' : 'text-muted')}
-                          title={riskyConfidence(f) ? t('findings.riskyConfidenceTooltip') : undefined}>
-                          {enumLabel(t, 'confidence', f.confidence)}
-                          {riskyConfidence(f) && <AlertTriangle className="h-3.5 w-3.5" />}
-                        </span>
+                        riskyConfidence(f) ? (
+                          <Tooltip label={t('findings.riskyConfidenceTooltip')}>
+                            <span className="inline-flex items-center gap-1 text-sm font-medium text-warning">
+                              {enumLabel(t, 'confidence', f.confidence)}
+                              <AlertTriangle className="h-3.5 w-3.5" />
+                            </span>
+                          </Tooltip>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-sm text-muted">
+                            {enumLabel(t, 'confidence', f.confidence)}
+                          </span>
+                        )
                       ) : <span className="text-muted">—</span>}
                     </Td>
                     <Td className="text-muted">{enumLabel(t, 'layer', f.layer)}</Td>
@@ -211,14 +218,18 @@ export function Findings() {
                           <span className="inline-flex items-center gap-1 text-sm text-success"><CheckCircle2 className="h-4 w-4" /> {t('findings.defectRaised')}</span>
                         ) : (
                           <>
-                            <Button size="sm" variant="ghost" title={t('findings.acceptTooltip')}
-                              loading={busy(f, 'ACCEPTED')} onClick={() => disposition.mutate({ f, status: 'ACCEPTED' })}>
-                              <Check className="h-4 w-4 text-success" />
-                            </Button>
-                            <Button size="sm" variant="ghost" title={t('findings.rejectTooltip')}
-                              loading={busy(f, 'REJECTED')} onClick={() => setRejectFor(f)}>
-                              <X className="h-4 w-4 text-danger" />
-                            </Button>
+                            <Tooltip label={t('findings.acceptTooltip')}>
+                              <Button size="sm" variant="ghost" aria-label={t('findings.acceptTooltip')}
+                                loading={busy(f, 'ACCEPTED')} onClick={() => disposition.mutate({ f, status: 'ACCEPTED' })}>
+                                <Check className="h-4 w-4 text-success" />
+                              </Button>
+                            </Tooltip>
+                            <Tooltip label={t('findings.rejectTooltip')}>
+                              <Button size="sm" variant="ghost" aria-label={t('findings.rejectTooltip')}
+                                loading={busy(f, 'REJECTED')} onClick={() => setRejectFor(f)}>
+                                <X className="h-4 w-4 text-danger" />
+                              </Button>
+                            </Tooltip>
                             <Button size="sm" variant="secondary" onClick={() => setDefectFor(f)}><Bug className="h-4 w-4" /> {t('findings.raiseDefect')}</Button>
                           </>
                         )}

@@ -151,5 +151,17 @@ describe('Snyk page', () => {
     expect(await screen.findByText('Upgrade to 3.18.0')).toBeInTheDocument()
     expect(screen.getByText('No safe version — tracked only')).toBeInTheDocument()
     expect(screen.getByText('com.fasterxml.jackson.core:jackson-databind')).toBeInTheDocument()
+
+    // Sort headers exercise every issue accessor (severity rank, package, project, cve, cvss, fixability).
+    // Exact names — the fixable row also has a "Fix…" action button, so a /Fix/ regex would be ambiguous.
+    for (const col of ['Severity', 'Package', 'Project', 'CVE', 'CVSS', 'Fix']) {
+      await user.click(screen.getByRole('button', { name: col }))
+    }
+    // Clicking Package again (it wasn't the last-clicked column) makes it the active key, ascending.
+    await user.click(screen.getByRole('button', { name: 'Package' }))
+    expect(screen.getByText('org.apache.commons:commons-lang3')).toBeInTheDocument()
+    expect(screen.getByText('com.fasterxml.jackson.core:jackson-databind')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Package' }).closest('th'))
+      .toHaveAttribute('aria-sort', 'ascending')
   })
 })

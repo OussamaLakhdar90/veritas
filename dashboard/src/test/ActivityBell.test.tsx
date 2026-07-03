@@ -36,12 +36,14 @@ describe('Activity bell', () => {
     expect(await screen.findByText('Snyk page')).toBeInTheDocument()
   })
 
-  it('uses the brand colour (not red) when no alert is Critical', async () => {
+  it('uses the info colour (not red, not brand-red) when no alert is Critical', async () => {
     server.use(http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([alert('a1', 'high')])))
     renderPage(<ActivityBell />)
     const badge = await screen.findByText('1')
-    expect(badge).toHaveClass('bg-brand')
+    // A non-critical notification count is informational, not an alarm — info blue, never brand red.
+    expect(badge).toHaveClass('bg-info')
     expect(badge).not.toHaveClass('bg-danger')
+    expect(badge).not.toHaveClass('bg-brand')
   })
 
   it('renders no count badge and an empty popover line when nothing needs attention', async () => {
@@ -62,9 +64,9 @@ describe('Activity bell', () => {
     const user = userEvent.setup()
     renderPage(<ActivityBell />)
 
-    // 1 unseen alert + 1 attention activity item = 2 (and no Critical → brand colour).
+    // 1 unseen alert + 1 attention activity item = 2 (and no Critical → info blue, not an alarm).
     const badge = await screen.findByText('2')
-    expect(badge).toHaveClass('bg-brand')
+    expect(badge).toHaveClass('bg-info')
 
     await user.click(screen.getByRole('button', { name: 'Notifications' }))
     const popover = bellRoot()

@@ -6,7 +6,7 @@
 export const isTestEnv = import.meta.env.MODE === 'test';
 
 /** Named durations (seconds). fast = hover/press, base = reveals, slow = overlay emphasis, progress = bars,
- *  chart sweeps and count-ups. Mirrored in tailwind.config (duration-fast / duration-base). */
+ *  chart sweeps and count-ups. Mirrored in tailwind.config (duration-fast / -base / -slow / -progress). */
 export const dur = { fast: 0.15, base: 0.24, slow: 0.4, progress: 0.7 } as const;
 
 /** A calm ease-out used for page enters + most reveals. */

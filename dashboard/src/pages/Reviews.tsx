@@ -130,7 +130,7 @@ export function Reviews() {
           {candidates != null && candidates.length > 0 && (
             <div className="rounded-lg border border-border">
               <label className="flex items-center gap-2 px-3 py-2 text-sm text-ink-700">
-                <input type="checkbox" className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
+                <input type="checkbox" className="h-4 w-4 accent-brand"
                   checked={allSelected} onChange={toggleAll} aria-label={t('reviews.selectAll')} />
                 {t('reviews.selectedCount', { selected: selected.size, total: candidates.length })}
               </label>
@@ -138,7 +138,7 @@ export function Reviews() {
                 {candidates.map((c) => (
                   <Row key={c.key}>
                     <Td><input type="checkbox" aria-label={t('reviews.selectKey', { key: c.key })}
-                      className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
+                      className="h-4 w-4 accent-brand"
                       checked={selected.has(c.key)} onChange={() => toggle(c.key)} /></Td>
                     <Td className="font-mono text-xs text-ink-900">{c.key}</Td>
                     <Td className="text-ink-900">{c.summary ?? '—'}</Td>
@@ -152,7 +152,7 @@ export function Reviews() {
 
           <div className="flex items-center justify-between">
             <label className="inline-flex items-center gap-2 text-sm text-ink-700">
-              <input type="checkbox" className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
+              <input type="checkbox" className="h-4 w-4 accent-brand"
                 checked={apply} onChange={(e) => setApply(e.target.checked)} />
               {t('reviews.applyLabel')}
             </label>

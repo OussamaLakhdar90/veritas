@@ -37,10 +37,14 @@ export default {
         sm: ['13px', '20px'],
         md: ['15px', '22px'],
         lg: ['18px', '26px'],
+        xl: ['20px', '28px'],
         title: ['24px', '30px'],
         display: ['28px', '34px'],
+        stat: ['36px', '40px'],   // large tabular numerals (KPI tiles, confidence readouts)
       },
       borderRadius: { md: '6px', lg: '10px', xl: '14px' },
+      /* One-off whole-pixel spacing for a 18px icon box — the guard bans arbitrary h-[..px]/w-[..px]. */
+      spacing: { '4.5': '18px' },
       /* Elevation reads from CSS vars so dark mode can deepen the alpha (a single light-tuned shadow is
        * invisible on a navy surface). card = resting, lift = interactive hover, pop = overlays only. */
       boxShadow: {
@@ -48,7 +52,7 @@ export default {
         lift: 'var(--shadow-lift)',
         pop: 'var(--shadow-pop)',
       },
-      transitionDuration: { fast: '150ms', base: '240ms' },
+      transitionDuration: { fast: '150ms', base: '240ms', slow: '400ms', progress: '700ms' },
       /* Named `calm`, NOT `ease-out` — that would silently shadow Tailwind's built-in ease-out. */
       transitionTimingFunction: { calm: 'cubic-bezier(0.2, 0.7, 0.3, 1)' },
     },

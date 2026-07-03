@@ -106,10 +106,14 @@ describe('Findings — sortable columns', () => {
 
 describe('Findings — risky confidence + evidence link', () => {
   it('flags a high-severity low-confidence finding with a verify-before-acting warning', async () => {
+    const user = userEvent.setup()
     renderFindings([blocker])
     expect(await screen.findByText(blocker.summary)).toBeInTheDocument()
-    expect(screen.getByTitle(/only low-confidence here — verify before acting/i)).toBeInTheDocument()
     expect(screen.getByText('Low confidence')).toBeInTheDocument()
+    // The warning explanation now lives in a hover/focus Tooltip (role=tooltip), not a native title=.
+    await user.hover(screen.getByText('Low confidence'))
+    expect(await screen.findByRole('tooltip', { name: /only low-confidence here — verify before acting/i }))
+      .toBeInTheDocument()
   })
 
   it('renders the code evidence as an external Bitbucket link when codeUrl is present', async () => {

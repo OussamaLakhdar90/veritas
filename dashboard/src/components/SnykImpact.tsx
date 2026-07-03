@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { ArrowRight, Clock, GitPullRequest, ShieldCheck, Sparkles } from 'lucide-react';
+import { ArrowRight, Clock, GitPullRequestArrow, ShieldCheck, Sparkles } from 'lucide-react';
 import { api } from '../api';
 import { Card, CardBody } from './ui';
 import { SnykLogo } from './SnykLogo';
@@ -68,7 +68,7 @@ export function SnykImpactCard({ showLink = true }: { showLink?: boolean }) {
                 {s.critical}
               </span>
               <span className="text-sm text-ink-700">{t('snyk.sevCritical')}</span>
-              {s.critical > 0 && <span className="ml-1 h-2 w-2 animate-pulse rounded-full bg-sev-critical" aria-hidden="true" />}
+              {s.critical > 0 && <span className="ml-1 h-2 w-2 motion-safe:animate-pulse rounded-full bg-sev-critical" aria-hidden="true" />}
             </div>
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm">
               {SEV.slice(1).map((sev) => (
@@ -89,7 +89,7 @@ export function SnykImpactCard({ showLink = true }: { showLink?: boolean }) {
             <p className="mb-2 text-2xs font-semibold uppercase tracking-wide text-muted">{t('snyk.impact.fixed')}</p>
             <div className="grid grid-cols-2 gap-x-4 gap-y-2">
               <Stat icon={<ShieldCheck className="h-3.5 w-3.5 text-success" />} value={s.fixesMerged} label={t('snyk.impact.merged')} />
-              <Stat icon={<GitPullRequest className="h-3.5 w-3.5 text-gold" />} value={s.prsOpened} label={t('snyk.impact.prs')} />
+              <Stat icon={<GitPullRequestArrow className="h-3.5 w-3.5 text-gold" />} value={s.prsOpened} label={t('snyk.impact.prs')} />
               <Stat icon={<Clock className="h-3.5 w-3.5 text-muted" />} value={s.fixesInProgress} label={t('snyk.impact.inProgress')} />
               <Stat icon={<Sparkles className="h-3.5 w-3.5 text-brand" />} value={formatMoney(s.llmCostUsd)} label={t('snyk.impact.aiCost')} />
             </div>

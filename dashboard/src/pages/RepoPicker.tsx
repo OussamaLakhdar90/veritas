@@ -181,6 +181,7 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
   const [branch, setBranch] = useState(repo.defaultBranch || '');
   const [specKind, setSpecKind] = useState<'REPO_PATH' | 'LIVE_DOCS' | 'CONFLUENCE'>('REPO_PATH');
   const [specRef, setSpecRef] = useState('openapi.yaml');
+  const [triedStart, setTriedStart] = useState(false);   // after a start attempt, an empty spec ref shows inline
   const [thoroughness, setThoroughness] = useState<'ECONOMY' | 'STANDARD' | 'DEEP'>('STANDARD');
   const [starting, setStarting] = useState(false);
   const [scanId, setScanId] = useState<string | null>(null);
@@ -233,6 +234,7 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
   }, [done, scan, navigated]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const start = async () => {
+    setTriedStart(true);
     if (!specRef.trim()) { toast.push('error', t('repos.toastEnterField', { field: SPEC.field.toLowerCase() })); return; }
     setStarting(true);
     try {
@@ -312,7 +314,8 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
                 <option value="CONFLUENCE">{t('repos.specConfluenceLabel')}</option>
               </Select>
             </Field>
-            <Field label={SPEC.field} hint={SPEC.hint}>
+            <Field label={SPEC.field} hint={SPEC.hint}
+              error={triedStart && !specRef.trim() ? t('repos.toastEnterField', { field: SPEC.field.toLowerCase() }) : undefined}>
               <div className="relative">
                 <FileCode className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
                 <Input className="pl-8" placeholder={SPEC.placeholder} value={specRef}
@@ -383,7 +386,7 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
           </span>
         </div>
         <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/60">
-          <div className={cn('h-full rounded-full transition-all duration-700',
+          <div className={cn('h-full rounded-full transition-all duration-progress',
             failed ? 'bg-danger' : 'bg-gold')}
             style={{ width: `${pct}%` }} />
         </div>

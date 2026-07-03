@@ -46,7 +46,7 @@ function mountGets(over: {
   if (over.copilot) server.use(http.get('*/api/v1/settings/copilot/status', () => HttpResponse.json(over.copilot)))
 }
 
-/** The card whose <h3> heading is exactly `title` (synchronous — heading must already be mounted). */
+/** The card whose <h2> heading is exactly `title` (synchronous — heading must already be mounted). */
 function card(title: string): HTMLElement {
   const heading = screen.getByRole('heading', { name: title })
   // CardHeader → Card: the heading lives inside the Card's rounded-xl root.

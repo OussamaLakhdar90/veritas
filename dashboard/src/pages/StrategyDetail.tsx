@@ -117,7 +117,7 @@ function StrategySection({ id, sectionKey, label, value, approved }: {
   });
 
   return (
-    <Card className="mb-4">
+    <Card className="mb-6">
       <CardHeader title={label} action={
         approved ? null : (
           <button className="text-sm font-medium text-gold hover:underline"
@@ -158,7 +158,7 @@ function ScorecardBanner({ sc }: { sc: StrategyScorecard }) {
   const { t } = useTranslation();
   const ok = (sc.verdict || '').toUpperCase() === 'OK';
   return (
-    <Card className={`mb-5 border-l-4 ${ok ? 'border-l-success' : 'border-l-warning'}`}>
+    <Card className={`mb-6 border-l-4 ${ok ? 'border-l-success' : 'border-l-warning'}`}>
       <CardBody className="space-y-3">
         <div className="flex flex-wrap items-center gap-3">
           <Badge className={ok ? TONE.ok : TONE.warn}>{sc.verdict}</Badge>
@@ -247,7 +247,7 @@ export function StrategyDetail() {
       {scorecard && <ScorecardBanner sc={scorecard} />}
 
       {approved && (
-        <Card className="mb-5 border-l-4 border-l-success"><CardBody className="text-sm text-ink-900">
+        <Card className="mb-6 border-l-4 border-l-success"><CardBody className="text-sm text-ink-900">
           <Trans i18nKey="strategyDetail.lockedBanner">
             This version is <span className="font-semibold">approved</span> and locked. Release plans for this service derive from it. To change it, generate a new version from the Test Strategy page.
           </Trans>
@@ -258,7 +258,7 @@ export function StrategyDetail() {
         <StrategySection key={key} id={s.id} sectionKey={key} label={t(`strategyDetail.${labelKey}`)} value={deliverable[key]} approved={approved} />
       ))}
 
-      <Card className="mb-5">
+      <Card className="mb-6">
         <CardHeader title={<span className="inline-flex items-center gap-2"><History className="h-4 w-4" /> {t('strategyDetail.versionHistory')}</span>}
           subtitle={t('strategyDetail.versionHistorySubtitle')} />
         <CardBody className="p-0">

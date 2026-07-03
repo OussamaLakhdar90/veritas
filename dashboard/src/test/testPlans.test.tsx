@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { server } from './msw/server'
@@ -90,6 +90,28 @@ describe('TestPlans page', () => {
 
     expect(await screen.findByText('Plan ready — 7 matched, 3 gaps, 2 created.')).toBeInTheDocument()
     expect(posted).toEqual({ fixVersion: '8.2', projectKey: 'CIAM', createGaps: true })
+  })
+
+  it('sorts the plans list by each column header', async () => {
+    const a = plan({ id: 'tp-a', serviceName: 'aaa-svc', kind: 'RELEASE', fixVersion: '1.0', status: 'PROPOSED', confidence: 20, riskCount: 1, estCostUsd: 0.01 })
+    const b = plan({ id: 'tp-b', serviceName: 'zzz-svc', kind: 'RELEASE', fixVersion: '9.9', status: 'APPROVED', confidence: 99, riskCount: 9, estCostUsd: 9.99 })
+    server.use(http.get('*/api/v1/test-plans', () => HttpResponse.json([a, b])))
+    const user = userEvent.setup()
+    renderTestPlans()
+
+    await screen.findByText('aaa-svc')
+    const firstRow = () => screen.getAllByRole('row')[1]
+    // Default sort is service asc → aaa first. Clicking Service flips to desc → zzz first.
+    await user.click(screen.getByRole('button', { name: /Service/ }))
+    expect(within(firstRow()).getByText('zzz-svc')).toBeInTheDocument()
+    // Exercise the remaining accessors (kind/fixVersion/status/risks/cost).
+    for (const col of ['Kind', 'Fix version', 'Status', 'Risks', 'Est. cost']) {
+      await user.click(screen.getByRole('button', { name: col }))
+    }
+    // Confidence: first click = asc (20% first), second = desc (99% first).
+    await user.click(screen.getByRole('button', { name: 'Confidence' }))
+    await user.click(screen.getByRole('button', { name: 'Confidence' }))
+    expect(within(firstRow()).getByText('99%')).toBeInTheDocument()
   })
 
   it('shows an error toast when the trigger POST fails', async () => {

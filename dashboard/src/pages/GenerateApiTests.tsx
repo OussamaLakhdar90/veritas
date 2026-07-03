@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Search, ArrowRight, ArrowLeft, Plus, Check, AlertTriangle, Sparkles, GitPullRequest, FileCode, GitPullRequestArrow, ExternalLink, Ticket, X, Lock, Trash2, KeyRound } from 'lucide-react';
+import { Search, ArrowRight, ArrowLeft, Plus, Check, AlertTriangle, Sparkles, FileCode, GitPullRequestArrow, ExternalLink, Ticket, X, Lock, Trash2, KeyRound } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { api, Repo, TestGenPlan, TestGenPlanItem, CodegenRun, Scope, ServiceAuthGroup } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, Field, Input, PageContainer, PageHeader, Select, Skeleton, Table, Td, Th, Row } from '../components/ui';
@@ -60,6 +60,7 @@ export function GenerateApiTests() {
   const { blocked, notice } = useCopilotGate();
   const [step, setStep] = useState(1);
   const [appId, setAppId] = useState('');
+  const [triedFind, setTriedFind] = useState(false);   // after a Find click, an empty Git app id shows inline
   const [repos, setRepos] = useState<Repo[]>([]);
   const [serviceRepo, setServiceRepo] = useState('');
   const [serviceBranch, setServiceBranch] = useState('');
@@ -187,14 +188,15 @@ export function GenerateApiTests() {
           <CardBody className="space-y-4">
             <div className="flex items-end gap-2">
               <div className="flex-1">
-                <Field label={t('genApi.gitAppLabel')} hint={t('genApi.gitAppHint')}>
+                <Field label={t('genApi.gitAppLabel')} hint={t('genApi.gitAppHint')}
+                  error={triedFind && !appId.trim() ? t('genApi.enterGitAppId') : undefined}>
                   <Input placeholder="APP7571" value={appId} autoFocus
                     onChange={(e) => { setAppId(e.target.value); setRepos([]); setServiceRepo(''); }}
                     onKeyDown={(e) => e.key === 'Enter' && appId.trim() && loadRepos.mutate()} />
                 </Field>
               </div>
               <Button variant="secondary" loading={loadRepos.isPending}
-                onClick={() => appId.trim() ? loadRepos.mutate() : toast.push('error', t('genApi.enterGitAppId'))}>
+                onClick={() => { setTriedFind(true); appId.trim() ? loadRepos.mutate() : toast.push('error', t('genApi.enterGitAppId')); }}>
                 <Search className="h-4 w-4" /> {t('genApi.findRepos')}
               </Button>
             </div>
@@ -340,7 +342,7 @@ export function GenerateApiTests() {
                   </Button>
                 </div>
                 <p className="flex items-center gap-1.5 text-xs text-muted">
-                  <GitPullRequest className="h-3.5 w-3.5" /> {t('genApi.nextTokensPrefix')} <span className="font-mono">{outputRepo || '—'}</span> {t('genApi.nextTokensSuffix')}
+                  <GitPullRequestArrow className="h-3.5 w-3.5" /> {t('genApi.nextTokensPrefix')} <span className="font-mono">{outputRepo || '—'}</span> {t('genApi.nextTokensSuffix')}
                 </p>
               </>
             )}
@@ -456,7 +458,7 @@ export function GenerateApiTests() {
             <div className="flex items-center justify-between border-t border-border pt-4">
               <Button variant="secondary" onClick={() => setStep(4)}><ArrowLeft className="h-4 w-4" /> {t('genApi.back')}</Button>
               <p className="flex items-center gap-1.5 text-xs text-muted">
-                <GitPullRequest className="h-3.5 w-3.5" /> {t('genApi.openingPrNote')}
+                <GitPullRequestArrow className="h-3.5 w-3.5" /> {t('genApi.openingPrNote')}
               </p>
             </div>
           </CardBody>
@@ -553,7 +555,7 @@ function Tile({ label, value, tone }: { label: string; value: number; tone?: str
   return (
     <div className="rounded-lg bg-ink-50 p-3">
       <p className={cn('text-xs', tone ?? 'text-muted')}>{label}</p>
-      <p className="mt-0.5 text-2xl font-semibold tabular-nums text-ink-900">{value}</p>
+      <p className="mt-0.5 text-title font-semibold tabular-nums text-ink-900">{value}</p>
     </div>
   );
 }
@@ -568,7 +570,7 @@ function PlanRow({ it, selected, toggle }: { it: TestGenPlanItem; selected: Set<
     <Row>
       <Td>
         {selectable ? (
-          <input type="checkbox" aria-label={t('genApi.selectEndpoint', { sig })} className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
+          <input type="checkbox" aria-label={t('genApi.selectEndpoint', { sig })} className="h-4 w-4 accent-brand"
             checked={selected.has(sig)} onChange={() => toggle(sig)} />
         ) : <span className="inline-block h-4 w-4" />}
       </Td>

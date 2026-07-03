@@ -6,6 +6,7 @@ import { ClipboardList, Play, FileText, ExternalLink, ScrollText, ArrowRight } f
 import { api } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Field, PageHeader, Select, TableSkeleton, Table, Td, Th, Row, Textarea } from '../components/ui';
 import { useToast } from '../components/Toast';
+import { Tooltip } from '../components/Tooltip';
 import { ServiceField } from '../components/ServiceField';
 import { useCopilotGate } from '../lib/copilotAuth';
 import { TONE } from '../theme/tokens';
@@ -81,19 +82,20 @@ export function TestStrategy() {
           <CardHeader title={t('testStrategy.strategiesForService', { service: loaded })} />
           <CardBody className="p-0">
             <Table head={<><Th>{t('testStrategy.columnStatus')}</Th><Th className="text-right">{t('testStrategy.columnConfidence')}</Th><Th>{t('testStrategy.columnCreated')}</Th><Th /></>}>
-              {rows.map((s) => (
-                <Row key={s.id}>
+              {rows.map((s, i) => (
+                <Row key={s.id} index={i}>
                   <Td><Badge className={s.status === 'APPROVED' ? TONE.ok : TONE.info}>{enumLabel(t, 'strategyStatus', s.status ?? 'DRAFT')}</Badge></Td>
                   <Td className="text-right tabular-nums text-ink-900">{s.confidence != null ? `${Math.round(s.confidence)}%` : '—'}</Td>
                   <Td className="text-muted">{formatDateTime(s.createdAt)}</Td>
                   <Td className="text-right">
                     <div className="inline-flex items-center gap-4">
                       {s.source === 'multi-source' && (
-                        <a href={api.strategyWhyDocUrl(s.id)} target="_blank" rel="noreferrer"
-                          title={t('testStrategy.evidenceTooltip')}
-                          className="inline-flex items-center gap-1 text-sm font-medium text-gold hover:underline">
-                          <ScrollText className="h-3.5 w-3.5" /> {t('testStrategy.evidence')} <ExternalLink className="h-3 w-3" />
-                        </a>
+                        <Tooltip label={t('testStrategy.evidenceTooltip')}>
+                          <a href={api.strategyWhyDocUrl(s.id)} target="_blank" rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-sm font-medium text-gold hover:underline">
+                            <ScrollText className="h-3.5 w-3.5" /> {t('testStrategy.evidence')} <ExternalLink className="h-3 w-3" />
+                          </a>
+                        </Tooltip>
                       )}
                       <a href={api.strategyRationaleUrl(s.id)} target="_blank" rel="noreferrer"
                         className="inline-flex items-center gap-1 text-sm font-medium text-gold hover:underline">

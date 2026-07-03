@@ -26,7 +26,7 @@ describe('Findings disposition', () => {
     renderFindings()
 
     expect(await screen.findByText(finding.summary)).toBeInTheDocument()
-    await user.click(screen.getByTitle(/Accept — this is a real difference/))
+    await user.click(screen.getByRole('button', { name: /Accept — this is a real difference/ }))
     expect(await screen.findByText('Marked Accepted.')).toBeInTheDocument()
   })
 
@@ -39,7 +39,7 @@ describe('Findings disposition', () => {
     renderFindings()
 
     expect(await screen.findByText(finding.summary)).toBeInTheDocument()
-    await user.click(screen.getByTitle(/Reject — not applicable/))
+    await user.click(screen.getByRole('button', { name: /Reject — not applicable/ }))
     expect(await screen.findByText('Reject this finding?')).toBeInTheDocument()   // the confirm modal (was destructive)
     await user.click(screen.getByRole('button', { name: /Reject finding/ }))
     expect(await screen.findByText('Marked Rejected.')).toBeInTheDocument()
@@ -55,7 +55,7 @@ describe('Findings disposition', () => {
     renderFindings()
 
     expect(await screen.findByText(finding.summary)).toBeInTheDocument()
-    await user.click(screen.getByTitle(/Accept — this is a real difference/))
+    await user.click(screen.getByRole('button', { name: /Accept — this is a real difference/ }))
     expect(await screen.findByRole('alert')).toBeInTheDocument()   // an error toast, not a false "Marked Accepted."
   })
 })

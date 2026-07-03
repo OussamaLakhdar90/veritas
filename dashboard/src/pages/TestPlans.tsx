@@ -4,11 +4,24 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ClipboardList, Play, ArrowRight } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Field, Input, PageHeader, TableSkeleton, Table, Td, Th, Row } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Field, Input, PageHeader, TableSkeleton, Table, Td, Th, Row, SortableTh, useSort } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { TONE } from '../theme/tokens';
 import { enumLabel } from '../lib/enumLabels';
 import { formatMoney } from '../lib/format';
+
+/** Sort accessors — module-level for a stable reference (useSort memoizes on it). */
+type PlanRow = { serviceName?: string; kind?: string; fixVersion?: string | null; status?: string;
+  confidence?: number | null; riskCount?: number | null; estCostUsd?: number | null };
+const PLAN_ACCESSORS: Record<string, (p: PlanRow) => string | number> = {
+  service: (p) => p.serviceName ?? '',
+  kind: (p) => p.kind ?? '',
+  fixVersion: (p) => p.fixVersion ?? '',
+  status: (p) => p.status ?? '',
+  confidence: (p) => p.confidence ?? -1,
+  risks: (p) => p.riskCount ?? -1,
+  cost: (p) => p.estCostUsd ?? -1,
+};
 
 export function TestPlans() {
   const { t } = useTranslation();
@@ -20,6 +33,7 @@ export function TestPlans() {
   const [fixVersion, setFixVersion] = useState('');
   const [projectKey, setProjectKey] = useState('');
   const [createGaps, setCreateGaps] = useState(false);
+  const [submitted, setSubmitted] = useState(false);   // once submitted, empty required fields show inline errors
 
   const trigger = useMutation({
     mutationFn: () => api.triggerReleasePlan(svc, { fixVersion, projectKey: projectKey || undefined, createGaps }),
@@ -30,7 +44,14 @@ export function TestPlans() {
     onError: (e: Error) => toast.push('error', e.message),
   });
 
+  const submit = () => {
+    setSubmitted(true);
+    if (svc.trim() && fixVersion.trim()) trigger.mutate();
+    else toast.push('error', t('testPlans.requiredFieldsToast'));
+  };
+
   const plans = q.data ?? [];
+  const { sorted, ...sort } = useSort(plans, { key: 'service', dir: 'asc' }, PLAN_ACCESSORS);
   return (
     <div>
       <PageHeader title={t('testPlans.pageTitle')} subtitle={t('testPlans.pageSubtitle')} />
@@ -39,18 +60,21 @@ export function TestPlans() {
         <CardHeader title={t('testPlans.newPlanTitle')} subtitle={t('testPlans.newPlanSubtitle')} />
         <CardBody>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Field label={t('testPlans.serviceLabel')}><Input placeholder="ciam-policies" value={svc} onChange={(e) => setSvc(e.target.value)} /></Field>
-            <Field label={t('testPlans.fixVersionLabel')}><Input placeholder="8.2" value={fixVersion} onChange={(e) => setFixVersion(e.target.value)} /></Field>
+            <Field label={t('testPlans.serviceLabel')} error={submitted && !svc.trim() ? t('testPlans.fieldRequired') : undefined}>
+              <Input placeholder="ciam-policies" value={svc} onChange={(e) => setSvc(e.target.value)} />
+            </Field>
+            <Field label={t('testPlans.fixVersionLabel')} error={submitted && !fixVersion.trim() ? t('testPlans.fieldRequired') : undefined}>
+              <Input placeholder="8.2" value={fixVersion} onChange={(e) => setFixVersion(e.target.value)} />
+            </Field>
             <Field label={t('testPlans.projectKeyLabel')} hint={t('testPlans.projectKeyHint')}><Input placeholder="CIAM" value={projectKey} onChange={(e) => setProjectKey(e.target.value)} /></Field>
           </div>
           <div className="mt-4 flex items-center justify-between">
             <label className="inline-flex items-center gap-2 text-sm text-ink-700">
-              <input type="checkbox" className="h-4 w-4 rounded border-border text-brand focus:ring-brand/40"
+              <input type="checkbox" className="h-4 w-4 accent-brand"
                 checked={createGaps} onChange={(e) => setCreateGaps(e.target.checked)} />
               {t('testPlans.createGapTestsLabel')}
             </label>
-            <Button loading={trigger.isPending}
-              onClick={() => (svc && fixVersion) ? trigger.mutate() : toast.push('error', t('testPlans.requiredFieldsToast'))}>
+            <Button loading={trigger.isPending} onClick={submit}>
               <Play className="h-4 w-4" /> {t('testPlans.generatePlanButton')}
             </Button>
           </div>
@@ -66,9 +90,18 @@ export function TestPlans() {
       ) : (
         <Card>
           <CardBody className="p-0">
-            <Table head={<><Th>{t('testPlans.colService')}</Th><Th>{t('testPlans.colKind')}</Th><Th>{t('testPlans.colFixVersion')}</Th><Th>{t('testPlans.colStatus')}</Th><Th className="text-right">{t('testPlans.colConfidence')}</Th><Th className="text-right">{t('testPlans.colRisks')}</Th><Th className="text-right">{t('testPlans.colEstCost')}</Th><Th /></>}>
-              {plans.map((p) => (
-                <Row key={p.id}>
+            <Table head={<>
+              <SortableTh label={t('testPlans.colService')} sortKey="service" sort={sort} />
+              <SortableTh label={t('testPlans.colKind')} sortKey="kind" sort={sort} />
+              <SortableTh label={t('testPlans.colFixVersion')} sortKey="fixVersion" sort={sort} />
+              <SortableTh label={t('testPlans.colStatus')} sortKey="status" sort={sort} />
+              <SortableTh label={t('testPlans.colConfidence')} sortKey="confidence" sort={sort} className="text-right" />
+              <SortableTh label={t('testPlans.colRisks')} sortKey="risks" sort={sort} className="text-right" />
+              <SortableTh label={t('testPlans.colEstCost')} sortKey="cost" sort={sort} className="text-right" />
+              <Th />
+            </>}>
+              {sorted.map((p, i) => (
+                <Row key={p.id} index={i}>
                   <Td className="font-medium text-ink-900">{p.serviceName}</Td>
                   <Td className="text-muted">{enumLabel(t, 'planKind', p.kind)}</Td>
                   <Td className="text-muted">{p.fixVersion ?? '—'}</Td>

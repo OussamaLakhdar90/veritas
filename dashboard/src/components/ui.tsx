@@ -1,10 +1,10 @@
 import React from 'react';
-import { Loader2, ArrowUp, ArrowDown, ArrowUpDown, TrendingUp, TrendingDown, Minus, RefreshCw } from 'lucide-react';
-import { useReducedMotion } from 'framer-motion';
+import { Loader2, ArrowUp, ArrowDown, ArrowUpDown, TrendingUp, TrendingDown, Minus, RefreshCw, ChevronDown } from 'lucide-react';
+import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { cn } from './cn';
 import { TONE } from '../theme/tokens';
-import { isTestEnv } from '../lib/motion';
+import { isTestEnv, pageTransition, rowDelay } from '../lib/motion';
 import { formatRelativeEpoch } from '../lib/format';
 
 /** Animate 0 → target on mount; resolves instantly under reduced-motion or in tests (no rAF flicker / flake). */
@@ -35,14 +35,16 @@ type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   loading?: boolean;
 };
 export function Button({ variant = 'primary', size = 'md', loading, className, children, disabled, ...rest }: ButtonProps) {
-  const base = 'inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors '
+  // A press dips the button 2% (motion-safe only); transition covers colour AND transform so the dip eases back.
+  const base = 'inline-flex items-center justify-center gap-2 rounded-md font-medium transition-[background-color,transform] motion-safe:active:scale-[0.98] '
     + 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50 disabled:cursor-not-allowed';
   const sizes = { sm: 'h-8 px-3 text-sm', md: 'h-9 px-4 text-sm' };
   const variants = {
     primary: 'bg-brand text-white hover:bg-brand-700',
     secondary: 'bg-surface text-ink-900 ring-1 ring-border hover:bg-ink-50',
     ghost: 'text-ink-700 hover:bg-ink-50',
-    danger: 'bg-danger text-white hover:opacity-90',
+    // A dedicated darker-danger hover token (not opacity) so the destructive action stays fully opaque and legible.
+    danger: 'bg-danger text-white hover:bg-danger-strong',
   };
   return (
     <button className={cn(base, sizes[size], variants[variant], className)} disabled={disabled || loading} {...rest}>
@@ -72,7 +74,8 @@ export function CardHeader({ title, subtitle, action }: { title: React.ReactNode
   return (
     <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
       <div>
-        <h3 className="text-md font-semibold text-ink-900">{title}</h3>
+        {/* h2: a card title sits under the page <h1>, so it is a level-2 heading — the old h3 skipped a level. */}
+        <h2 className="text-md font-semibold text-ink-900">{title}</h2>
         {subtitle && <p className="mt-0.5 text-sm text-muted">{subtitle}</p>}
       </div>
       {action}
@@ -165,12 +168,16 @@ export function ErrorState({ message, detail }: { message?: string; detail?: str
 }
 
 /* ── Form fields ────────────────────────────────────────────────────────── */
+/** A Field with an `error` puts its wrapped control into the invalid state via CONTEXT (not cloneElement — the
+ *  control is often wrapped, e.g. the Select's chevron span, so a clone wouldn't reach it). */
+const FieldInvalidCtx = React.createContext(false);
+
 export function Field({ label, hint, error, children }:
   { label: string; hint?: string; error?: string; children: React.ReactNode }) {
   return (
     <label className="block">
       <span className="mb-1 block text-sm font-medium text-ink-700">{label}</span>
-      {children}
+      <FieldInvalidCtx.Provider value={!!error}>{children}</FieldInvalidCtx.Provider>
       {error ? <span className="mt-1 block text-xs text-danger">{error}</span>
         : hint ? <span className="mt-1 block text-xs text-muted">{hint}</span> : null}
     </label>
@@ -178,16 +185,36 @@ export function Field({ label, hint, error, children }:
 }
 const fieldCls = 'h-9 w-full rounded-md bg-surface px-3 text-sm text-ink-900 ring-1 ring-border '
   + 'placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-brand/40';
-export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
-  function Input({ className, ...rest }, ref) {
-    return <input ref={ref} className={cn(fieldCls, className)} {...rest} />;
-  });
-export function Select({ className, children, ...rest }: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select className={cn(fieldCls, className)} {...rest}>{children}</select>;
+/** Invalid ring — a red ring at rest and on focus, so an error reads without waiting for a toast. */
+const invalidCls = 'ring-danger focus:ring-danger/40';
+/** Read the Field's invalid state; components can also force it with an explicit `invalid` prop. */
+function useInvalid(explicit?: boolean): boolean {
+  return React.useContext(FieldInvalidCtx) || !!explicit;
 }
-export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(
-  function Textarea({ className, ...rest }, ref) {
-    return <textarea ref={ref} className={cn(fieldCls, 'h-auto min-h-[110px] py-2 font-mono text-sm', className)} {...rest} />;
+export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }>(
+  function Input({ className, invalid, ...rest }, ref) {
+    const bad = useInvalid(invalid);
+    return <input ref={ref} aria-invalid={bad || undefined} className={cn(fieldCls, bad && invalidCls, className)} {...rest} />;
+  });
+export function Select({ className, invalid, children, ...rest }:
+  React.SelectHTMLAttributes<HTMLSelectElement> & { invalid?: boolean }) {
+  const bad = useInvalid(invalid);
+  // appearance-none drops the OS chevron; a lucide chevron is drawn in an overlay span so it matches the app.
+  // The className stays on the <select> (callers style width/height there); the wrapper only positions the icon.
+  return (
+    <span className="relative block">
+      <select aria-invalid={bad || undefined} className={cn(fieldCls, 'appearance-none pr-9', bad && invalidCls, className)} {...rest}>
+        {children}
+      </select>
+      <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden="true" />
+    </span>
+  );
+}
+export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement> & { invalid?: boolean }>(
+  function Textarea({ className, invalid, ...rest }, ref) {
+    const bad = useInvalid(invalid);
+    return <textarea ref={ref} aria-invalid={bad || undefined}
+      className={cn(fieldCls, 'h-auto min-h-[110px] py-2 font-mono text-sm', bad && invalidCls, className)} {...rest} />;
   });
 
 /* ── KPI tile ───────────────────────────────────────────────────────────── */
@@ -208,7 +235,7 @@ export function KpiTile({ label, value, sub, tone = 'ink', trend }:
       {capCls && <span aria-hidden="true" className={cn('absolute inset-x-0 top-0 h-[3px]', capCls)} />}
       <CardBody>
         <p className="text-xs font-medium uppercase tracking-wide text-muted">{label}</p>
-        <p className={cn('mt-1 text-4xl font-semibold tracking-tight tabular-nums', toneCls)}>{shown}</p>
+        <p className={cn('mt-1 text-stat font-semibold tracking-tight tabular-nums', toneCls)}>{shown}</p>
         {sub && <p className="mt-1 text-sm text-muted">{sub}</p>}
         {trend && (
           <span className={cn('mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold', trendTone)}>
@@ -239,8 +266,21 @@ export function Th({ className, children }: { className?: string; children?: Rea
 export function Td({ className, children, ...rest }: React.TdHTMLAttributes<HTMLTableCellElement>) {
   return <td className={cn('px-5 py-3', className)} {...rest}>{children}</td>;
 }
-export function Row({ className, children, ...rest }: React.HTMLAttributes<HTMLTableRowElement>) {
-  return <tr className={cn('border-b border-border/60 align-top last:border-0 hover:bg-ink-50/60', className)} {...rest}>{children}</tr>;
+/** A table body row. Pass `index` to give it an index-delayed entrance (40ms/row, capped at 8 — a reading-order
+ *  aid, not a show); omit it for a static row. Motion resolves to its final state instantly under Vitest. */
+export function Row({ className, index, children, ...rest }:
+  React.HTMLAttributes<HTMLTableRowElement> & { index?: number }) {
+  const cls = cn('border-b border-border/60 align-top last:border-0 hover:bg-ink-50/60', className);
+  if (index == null || isTestEnv) {
+    return <tr className={cls} {...rest}>{children}</tr>;
+  }
+  return (
+    <motion.tr className={cls} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}
+      transition={{ ...pageTransition, delay: rowDelay(index) }}
+      {...(rest as React.ComponentProps<typeof motion.tr>)}>
+      {children}
+    </motion.tr>
+  );
 }
 
 /* ── Client-side sorting ────────────────────────────────────────────────── */
