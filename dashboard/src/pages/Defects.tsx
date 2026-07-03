@@ -7,6 +7,7 @@ import { api } from '../api';
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, KpiTile, PageHeader, TableSkeleton, Table, Td, Row, SortableTh, useSort } from '../components/ui';
 import { Donut, Gauge, severitySlices } from '../components/charts';
 import { useToast } from '../components/Toast';
+import { Tooltip } from '../components/Tooltip';
 import { severityBadge, TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
 import { DefectLink } from '../api';
@@ -118,7 +119,7 @@ export function Defects() {
                 <CardBody className="space-y-2 text-sm">
                   {byService.map(([svc, n]) => (
                     <div key={svc} className="flex items-center gap-3">
-                      <span className="w-28 shrink-0 truncate text-ink-700" title={svc}>{svc}</span>
+                      <Tooltip label={svc}><span className="block w-28 shrink-0 truncate text-ink-700">{svc}</span></Tooltip>
                       <div className="h-2 flex-1 rounded-full bg-ink-100">
                         <div className="h-2 rounded-full bg-brand" style={{ width: `${byServiceMax ? Math.max(4, (n / byServiceMax) * 100) : 0}%` }} />
                       </div>

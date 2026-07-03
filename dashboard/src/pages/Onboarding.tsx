@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { CheckCircle2, Circle, AlertTriangle, Settings as SettingsIcon, ShieldCheck, Github } from 'lucide-react';
 import { api } from '../api';
-import { Button, Card, CardBody, CardHeader, PageContainer, PageHeader, Spinner } from '../components/ui';
+import { Button, Card, CardBody, CardHeader, PageContainer, PageHeader } from '../components/ui';
 
 /** First-run guided setup — a friendlier, step-by-step companion to the Settings page. */
 export function Onboarding() {
@@ -55,7 +55,6 @@ export function Onboarding() {
         </CardBody>
       </Card>
 
-      {(preflight.isLoading || copilot.isLoading) && <div className="mt-4 flex justify-center"><Spinner /></div>}
     </PageContainer>
   );
 }

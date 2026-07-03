@@ -50,6 +50,10 @@ public class ExecutiveSummaryController {
     public ExecutiveSummary executive() {
         List<ServiceSummary> perService = new ArrayList<>();
         Tally t = new Tally();
+        // The portfolio "blocking" total is the SUM of the per-service release verdicts — the same gate the
+        // scorecard shows — so a low-confidence/AI-disputed CRITICAL (excluded by ReleaseVerdict) can't inflate
+        // the DecisionQueue count above what actually blocks a release.
+        long blockingOpen = 0;
         for (Scan scan : latestCompletedPerService()) {
             List<FindingRecord> rows = findings.findByScanIdOrderBySeverityAsc(scan.getId());
             List<Finding> live = rows.stream().map(FindingMapper::toFinding).toList();
@@ -58,12 +62,13 @@ public class ExecutiveSummaryController {
                     .filter(r -> isBreakingType(r.getType()) && !isDismissed(r.getStatus())).count();
             perService.add(new ServiceSummary(scan.getServiceName(), scan.getFidelityScore(), delta(scan),
                     breakingCount, verdict.blocking(), verdict.releaseSafe(), scan.getId()));
+            blockingOpen += verdict.blocking();
             rows.forEach(t::add);
         }
         perService.sort(Comparator.comparing(ServiceSummary::service));
         long caught = findings.countDistinctCaughtByTypes(BREAKING_TYPES);
         return new ExecutiveSummary(
-                new Totals(caught, t.blockingOpen, t.aiDisputed),
+                new Totals(caught, blockingOpen, t.aiDisputed),
                 perService,
                 new Dispositions(t.reviewed, t.accepted, t.rejected, t.jiraCreated, t.open, t.aiDisputed));
     }
@@ -99,7 +104,6 @@ public class ExecutiveSummaryController {
         long jiraCreated;
         long open;
         long aiDisputed;
-        long blockingOpen;
 
         void add(FindingRecord r) {
             String status = r.getStatus() == null ? "OPEN" : r.getStatus();
@@ -115,10 +119,6 @@ public class ExecutiveSummaryController {
             }
             if (r.isAiDisputed()) {
                 aiDisputed++;
-            }
-            boolean blocking = "BLOCKER".equals(r.getSeverity()) || "CRITICAL".equals(r.getSeverity());
-            if (blocking && !isDismissed(status)) {
-                blockingOpen++;
             }
         }
     }

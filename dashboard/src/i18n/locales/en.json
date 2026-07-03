@@ -973,7 +973,7 @@
     "planReadyToast": "Plan ready — {{matched}} matched, {{gaps}} gaps, {{created}} created.",
     "loading": "Loading…",
     "emptyTitle": "No test plans yet",
-    "emptyBody": "Generate a release test plan above to see its deliverable and RTM here.",
+    "emptyBody": "Generate a release test plan above to see its deliverable and requirements-traceability matrix here.",
     "colService": "Service",
     "colKind": "Kind",
     "colFixVersion": "Fix version",

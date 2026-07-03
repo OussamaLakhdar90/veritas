@@ -83,6 +83,7 @@ function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onCloseMobile }:
             </p>
             {group.items.map(({ to, key, icon: Icon, end, adv }) => (
               <NavLink key={to} to={to} end={end} onClick={onCloseMobile} title={t(`nav.${key}`)}
+                aria-label={collapsed ? t(`nav.${key}`) : undefined}
                 className={({ isActive }) => cn(
                   'relative flex items-center rounded-lg px-3 py-2 text-sm transition-colors',
                   collapsed && 'lg:justify-center lg:px-0',

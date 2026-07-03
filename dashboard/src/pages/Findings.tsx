@@ -203,16 +203,16 @@ export function Findings() {
                             <ExternalLink className="h-3 w-3 shrink-0" />
                           </a>
                         ) : (
-                          <span title={f.codeFile}>{`${f.codeFile.split(/[\\/]/).pop()}${f.codeStartLine ? ':' + f.codeStartLine : ''}`}</span>
+                          <Tooltip label={f.codeFile}><span>{`${f.codeFile.split(/[\\/]/).pop()}${f.codeStartLine ? ':' + f.codeStartLine : ''}`}</span></Tooltip>
                         )
                       ) : '—'}
                     </Td>
                     <Td className="text-right whitespace-nowrap">
                       <div className="inline-flex items-center justify-end gap-1.5">
                         {dispositioned(f.status) && f.status !== 'JIRA_CREATED' && (
-                          <span title={f.reviewedBy ? t('findings.reviewedBy', { name: f.reviewedBy }) : undefined}>
+                          <Tooltip label={f.reviewedBy ? t('findings.reviewedBy', { name: f.reviewedBy }) : ''}>
                             <Badge className={DISP_TONE[f.status!] ?? TONE.muted}>{dispLabel(t, f.status)}</Badge>
-                          </span>
+                          </Tooltip>
                         )}
                         {f.status === 'JIRA_CREATED' ? (
                           <span className="inline-flex items-center gap-1 text-sm text-success"><CheckCircle2 className="h-4 w-4" /> {t('findings.defectRaised')}</span>
