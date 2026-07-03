@@ -78,6 +78,43 @@ class SchemaComparatorTest {
                 new HashSet<>(), SchemaComparator.MAX_SCHEMA_DEPTH);
 
         assertThat(findings).anyMatch(f -> f.getType() == FindingType.SCHEMA_FIELD_TYPE_MISMATCH
-                && "policies#complexity".equals(f.getSpecLocus()));
+                && "policies#complexity#object~scalar".equals(f.getSpecLocus()));
+    }
+
+    @Test
+    void scalarTypeMismatchLocusCarriesTheMismatchKind() {
+        // The TYPE_MISMATCH locus embeds WHAT the mismatch is ("<schema>#<field>#<codeType>~<specType>") so two
+        // DIFFERENT type defects on the same spec field never collapse into one survivor that hides the other.
+        ConstraintSet none = new ConstraintSet(null, null, null, null, null, null, null, null, null);
+        SchemaModel codeSchema = new SchemaModel("Order", "object",
+                List.of(new FieldModel("total", "integer", null, false, none, null, null)), null, null);
+        SchemaModel specSchema = new SchemaModel("Order", "object",
+                List.of(new FieldModel("total", "string", null, false, none, null, null)), null, null);
+
+        List<Finding> findings = new ArrayList<>();
+        SchemaComparator.compareSchema(findings, "code-vs-spec", "Order", codeSchema, specSchema);
+
+        assertThat(findings).hasSize(1);
+        assertThat(findings.get(0).getType()).isEqualTo(FindingType.SCHEMA_FIELD_TYPE_MISMATCH);
+        assertThat(findings.get(0).getSpecLocus()).isEqualTo("Order#total#integer~string");
+    }
+
+    @Test
+    void constraintGapEmissionCarriesNoSpecLocus() {
+        // CONSTRAINT_GAP is deliberately OUTSIDE the spec-locus collapse family — the engine must not hand it a
+        // locus either, locking both halves of the two-change regression path (engine emission + service key).
+        ConstraintSet none = new ConstraintSet(null, null, null, null, null, null, null, null, null);
+        SchemaModel codeSchema = new SchemaModel("Order", "object",
+                List.of(new FieldModel("total", "integer", null, true, none, null, null)), null, null);
+        SchemaModel specSchema = new SchemaModel("Order", "object",
+                List.of(new FieldModel("total", "integer", null, false, none, null, null)), null, null);
+
+        List<Finding> findings = new ArrayList<>();
+        SchemaComparator.compareSchema(findings, "code-vs-spec", "Order", codeSchema, specSchema);
+
+        assertThat(findings).hasSize(1);
+        Finding f = findings.get(0);
+        assertThat(f.getType()).isEqualTo(FindingType.CONSTRAINT_GAP);   // required in code, optional in the spec
+        assertThat(f.getSpecLocus()).isNull();
     }
 }

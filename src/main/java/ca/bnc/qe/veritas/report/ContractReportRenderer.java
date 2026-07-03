@@ -224,8 +224,9 @@ public class ContractReportRenderer {
         }
 
         // Surface undocumented error responses (500/406/…) that were DEMOTED to manual review (§6) as low-confidence
-        // blanket-advice statuses — so the team is still told, prominently, that those error statuses exist even though
-        // they don't count toward the score. Renders for both the interactive and PDF paths (same code path here).
+        // advice-origin statuses (global @ControllerAdvice or controller-local @ExceptionHandler) — so the team is
+        // still told, prominently, that those error statuses exist even though they don't count toward the score.
+        // Renders for both the interactive and PDF paths (same code path here).
         sb.append(errorContractNote(attention));
 
         // KPI scorecard (built once, then laid out next to the severity breakdown for a single management snapshot).
@@ -650,10 +651,12 @@ public class ContractReportRenderer {
 
     /**
      * A compact §1 note listing the undocumented ERROR responses (500/406/…) that were demoted to §6 manual review —
-     * exactly the blanket-advice statuses ({@code STATUS_CODE_MISSING && DETERMINISTIC && LOW}, produced only by the
-     * one blanket-{@code @ControllerAdvice} branch in the diff engine). It names each status once, sorted ascending,
-     * with the number of DISTINCT endpoints it can reach, so the team is still told these error statuses exist even
-     * though they are not counted in the score. Returns "" (no heading) when there is nothing to surface.
+     * exactly the advice-demoted statuses ({@code STATUS_CODE_MISSING && DETERMINISTIC && LOW}, produced only by the
+     * diff engine's advice-origin demotion: a global {@code @ControllerAdvice} handler OR a controller-local
+     * {@code @ExceptionHandler} whose per-endpoint reachability can't be proven statically). It names each status
+     * once, sorted ascending, with the number of DISTINCT endpoints it can reach, so the team is still told these
+     * error statuses exist even though they are not counted in the score. Returns "" (no heading) when there is
+     * nothing to surface.
      */
     private String errorContractNote(List<Finding> attention) {
         // status -> distinct endpoints that can return it (sorted status keys for a stable ascending render).
@@ -682,9 +685,9 @@ public class ContractReportRenderer {
         for (java.util.Map.Entry<Integer, java.util.Set<String>> e : byStatus.entrySet()) {
             int n = e.getValue().size();
             sb.append("<div class=\"err-note-line\">").append(bi(
-                    "HTTP " + e.getKey() + " — a global exception handler can return this status, but the spec does not "
+                    "HTTP " + e.getKey() + " — an exception handler can return this status, but the spec does not "
                             + "document it (" + n + (n == 1 ? " endpoint)." : " endpoints)."),
-                    "HTTP " + e.getKey() + " — un gestionnaire d'exceptions global peut retourner ce code, mais la spéc "
+                    "HTTP " + e.getKey() + " — un gestionnaire d'exceptions peut retourner ce code, mais la spéc "
                             + "ne le documente pas (" + n + (n == 1 ? " point de terminaison)." : " points de terminaison)."))).append("</div>");
         }
         return sb.append("</div>").toString();

@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import ca.bnc.qe.veritas.engine.diff.DiffEngine;
 import ca.bnc.qe.veritas.engine.extract.java.JavaSpringExtractor;
@@ -101,8 +103,14 @@ class SharedSpecSchemaCollapseTest {
         Finding survivor = collapsedMissing.get(0);
         assertThat(survivor.getAffectedEndpoints()).hasSize(2);
         assertThat(survivor.getSummary()).contains("shared spec schema");
-        // Survivor keeps the FIRST raw finding's id (disposition carry-forward stays stable).
-        assertThat(survivor.getFindingId()).isEqualTo(rawMissing.get(0).getFindingId());
+        // The survivor fingerprint is the order-independent root-cause hash: collapsing the SAME raw findings in
+        // reverse order must yield the SAME id — file-walk / controller-enumeration order must never decide the
+        // surviving fingerprint (a reviewer's disposition would silently reset between scans).
+        List<Finding> reversed = new ArrayList<>(raw);
+        Collections.reverse(reversed);
+        Finding survivorReversed =
+                excludeAttributesMissing(ContractValidationService.collapseByRootCause(reversed)).get(0);
+        assertThat(survivor.getFindingId()).isNotBlank().isEqualTo(survivorReversed.getFindingId());
 
         // Score: the -8 MAJOR charge for excludeAttributes is counted ONCE after collapse, not twice.
         assertThat(FidelityScore.of(collapsed)).isEqualTo(FidelityScore.of(raw) + 8);

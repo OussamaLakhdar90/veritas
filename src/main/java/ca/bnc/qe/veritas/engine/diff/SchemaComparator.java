@@ -90,7 +90,8 @@ final class SchemaComparator {
                                         + (c.refSchema() != null
                                             ? "a nested object/array in code but a scalar (" + s.type() + ") in the spec"
                                             : "a scalar (" + c.type() + ") in code but a nested object/array in the spec"),
-                                c.source(), Confidence.HIGH, specLocus(ss, e.getKey())));
+                                c.source(), Confidence.HIGH, specLocus(ss, e.getKey(),
+                                        c.refSchema() != null ? "object~scalar" : "scalar~object")));
                     }
                     continue;
                 }
@@ -104,7 +105,8 @@ final class SchemaComparator {
                             "Field '" + e.getKey() + "' of " + locus + " is "
                                     + (arrayRef(c.refSchema()) ? "an array in code but a single object in the spec"
                                                                : "a single object in code but an array in the spec"),
-                            c.source(), Confidence.HIGH, specLocus(ss, e.getKey())));
+                            c.source(), Confidence.HIGH, specLocus(ss, e.getKey(),
+                                    arrayRef(c.refSchema()) ? "array~object" : "object~array")));
                     continue;
                 }
                 fieldDiffByBinding(findings, code, spec, c.refSchema(), s.refSchema(),
@@ -276,6 +278,14 @@ final class SchemaComparator {
         return specSchema.name() == null ? null : specSchema.name() + "#" + fieldJsonName;
     }
 
+    /** As {@link #specLocus(SchemaModel, String)} with a mismatch-kind token appended
+     *  ({@code "<schema>#<field>#<kind>"}). A TYPE_MISMATCH root cause includes WHAT the mismatch is: two different
+     *  type defects on the same spec field (say integer-vs-string on one endpoint and object-vs-scalar on another)
+     *  are two separate spec edits, so they must never collapse into one survivor that hides the other. */
+    private static String specLocus(SchemaModel specSchema, String fieldJsonName, String kind) {
+        return specSchema.name() == null ? null : specSchema.name() + "#" + fieldJsonName + "#" + kind;
+    }
+
     static void compareSchema(List<Finding> findings, String specSource, String name, SchemaModel codeS, SchemaModel specS) {
         Map<String, FieldModel> specFields = new LinkedHashMap<>();
         specS.fields().forEach(f -> specFields.put(f.jsonName(), f));
@@ -293,7 +303,7 @@ final class SchemaComparator {
                     && !"object".equals(cf.type()) && !"object".equals(sf.type())) {
                 findings.add(DiffEngine.fieldFinding(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, name + "." + cf.jsonName(), specSource,
                         "Field '" + cf.jsonName() + "' type — code " + cf.type() + " vs spec " + sf.type(),
-                        cf.source(), Confidence.MEDIUM, specLocus(specS, cf.jsonName())));
+                        cf.source(), Confidence.MEDIUM, specLocus(specS, cf.jsonName(), cf.type() + "~" + sf.type())));
             }
             // required drift — ONLY the faithful direction: the code POSITIVELY asserts the field is required
             // (@NotNull/@NotBlank/@NotEmpty) but the spec marks it optional. The reverse (code false, spec required)

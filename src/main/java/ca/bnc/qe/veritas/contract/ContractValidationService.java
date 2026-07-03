@@ -968,24 +968,30 @@ public class ContractValidationService {
     /**
      * Collapse findings that share the SAME ROOT CAUSE across endpoints into one finding that lists every endpoint
      * involved, so one shared defect is counted (and scored) once instead of per endpoint. The first occurrence
-     * survives (keeping its findingId + evidence) and gains an {@code affectedEndpoints} list. Order-preserving.
+     * survives (keeping its evidence) and gains an {@code affectedEndpoints} list. Order-preserving.
      *
      * <p>Two roots are recognised (see {@link #rootCauseKey}):
      * <ul>
      *   <li><b>Spec locus</b> — for {@code SCHEMA_FIELD_MISSING/EXTRA/TYPE_MISMATCH} that carry a {@code specLocus}
-     *       ({@code "<specSchemaName>#<field>"}): the fix is ONE edit to the shared spec schema, so two endpoints
+     *       ({@code "<specSchemaName>#<field>"}, plus a mismatch-kind token for TYPE_MISMATCH so two DIFFERENT type
+     *       defects on one spec field never merge): the fix is ONE edit to the shared spec schema, so two endpoints
      *       returning DIFFERENT code DTOs that both $ref the same spec schema (their code-evidence locations differ,
      *       so a code-locus key can never collapse them) merge here. The survivor's summary is rewritten to name the
-     *       shared spec schema for MISSING/EXTRA; TYPE_MISMATCH keeps its original (per-endpoint code/spec types can
-     *       differ, so a generic rewrite would lose information — the merge just de-duplicates the score charge).</li>
-     *   <li><b>Code locus</b> — the fallback: type + specSource + the exact code field location + line (a shared DTO
-     *       field flagged once per endpoint that returns it). {@code specSource} is part of the key so the SAME code
-     *       line diffed against two different specs stays two findings (closing a latent cross-spec over-merge).</li>
+     *       shared spec schema for MISSING/EXTRA; TYPE_MISMATCH keeps its original wording (the merge just
+     *       de-duplicates the score charge). A multi-endpoint spec-keyed survivor is re-fingerprinted on the root
+     *       cause itself (type + specSource + specLocus) — the first occurrence's id hashes its endpoint, so keeping
+     *       it would reset a reviewer's disposition whenever controller enumeration order changes between scans.</li>
+     *   <li><b>Code locus</b> — the fallback: type + specSource + the exact code evidence location + line + the
+     *       normalized summary (a shared DTO field flagged once per endpoint that returns it). {@code specSource} is
+     *       part of the key so the SAME code line diffed against two different specs stays two findings (closing a
+     *       latent cross-spec over-merge). The summary keeps DISTINCT defects apart: endpoint-level findings of one
+     *       type all share the controller METHOD's SourceRef, so without it an undocumented 500 and an undocumented
+     *       406 on one endpoint would share a key and the second would be silently dropped.</li>
      * </ul>
      * {@code CONSTRAINT_GAP} is DELIBERATELY excluded from the spec-locus family: per-endpoint constraint values can
      * legitimately differ (a code-side assertion on one endpoint only), so collapsing them would hide a real defect —
-     * it falls through to the code-locus key like any other type. Findings with neither anchor (endpoint-level
-     * param/status findings with no code evidence and no specLocus) are passed through untouched.
+     * it falls through to the code-locus key like any other type. Findings with neither anchor (no code evidence and
+     * no specLocus — e.g. spec-side-only findings) are passed through untouched.
      */
     static List<Finding> collapseByRootCause(List<Finding> in) {
         Map<String, List<String>> endpointsByRoot = new LinkedHashMap<>();
@@ -1014,8 +1020,15 @@ public class ContractValidationService {
                 out.add(f);
                 continue;
             }
-            Finding survivor = f.toBuilder().affectedEndpoints(List.copyOf(eps)).build();
-            out.add(rewriteSpecSchemaSummary(survivor, key));
+            var b = f.toBuilder().affectedEndpoints(List.copyOf(eps));
+            if (key.startsWith("S|")) {
+                // Order-independent fingerprint for a spec-keyed multi-endpoint merge: the first occurrence's id
+                // hashes its OWN endpoint, so file-walk order would decide the surviving fingerprint and a reviewer's
+                // disposition would silently reset whenever controller enumeration order changes between scans.
+                b.findingId(Integer.toHexString(
+                        java.util.Objects.hash(f.getType(), f.getSpecSource(), f.getSpecLocus())));
+            }
+            out.add(rewriteSpecSchemaSummary(b.build(), key));
         }
         return out;
     }
@@ -1029,16 +1042,19 @@ public class ContractValidationService {
         return codeLocusKey(f);
     }
 
-    /** Code-locus key: type + specSource + the exact code field location + line, or null when there is no code
-     *  evidence to anchor on (never collapse those). {@code specSource} is included so the same code line diffed
-     *  against two different specs stays two findings (a multi-spec scan must not silently imply one spec is clean). */
+    /** Code-locus key: type + specSource + the exact code evidence location + line + normalized summary, or null when
+     *  there is no code evidence to anchor on (never collapse those). {@code specSource} is included so the same code
+     *  line diffed against two different specs stays two findings (a multi-spec scan must not silently imply one spec
+     *  is clean). The normalized summary is included because endpoint-level findings of one type all carry the SAME
+     *  controller-method SourceRef — without it, two DIFFERENT defects on one endpoint (an undocumented 500 AND 406,
+     *  or two missing params) would share a key and the second would be silently dropped. */
     static String codeLocusKey(Finding f) {
         if (f.getCodeEvidence() == null || f.getCodeEvidence().location() == null) {
             return null;
         }
         Integer line = f.getCodeEvidence().startLine();
         return "C|" + f.getType() + "|" + nzs(f.getSpecSource()) + "|" + f.getCodeEvidence().location()
-                + "|" + (line == null ? "" : line);
+                + "|" + (line == null ? "" : line) + "|" + normSummary(f.getSummary());
     }
 
     /** Rewrite a spec-keyed multi-endpoint survivor's summary to name the SHARED spec schema (so it no longer reads as
@@ -1052,9 +1068,10 @@ public class ContractValidationService {
             return survivor;
         }
         String locus = survivor.getSpecLocus();
-        // Split at the LAST '#': a field name can't contain '#' while a spec schema name can contain dots, so the
-        // schema is everything before the final '#' and the field is everything after it.
-        int cut = locus.lastIndexOf('#');
+        // Split at the FIRST '#': an OpenAPI component-schema name can never contain '#' (its charset is
+        // [A-Za-z0-9.\-_]) while a JSON field name CAN (e.g. @JsonProperty("card#number")) — so the schema is
+        // everything before the first '#' and the field is everything after it.
+        int cut = locus.indexOf('#');
         String schema = cut < 0 ? locus : locus.substring(0, cut);
         String field = cut < 0 ? locus : locus.substring(cut + 1);
         String summary = t == FindingType.SCHEMA_FIELD_MISSING

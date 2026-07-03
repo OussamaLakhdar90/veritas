@@ -291,12 +291,16 @@ class ContractReportRendererTest {
         Finding c = demotedAdviceStatus("c", "GET /policies", 406);
         String html = new ContractReportRenderer().renderHtml(scan, List.of(a, b, c));
         assertThat(html).contains("Undocumented error responses").contains("not counted in the score")
-                .contains("HTTP 500 — a global exception handler can return this status")
+                .contains("HTTP 500 — an exception handler can return this status")
                 .contains("(2 endpoints).")
-                .contains("HTTP 406 — a global exception handler can return this status")
+                .contains("HTTP 406 — an exception handler can return this status")
                 .contains("(1 endpoint).");
-        // Bilingual — the French heading + line are present too.
-        assertThat(html).contains("Réponses d'erreur non documentées").contains("gestionnaire d'exceptions global");
+        // Bilingual — the French heading + line are present too. The copy says "an exception handler" (not
+        // "a global…"): the demoted set also comes from controller-LOCAL @ExceptionHandler methods, not only
+        // a global @ControllerAdvice.
+        assertThat(html).contains("Réponses d'erreur non documentées")
+                .contains("un gestionnaire d'exceptions peut retourner ce code")
+                .doesNotContain("global exception handler").doesNotContain("gestionnaire d'exceptions global");
     }
 
     @Test
