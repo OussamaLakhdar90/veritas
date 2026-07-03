@@ -75,6 +75,18 @@ class ContractReportRendererBranchCoverageTest {
     }
 
     @Test
+    void additiveOnlyFailingScanRendersTheGateReconciliationNote() {
+        // Two additive MISSING MAJORs -> 84 (<90, FAIL) but nothing breaks -> additiveProceed -> gate-note present.
+        String html = renderer.renderHtml(scan("svc"),
+                List.of(counted(FindingType.SCHEMA_FIELD_MISSING, Severity.MAJOR).toBuilder().findingId("m1").build(),
+                        counted(FindingType.PARAM_MISSING, Severity.MAJOR).toBuilder().findingId("m2").endpoint("GET /y").build()));
+        assertThat(html).contains("class=\"gate gate-fail\">").contains("Quality gate: FAIL")
+                .contains("class=\"gate-note\">")
+                .contains("release risk is assessed separately")
+                .contains("Proceed — documentation fixes recommended");
+    }
+
+    @Test
     void warnBandForScoreBetween50And74() {
         // One CRITICAL (-15) + two MAJOR (-16) = -31 -> 69 (50..74) -> "Needs work".
         String html = renderer.renderHtml(scan("svc"),

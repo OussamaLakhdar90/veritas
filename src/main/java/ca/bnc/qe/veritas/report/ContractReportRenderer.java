@@ -197,6 +197,20 @@ public class ContractReportRenderer {
                 "Quality gate: " + (pass ? "PASS" : "FAIL") + " — fidelity " + score + " vs target ≥ " + FidelityScore.PASS_THRESHOLD,
                 "Seuil qualité : " + (pass ? "RÉUSSI" : "ÉCHEC") + " — fidélité " + score + " vs cible ≥ " + FidelityScore.PASS_THRESHOLD))
                 .append("</p>");
+        // Reconcile the apparent contradiction between a FAILED gate and a "Proceed" release verdict, in one line: the
+        // gate measures documentation fidelity while the release verdict measures consumer risk. Only when the drift is
+        // entirely additive (no breaking finding) — a passing gate or a breaking-FAIL Hold needs no such note.
+        if (additiveProceed(score, blocking, counted.size(), allNonBreaking)) {
+            sb.append("<p class=\"gate-note\">").append(bi(
+                    "The quality gate measures documentation fidelity; release risk is assessed separately. Every "
+                            + "finding here is additive documentation drift — nothing breaks a running consumer — so the "
+                            + "release verdict is Proceed despite the failed gate.",
+                    "Le seuil qualité mesure la fidélité de la documentation; le risque de livraison est évalué "
+                            + "séparément. Tous les constats sont des écarts documentaires additifs — rien ne brise un "
+                            + "consommateur en production — la décision de livraison demeure donc « Prêt à livrer » "
+                            + "malgré l'échec du seuil."))
+                    .append("</p>");
+        }
         if (scan.getPreviousFidelityScore() != null) {
             int prev = scan.getPreviousFidelityScore();
             int delta = score - prev;
@@ -616,6 +630,16 @@ public class ContractReportRenderer {
         return bar.append("</div>").append(legend).append("</div>").toString();
     }
 
+    /**
+     * True when the scan is below the fidelity bar yet safe to release: no release-blocking finding, and every
+     * finding is additive/non-breaking documentation drift (the code is a compatible superset of the spec). The
+     * one predicate feeds BOTH the bottom-line "Proceed — documentation fixes recommended" verdict AND the §1
+     * gate-reconciliation note, so the two can never drift apart.
+     */
+    private static boolean additiveProceed(int score, long blocking, int total, boolean allNonBreaking) {
+        return blocking == 0 && score < FidelityScore.PASS_THRESHOLD && total > 0 && allNonBreaking;
+    }
+
     /** The plain "is it safe to release?" verdict box — first thing management sees. Release RISK (breaking changes)
      *  drives the action; the fidelity score is the separate quality bar. */
     private String bottomLine(int score, long blocking, int total, int missing, int wrong, int dead, long disputed,
@@ -623,7 +647,7 @@ public class ContractReportRenderer {
         boolean pass = score >= FidelityScore.PASS_THRESHOLD;
         // Below the fidelity bar but nothing would break a running consumer → the release is safe; the spec is just
         // behind. Call it out as a calm "proceed", distinct from a real "hold".
-        boolean additiveProceed = blocking == 0 && !pass && total > 0 && allNonBreaking;
+        boolean additiveProceed = additiveProceed(score, blocking, total, allNonBreaking);
         String color, tint, statusEn, statusFr;
         if (blocking > 0) {
             color = "#C2122D"; tint = "#fdecef"; statusEn = "Do not release"; statusFr = "Ne pas livrer";
@@ -975,6 +999,7 @@ public class ContractReportRenderer {
                 + ".sev-pill{color:#fff;font-size:.7rem;font-weight:700;text-transform:uppercase;padding:2px 9px;border-radius:999px}"
                 + ".gate{display:inline-block;font-weight:700;font-size:.9rem;padding:.4rem .9rem;border-radius:8px;margin:.3rem 0}"
                 + ".gate-pass{background:#e6f4ea;color:#1E8E5A}.gate-fail{background:#fdecef;color:#C2122D}"
+                + ".gate-note{font-size:.82rem;color:#475069;margin:.15rem 0 .3rem;max-width:640px}"
                 + ".trend{font-size:.85rem;margin:.2rem 0}.trend-up{color:#1E8E5A}.trend-down{color:#C2122D}.trend-flat{color:#475069}"
                 + "table.actions{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e3e6eb;border-radius:10px;overflow:hidden}"
                 + "table.actions th,table.actions td{text-align:left;padding:8px 12px;font-size:.86rem;border-top:1px solid #eef1f5;vertical-align:top}"

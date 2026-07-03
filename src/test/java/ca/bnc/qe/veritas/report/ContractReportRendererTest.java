@@ -187,6 +187,31 @@ class ContractReportRendererTest {
     }
 
     @Test
+    void additiveOnlyDriftBelow90RendersTheGateReconciliationNoteInBothLanguages() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        Finding a = Finding.builder().findingId("a").type(FindingType.SCHEMA_FIELD_MISSING).layer(Layer.L4)
+                .severity(Severity.MAJOR).confidence(Confidence.HIGH).origin("DETERMINISTIC").service("ciam-policies")
+                .specSource("code-vs-spec").endpoint("GET /policies").summary("Field 'x' in code, missing from spec").build();
+        Finding b = a.toBuilder().findingId("b").endpoint("GET /policies/{app}")
+                .summary("Field 'y' in code, missing from spec").build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(a, b));
+        // The gate still FAILS (below 90) — that assertion is unchanged — and a SEPARATE note reconciles it with Proceed.
+        assertThat(html).contains("Quality gate: FAIL").contains("class=\"gate gate-fail\">");
+        assertThat(html).contains("class=\"gate-note\">")
+                .contains("The quality gate measures documentation fidelity; release risk is assessed separately.")
+                .contains("Le seuil qualité mesure la fidélité de la documentation");
+    }
+
+    @Test
+    void gateReconciliationNoteAbsentOnAPassingScan() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");   // no findings -> score 100 -> gate PASS
+        String html = new ContractReportRenderer().renderHtml(scan, List.of());
+        assertThat(html).contains("Quality gate: PASS").doesNotContain("class=\"gate-note\">");
+    }
+
+    @Test
     void aBreakingMajorBelow90StillRendersHoldForFixes() {
         Scan scan = new Scan();
         scan.setServiceName("ciam-policies");
@@ -197,6 +222,8 @@ class ContractReportRendererTest {
                 .summary("Field 'y' in code, missing from spec").build();
         String html = new ContractReportRenderer().renderHtml(scan, List.of(breaking, additive));
         assertThat(html).contains("Hold for fixes").doesNotContain("documentation fixes recommended");
+        // A breaking finding holds the release -> no gate-reconciliation note (that line is only for additive Proceed).
+        assertThat(html).doesNotContain("class=\"gate-note\">");
     }
 
     @Test
