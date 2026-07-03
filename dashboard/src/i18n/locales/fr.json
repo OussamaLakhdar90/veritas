@@ -13,6 +13,7 @@
     "secAdmin": "Administration",
     "overview": "Vue d’ensemble",
     "getStarted": "Démarrer",
+    "activity": "Activité",
     "validate": "Valider un service",
     "defects": "Anomalies",
     "testStrategy": "Stratégie de test",
@@ -1359,7 +1360,7 @@
   },
   "activity": {
     "title": "Activité",
-    "empty": "Rien ne requiert votre attention.",
+    "empty": "Rien ne requiert votre attention pour le moment.",
     "security": "Sécurité",
     "alertsRow_one": "{{count}} alerte de vulnérabilité non vue",
     "alertsRow_other": "{{count}} alertes de vulnérabilité non vues",
@@ -1374,6 +1375,48 @@
     },
     "toastDone": "{{label}} terminé",
     "toastFailed": "{{label}} a échoué",
-    "toastWaiting": "{{label}} attend votre décision"
+    "toastWaiting": "{{label}} attend votre décision",
+    "seeAll": "Voir toute l'activité et l'historique",
+    "pageSubtitle": "Tout ce qui est en cours, en attente de votre décision ou terminé dans les 7 derniers jours.",
+    "kpisAria": "Sommaire de l'activité",
+    "loading": "Chargement de l'activité…",
+    "kpi": {
+      "inProgress": "En cours",
+      "waitingOnYou": "En attente de vous",
+      "finished7d": "Terminées (7 jours)"
+    },
+    "sections": {
+      "waiting": "En attente de vous",
+      "inProgress": "En cours",
+      "history": "Historique récent (7 jours)"
+    },
+    "type": {
+      "SCAN": "Vérification de contrat",
+      "FIX_TRAIN": "Correctif de sécurité",
+      "CODEGEN": "Génération de tests"
+    },
+    "stage": {
+      "CLONING": "Récupération du code",
+      "RESOLVING_SPEC": "Recherche du contrat",
+      "EXTRACTING": "Lecture du code",
+      "DIFFING": "Comparaison au contrat",
+      "RECONCILING": "Révision des écarts par l'IA",
+      "REPORTING": "Préparation du rapport"
+    },
+    "time": {
+      "running": "démarré {{time}}",
+      "waiting": "en attente · {{time}}"
+    },
+    "day": {
+      "today": "Aujourd'hui",
+      "yesterday": "Hier",
+      "earlier": "Plus tôt"
+    },
+    "review": "Répondre",
+    "viewDetails": "Voir les détails",
+    "historyFooter": "L'historique couvre les 7 derniers jours.",
+    "emptyTitle": "Tout est calme",
+    "emptyBody": "Rien n'est en cours pour le moment, et rien ne s'est terminé dans les 7 derniers jours. Dès que vous lancerez une vérification, générerez des tests ou appliquerez un correctif de sécurité, tout apparaîtra ici — en direct.",
+    "emptyCta": "Valider un service"
   }
 }

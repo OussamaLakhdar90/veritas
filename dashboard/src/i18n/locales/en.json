@@ -13,6 +13,7 @@
     "secAdmin": "Administration",
     "overview": "Overview",
     "getStarted": "Get started",
+    "activity": "Activity",
     "validate": "Validate a service",
     "defects": "Defects",
     "testStrategy": "Test Strategy",
@@ -1359,7 +1360,7 @@
   },
   "activity": {
     "title": "Activity",
-    "empty": "Nothing needs your attention.",
+    "empty": "Nothing needs your attention right now.",
     "security": "Security",
     "alertsRow_one": "{{count}} unseen vulnerability alert",
     "alertsRow_other": "{{count}} unseen vulnerability alerts",
@@ -1374,6 +1375,48 @@
     },
     "toastDone": "{{label}} finished",
     "toastFailed": "{{label}} failed",
-    "toastWaiting": "{{label}} is waiting for you"
+    "toastWaiting": "{{label}} is waiting for you",
+    "seeAll": "See all activity and history",
+    "pageSubtitle": "Everything running, waiting on you, or finished in the last 7 days.",
+    "kpisAria": "Activity summary",
+    "loading": "Loading activity…",
+    "kpi": {
+      "inProgress": "In progress",
+      "waitingOnYou": "Waiting on you",
+      "finished7d": "Finished (7 days)"
+    },
+    "sections": {
+      "waiting": "Waiting on you",
+      "inProgress": "In progress",
+      "history": "Recent history (7 days)"
+    },
+    "type": {
+      "SCAN": "Contract check",
+      "FIX_TRAIN": "Security fix",
+      "CODEGEN": "Test generation"
+    },
+    "stage": {
+      "CLONING": "Fetching the code",
+      "RESOLVING_SPEC": "Finding the contract",
+      "EXTRACTING": "Reading the code",
+      "DIFFING": "Comparing to the contract",
+      "RECONCILING": "AI reviewing the differences",
+      "REPORTING": "Preparing the report"
+    },
+    "time": {
+      "running": "started {{time}}",
+      "waiting": "waiting · {{time}}"
+    },
+    "day": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "earlier": "Earlier"
+    },
+    "review": "Review",
+    "viewDetails": "View details",
+    "historyFooter": "History covers the last 7 days.",
+    "emptyTitle": "All quiet",
+    "emptyBody": "Nothing is running right now, and nothing finished in the last 7 days. When you start a check, generate tests or apply a security fix, it will show up here — live.",
+    "emptyCta": "Validate a service"
   }
 }

@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, ShieldCheck, Bug, ClipboardList, ListChecks, Code2, GitPullRequestArrow,
-  Coins, Settings, Target, ClipboardCheck, Rocket, BookOpen, Layers, Sparkles,
+  Coins, Settings, Target, ClipboardCheck, Rocket, BookOpen, Layers, Sparkles, Activity,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { SnykNavIcon } from '../components/SnykLogo';
@@ -13,6 +13,7 @@ export const NAV_GROUPS: NavGroup[] = [
   { section: 'secOverview', items: [
     { to: '/', key: 'overview', icon: LayoutDashboard, end: true },
     { to: '/onboarding', key: 'getStarted', icon: Rocket },
+    { to: '/activity', key: 'activity', icon: Activity },
   ] },
   { section: 'secValidate', items: [
     { to: '/repos', key: 'validate', icon: ShieldCheck },

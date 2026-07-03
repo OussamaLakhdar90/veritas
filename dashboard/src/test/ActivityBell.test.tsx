@@ -53,7 +53,7 @@ describe('Activity bell', () => {
     expect(await screen.findByRole('button', { name: 'Notifications' })).toBeInTheDocument()
     expect(screen.queryByText(/^\d+$/)).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Notifications' }))
-    expect(await screen.findByText('Nothing needs your attention.')).toBeInTheDocument()
+    expect(await screen.findByText('Nothing needs your attention right now.')).toBeInTheDocument()
   })
 
   it('adds attention activity items to the badge count and lists them in the popover', async () => {
@@ -99,8 +99,8 @@ describe('Activity bell', () => {
     const user = userEvent.setup()
     renderPage(<ActivityBell />)
     await user.click(await screen.findByRole('button', { name: 'Notifications' }))
-    expect(await screen.findByText('Nothing needs your attention.')).toBeInTheDocument()
+    expect(await screen.findByText('Nothing needs your attention right now.')).toBeInTheDocument()
     await user.keyboard('{Escape}')
-    await waitFor(() => expect(screen.queryByText('Nothing needs your attention.')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('Nothing needs your attention right now.')).not.toBeInTheDocument())
   })
 })

@@ -112,6 +112,31 @@ export function formatRelative(iso?: string | null): string {
   return rtf.format(seconds, 'second');
 }
 
+const dayLongCache = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * "lundi 29 juin" (fr-CA) / "Monday, June 29" (en-CA) — a weekday + day + month heading for the Activity
+ * page's day separators. Accepts an ISO date ("2026-06-29") or a full timestamp; em dash for null/invalid.
+ */
+export function formatDayLong(iso?: string | null): string {
+  if (!iso) {
+    return '—';
+  }
+  // A bare YYYY-MM-DD is a LOCAL calendar date (mirrors formatShortDate) so the heading names the intended day.
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    return '—';
+  }
+  const locale = appLocale();
+  let f = dayLongCache.get(locale);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long' });
+    dayLongCache.set(locale, f);
+  }
+  return f.format(d);
+}
+
 /** "3 min 42 s" duration between two instants; null when either side is missing. */
 export function formatDuration(startIso?: string | null, endIso?: string | null): string | null {
   if (!startIso || !endIso) {
