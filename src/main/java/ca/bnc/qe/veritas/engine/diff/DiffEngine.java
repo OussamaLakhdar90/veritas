@@ -588,7 +588,8 @@ public class DiffEngine {
 
     static Finding finding(FindingType type, String endpoint, String specSource, String summary,
                             Endpoint codeEndpoint, Confidence confidence) {
-        return build(type, endpoint, specSource, summary, codeEndpoint == null ? null : codeEndpoint.source(), confidence);
+        return build(type, endpoint, specSource, summary, codeEndpoint == null ? null : codeEndpoint.source(),
+                confidence, null);
     }
 
     /**
@@ -597,11 +598,21 @@ public class DiffEngine {
      */
     static Finding fieldFinding(FindingType type, String endpoint, String specSource, String summary,
                                 SourceRef codeEvidence, Confidence confidence) {
-        return build(type, endpoint, specSource, summary, codeEvidence, confidence);
+        return build(type, endpoint, specSource, summary, codeEvidence, confidence, null);
+    }
+
+    /**
+     * As {@link #fieldFinding(FindingType, String, String, String, SourceRef, Confidence)} but also records the
+     * spec-side locus ({@code "<specSchemaName>#<fieldJsonName>"}) — the shared root cause a schema-field finding
+     * traces to in the spec, used to collapse the same shared-schema field flagged across several endpoints.
+     */
+    static Finding fieldFinding(FindingType type, String endpoint, String specSource, String summary,
+                                SourceRef codeEvidence, Confidence confidence, String specLocus) {
+        return build(type, endpoint, specSource, summary, codeEvidence, confidence, specLocus);
     }
 
     private static Finding build(FindingType type, String endpoint, String specSource, String summary,
-                                 SourceRef codeEvidence, Confidence confidence) {
+                                 SourceRef codeEvidence, Confidence confidence, String specLocus) {
         return Finding.builder()
                 .findingId(Integer.toHexString(Objects.hash(type, endpoint, summary, specSource)))
                 .type(type)
@@ -613,6 +624,7 @@ public class DiffEngine {
                 .specSource(specSource)
                 .summary(summary)
                 .codeEvidence(codeEvidence)
+                .specLocus(specLocus)
                 .build();
     }
 

@@ -3,7 +3,10 @@ package ca.bnc.qe.veritas.engine.diff;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import ca.bnc.qe.veritas.engine.model.ApiModel;
+import ca.bnc.qe.veritas.engine.model.ConstraintSet;
 import ca.bnc.qe.veritas.engine.model.FieldModel;
 import ca.bnc.qe.veritas.engine.model.SchemaModel;
 import ca.bnc.qe.veritas.engine.model.SourceRef;
@@ -11,11 +14,12 @@ import ca.bnc.qe.veritas.finding.Finding;
 import ca.bnc.qe.veritas.finding.FindingType;
 import org.junit.jupiter.api.Test;
 
-/** A schema-field finding must carry the code field's OWN source location as traceable code evidence. */
+/** A schema-field finding must carry the code field's OWN source location as traceable code evidence, plus the
+ *  spec-side locus ("<specSchemaName>#<field>") used for the cross-endpoint root-cause collapse (S13i-1). */
 class SchemaComparatorTest {
 
     @Test
-    void fieldMissingFromSpecCarriesTheCodeFieldsSourceAsEvidence() {
+    void fieldMissingFromSpecCarriesTheCodeFieldsSourceAsEvidenceAndTheSpecLocus() {
         FieldModel excludeAttributes = new FieldModel("excludeAttributes", "array", null, false, null, null,
                 SourceRef.code("src/main/java/ca/bnc/PasswordComplexity.java", 42, 42, null));
         SchemaModel codeSchema = new SchemaModel("PasswordComplexity", "object", List.of(excludeAttributes), null, null);
@@ -32,5 +36,48 @@ class SchemaComparatorTest {
         assertThat(f.getCodeEvidence()).isNotNull();
         assertThat(f.getCodeEvidence().location()).isEqualTo("src/main/java/ca/bnc/PasswordComplexity.java");
         assertThat(f.getCodeEvidence().startLine()).isEqualTo(42);
+        // Spec locus anchors the root cause on the SPEC schema name (which contains a dot) + the field, '#'-separated.
+        assertThat(f.getSpecLocus()).isEqualTo("password.complexity#excludeAttributes");
+    }
+
+    @Test
+    void fieldExtraInSpecCarriesTheSpecLocus() {
+        SchemaModel codeSchema = new SchemaModel("Wrapper", "object", List.of(), null, null);
+        SchemaModel specSchema = new SchemaModel("policies", "object",
+                List.of(new FieldModel("legacyField", "string", null, false, null, null, null)), null, null);
+
+        List<Finding> findings = new ArrayList<>();
+        SchemaComparator.compareSchema(findings, "code-vs-spec", "GET /policies response", codeSchema, specSchema);
+
+        assertThat(findings).hasSize(1);
+        Finding f = findings.get(0);
+        assertThat(f.getType()).isEqualTo(FindingType.SCHEMA_FIELD_EXTRA);
+        assertThat(f.getSpecLocus()).isEqualTo("policies#legacyField");
+    }
+
+    @Test
+    void nestedFlipTypeMismatchCarriesTheSpecLocus() {
+        // Code binds `complexity` to a nested DTO ($ref), the spec declares the same field as a bare scalar → a
+        // provable object-vs-scalar flip in fieldDiffByBinding, which must carry the spec locus of the bound schema.
+        ConstraintSet none = new ConstraintSet(null, null, null, null, null, null, null, null, null);
+        SchemaModel nestedDto = new SchemaModel("Complexity", "object",
+                List.of(new FieldModel("minLength", "integer", null, false, none, null, null)), null, null);
+        FieldModel codeField = new FieldModel("complexity", "object", null, false, none, "Complexity",
+                SourceRef.code("Wrapper.java", 5, 5, null));
+        FieldModel specField = new FieldModel("complexity", "string", null, false, none, null, null);
+        SchemaModel codeWrapper = new SchemaModel("Wrapper", "object", List.of(codeField), null, null);
+        SchemaModel specWrapper = new SchemaModel("policies", "object", List.of(specField), null, null);
+
+        ApiModel code = new ApiModel("code", null, null, null, List.of(),
+                java.util.Map.of("Wrapper", codeWrapper, "Complexity", nestedDto));
+        ApiModel spec = new ApiModel("repo-spec", null, null, null, List.of(),
+                java.util.Map.of("policies", specWrapper));
+
+        List<Finding> findings = new ArrayList<>();
+        SchemaComparator.fieldDiffByBinding(findings, code, spec, "Wrapper", "policies", "GET /policies response",
+                new HashSet<>(), SchemaComparator.MAX_SCHEMA_DEPTH);
+
+        assertThat(findings).anyMatch(f -> f.getType() == FindingType.SCHEMA_FIELD_TYPE_MISMATCH
+                && "policies#complexity".equals(f.getSpecLocus()));
     }
 }

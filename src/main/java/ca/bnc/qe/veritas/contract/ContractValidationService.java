@@ -286,7 +286,7 @@ public class ContractValidationService {
             findings = dedupCrossList(findings);
             // Then collapse the SAME root cause across endpoints — a shared DTO field flagged once per endpoint that
             // returns it — into one finding that lists every affected endpoint (so it's counted + scored once).
-            findings = collapseByCodeLocus(findings);
+            findings = collapseByRootCause(findings);
 
             // Graft the LLM per-finding enrichment (explanation / proposed fix) onto the in-memory findings so the
             // as-scanned disk report matches the live re-render (which reads the same enrichment from the persisted row).
@@ -935,6 +935,11 @@ public class ContractValidationService {
         return s == null ? "" : s;
     }
 
+    /** Static null-safe empty-default — the collapse keys ({@link #rootCauseKey}/{@link #codeLocusKey}) are static. */
+    private static String nzs(String s) {
+        return s == null ? "" : s;
+    }
+
     /**
      * Collapse findings that describe the same endpoint+issue (keyed on type + endpoint + normalized summary),
      * order-preserving. When a deterministic and an LLM finding collide, keep the deterministic one (it carries the
@@ -955,28 +960,48 @@ public class ContractValidationService {
         return new ArrayList<>(byKey.values());
     }
 
+    /** Schema-field finding types whose ROOT CAUSE is a single spec-schema field (not a per-endpoint code line): the
+     *  same shared spec schema $ref'd by several endpoints is one spec edit, so these collapse on the spec locus. */
+    private static final Set<FindingType> SPEC_LOCUS_TYPES = Set.of(
+            FindingType.SCHEMA_FIELD_MISSING, FindingType.SCHEMA_FIELD_EXTRA, FindingType.SCHEMA_FIELD_TYPE_MISMATCH);
+
     /**
-     * Collapse findings that share the SAME root cause across endpoints: same type + same code-evidence location +
-     * line (e.g. a shared DTO field flagged once for each endpoint that returns it). The first occurrence survives
-     * (keeping its findingId + evidence) and gains an {@code affectedEndpoints} list of every endpoint involved, so
-     * one shared defect is counted (and scored) once instead of per endpoint. Findings with no code evidence (e.g.
-     * endpoint-level param/status findings) have no anchor and are passed through untouched. Order-preserving.
+     * Collapse findings that share the SAME ROOT CAUSE across endpoints into one finding that lists every endpoint
+     * involved, so one shared defect is counted (and scored) once instead of per endpoint. The first occurrence
+     * survives (keeping its findingId + evidence) and gains an {@code affectedEndpoints} list. Order-preserving.
+     *
+     * <p>Two roots are recognised (see {@link #rootCauseKey}):
+     * <ul>
+     *   <li><b>Spec locus</b> — for {@code SCHEMA_FIELD_MISSING/EXTRA/TYPE_MISMATCH} that carry a {@code specLocus}
+     *       ({@code "<specSchemaName>#<field>"}): the fix is ONE edit to the shared spec schema, so two endpoints
+     *       returning DIFFERENT code DTOs that both $ref the same spec schema (their code-evidence locations differ,
+     *       so a code-locus key can never collapse them) merge here. The survivor's summary is rewritten to name the
+     *       shared spec schema for MISSING/EXTRA; TYPE_MISMATCH keeps its original (per-endpoint code/spec types can
+     *       differ, so a generic rewrite would lose information — the merge just de-duplicates the score charge).</li>
+     *   <li><b>Code locus</b> — the fallback: type + specSource + the exact code field location + line (a shared DTO
+     *       field flagged once per endpoint that returns it). {@code specSource} is part of the key so the SAME code
+     *       line diffed against two different specs stays two findings (closing a latent cross-spec over-merge).</li>
+     * </ul>
+     * {@code CONSTRAINT_GAP} is DELIBERATELY excluded from the spec-locus family: per-endpoint constraint values can
+     * legitimately differ (a code-side assertion on one endpoint only), so collapsing them would hide a real defect —
+     * it falls through to the code-locus key like any other type. Findings with neither anchor (endpoint-level
+     * param/status findings with no code evidence and no specLocus) are passed through untouched.
      */
-    static List<Finding> collapseByCodeLocus(List<Finding> in) {
-        Map<String, List<String>> endpointsByLocus = new LinkedHashMap<>();
+    static List<Finding> collapseByRootCause(List<Finding> in) {
+        Map<String, List<String>> endpointsByRoot = new LinkedHashMap<>();
         for (Finding f : in) {
-            String key = codeLocusKey(f);
+            String key = rootCauseKey(f);
             if (key != null && f.getEndpoint() != null) {
-                List<String> eps = endpointsByLocus.computeIfAbsent(key, k -> new ArrayList<>());
+                List<String> eps = endpointsByRoot.computeIfAbsent(key, k -> new ArrayList<>());
                 if (!eps.contains(f.getEndpoint())) {
                     eps.add(f.getEndpoint());
                 }
             }
         }
         List<Finding> out = new ArrayList<>();
-        java.util.Set<String> emitted = new java.util.HashSet<>();
+        Set<String> emitted = new HashSet<>();
         for (Finding f : in) {
-            String key = codeLocusKey(f);
+            String key = rootCauseKey(f);
             if (key == null) {
                 out.add(f);
                 continue;
@@ -984,20 +1009,58 @@ public class ContractValidationService {
             if (!emitted.add(key)) {
                 continue;   // a later finding for a root cause already emitted
             }
-            List<String> eps = endpointsByLocus.getOrDefault(key, List.of());
-            out.add(eps.size() > 1 ? f.toBuilder().affectedEndpoints(List.copyOf(eps)).build() : f);
+            List<String> eps = endpointsByRoot.getOrDefault(key, List.of());
+            if (eps.size() <= 1) {
+                out.add(f);
+                continue;
+            }
+            Finding survivor = f.toBuilder().affectedEndpoints(List.copyOf(eps)).build();
+            out.add(rewriteSpecSchemaSummary(survivor, key));
         }
         return out;
     }
 
-    /** Root-cause key for {@link #collapseByCodeLocus}: type + the exact code field location + line, or null when
-     *  there is no code evidence to anchor on (never collapse those). */
+    /** Root-cause key for {@link #collapseByRootCause}. Spec-keyed ("S|…") for a schema-field type that carries a
+     *  {@code specLocus}; otherwise the code-locus fallback ("C|…"), or null when there is nothing to anchor on. */
+    static String rootCauseKey(Finding f) {
+        if (SPEC_LOCUS_TYPES.contains(f.getType()) && f.getSpecLocus() != null) {
+            return "S|" + f.getType() + "|" + nzs(f.getSpecSource()) + "|" + f.getSpecLocus();
+        }
+        return codeLocusKey(f);
+    }
+
+    /** Code-locus key: type + specSource + the exact code field location + line, or null when there is no code
+     *  evidence to anchor on (never collapse those). {@code specSource} is included so the same code line diffed
+     *  against two different specs stays two findings (a multi-spec scan must not silently imply one spec is clean). */
     static String codeLocusKey(Finding f) {
         if (f.getCodeEvidence() == null || f.getCodeEvidence().location() == null) {
             return null;
         }
         Integer line = f.getCodeEvidence().startLine();
-        return f.getType() + "|" + f.getCodeEvidence().location() + "|" + (line == null ? "" : line);
+        return "C|" + f.getType() + "|" + nzs(f.getSpecSource()) + "|" + f.getCodeEvidence().location()
+                + "|" + (line == null ? "" : line);
+    }
+
+    /** Rewrite a spec-keyed multi-endpoint survivor's summary to name the SHARED spec schema (so it no longer reads as
+     *  a single endpoint's finding). Only for MISSING/EXTRA — TYPE_MISMATCH keeps its original per-endpoint wording. */
+    private static Finding rewriteSpecSchemaSummary(Finding survivor, String key) {
+        if (!key.startsWith("S|")) {
+            return survivor;
+        }
+        FindingType t = survivor.getType();
+        if (t != FindingType.SCHEMA_FIELD_MISSING && t != FindingType.SCHEMA_FIELD_EXTRA) {
+            return survivor;
+        }
+        String locus = survivor.getSpecLocus();
+        // Split at the LAST '#': a field name can't contain '#' while a spec schema name can contain dots, so the
+        // schema is everything before the final '#' and the field is everything after it.
+        int cut = locus.lastIndexOf('#');
+        String schema = cut < 0 ? locus : locus.substring(0, cut);
+        String field = cut < 0 ? locus : locus.substring(cut + 1);
+        String summary = t == FindingType.SCHEMA_FIELD_MISSING
+                ? "Field '" + field + "' of shared spec schema '" + schema + "' is in code but missing from the spec schema"
+                : "Field '" + field + "' of shared spec schema '" + schema + "' is in the spec but not in code";
+        return survivor.toBuilder().summary(summary).build();
     }
 
     /**

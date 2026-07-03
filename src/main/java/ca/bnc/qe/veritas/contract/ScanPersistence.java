@@ -101,6 +101,7 @@ public class ScanPersistence {
             r.setEndpoint(f.getEndpoint());
             r.setAffectedEndpoints(f.getAffectedEndpoints() == null || f.getAffectedEndpoints().size() <= 1
                     ? null : String.join(",", f.getAffectedEndpoints()));
+            r.setSpecLocus(f.getSpecLocus());
             r.setSpecSource(f.getSpecSource());
             r.setSummary(f.getSummary());
             r.setCurrentYamlFragment(f.getCurrentYamlFragment());

@@ -396,7 +396,56 @@ class GoldenDiscrepancyCatalogTest {
                                     .noneMatch(x -> x.getEndpoint() != null && x.getEndpoint().contains("{appId}"));
                             return baseScored && noIdFinding;
                         },
-                        FindingType.STATUS_CODE_MISSING));
+                        FindingType.STATUS_CODE_MISSING),
+
+                // S13i-1: the SHARED-SPEC-SCHEMA duplication regression. Two controllers return TWO DIFFERENT wrapper
+                // DTOs (different files) each carrying `excludeAttributes`; both endpoints $ref ONE shared component
+                // schema that lacks the field. The engine emits SCHEMA_FIELD_MISSING for each endpoint — the SAME spec
+                // locus (shared schema + field). Precision: the excludeAttributes findings carry pairwise-EQUAL non-null
+                // specLocus, which is the ONLY anchor that can collapse them (the extractor attaches no per-field code
+                // source, so a code-locus key is null for both — pre-fix these two MAJORs could never merge).
+                emitPrecise("regression_shared_spec_schema_two_wrapper_dtos",
+                        js(
+                                ctrl("PoliciesController", "/policies", "  @GetMapping\n  public PolicyWrapperA get(){return null;}\n"),
+                                ctrl("AppPoliciesController", "/policies", "  @GetMapping(\"/{app}\")\n  public PolicyWrapperB byApp(@PathVariable String app){return null;}\n"),
+                                dto("PolicyWrapperA", "  private int minLength;\n  private String[] excludeAttributes;\n"),
+                                dto("PolicyWrapperB", "  private int minLength;\n  private String[] excludeAttributes;\n")),
+                        """
+                        openapi: 3.0.1
+                        info: {title: t, version: '1'}
+                        paths:
+                          /policies:
+                            get:
+                              responses: {'200': {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/policies'}}}}}
+                          /policies/{app}:
+                            get:
+                              parameters: [{name: app, in: path, required: true, schema: {type: string}}]
+                              responses: {'200': {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/policies'}}}}}
+                        components:
+                          schemas:
+                            policies:
+                              type: object
+                              properties:
+                                minLength: {type: integer}
+                        """,
+                        f -> {
+                            List<Finding> ea = f.stream()
+                                    .filter(x -> x.getType() == FindingType.SCHEMA_FIELD_MISSING
+                                            && x.getSummary() != null && x.getSummary().contains("excludeAttributes"))
+                                    .toList();
+                            if (ea.size() != 2) {
+                                return false;
+                            }
+                            boolean sameNonNullLocus = ea.get(0).getSpecLocus() != null
+                                    && ea.get(0).getSpecLocus().equals(ea.get(1).getSpecLocus());
+                            // Distinct endpoints, and neither carries a code-evidence location — so the spec locus is
+                            // the only anchor that can collapse the pair (the whole point of S13i-1).
+                            boolean distinctEndpoints = !ea.get(0).getEndpoint().equals(ea.get(1).getEndpoint());
+                            boolean noCodeLocusAnchor = ea.stream()
+                                    .allMatch(x -> x.getCodeEvidence() == null || x.getCodeEvidence().location() == null);
+                            return sameNonNullLocus && distinctEndpoints && noCodeLocusAnchor;
+                        },
+                        FindingType.SCHEMA_FIELD_MISSING));
     }
 
     // ───────────────────────── case model + factories ─────────────────────────

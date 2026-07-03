@@ -37,6 +37,10 @@ public class FindingRecord extends AuditableEntity {
      *  for the usual single-endpoint finding. Persisted so a live re-render keeps the cross-endpoint collapse. */
     @Column(length = 2000)
     private String affectedEndpoints;
+    /** Spec-side root-cause locus ("<specSchemaName>#<field>") of a schema-field finding, when known. Persisted so a
+     *  live re-render can reproduce the spec-locus cross-endpoint collapse. Null for non-schema-field findings. */
+    @Column(length = 500)
+    private String specLocus;
     private String specSource;
 
     @Column(length = 2000)
