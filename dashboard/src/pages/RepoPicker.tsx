@@ -285,7 +285,7 @@ function ValidateModal({ repo, appId, onClose }: { repo: Repo; appId: string; on
             <div className="mb-4 flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 p-3 text-xs text-ink-700">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
               <span>{t('repos.copilotWarnPrefix')} <strong>{t('repos.copilotWarnEmphasis')}</strong>{' '}{t('repos.copilotWarnSuffix')}
-                <button type="button" onClick={signIn} className="ml-1 font-medium text-brand-600 hover:underline">{t('repos.connectNow')}</button>
+                <button type="button" onClick={signIn} className="ml-1 font-medium text-gold hover:underline">{t('repos.connectNow')}</button>
               </span>
             </div>
           )}
@@ -458,7 +458,7 @@ function ScanProgress({ stage, failed, errorMessage, onRetry, startMs, stageDeta
             <AlertTriangle className="h-4 w-4" /> {t('repos.validationFailed')}
           </p>
           {errorMessage && <p className="mt-1 break-words text-xs text-ink-700">{errorMessage}</p>}
-          <button onClick={onRetry} className="mt-2 text-xs font-medium text-brand-600 hover:underline">
+          <button onClick={onRetry} className="mt-2 text-xs font-medium text-gold hover:underline">
             {t('repos.adjustAndRetry')}
           </button>
         </div>

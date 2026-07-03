@@ -96,7 +96,7 @@ export function SnykImpactCard({ showLink = true }: { showLink?: boolean }) {
           </div>
         </div>
         {mttrDays != null && (
-          <p className="mt-3 text-sm text-muted">{t('snyk.impact.mttr', { days: mttrDays })}</p>
+          <p className="border-t border-border px-5 py-3 text-sm text-muted">{t('snyk.impact.mttr', { days: mttrDays })}</p>
         )}
       </CardBody>
     </Card>

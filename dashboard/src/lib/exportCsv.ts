@@ -72,6 +72,16 @@ export function buildScorecardCsv(
   return toCsv([header, ...rows]);
 }
 
+/** Download a plotted trend series (the {date,value}[] behind a TrendChart) as a two-column CSV. */
+export function downloadTrendCsv(
+  filename: string, dateHeader: string, valueHeader: string,
+  points: Array<{ date: string; value: number }>,
+): void {
+  const rows: Array<Array<string | number>> = [[dateHeader, valueHeader], ...points.map((p) => [p.date, p.value])];
+  const stamp = new Date().toISOString().slice(0, 10);
+  downloadCsv(`${filename}-${stamp}.csv`, toCsv(rows));
+}
+
 /** Compose the scorecard CSV and download it as veritas-scorecard-YYYY-MM-DD.csv. */
 export function downloadScorecardCsv(
   t: TFunction,

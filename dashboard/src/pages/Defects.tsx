@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Bug, RefreshCw, ExternalLink, X } from 'lucide-react';
 import { api } from '../api';
-import { Badge, Button, Card, CardBody, CardHeader, EmptyState, KpiTile, PageHeader, TableSkeleton, Table, Td, Row, SortableTh, useSort } from '../components/ui';
+import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, KpiTile, PageHeader, TableSkeleton, Table, Td, Row, SortableTh, useSort } from '../components/ui';
 import { Donut, Gauge, severitySlices } from '../components/charts';
 import { useToast } from '../components/Toast';
 import { severityBadge, TONE } from '../theme/tokens';
@@ -159,7 +159,7 @@ export function Defects() {
       {q.isLoading ? (
         <Card><CardBody className="p-0"><TableSkeleton label={t('defects.loading')} /></CardBody></Card>
       ) : q.isError ? (
-        <Card><CardBody className="text-sm text-danger">{t('defects.loadError', { message: (q.error as Error).message })}</CardBody></Card>
+        <ErrorState message={t('defects.loadError')} detail={(q.error as Error).message} />
       ) : rows.length === 0 ? (
         severityFilter && all.length > 0 ? (
           <EmptyState icon={Bug} title={t('defects.emptyFilterTitle', { severity: enumLabel(t, 'severity', severityFilter) })}
@@ -171,7 +171,7 @@ export function Defects() {
       ) : (
         <Card>
           <CardBody className="p-0">
-            <Table head={<>
+            <Table stickyHead head={<>
               <SortableTh label={t('defects.colJira')} sortKey="jiraKey" sort={sort} />
               <SortableTh label={t('defects.colSeverity')} sortKey="severity" sort={sort} />
               <SortableTh label={t('defects.colService')} sortKey="service" sort={sort} />

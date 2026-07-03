@@ -149,7 +149,7 @@ export function Findings() {
 
           <Card>
             <CardBody className="p-0">
-              <Table head={<>
+              <Table stickyHead head={<>
                 <Th className="w-10">
                   <input type="checkbox" aria-label={t('findings.selectAll')} className="h-4 w-4 accent-brand"
                     checked={allSelected} onChange={toggleAll} />
@@ -197,7 +197,7 @@ export function Findings() {
                       {f.codeFile ? (
                         f.codeUrl ? (
                           <a href={f.codeUrl} target="_blank" rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-brand hover:underline"
+                            className="inline-flex items-center gap-1 text-gold hover:underline"
                             title={t('findings.openInBitbucket', { location: `${f.codeFile}${f.codeStartLine ? ':' + f.codeStartLine : ''}` })}>
                             {`${f.codeFile.split(/[\\/]/).pop()}${f.codeStartLine ? ':' + f.codeStartLine : ''}`}
                             <ExternalLink className="h-3 w-3 shrink-0" />

@@ -248,11 +248,14 @@ export function KpiTile({ label, value, sub, tone = 'ink', trend }:
 }
 
 /* ── Table primitives ───────────────────────────────────────────────────── */
-export function Table({ head, children }: { head: React.ReactNode; children: React.ReactNode }) {
+/** `stickyHead` opts a long list into a scroll region whose header stays pinned — column labels never
+ *  scroll out of view (a table-stakes affordance on Findings/Defects/Snyk/TestCases). Short tables omit it. */
+export function Table({ head, children, stickyHead }:
+  { head: React.ReactNode; children: React.ReactNode; stickyHead?: boolean }) {
   return (
-    <div className="overflow-x-auto">
+    <div className={cn('overflow-x-auto', stickyHead && 'max-h-[70vh] overflow-y-auto')}>
       <table className="w-full text-sm">
-        <thead>
+        <thead className={cn(stickyHead && 'sticky top-0 z-10 bg-surface')}>
           <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted">{head}</tr>
         </thead>
         <tbody>{children}</tbody>
