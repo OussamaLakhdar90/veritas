@@ -284,35 +284,15 @@ public class ContractValidationService {
             findings = ca.bnc.qe.veritas.report.CoverageReconciler.stripFalseSourceDisclaimers(findings, code);
             // Collapse duplicate findings about the same endpoint+issue (deterministic + LLM) before scoring/render.
             findings = dedupCrossList(findings);
+            // Graft the LLM per-finding enrichment (explanation / proposed fix) onto the in-memory findings BEFORE the
+            // root-cause collapse: the LLM saw (and keyed enrich/disputes by) each pre-collapse finding's id, and a
+            // spec-keyed multi-endpoint collapse re-fingerprints the survivor — so grafting after the collapse would
+            // always miss for the shared-schema case (explanation/proposedFix dropped, a disputed FP never marked). The
+            // surviving first occurrence carries these fields through the toBuilder() collapse.
+            findings = graftEnrichment(findings, enrich, disputes);
             // Then collapse the SAME root cause across endpoints — a shared DTO field flagged once per endpoint that
             // returns it — into one finding that lists every affected endpoint (so it's counted + scored once).
             findings = collapseByRootCause(findings);
-
-            // Graft the LLM per-finding enrichment (explanation / proposed fix) onto the in-memory findings so the
-            // as-scanned disk report matches the live re-render (which reads the same enrichment from the persisted row).
-            findings = findings.stream().map(f -> {
-                JsonNode e = enrich.get(f.getFindingId());
-                String disputeReason = disputes.get(f.getFindingId());
-                // The AI may only DOWNGRADE a hard deterministic finding (one that is currently counted/blocking) —
-                // never a design/LLM/low-confidence item (already not counted), and never an escalation. Severity is
-                // left intact; the finding stays listed. This is the only place a dispute takes effect.
-                boolean dispute = disputeReason != null && isDeterministic(f)
-                        && !ca.bnc.qe.veritas.report.FidelityScore.isNeedsAttention(f);
-                if (e == null && !dispute) {
-                    return f;
-                }
-                var b = f.toBuilder();
-                if (e != null && f.getExplanation() == null && e.hasNonNull("explanation")) {
-                    b.explanation(e.get("explanation").asText());
-                }
-                if (e != null && f.getProposedFix() == null && e.hasNonNull("proposedFix")) {
-                    b.proposedFix(e.get("proposedFix").asText());
-                }
-                if (dispute) {
-                    b.aiDisputed(true).aiDisputeReason(disputeReason);
-                }
-                return b.build();
-            }).toList();
 
             // Populate the "current YAML" fragment per finding (deterministic) so the report can show it.
             findings = enrichWithSpecFragments(findings, req.specs());
@@ -945,7 +925,7 @@ public class ContractValidationService {
      * order-preserving. When a deterministic and an LLM finding collide, keep the deterministic one (it carries the
      * code evidence and is scored) but graft the LLM's explanation/proposed fix onto it.
      */
-    private List<Finding> dedupCrossList(List<Finding> in) {
+    static List<Finding> dedupCrossList(List<Finding> in) {
         Map<String, Finding> byKey = new LinkedHashMap<>();
         for (Finding f : in) {
             String key = dedupKey(f);
@@ -958,6 +938,40 @@ public class ContractValidationService {
             // otherwise keep the first (order-preserving); a later duplicate is dropped
         }
         return new ArrayList<>(byKey.values());
+    }
+
+    /**
+     * Graft the LLM per-finding enrichment (explanation / proposed fix) and any AI dispute onto the in-memory findings
+     * so the as-scanned disk report matches the live re-render (which reads the same enrichment from the persisted
+     * row). Runs BEFORE {@link #collapseByRootCause} so each finding is looked up under the id the LLM actually saw —
+     * a spec-keyed collapse re-fingerprints its survivor, so grafting afterwards would always miss the shared-schema
+     * case. Package-private + static so the real ordering (dedup → graft → collapse) is directly testable.
+     */
+    static List<Finding> graftEnrichment(List<Finding> findings, Map<String, JsonNode> enrich,
+            Map<String, String> disputes) {
+        return findings.stream().map(f -> {
+            JsonNode e = enrich.get(f.getFindingId());
+            String disputeReason = disputes.get(f.getFindingId());
+            // The AI may only DOWNGRADE a hard deterministic finding (one that is currently counted/blocking) —
+            // never a design/LLM/low-confidence item (already not counted), and never an escalation. Severity is
+            // left intact; the finding stays listed. This is the only place a dispute takes effect.
+            boolean dispute = disputeReason != null && "DETERMINISTIC".equalsIgnoreCase(nzs(f.getOrigin()))
+                    && !ca.bnc.qe.veritas.report.FidelityScore.isNeedsAttention(f);
+            if (e == null && !dispute) {
+                return f;
+            }
+            var b = f.toBuilder();
+            if (e != null && f.getExplanation() == null && e.hasNonNull("explanation")) {
+                b.explanation(e.get("explanation").asText());
+            }
+            if (e != null && f.getProposedFix() == null && e.hasNonNull("proposedFix")) {
+                b.proposedFix(e.get("proposedFix").asText());
+            }
+            if (dispute) {
+                b.aiDisputed(true).aiDisputeReason(disputeReason);
+            }
+            return b.build();
+        }).toList();
     }
 
     /** Schema-field finding types whose ROOT CAUSE is a single spec-schema field (not a per-endpoint code line): the
@@ -1091,8 +1105,8 @@ public class ContractValidationService {
         return f.getType() + "|" + endpoint + "|" + specSource + "|" + normSummary(f.getSummary());
     }
 
-    private boolean isDeterministic(Finding f) {
-        return "DETERMINISTIC".equalsIgnoreCase(nz(f.getOrigin()));
+    private static boolean isDeterministic(Finding f) {
+        return "DETERMINISTIC".equalsIgnoreCase(nzs(f.getOrigin()));
     }
 
     /** Normalize whitespace + trailing punctuation only — never case (param/header names are case-sensitive). */
@@ -1101,7 +1115,7 @@ public class ContractValidationService {
     }
 
     /** Graft an LLM finding's enrichment onto the deterministic survivor without overwriting its own fields. */
-    private Finding mergeEnrichment(Finding deterministic, Finding llm) {
+    private static Finding mergeEnrichment(Finding deterministic, Finding llm) {
         var b = deterministic.toBuilder();
         if (deterministic.getExplanation() == null && llm.getExplanation() != null) {
             b.explanation(llm.getExplanation());

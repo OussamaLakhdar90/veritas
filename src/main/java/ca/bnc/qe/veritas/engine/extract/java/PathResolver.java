@@ -207,6 +207,25 @@ final class PathResolver {
         return joined.isEmpty() ? "/" : joined;
     }
 
+    /**
+     * The servlet-context-relative form of a base-prefixed path: strip the Spring base ({@code server.servlet.context-
+     * path} etc.) that {@code pathTemplate} already carries, because Spring Security Ant-matches its chain patterns
+     * against the context-relative path, not the full runtime path. A path equal to the base maps to root {@code "/"}.
+     * With no base (default {@code ""}), the path is already context-relative and is returned unchanged.
+     */
+    static String relativeToBase(String pathTemplate, String springBase) {
+        if (springBase == null || springBase.isEmpty()) {
+            return pathTemplate;
+        }
+        if (pathTemplate.equals(springBase)) {
+            return "/";
+        }
+        if (pathTemplate.startsWith(springBase + "/")) {
+            return pathTemplate.substring(springBase.length());
+        }
+        return pathTemplate;   // not under the base (shouldn't happen once the base is applied) — match as-is
+    }
+
     /** Collapse each {@code {name:regex}} path variable to {@code {name}}, scanning matched braces so a nested brace
      *  in the regex (e.g. {@code {id:[0-9]{2}}}) is consumed as one unit instead of leaving a stray '}'. */
     static String stripPathVarRegex(String path) {

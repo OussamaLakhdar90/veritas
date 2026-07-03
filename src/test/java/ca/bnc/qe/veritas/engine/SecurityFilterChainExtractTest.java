@@ -235,6 +235,37 @@ class SecurityFilterChainExtractTest {
     }
 
     @Test
+    void contextPathIsStrippedBeforeMatchingSoPermitAllPrefixResolves(@TempDir Path dir) throws Exception {
+        // S13j-1: with server.servlet.context-path=/ciam the endpoint's pathTemplate is /ciam/public/health, but Spring
+        // Security Ant-matches its chain against the CONTEXT-RELATIVE path (/public/health). Matching permitAll("/public
+        // /**") against the base-prefixed path would miss and fabricate a false CRITICAL SECURITY_MISMATCH.
+        Files.writeString(dir.resolve("application.yml"), "server:\n  servlet:\n    context-path: /ciam\n");
+        Files.writeString(dir.resolve("Ctrl.java"), CTRL_HDR + "@RestController class Ctrl {\n"
+                + "  @GetMapping(\"/public/health\") String h(){return null;}\n}\n");
+        writeChain(dir, ".requestMatchers(\"/public/**\").permitAll().anyRequest().authenticated()");
+
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+
+        assertThat(security(m, "GET", "/ciam/public/health")).isEmpty();   // permit-all resolves via the relative path
+        assertThat(keptBlindSpot(m)).isFalse();
+    }
+
+    @Test
+    void contextPathIsStrippedSoAnAuthenticatedPrefixStillResolves(@TempDir Path dir) throws Exception {
+        // Inverse of the above: the chain secures /api/** and permits everything else. Without stripping /ciam the
+        // /ciam/api/x endpoint would silently fall through to anyRequest().permitAll() — a false NEGATIVE.
+        Files.writeString(dir.resolve("application.yml"), "server:\n  servlet:\n    context-path: /ciam\n");
+        Files.writeString(dir.resolve("Ctrl.java"), CTRL_HDR + "@RestController class Ctrl {\n"
+                + "  @GetMapping(\"/api/x\") String x(){return null;}\n}\n");
+        writeChain(dir, ".requestMatchers(\"/api/**\").authenticated().anyRequest().permitAll()");
+
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+
+        assertThat(security(m, "GET", "/ciam/api/x")).containsExactly("authenticated");
+        assertThat(keptBlindSpot(m)).isFalse();
+    }
+
+    @Test
     void permitAllUnderAGlobalSecuritySpecNowFiresSecurityMismatch(@TempDir Path dir) throws Exception {
         // The previously-hidden security false-negative: the chain leaves /x wide open while the spec requires auth.
         Files.writeString(dir.resolve("Ctrl.java"), CTRL_HDR + "@RestController class Ctrl {\n"

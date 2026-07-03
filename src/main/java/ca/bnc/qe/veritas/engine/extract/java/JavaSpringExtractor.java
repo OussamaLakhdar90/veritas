@@ -18,6 +18,7 @@ import static ca.bnc.qe.veritas.engine.extract.java.PathResolver.annotationPaths
 import static ca.bnc.qe.veritas.engine.extract.java.PathResolver.classPaths;
 import static ca.bnc.qe.veritas.engine.extract.java.PathResolver.collectStringConstants;
 import static ca.bnc.qe.veritas.engine.extract.java.PathResolver.joinPath;
+import static ca.bnc.qe.veritas.engine.extract.java.PathResolver.relativeToBase;
 import static ca.bnc.qe.veritas.engine.extract.java.PathResolver.springBasePath;
 import static ca.bnc.qe.veritas.engine.extract.java.PathResolver.stringList;
 import static ca.bnc.qe.veritas.engine.extract.java.ResponseStatusSupport.addDirectThrowStatuses;
@@ -217,7 +218,11 @@ public class JavaSpringExtractor {
                 if (e.security() != null && !e.security().isEmpty()) {
                     continue;   // already secured by an annotation — the chain is moot for this endpoint
                 }
-                SecurityRule rule = resolveEndpointSecurity(e, securityChain);
+                // Spring Security Ant-matches chain patterns against the CONTEXT-RELATIVE path, so strip the Spring base
+                // (server.servlet.context-path etc.) the endpoint's pathTemplate already carries before matching — else
+                // permitAll("/public/**") misses /ciam/public/... and fabricates a false SECURITY_MISMATCH.
+                SecurityRule rule =
+                        resolveEndpointSecurity(e.method(), relativeToBase(e.pathTemplate(), springBase), securityChain);
                 if (rule == null || rule.access() == SecurityRule.Access.DENY_ALL) {
                     // null = ambiguous; DENY_ALL = a 403-to-everyone route that maps cleanly to neither "secured" nor
                     // "unsecured" in the spec's model — keep the blind spot rather than mislabel it as authorization.
