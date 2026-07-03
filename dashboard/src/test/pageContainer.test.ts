@@ -26,4 +26,13 @@ describe('page layout', () => {
     expect(offenders, `page roots must use <PageContainer>, not a raw max-w-* div:\n${offenders.join('\n')}`)
       .toEqual([]);
   });
+
+  it('the app shell caps the content column so pages never render full-bleed on a wide monitor', () => {
+    // The global cap in App.tsx <main> is what keeps the 13 dense pages (incl. the flagship Dashboard) from
+    // stretching edge-to-edge on a VP's wide display. This guard stops that cap being silently removed.
+    const app = fs.readFileSync(
+      path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'App.tsx'), 'utf8');
+    expect(app, 'App.tsx must cap the routed content column (mx-auto max-w-[1600px])')
+      .toMatch(/mx-auto max-w-\[1600px\]/);
+  });
 });

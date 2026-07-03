@@ -22,6 +22,8 @@ const PREFIX = {
   layer: 'enums.layer',
   confidence: 'enums.confidence',
   skill: 'enums.skill',
+  riskLevel: 'enums.riskLevel',            // HIGH/MEDIUM/LOW — risk register + priority badges
+  scorecardVerdict: 'enums.scorecardVerdict',   // OK/DEGRADED strategy-scorecard verdict
 } as const;
 
 export type EnumFamily = keyof typeof PREFIX;

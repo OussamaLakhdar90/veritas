@@ -155,7 +155,7 @@ describe('TestPlanDetail (RTM)', () => {
     expect(screen.getByText('Risk register (2)')).toBeInTheDocument()
     const riskRow = screen.getByText('Pagination not covered by automation').closest('tr')!
     expect(within(riskRow).getByText('R1')).toBeInTheDocument()
-    expect(within(riskRow).getByText('HIGH')).toBeInTheDocument()
+    expect(within(riskRow).getByText('High')).toBeInTheDocument()
     expect(within(riskRow).getByText('Add boundary cases')).toBeInTheDocument()
 
     // Test approach: levels/types + technique row
