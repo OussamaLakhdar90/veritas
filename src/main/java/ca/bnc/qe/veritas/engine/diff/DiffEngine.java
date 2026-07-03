@@ -588,20 +588,25 @@ public class DiffEngine {
 
     static Finding finding(FindingType type, String endpoint, String specSource, String summary,
                             Endpoint codeEndpoint, Confidence confidence) {
-        return build(type, endpoint, specSource, summary, codeEndpoint == null ? null : codeEndpoint.source(), confidence);
+        return build(type, endpoint, specSource, summary, codeEndpoint == null ? null : codeEndpoint.source(),
+                confidence, null);
     }
 
     /**
-     * Finding factory that attaches an explicit code {@link SourceRef} (e.g. a DTO field's own file + line) as the
-     * evidence — so a schema-field finding traces to the exact field in the source, not just its endpoint.
+     * Schema-field finding factory: attaches an explicit code {@link SourceRef} (e.g. a DTO field's own file + line)
+     * as the evidence — so the finding traces to the exact field in the source, not just its endpoint — and records
+     * the spec-side locus ({@code "<specSchemaName>#<fieldJsonName>"}, with a mismatch-kind token appended for type
+     * mismatches), the shared root cause used to collapse the same shared-schema field flagged across several
+     * endpoints. Every schema-field emitter must pass the locus (or an explicit null when the spec schema is
+     * anonymous) — there is deliberately NO locus-less overload a future emitter could silently bypass it with.
      */
     static Finding fieldFinding(FindingType type, String endpoint, String specSource, String summary,
-                                SourceRef codeEvidence, Confidence confidence) {
-        return build(type, endpoint, specSource, summary, codeEvidence, confidence);
+                                SourceRef codeEvidence, Confidence confidence, String specLocus) {
+        return build(type, endpoint, specSource, summary, codeEvidence, confidence, specLocus);
     }
 
     private static Finding build(FindingType type, String endpoint, String specSource, String summary,
-                                 SourceRef codeEvidence, Confidence confidence) {
+                                 SourceRef codeEvidence, Confidence confidence, String specLocus) {
         return Finding.builder()
                 .findingId(Integer.toHexString(Objects.hash(type, endpoint, summary, specSource)))
                 .type(type)
@@ -613,6 +618,7 @@ public class DiffEngine {
                 .specSource(specSource)
                 .summary(summary)
                 .codeEvidence(codeEvidence)
+                .specLocus(specLocus)
                 .build();
     }
 

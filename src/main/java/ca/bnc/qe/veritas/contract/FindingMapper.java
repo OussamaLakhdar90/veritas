@@ -36,6 +36,7 @@ public final class FindingMapper {
                 .origin(r.getOrigin())
                 .endpoint(r.getEndpoint())
                 .affectedEndpoints(splitCsv(r.getAffectedEndpoints()))
+                .specLocus(r.getSpecLocus())
                 .specSource(r.getSpecSource())
                 .summary(r.getSummary())
                 .explanation(r.getExplanation())

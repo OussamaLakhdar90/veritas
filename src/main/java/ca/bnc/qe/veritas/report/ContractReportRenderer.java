@@ -197,6 +197,20 @@ public class ContractReportRenderer {
                 "Quality gate: " + (pass ? "PASS" : "FAIL") + " — fidelity " + score + " vs target ≥ " + FidelityScore.PASS_THRESHOLD,
                 "Seuil qualité : " + (pass ? "RÉUSSI" : "ÉCHEC") + " — fidélité " + score + " vs cible ≥ " + FidelityScore.PASS_THRESHOLD))
                 .append("</p>");
+        // Reconcile the apparent contradiction between a FAILED gate and a "Proceed" release verdict, in one line: the
+        // gate measures documentation fidelity while the release verdict measures consumer risk. Only when the drift is
+        // entirely additive (no breaking finding) — a passing gate or a breaking-FAIL Hold needs no such note.
+        if (additiveProceed(score, blocking, counted.size(), allNonBreaking)) {
+            sb.append("<p class=\"gate-note\">").append(bi(
+                    "The quality gate measures documentation fidelity; release risk is assessed separately. Every "
+                            + "finding here is additive documentation drift — nothing breaks a running consumer — so the "
+                            + "release verdict is Proceed despite the failed gate.",
+                    "Le seuil qualité mesure la fidélité de la documentation; le risque de livraison est évalué "
+                            + "séparément. Tous les constats sont des écarts documentaires additifs — rien ne brise un "
+                            + "consommateur en production — la décision de livraison demeure donc « Prêt à livrer » "
+                            + "malgré l'échec du seuil."))
+                    .append("</p>");
+        }
         if (scan.getPreviousFidelityScore() != null) {
             int prev = scan.getPreviousFidelityScore();
             int delta = score - prev;
@@ -208,6 +222,12 @@ public class ContractReportRenderer {
                     "Tendance : " + arrow + " " + sign + delta + " vs analyse précédente (était " + prev + ")"))
                     .append("</p>");
         }
+
+        // Surface undocumented error responses (500/406/…) that were DEMOTED to manual review (§6) as low-confidence
+        // advice-origin statuses (global @ControllerAdvice or controller-local @ExceptionHandler) — so the team is
+        // still told, prominently, that those error statuses exist even though they don't count toward the score.
+        // Renders for both the interactive and PDF paths (same code path here).
+        sb.append(errorContractNote(attention));
 
         // KPI scorecard (built once, then laid out next to the severity breakdown for a single management snapshot).
         // Coverage = deterministic per-scan gaps (unparsed files / unresolved types); fall back to the blind-spots
@@ -616,6 +636,72 @@ public class ContractReportRenderer {
         return bar.append("</div>").append(legend).append("</div>").toString();
     }
 
+    /**
+     * True when the scan is below the fidelity bar yet safe to release: no release-blocking finding, and every
+     * finding is additive/non-breaking documentation drift (the code is a compatible superset of the spec). The
+     * one predicate feeds BOTH the bottom-line "Proceed — documentation fixes recommended" verdict AND the §1
+     * gate-reconciliation note, so the two can never drift apart.
+     */
+    private static boolean additiveProceed(int score, long blocking, int total, boolean allNonBreaking) {
+        return blocking == 0 && score < FidelityScore.PASS_THRESHOLD && total > 0 && allNonBreaking;
+    }
+
+    /** An HTTP status code (3xx/4xx/5xx) as a standalone token in an advice-status summary. */
+    private static final java.util.regex.Pattern ERROR_STATUS = java.util.regex.Pattern.compile("\\b([3-5]\\d\\d)\\b");
+
+    /**
+     * A compact §1 note listing the undocumented ERROR responses (500/406/…) that were demoted to §6 manual review —
+     * exactly the advice-demoted statuses ({@code STATUS_CODE_MISSING && DETERMINISTIC && LOW}, produced only by the
+     * diff engine's advice-origin demotion: a global {@code @ControllerAdvice} handler OR a controller-local
+     * {@code @ExceptionHandler} whose per-endpoint reachability can't be proven statically). It names each status
+     * once, sorted ascending, with the number of DISTINCT endpoints it can reach, so the team is still told these
+     * error statuses exist even though they are not counted in the score. Returns "" (no heading) when there is
+     * nothing to surface.
+     */
+    private String errorContractNote(List<Finding> attention) {
+        // status -> distinct endpoints that can return it (sorted status keys for a stable ascending render).
+        java.util.Map<Integer, java.util.Set<String>> byStatus = new java.util.TreeMap<>();
+        for (Finding f : attention) {
+            boolean adviceDemoted = f.getType() != null && "STATUS_CODE_MISSING".equals(f.getType().name())
+                    && "DETERMINISTIC".equalsIgnoreCase(f.getOrigin())
+                    && f.getConfidence() != null && "LOW".equals(f.getConfidence().name());
+            if (!adviceDemoted || isBlank(f.getSummary())) {
+                continue;
+            }
+            java.util.regex.Matcher m = ERROR_STATUS.matcher(f.getSummary());
+            if (!m.find()) {
+                continue;   // defensive: no parseable status in the summary → skip rather than guess
+            }
+            int status = Integer.parseInt(m.group(1));
+            byStatus.computeIfAbsent(status, k -> new java.util.LinkedHashSet<>()).addAll(endpointsOf(f));
+        }
+        if (byStatus.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("<div class=\"err-note\"><div class=\"err-note-h\">").append(bi(
+                "Undocumented error responses — not counted in the score; see section 6",
+                "Réponses d'erreur non documentées — non comptées dans le score; voir la section 6")).append("</div>");
+        for (java.util.Map.Entry<Integer, java.util.Set<String>> e : byStatus.entrySet()) {
+            int n = e.getValue().size();
+            sb.append("<div class=\"err-note-line\">").append(bi(
+                    "HTTP " + e.getKey() + " — an exception handler can return this status, but the spec does not "
+                            + "document it (" + n + (n == 1 ? " endpoint)." : " endpoints)."),
+                    "HTTP " + e.getKey() + " — un gestionnaire d'exceptions peut retourner ce code, mais la spéc "
+                            + "ne le documente pas (" + n + (n == 1 ? " point de terminaison)." : " points de terminaison)."))).append("</div>");
+        }
+        return sb.append("</div>").toString();
+    }
+
+    /** The distinct endpoints a finding covers — its {@code affectedEndpoints} when collapsed across several, else its
+     *  single endpoint (or none). */
+    private static List<String> endpointsOf(Finding f) {
+        if (f.getAffectedEndpoints() != null && f.getAffectedEndpoints().size() > 1) {
+            return f.getAffectedEndpoints();
+        }
+        return f.getEndpoint() == null ? List.of() : List.of(f.getEndpoint());
+    }
+
     /** The plain "is it safe to release?" verdict box — first thing management sees. Release RISK (breaking changes)
      *  drives the action; the fidelity score is the separate quality bar. */
     private String bottomLine(int score, long blocking, int total, int missing, int wrong, int dead, long disputed,
@@ -623,7 +709,7 @@ public class ContractReportRenderer {
         boolean pass = score >= FidelityScore.PASS_THRESHOLD;
         // Below the fidelity bar but nothing would break a running consumer → the release is safe; the spec is just
         // behind. Call it out as a calm "proceed", distinct from a real "hold".
-        boolean additiveProceed = blocking == 0 && !pass && total > 0 && allNonBreaking;
+        boolean additiveProceed = additiveProceed(score, blocking, total, allNonBreaking);
         String color, tint, statusEn, statusFr;
         if (blocking > 0) {
             color = "#C2122D"; tint = "#fdecef"; statusEn = "Do not release"; statusFr = "Ne pas livrer";
@@ -975,6 +1061,10 @@ public class ContractReportRenderer {
                 + ".sev-pill{color:#fff;font-size:.7rem;font-weight:700;text-transform:uppercase;padding:2px 9px;border-radius:999px}"
                 + ".gate{display:inline-block;font-weight:700;font-size:.9rem;padding:.4rem .9rem;border-radius:8px;margin:.3rem 0}"
                 + ".gate-pass{background:#e6f4ea;color:#1E8E5A}.gate-fail{background:#fdecef;color:#C2122D}"
+                + ".gate-note{font-size:.82rem;color:#475069;margin:.15rem 0 .3rem;max-width:640px}"
+                + ".err-note{background:#fbf7ee;border:1px solid #ecdfc4;border-left:3px solid #b5852a;border-radius:0 8px 8px 0;padding:.6rem .85rem;margin:.6rem 0}"
+                + ".err-note-h{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:#8a6a1e;font-weight:700;margin-bottom:.3rem}"
+                + ".err-note-line{font-size:.85rem;color:#475069;margin:.12rem 0}"
                 + ".trend{font-size:.85rem;margin:.2rem 0}.trend-up{color:#1E8E5A}.trend-down{color:#C2122D}.trend-flat{color:#475069}"
                 + "table.actions{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e3e6eb;border-radius:10px;overflow:hidden}"
                 + "table.actions th,table.actions td{text-align:left;padding:8px 12px;font-size:.86rem;border-top:1px solid #eef1f5;vertical-align:top}"

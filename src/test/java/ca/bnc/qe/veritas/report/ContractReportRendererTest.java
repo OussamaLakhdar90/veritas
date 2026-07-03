@@ -94,6 +94,54 @@ class ContractReportRendererTest {
         assertThat(html).contains("conf-pill").contains("conf-high").contains("High confidence");
     }
 
+    /** S13i-5 end-to-end lock: now that the extractor populates each field's SourceRef, a schema-field finding
+     *  carries codeEvidence, so the report MUST render the clickable code link the user asked for. */
+    @Test
+    void aSchemaFieldFindingWithFieldSourceRendersAClickableCodeLink() {
+        ConnectionsProperties cp = new ConnectionsProperties();
+        cp.getBitbucket().setEdition("SERVER_DC");
+        cp.getBitbucket().setBaseUrl("https://git.bnc.ca");
+        ContractReportRenderer renderer = new ContractReportRenderer(new BitbucketLinkBuilder(cp));
+
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        scan.setAppId("APP7571");
+        scan.setRepoSlug("ciam-policies");
+        scan.setGitRef("develop");
+        Finding f = Finding.builder()
+                .findingId("sf1").type(FindingType.SCHEMA_FIELD_MISSING).layer(Layer.L4).severity(Severity.MAJOR)
+                .confidence(Confidence.HIGH).origin("DETERMINISTIC").service("ciam-policies").specSource("code-vs-spec")
+                .endpoint("GET /policies response.excludeAttributes")
+                .specLocus("policies#excludeAttributes")
+                .summary("Field 'excludeAttributes' is in code but missing from the spec schema")
+                .codeEvidence(SourceRef.code("src/main/java/ca/bnc/PasswordComplexity.java", 42, 42, null))
+                .build();
+
+        String html = renderer.renderHtml(scan, List.of(f));
+        assertThat(html).contains("class=\"code-link\"")
+                .contains("/browse/src/main/java/ca/bnc/PasswordComplexity.java")
+                .contains(">PasswordComplexity.java:42</a>");
+    }
+
+    /** Without a link builder (no-arg constructor) the same field source still renders as a plain, traceable
+     *  "File.java:line" code-trace line — the code location is never silently dropped. */
+    @Test
+    void aSchemaFieldFindingRendersPlainCodeTraceWhenNoLinkBuilder() {
+        Finding f = Finding.builder()
+                .findingId("sf2").type(FindingType.SCHEMA_FIELD_MISSING).layer(Layer.L4).severity(Severity.MAJOR)
+                .confidence(Confidence.HIGH).origin("DETERMINISTIC").service("ciam-policies").specSource("code-vs-spec")
+                .endpoint("GET /policies response.excludeAttributes")
+                .specLocus("policies#excludeAttributes")
+                .summary("Field 'excludeAttributes' is in code but missing from the spec schema")
+                .codeEvidence(SourceRef.code("src/main/java/ca/bnc/PasswordComplexity.java", 42, 42, null))
+                .build();
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(f));
+        assertThat(html).contains("code-trace").contains("PasswordComplexity.java:42")
+                .doesNotContain("/browse/").doesNotContain("class=\"code-link\"");
+    }
+
     @Test
     void codeEvidenceStaysPlainTextWhenNoLinkBuilder() {
         // The no-arg constructor (tests / non-Spring use) has no link builder → evidence renders as plain text.
@@ -187,6 +235,31 @@ class ContractReportRendererTest {
     }
 
     @Test
+    void additiveOnlyDriftBelow90RendersTheGateReconciliationNoteInBothLanguages() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        Finding a = Finding.builder().findingId("a").type(FindingType.SCHEMA_FIELD_MISSING).layer(Layer.L4)
+                .severity(Severity.MAJOR).confidence(Confidence.HIGH).origin("DETERMINISTIC").service("ciam-policies")
+                .specSource("code-vs-spec").endpoint("GET /policies").summary("Field 'x' in code, missing from spec").build();
+        Finding b = a.toBuilder().findingId("b").endpoint("GET /policies/{app}")
+                .summary("Field 'y' in code, missing from spec").build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(a, b));
+        // The gate still FAILS (below 90) — that assertion is unchanged — and a SEPARATE note reconciles it with Proceed.
+        assertThat(html).contains("Quality gate: FAIL").contains("class=\"gate gate-fail\">");
+        assertThat(html).contains("class=\"gate-note\">")
+                .contains("The quality gate measures documentation fidelity; release risk is assessed separately.")
+                .contains("Le seuil qualité mesure la fidélité de la documentation");
+    }
+
+    @Test
+    void gateReconciliationNoteAbsentOnAPassingScan() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");   // no findings -> score 100 -> gate PASS
+        String html = new ContractReportRenderer().renderHtml(scan, List.of());
+        assertThat(html).contains("Quality gate: PASS").doesNotContain("class=\"gate-note\">");
+    }
+
+    @Test
     void aBreakingMajorBelow90StillRendersHoldForFixes() {
         Scan scan = new Scan();
         scan.setServiceName("ciam-policies");
@@ -197,6 +270,8 @@ class ContractReportRendererTest {
                 .summary("Field 'y' in code, missing from spec").build();
         String html = new ContractReportRenderer().renderHtml(scan, List.of(breaking, additive));
         assertThat(html).contains("Hold for fixes").doesNotContain("documentation fixes recommended");
+        // A breaking finding holds the release -> no gate-reconciliation note (that line is only for additive Proceed).
+        assertThat(html).doesNotContain("class=\"gate-note\">");
     }
 
     @Test
@@ -241,6 +316,78 @@ class ContractReportRendererTest {
         byte[] pdf = new ContractReportRenderer().renderPdf(scan, List.of(richFinding()));
         assertThat(pdf).isNotEmpty();
         // PDF magic header — proves the strict-XHTML render succeeded with the new detail rows
+        assertThat(new String(pdf, 0, 4)).isEqualTo("%PDF");
+    }
+
+    // ───────────────────────── S13i-3: undocumented error-responses note ─────────────────────────
+
+    /** A blanket-advice-demoted STATUS_CODE_MISSING (DETERMINISTIC + LOW) — the exact set demoted to §6 manual review. */
+    private Finding demotedAdviceStatus(String id, String endpoint, int status) {
+        return Finding.builder().findingId(id).type(FindingType.STATUS_CODE_MISSING).layer(Layer.L4)
+                .severity(Severity.MAJOR).confidence(Confidence.LOW).origin("DETERMINISTIC").service("ciam-policies")
+                .specSource("code-vs-spec").endpoint(endpoint)
+                .summary("Code can return " + status + " but the spec doesn't document it").build();
+    }
+
+    @Test
+    void undocumentedErrorResponsesNoteGroupsByStatusWithDistinctEndpointCounts() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        // Two endpoints for 500, one for 406 — 500 must render once with a 2-endpoint count, 406 once.
+        Finding a = demotedAdviceStatus("a", "GET /policies", 500);
+        Finding b = demotedAdviceStatus("b", "GET /policies/{app}", 500);
+        Finding c = demotedAdviceStatus("c", "GET /policies", 406);
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(a, b, c));
+        assertThat(html).contains("Undocumented error responses").contains("not counted in the score")
+                .contains("HTTP 500 — an exception handler can return this status")
+                .contains("(2 endpoints).")
+                .contains("HTTP 406 — an exception handler can return this status")
+                .contains("(1 endpoint).");
+        // Bilingual — the French heading + line are present too. The copy says "an exception handler" (not
+        // "a global…"): the demoted set also comes from controller-LOCAL @ExceptionHandler methods, not only
+        // a global @ControllerAdvice.
+        assertThat(html).contains("Réponses d'erreur non documentées")
+                .contains("un gestionnaire d'exceptions peut retourner ce code")
+                .doesNotContain("global exception handler").doesNotContain("gestionnaire d'exceptions global");
+    }
+
+    @Test
+    void errorNoteAbsentWhenTheStatusIsCountedMediumNotDemoted() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        // MEDIUM confidence => counted, not demoted to §6 => the note must NOT appear.
+        Finding counted = demotedAdviceStatus("m", "GET /policies", 500).toBuilder()
+                .confidence(Confidence.MEDIUM).build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(counted));
+        assertThat(html).doesNotContain("Undocumented error responses");
+    }
+
+    @Test
+    void errorNoteAbsentForAnLlmOriginLookalike() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        // Same type + LOW confidence but LLM origin — NOT the deterministic blanket-advice set => no note.
+        Finding llm = demotedAdviceStatus("l", "GET /policies", 500).toBuilder().origin("LLM").build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(llm));
+        assertThat(html).doesNotContain("Undocumented error responses");
+    }
+
+    @Test
+    void errorNoteAbsentWhenThereAreNoFindings() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        String html = new ContractReportRenderer().renderHtml(scan, List.of());
+        assertThat(html).doesNotContain("Undocumented error responses");
+    }
+
+    @Test
+    void errorNoteRendersOnThePdfPathWhichStillStartsWithPdfMagic() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        byte[] pdf = new ContractReportRenderer().renderPdf(scan,
+                List.of(demotedAdviceStatus("a", "GET /policies", 500),
+                        demotedAdviceStatus("b", "GET /policies/{app}", 500)));
+        assertThat(pdf).isNotEmpty();
         assertThat(new String(pdf, 0, 4)).isEqualTo("%PDF");
     }
 }

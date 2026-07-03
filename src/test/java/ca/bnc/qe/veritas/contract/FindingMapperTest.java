@@ -61,6 +61,26 @@ class FindingMapperTest {
     }
 
     @Test
+    void roundTripsTheSpecLocusAndIsNullSafe() {
+        FindingRecord r = new FindingRecord();
+        r.setFingerprint("fp3");
+        r.setType("SCHEMA_FIELD_MISSING");
+        r.setSeverity("MAJOR");
+        r.setOrigin("DETERMINISTIC");
+        r.setSummary("field missing");
+        r.setSpecLocus("password.complexity#excludeAttributes");
+        assertThat(FindingMapper.toFinding(r).getSpecLocus()).isEqualTo("password.complexity#excludeAttributes");
+
+        FindingRecord noLocus = new FindingRecord();
+        noLocus.setFingerprint("fp4");
+        noLocus.setType("STATUS_CODE_MISSING");
+        noLocus.setSeverity("MAJOR");
+        noLocus.setOrigin("DETERMINISTIC");
+        noLocus.setSummary("no locus");
+        assertThat(FindingMapper.toFinding(noLocus).getSpecLocus()).isNull();
+    }
+
+    @Test
     void guardsUnknownEnumValuesAndDefaultsStatus() {
         FindingRecord bad = new FindingRecord();
         bad.setType("NOT_A_TYPE");

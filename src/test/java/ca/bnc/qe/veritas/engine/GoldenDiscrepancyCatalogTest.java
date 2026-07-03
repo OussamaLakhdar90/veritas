@@ -396,7 +396,59 @@ class GoldenDiscrepancyCatalogTest {
                                     .noneMatch(x -> x.getEndpoint() != null && x.getEndpoint().contains("{appId}"));
                             return baseScored && noIdFinding;
                         },
-                        FindingType.STATUS_CODE_MISSING));
+                        FindingType.STATUS_CODE_MISSING),
+
+                // S13i-1: the SHARED-SPEC-SCHEMA duplication regression. Two controllers return TWO DIFFERENT wrapper
+                // DTOs (different files) each carrying `excludeAttributes`; both endpoints $ref ONE shared component
+                // schema that lacks the field. The engine emits SCHEMA_FIELD_MISSING for each endpoint — the SAME spec
+                // locus (shared schema + field). Precision: the excludeAttributes findings carry pairwise-EQUAL non-null
+                // specLocus (the anchor that collapses them) AND — since S13i-5 populates the per-field code source —
+                // DIFFERENT non-null code locations with a real startLine (the two DTOs live in different files). A
+                // code-locus key could never merge those differing locations; only the shared spec locus can.
+                emitPrecise("regression_shared_spec_schema_two_wrapper_dtos",
+                        js(
+                                ctrl("PoliciesController", "/policies", "  @GetMapping\n  public PolicyWrapperA get(){return null;}\n"),
+                                ctrl("AppPoliciesController", "/policies", "  @GetMapping(\"/{app}\")\n  public PolicyWrapperB byApp(@PathVariable String app){return null;}\n"),
+                                dto("PolicyWrapperA", "  private int minLength;\n  private String[] excludeAttributes;\n"),
+                                dto("PolicyWrapperB", "  private int minLength;\n  private String[] excludeAttributes;\n")),
+                        """
+                        openapi: 3.0.1
+                        info: {title: t, version: '1'}
+                        paths:
+                          /policies:
+                            get:
+                              responses: {'200': {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/policies'}}}}}
+                          /policies/{app}:
+                            get:
+                              parameters: [{name: app, in: path, required: true, schema: {type: string}}]
+                              responses: {'200': {description: ok, content: {application/json: {schema: {$ref: '#/components/schemas/policies'}}}}}
+                        components:
+                          schemas:
+                            policies:
+                              type: object
+                              properties:
+                                minLength: {type: integer}
+                        """,
+                        f -> {
+                            List<Finding> ea = f.stream()
+                                    .filter(x -> x.getType() == FindingType.SCHEMA_FIELD_MISSING
+                                            && x.getSummary() != null && x.getSummary().contains("excludeAttributes"))
+                                    .toList();
+                            if (ea.size() != 2) {
+                                return false;
+                            }
+                            boolean sameNonNullLocus = ea.get(0).getSpecLocus() != null
+                                    && ea.get(0).getSpecLocus().equals(ea.get(1).getSpecLocus());
+                            boolean distinctEndpoints = !ea.get(0).getEndpoint().equals(ea.get(1).getEndpoint());
+                            // Each finding now traces to its own DTO field: non-null code location + startLine, and the
+                            // two locations DIFFER (different DTO files) — so only the shared spec locus can collapse them.
+                            boolean tracedToOwnField = ea.stream().allMatch(x -> x.getCodeEvidence() != null
+                                    && x.getCodeEvidence().location() != null && x.getCodeEvidence().startLine() != null);
+                            boolean differentCodeLocations = tracedToOwnField
+                                    && !ea.get(0).getCodeEvidence().location().equals(ea.get(1).getCodeEvidence().location());
+                            return sameNonNullLocus && distinctEndpoints && tracedToOwnField && differentCodeLocations;
+                        },
+                        FindingType.SCHEMA_FIELD_MISSING));
     }
 
     // ───────────────────────── case model + factories ─────────────────────────

@@ -22,6 +22,9 @@ public class Finding {
     String endpoint;             // "METHOD /path" or null for global/L1
     @Builder.Default
     List<String> affectedEndpoints = List.of();  // >1 when several endpoints share this same root cause (e.g. a shared DTO field)
+    String specLocus;            // "<specSchemaName>#<fieldJsonName>" — the spec-side root cause of a schema-field finding,
+                                 // used to collapse the SAME shared spec-schema field flagged across endpoints (# separates
+                                 // because a spec schema name can contain dots). Null for non-schema-field findings.
     String specSource;           // which spec this is about (or "code-vs-repo-spec", "repo-spec-vs-confluence-spec")
     String summary;              // deterministic one-liner
     String explanation;          // LLM (nullable)

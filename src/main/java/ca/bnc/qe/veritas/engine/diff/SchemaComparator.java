@@ -12,6 +12,7 @@ import ca.bnc.qe.veritas.engine.model.ApiModel;
 import ca.bnc.qe.veritas.engine.model.ConstraintSet;
 import ca.bnc.qe.veritas.engine.model.FieldModel;
 import ca.bnc.qe.veritas.engine.model.SchemaModel;
+import ca.bnc.qe.veritas.engine.model.SourceRef;
 import ca.bnc.qe.veritas.finding.Confidence;
 import ca.bnc.qe.veritas.finding.Finding;
 import ca.bnc.qe.veritas.finding.FindingType;
@@ -89,7 +90,8 @@ final class SchemaComparator {
                                         + (c.refSchema() != null
                                             ? "a nested object/array in code but a scalar (" + s.type() + ") in the spec"
                                             : "a scalar (" + c.type() + ") in code but a nested object/array in the spec"),
-                                c.source(), Confidence.HIGH));
+                                c.source(), Confidence.HIGH, specLocus(ss, e.getKey(),
+                                        c.refSchema() != null ? "object~scalar" : "scalar~object")));
                     }
                     continue;
                 }
@@ -103,7 +105,8 @@ final class SchemaComparator {
                             "Field '" + e.getKey() + "' of " + locus + " is "
                                     + (arrayRef(c.refSchema()) ? "an array in code but a single object in the spec"
                                                                : "a single object in code but an array in the spec"),
-                            c.source(), Confidence.HIGH));
+                            c.source(), Confidence.HIGH, specLocus(ss, e.getKey(),
+                                    arrayRef(c.refSchema()) ? "array~object" : "object~array")));
                     continue;
                 }
                 fieldDiffByBinding(findings, code, spec, c.refSchema(), s.refSchema(),
@@ -268,6 +271,21 @@ final class SchemaComparator {
         return out;
     }
 
+    /** The spec-side root-cause locus of a schema-field finding: {@code "<specSchemaName>#<fieldJsonName>"}, or null
+     *  when the spec schema is anonymous (no name to anchor a cross-endpoint collapse on). {@code #} separates because
+     *  a spec schema name can itself contain dots (e.g. "password.complexity"). */
+    private static String specLocus(SchemaModel specSchema, String fieldJsonName) {
+        return specSchema.name() == null ? null : specSchema.name() + "#" + fieldJsonName;
+    }
+
+    /** As {@link #specLocus(SchemaModel, String)} with a mismatch-kind token appended
+     *  ({@code "<schema>#<field>#<kind>"}). A TYPE_MISMATCH root cause includes WHAT the mismatch is: two different
+     *  type defects on the same spec field (say integer-vs-string on one endpoint and object-vs-scalar on another)
+     *  are two separate spec edits, so they must never collapse into one survivor that hides the other. */
+    private static String specLocus(SchemaModel specSchema, String fieldJsonName, String kind) {
+        return specSchema.name() == null ? null : specSchema.name() + "#" + fieldJsonName + "#" + kind;
+    }
+
     static void compareSchema(List<Finding> findings, String specSource, String name, SchemaModel codeS, SchemaModel specS) {
         Map<String, FieldModel> specFields = new LinkedHashMap<>();
         specS.fields().forEach(f -> specFields.put(f.jsonName(), f));
@@ -278,14 +296,14 @@ final class SchemaComparator {
             if (sf == null) {
                 findings.add(DiffEngine.fieldFinding(FindingType.SCHEMA_FIELD_MISSING, name + "." + cf.jsonName(), specSource,
                         "Field '" + cf.jsonName() + "' of " + name + " is in code but missing from the spec schema",
-                        cf.source(), Confidence.HIGH));
+                        cf.source(), Confidence.HIGH, specLocus(specS, cf.jsonName())));
                 continue;
             }
             if (cf.type() != null && sf.type() != null && !cf.type().equals(sf.type())
                     && !"object".equals(cf.type()) && !"object".equals(sf.type())) {
                 findings.add(DiffEngine.fieldFinding(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, name + "." + cf.jsonName(), specSource,
                         "Field '" + cf.jsonName() + "' type — code " + cf.type() + " vs spec " + sf.type(),
-                        cf.source(), Confidence.MEDIUM));
+                        cf.source(), Confidence.MEDIUM, specLocus(specS, cf.jsonName(), cf.type() + "~" + sf.type())));
             }
             // required drift — ONLY the faithful direction: the code POSITIVELY asserts the field is required
             // (@NotNull/@NotBlank/@NotEmpty) but the spec marks it optional. The reverse (code false, spec required)
@@ -319,8 +337,9 @@ final class SchemaComparator {
         }
         for (FieldModel sf : specS.fields()) {
             if (!codeFields.containsKey(sf.jsonName())) {
-                findings.add(DiffEngine.finding(FindingType.SCHEMA_FIELD_EXTRA, name + "." + sf.jsonName(), specSource,
-                        "Field '" + sf.jsonName() + "' of " + name + " is in the spec but not in code", null, Confidence.LOW));
+                findings.add(DiffEngine.fieldFinding(FindingType.SCHEMA_FIELD_EXTRA, name + "." + sf.jsonName(), specSource,
+                        "Field '" + sf.jsonName() + "' of " + name + " is in the spec but not in code",
+                        (SourceRef) null, Confidence.LOW, specLocus(specS, sf.jsonName())));
             }
         }
     }

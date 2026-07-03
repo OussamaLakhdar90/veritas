@@ -23,6 +23,7 @@ import ca.bnc.qe.veritas.engine.model.FieldModel;
 import ca.bnc.qe.veritas.engine.model.SchemaModel;
 import ca.bnc.qe.veritas.engine.model.SourceRef;
 import com.github.javaparser.ast.CompilationUnit;
+import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
@@ -58,7 +59,7 @@ final class ConstraintReader {
             return new SchemaModel(td.getNameAsString(), "string", List.of(), enumValuesOf(ed), src);
         }
         List<FieldModel> fields = new ArrayList<>();
-        collectFields(td, types, fields, new HashSet<>(), new HashSet<>());
+        collectFields(sourceRoot, td, types, fields, new HashSet<>(), new HashSet<>());
         return new SchemaModel(td.getNameAsString(), "object", fields, null, src);
     }
 
@@ -69,7 +70,7 @@ final class ConstraintReader {
     }
 
     /** Own fields + inherited fields from superclasses present in the same source set (subclass wins on name). */
-    static void collectFields(TypeDeclaration<?> td, Map<String, TypeDeclaration<?>> types,
+    static void collectFields(Path sourceRoot, TypeDeclaration<?> td, Map<String, TypeDeclaration<?>> types,
                                List<FieldModel> out, Set<String> seenNames, Set<String> visitedTypes) {
         if (td == null || !visitedTypes.add(td.getNameAsString())) {
             return;
@@ -79,7 +80,7 @@ final class ConstraintReader {
                 if (isJsonIgnored(c)) {
                     continue;   // not serialized → not part of the JSON contract (but @JsonIgnore(false) stays on the wire)
                 }
-                addField(out, seenNames, fieldOf(c.getNameAsString(), c.getType(), c, types));
+                addField(out, seenNames, fieldOf(sourceRoot, c.getNameAsString(), c.getType(), c, types));
             }
         } else {
             for (FieldDeclaration fd : td.getFields()) {
@@ -88,12 +89,13 @@ final class ConstraintReader {
                 if (fd.isStatic() || isJsonIgnored(fd)) {
                     continue;
                 }
-                fd.getVariables().forEach(v -> addField(out, seenNames, fieldOf(v.getNameAsString(), v.getType(), fd, types)));
+                fd.getVariables().forEach(v ->
+                        addField(out, seenNames, fieldOf(sourceRoot, v.getNameAsString(), v.getType(), fd, types)));
             }
         }
         if (td instanceof ClassOrInterfaceDeclaration coid) {
             for (ClassOrInterfaceType ext : coid.getExtendedTypes()) {
-                collectFields(types.get(ext.getNameAsString()), types, out, seenNames, visitedTypes);
+                collectFields(sourceRoot, types.get(ext.getNameAsString()), types, out, seenNames, visitedTypes);
             }
         }
     }
@@ -104,12 +106,21 @@ final class ConstraintReader {
         }
     }
 
-    static FieldModel fieldOf(String javaName, Type type, NodeWithAnnotations<?> annotated, Map<String, TypeDeclaration<?>> types) {
+    static FieldModel fieldOf(Path sourceRoot, String javaName, Type type, NodeWithAnnotations<?> annotated,
+                              Map<String, TypeDeclaration<?>> types) {
         String jsonName = getAnnotation(annotated, "JsonProperty").map(a -> firstString(a, "value")).orElse(javaName);
         boolean required = has(annotated, "NotNull") || has(annotated, "NotBlank") || has(annotated, "NotEmpty");
         String simple = simpleTypeName(type);
         String[] tf = openApiType(simple);
         ConstraintSet cs = constraintsOf(annotated);
+        // The field's OWN source location (file + declared line), mirroring buildSchema's type-level ref — so a
+        // schema-field finding (SCHEMA_FIELD_MISSING/TYPE_MISMATCH/…) traces to the exact DTO field in the source and
+        // the report can render a clickable code link. `annotated` is the field's JavaParser node (FieldDeclaration
+        // for classes, Parameter for records) — both are Nodes. snippet=null (matches buildSchema): the renderer draws
+        // the inline linked "File.java:line" line rather than a code panel.
+        Node node = (Node) annotated;
+        SourceRef fieldSrc = SourceRef.code(node.findCompilationUnit().flatMap(CompilationUnit::getStorage)
+                .map(s -> relPath(sourceRoot, s.getPath())).orElse("?"), line(node), line(node), null);
         // Collection field (List<Foo>, Set<Foo>, Foo[]) → an ARRAY of the element type, not a single {type:object}.
         // type="array" matches the spec side; refSchema "Foo[]" lets the corrected-YAML render items (DTO elements
         // only — a scalar element stays a bare array).
@@ -120,19 +131,19 @@ final class ConstraintReader {
             // faithful springdoc {type:string, format:byte} spec. Scoped to the ARRAY form: List<Byte> stays a real
             // array of integers.
             if (type instanceof ArrayType && ("byte".equals(element) || "Byte".equals(element))) {
-                return new FieldModel(jsonName, "string", "byte", required, cs.withoutLength(), null, null);
+                return new FieldModel(jsonName, "string", "byte", required, cs.withoutLength(), null, fieldSrc);
             }
             String elemRef = types.containsKey(element) ? element + "[]" : null;
             // @Size on a collection is an item-count (minItems) bound, not string length — drop it so it doesn't
             // false-diff as a minLength CONSTRAINT_GAP against a spec that (correctly) uses minItems.
-            return new FieldModel(jsonName, "array", null, required, cs.withoutLength(), elemRef, null);
+            return new FieldModel(jsonName, "array", null, required, cs.withoutLength(), elemRef, fieldSrc);
         }
         // Enum-typed field → a string with an inline enum, not a phantom {type:object} ref.
         if (types.get(simple) instanceof EnumDeclaration ed) {
-            return new FieldModel(jsonName, "string", null, required, cs.withEnumValues(enumValuesOf(ed)), null, null);
+            return new FieldModel(jsonName, "string", null, required, cs.withEnumValues(enumValuesOf(ed)), null, fieldSrc);
         }
         String refSchema = "object".equals(tf[0]) && types.containsKey(simple) ? simple : null;
-        return new FieldModel(jsonName, tf[0], tf[1], required, cs, refSchema, null);
+        return new FieldModel(jsonName, tf[0], tf[1], required, cs, refSchema, fieldSrc);
     }
 
     @SuppressWarnings("unchecked")
