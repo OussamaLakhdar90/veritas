@@ -99,11 +99,15 @@ final class AnnotationSupport {
         return out;
     }
 
-    /** True when {@code @JsonIgnore} excludes the property — present and not {@code @JsonIgnore(false)}. */
+    /** True when {@code @JsonIgnore} excludes the property — present and not disabled by {@code @JsonIgnore(false)}
+     *  OR {@code @JsonIgnore(value = false)}. The bare marker {@code @JsonIgnore} (no argument) still ignores. */
     static boolean isJsonIgnored(NodeWithAnnotations<?> n) {
         return getAnnotation(n, "JsonIgnore")
-                .map(a -> !(a instanceof SingleMemberAnnotationExpr sm)
-                        || !"false".equals(literal(sm.getMemberValue().toString())))
+                .map(a -> {
+                    String v = a instanceof SingleMemberAnnotationExpr sm
+                            ? literal(sm.getMemberValue().toString()) : namedMember(a, "value");
+                    return !"false".equals(v);   // marker form → v == null → still ignored
+                })
                 .orElse(false);
     }
 

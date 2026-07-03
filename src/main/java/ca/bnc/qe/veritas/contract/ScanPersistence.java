@@ -105,6 +105,7 @@ public class ScanPersistence {
             r.setSpecSource(f.getSpecSource());
             r.setSummary(f.getSummary());
             r.setCurrentYamlFragment(f.getCurrentYamlFragment());
+            r.setExplanation(f.getExplanation());
             r.setProposedFix(f.getProposedFix());
             r.setCitation(f.getCitation());
             r.setStatus(f.getStatus());

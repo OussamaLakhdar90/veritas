@@ -2,6 +2,7 @@ package ca.bnc.qe.veritas.engine.diff;
 
 import static ca.bnc.qe.veritas.engine.diff.DiffEngine.arrayRef;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -40,31 +41,46 @@ final class SchemaComparator {
             "bigdecimal", "biginteger", "character", "char", "uuid", "date", "localdate", "localdatetime",
             "instant", "offsetdatetime", "zoneddatetime", "void");
 
-    static void fieldDiffByBinding(List<Finding> findings, ApiModel code, ApiModel spec, String codeRef, String specRef,
-                                    String locus, Set<String> visited, int depth) {
+    /**
+     * Binding-driven nested field diff. Returns whether it OBSERVED a divergence for this bound pair — including one
+     * inside a SAME-NAMED nested DTO that the components-schema loop (not this method) actually emits. The caller uses
+     * that boolean, not just {@code findings.size()}, to decide whether the coarse RESPONSE/REQUEST_BODY_SCHEMA_MISMATCH
+     * would double-charge the same defect: a same-named nested divergence adds NOTHING here (the components loop owns
+     * it) yet must still suppress the coarse finding.
+     */
+    static boolean fieldDiffByBinding(List<Finding> findings, ApiModel code, ApiModel spec, String codeRef,
+                                    String specRef, String locus, Set<String> visited, int depth) {
         if (arrayRef(codeRef) != arrayRef(specRef)) {
-            return;   // array-vs-object is the structuralVerdict's call, not a field diff
+            return false;   // array-vs-object is the structuralVerdict's call, not a field diff
         }
         SchemaModel cs = code.schemas().get(baseName(codeRef));
         SchemaModel ss = spec.schemas().get(baseName(specRef));
         if (cs == null || ss == null || structureless(cs) || suppressStructurelessSpec(spec, ss)) {
-            return;   // unresolved / opaque — owned by structuralVerdict + extractor blind spots
+            return false;   // unresolved / opaque — owned by structuralVerdict + extractor blind spots
         }
         String key = baseName(codeRef) + "|" + baseName(specRef);
         if (!visited.add(key)) {
-            return;   // cycle guard
+            return false;   // cycle guard
         }
+        boolean divergence = false;
         try {
-            // Same-name pairs are already field-diffed by the components-schema loop (dedup collapses any overlap),
-            // so only run the diff here for the differently-named bound pairs that loop never reaches. The match must
-            // be CASE-SENSITIVE to mirror that loop's exact-key `spec.schemas().get(name)`: a case-skew pair
-            // (code `OrderResponse` vs spec `orderresponse`) is NOT covered by the components loop, so it must run here
-            // — otherwise an array-of-DTO-vs-scalar field flip (now delegated to compareSchema) would be dropped.
             if (!baseName(codeRef).equals(baseName(specRef))) {
+                // Differently-named bound pair the components loop never reaches — field-diff it HERE (added to
+                // findings). The match is CASE-SENSITIVE to mirror that loop's exact-key `spec.schemas().get(name)`:
+                // a case-skew pair (code `OrderResponse` vs spec `orderresponse`) is not covered by the components loop.
+                int before = findings.size();
                 compareSchema(findings, spec.source(), locus, cs, ss);
+                divergence = findings.size() > before;
+            } else {
+                // Same-named pair: the components-schema loop OWNS the field-level findings (adding them here would
+                // double-emit). But we still must know whether it diverges so the coarse mismatch doesn't double-charge
+                // it — run compareSchema into a THROWAWAY scratch list and treat any emission as an observed divergence.
+                List<Finding> scratch = new ArrayList<>();
+                compareSchema(scratch, spec.source(), locus, cs, ss);
+                divergence = !scratch.isEmpty();
             }
             if (depth <= 0) {
-                return;
+                return divergence;
             }
             Map<String, FieldModel> cf = fieldsByName(cs);
             Map<String, FieldModel> sf = fieldsByName(ss);
@@ -92,6 +108,7 @@ final class SchemaComparator {
                                             : "a scalar (" + c.type() + ") in code but a nested object/array in the spec"),
                                 c.source(), Confidence.HIGH, specLocus(ss, e.getKey(),
                                         c.refSchema() != null ? "object~scalar" : "scalar~object")));
+                        divergence = true;
                     }
                     continue;
                 }
@@ -107,14 +124,18 @@ final class SchemaComparator {
                                                                : "a single object in code but an array in the spec"),
                             c.source(), Confidence.HIGH, specLocus(ss, e.getKey(),
                                     arrayRef(c.refSchema()) ? "array~object" : "object~array")));
+                    divergence = true;
                     continue;
                 }
-                fieldDiffByBinding(findings, code, spec, c.refSchema(), s.refSchema(),
-                        locus + "." + e.getKey(), visited, depth - 1);
+                if (fieldDiffByBinding(findings, code, spec, c.refSchema(), s.refSchema(),
+                        locus + "." + e.getKey(), visited, depth - 1)) {
+                    divergence = true;   // a nested same-named divergence the components loop emits still counts
+                }
             }
         } finally {
             visited.remove(key);
         }
+        return divergence;
     }
 
     /**

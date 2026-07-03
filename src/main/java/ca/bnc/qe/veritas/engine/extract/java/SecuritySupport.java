@@ -244,6 +244,17 @@ final class SecuritySupport {
      * chain is ambiguous, two specific matchers overlap this endpoint, or a non-simple pattern could match it.
      */
     static SecurityRule resolveEndpointSecurity(Endpoint e, SecurityChain chain) {
+        return resolveEndpointSecurity(e.method(), e.pathTemplate(), chain);
+    }
+
+    /**
+     * As {@link #resolveEndpointSecurity(Endpoint, SecurityChain)} but matches the chain against an explicit path —
+     * used to match against the CONTEXT-RELATIVE path (the endpoint's pathTemplate with the Spring base stripped),
+     * because Spring Security Ant-matches chain patterns against the servlet-context-relative path, not the full
+     * runtime path. Matching a {@code permitAll("/public/**")} chain against the base-prefixed {@code /ciam/public/...}
+     * would otherwise miss and fabricate a false SECURITY_MISMATCH (and the inverse chain a false negative).
+     */
+    static SecurityRule resolveEndpointSecurity(HttpMethod method, String path, SecurityChain chain) {
         if (chain.ambiguous()) {
             return null;
         }
@@ -254,19 +265,19 @@ final class SecuritySupport {
                 anyRequest = r;
                 continue;
             }
-            boolean methodOk = r.methods().isEmpty() || r.methods().contains(e.method());
+            boolean methodOk = r.methods().isEmpty() || r.methods().contains(method);
             if (!methodOk) {
                 continue;   // a method-specific rule that doesn't cover this endpoint's verb can't apply
             }
             if (!isSimplePattern(r.pattern())) {
-                if (ANT.match(r.pattern(), e.pathTemplate())) {
+                if (ANT.match(r.pattern(), path)) {
                     return null;   // a wildcard pattern we don't fully trust could match this endpoint → ambiguous
                 }
                 continue;
             }
-            if (ANT.match(r.pattern(), e.pathTemplate())) {
+            if (ANT.match(r.pattern(), path)) {
                 applicable.add(r);
-            } else if (ANT.match(stripTrailingSlash(r.pattern()), stripTrailingSlash(e.pathTemplate()))) {
+            } else if (ANT.match(stripTrailingSlash(r.pattern()), stripTrailingSlash(path))) {
                 // A near miss — a specific rule that matches only after normalising a trailing slash (the Spring
                 // Boot 3 trailing-slash footgun). Whether it governs this endpoint at runtime is genuinely unclear,
                 // so decline rather than (wrongly) fall through to the anyRequest default and fabricate permitAll.

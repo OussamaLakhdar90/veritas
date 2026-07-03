@@ -89,6 +89,7 @@ class JavaSpringExtractorAnnotationFormsTest {
             import com.fasterxml.jackson.annotation.JsonIgnore;
             class Dto {
                 @JsonIgnore(false) public String shown;
+                @JsonIgnore(value = false) public String alsoShown;
                 @JsonIgnore public String hidden;
             }
             """);
@@ -97,6 +98,9 @@ class JavaSpringExtractorAnnotationFormsTest {
             @RestController class C { @GetMapping("/x") public Dto x() { return null; } }
             """);
         var dto = new JavaSpringExtractor().extract(dir).schemas().get("Dto");
-        assertThat(dto.fields()).extracting(FieldModel::jsonName).contains("shown").doesNotContain("hidden");
+        // Both the single-member @JsonIgnore(false) AND the normal @JsonIgnore(value = false) re-enable a wire field —
+        // dropping the latter (it fell through to "ignored") produced a false SCHEMA_FIELD_EXTRA.
+        assertThat(dto.fields()).extracting(FieldModel::jsonName)
+                .contains("shown", "alsoShown").doesNotContain("hidden");
     }
 }

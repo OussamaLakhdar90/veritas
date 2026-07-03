@@ -7,6 +7,8 @@ import java.nio.file.Path;
 import ca.bnc.qe.veritas.engine.extract.java.JavaSpringExtractor;
 import ca.bnc.qe.veritas.engine.model.ApiModel;
 import ca.bnc.qe.veritas.engine.model.Endpoint;
+import ca.bnc.qe.veritas.engine.model.FieldModel;
+import ca.bnc.qe.veritas.engine.model.SchemaModel;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -63,5 +65,28 @@ class JavaSpringExtractorBodyTypeTest {
         // no bare "Widget[]" array ref leaks (which would false-diff vs the paged-object spec)
         assertThat(e.responses()).noneSatisfy(r -> assertThat(r.schemaRef()).isEqualTo("Widget[]"));
         assertThat(m.blindSpots().toString()).contains("paged");
+    }
+
+    @Test
+    void pagedFieldIsAnObjectNotAnArrayRef(@TempDir Path dir) throws Exception {
+        // A DTO FIELD of a paged type (Page<Item> items) serializes as an OBJECT envelope, exactly like a paged
+        // RETURN type — modelling it as an "Item[]" array (Page was wrongly in COLLECTION_TYPES) contradicts unwrap()'s
+        // PAGED_OBJECT_WRAPPERS and fires a false HIGH array-vs-object SCHEMA_FIELD_TYPE_MISMATCH.
+        write(dir, "Item.java", "public class Item { public String id; }");
+        write(dir, "SearchResult.java", """
+            import org.springframework.data.domain.Page;
+            public class SearchResult { public Page<Item> items; }
+            """);
+        write(dir, "C.java", """
+            import org.springframework.web.bind.annotation.*;
+            @RestController class C { @GetMapping("/search") public SearchResult g() { return null; } }
+            """);
+        ApiModel m = new JavaSpringExtractor().extract(dir);
+        SchemaModel result = m.schemas().get("SearchResult");
+        assertThat(result).isNotNull();
+        FieldModel items = result.fields().stream()
+                .filter(f -> f.jsonName().equals("items")).findFirst().orElseThrow();
+        assertThat(items.type()).isEqualTo("object");
+        assertThat(items.refSchema()).isNull();
     }
 }
