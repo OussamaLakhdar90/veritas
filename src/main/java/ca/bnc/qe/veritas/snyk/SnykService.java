@@ -33,20 +33,22 @@ public class SnykService {
     private final SnykVulnRepository vulns;
     private final SnykAlertRepository alerts;
     private final SnykPollService pollService;
+    private final AsyncSnykRefreshRunner refreshRunner;
     private final FrameworkProperties framework;
     private final SnykFixTrainRepository fixTrains;
     private final SnykFixStepRepository fixSteps;
 
     public SnykService(SnykClient client, SnykWatchRepository watches, SnykSnapshotRepository snapshots,
                        SnykVulnRepository vulns, SnykAlertRepository alerts, SnykPollService pollService,
-                       FrameworkProperties framework, SnykFixTrainRepository fixTrains,
-                       SnykFixStepRepository fixSteps) {
+                       AsyncSnykRefreshRunner refreshRunner, FrameworkProperties framework,
+                       SnykFixTrainRepository fixTrains, SnykFixStepRepository fixSteps) {
         this.client = client;
         this.watches = watches;
         this.snapshots = snapshots;
         this.vulns = vulns;
         this.alerts = alerts;
         this.pollService = pollService;
+        this.refreshRunner = refreshRunner;
         this.framework = framework;
         this.fixTrains = fixTrains;
         this.fixSteps = fixSteps;
@@ -79,7 +81,10 @@ public class SnykService {
         return addWatch(orgId, orgSlug, orgName, target.id(), target.displayName());
     }
 
-    /** Add a watch (idempotent on org+target); returns its view. */
+    /**
+     * Add a watch (idempotent on org+target); returns its view. The row is persisted synchronously so the caller's
+     * UI sees the new watch at once; its initial vulnerability poll (the slow Snyk REST work) runs in the background.
+     */
     public SnykWatchView addWatch(String orgId, String orgSlug, String orgName, String targetId, String repoSlug) {
         SnykWatch w = watches.findByOrgIdAndTargetId(orgId, targetId).orElseGet(SnykWatch::new);
         w.setOrgId(orgId);
@@ -88,7 +93,9 @@ public class SnykService {
         w.setTargetId(targetId);
         w.setRepoSlug(repoSlug);
         w.setEnabled(true);
-        return view(watches.save(w));
+        SnykWatch saved = watches.save(w);
+        refreshRunner.pollNewWatch(saved);   // poll the new watch off the request thread — the row is already persisted
+        return view(saved);
     }
 
     /**
@@ -142,15 +149,28 @@ public class SnykService {
                 .orElseGet(List::of);
     }
 
-    /** Poll every enabled watch now; returns how many were polled. */
+    /**
+     * Kick off a background poll of every enabled watch and return at once (the 30–60s of Snyk REST calls run off the
+     * HTTP worker thread, so the manual refresh never hangs the request). Returns how many enabled watches were queued
+     * — a quick count, not the poll result. The UI polls {@link #refreshStatus()} to know when the poll completes.
+     */
     public int refreshAll() {
-        return pollService.pollAll();
+        int queued = (int) watches.countByEnabledTrue();
+        refreshRunner.refreshAll();
+        return queued;
     }
 
+    /** Kick off a background poll of one watch and return at once. 404 if the watch is unknown. */
     public void refresh(String watchId) {
-        SnykWatch w = watches.findById(watchId)
-                .orElseThrow(() -> new NotFoundException("Watch not found: " + watchId));
-        pollService.poll(w);
+        if (!watches.existsById(watchId)) {
+            throw new NotFoundException("Watch not found: " + watchId);
+        }
+        refreshRunner.refresh(watchId);
+    }
+
+    /** Whether a background refresh is running and when the last one finished — backs {@code GET /snyk/refresh/status}. */
+    public AsyncSnykRefreshRunner.RefreshStatus refreshStatus() {
+        return refreshRunner.status();
     }
 
     public List<SnykAlertView> alerts(boolean unseenOnly) {

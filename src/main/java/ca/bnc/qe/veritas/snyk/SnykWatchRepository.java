@@ -8,5 +8,7 @@ public interface SnykWatchRepository extends JpaRepository<SnykWatch, String> {
 
     List<SnykWatch> findByEnabledTrue();
 
+    long countByEnabledTrue();
+
     Optional<SnykWatch> findByOrgIdAndTargetId(String orgId, String targetId);
 }

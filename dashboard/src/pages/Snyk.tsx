@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
@@ -75,11 +75,38 @@ export function Snyk() {
     if (selectedWatch) qc.invalidateQueries({ queryKey: ['snyk-issues', selectedWatch] });
   };
 
+  // "Refresh now" kicks off a BACKGROUND poll on the backend (202 returns fast) — it must NOT wait on the long
+  // 30–60s Snyk poll to resolve, or the button would appear dead. On a successful 202 we start polling
+  // GET /snyk/refresh/status and only settle (invalidate + toast) once it reports the background poll finished.
+  const [polling, setPolling] = useState(false);
+
   const refresh = useMutation({
     mutationFn: api.snykRefresh,
-    onSuccess: (r) => { invalidate(); toast.push('success', t('snyk.refreshed', { count: r.polled })); },
+    // 202 accepted → the poll now runs in the background; begin watching its status (the POST already returned fast).
+    // Drop any cached status from a prior cycle first, so we never settle on a stale "not running" read before the
+    // new background poll has been observed as running.
+    onSuccess: () => { qc.removeQueries({ queryKey: ['snyk-refresh-status'] }); setPolling(true); },
     onError: (e: Error) => toast.push('error', t('snyk.refreshFailed', { message: e.message })),
   });
+
+  // The running indicator covers BOTH phases: the (fast) POST in flight and the background poll we're tracking.
+  const refreshing = refresh.isPending || polling;
+
+  // While the background refresh runs, poll its status. When it flips to not-running, refresh the derived reads and
+  // drop the indicator — the "Refresh now" button is never left hanging on the slow poll.
+  const refreshStatusQ = useQuery({
+    queryKey: ['snyk-refresh-status'], queryFn: api.snykRefreshStatus,
+    enabled: polling, refetchInterval: 1500,
+  });
+  useEffect(() => {
+    // Settle only on a fresh (not stale/in-flight) read that reports the poll done. The POST increments the backend's
+    // in-flight count before it returns 202, so the first status read after onSuccess reliably sees running:true.
+    if (polling && refreshStatusQ.data && !refreshStatusQ.data.running && !refreshStatusQ.isFetching) {
+      setPolling(false);
+      invalidate();
+      toast.push('success', t('snyk.refreshDone'));
+    }
+  }, [polling, refreshStatusQ.data, refreshStatusQ.isFetching]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const watchSelected = useMutation({
     mutationFn: async () => {
@@ -127,7 +154,7 @@ export function Snyk() {
         <span className="text-xl font-semibold tracking-tight text-ink-900">Snyk</span>
       </div>
       <PageHeader title={t('snyk.title')} subtitle={t('snyk.subtitle')}
-        actions={<Button variant="secondary" loading={refresh.isPending} onClick={() => refresh.mutate()}>
+        actions={<Button variant="secondary" loading={refreshing} disabled={refreshing} onClick={() => refresh.mutate()}>
           <RefreshCw className="h-4 w-4" /> {t('snyk.refresh')}</Button>} />
 
       {/* Managerial impact strip — found vs fixed (renders once at least one app-id is watched). */}
@@ -212,7 +239,7 @@ export function Snyk() {
 
       {/* A quiet "we're re-polling Snyk" line while a refresh runs — the button already spins; this tells the
           reader the data regions below are being refreshed too (not stale-but-idle). */}
-      {refresh.isPending && (
+      {refreshing && (
         <p role="status" aria-live="polite" className="mb-3 inline-flex items-center gap-1.5 text-xs text-muted">
           <Spinner className="h-3.5 w-3.5" /> {t('snyk.refreshing')}
         </p>
@@ -226,8 +253,8 @@ export function Snyk() {
       ) : watches.length === 0 ? (
         <EmptyState icon={ShieldCheck} title={t('snyk.noWatchesTitle')} body={t('snyk.noWatchesBody')} />
       ) : (
-        <div aria-busy={refresh.isPending}
-          className={`grid gap-4 md:grid-cols-2 transition-opacity ${refresh.isPending ? 'opacity-60' : ''}`}>
+        <div aria-busy={refreshing}
+          className={`grid gap-4 md:grid-cols-2 transition-opacity ${refreshing ? 'opacity-60' : ''}`}>
           {watches.map((w) => {
             const checked = when(w.lastPolled);
             return (
@@ -264,7 +291,7 @@ export function Snyk() {
 
       {/* Issues for the selected watch */}
       {selectedWatch && (
-        <div aria-busy={refresh.isPending} className={`transition-opacity ${refresh.isPending ? 'opacity-60' : ''}`}>
+        <div aria-busy={refreshing} className={`transition-opacity ${refreshing ? 'opacity-60' : ''}`}>
         <Card className="mt-6">
           <CardHeader title={t('snyk.issuesTitle', { repo: watches.find((w) => w.id === selectedWatch)?.repoSlug ?? '' })}
             action={<Button variant="ghost" size="sm" onClick={() => setSelectedWatch(null)}>{t('common.close')}</Button>} />

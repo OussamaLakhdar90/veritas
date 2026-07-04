@@ -86,7 +86,12 @@ public class SnykController {
         return snyk.latestIssues(id);
     }
 
-    /** Poll every enabled watch now (manual "refresh"). */
+    /**
+     * Kick off a manual "refresh" of every enabled watch. Returns 202 <b>immediately</b> — the slow Snyk REST calls
+     * run on a background pool ({@link ca.bnc.qe.veritas.snyk.AsyncSnykRefreshRunner}), never on the HTTP worker, so
+     * the button never appears to hang. {@code polled} is how many watches were queued; poll {@link #refreshStatus()}
+     * (or re-read the summary/alerts) to know when the background poll completes.
+     */
     @PostMapping("/snyk/refresh")
     @ResponseStatus(HttpStatus.ACCEPTED)
     public Map<String, Integer> refresh() {
@@ -98,6 +103,17 @@ public class SnykController {
     public void refreshOne(@PathVariable String id) {
         snyk.refresh(id);
     }
+
+    /** Whether a background refresh is running (and when the last one finished) — the UI polls this after clicking
+     *  "Refresh now" so the button reflects real progress instead of resolving instantly on the 202. */
+    @GetMapping("/snyk/refresh/status")
+    public RefreshStatusView refreshStatus() {
+        var s = snyk.refreshStatus();
+        return new RefreshStatusView(s.running(), s.lastRefreshedAt());
+    }
+
+    /** The refresh-status body: {@code running} while a background poll is in flight, plus the last completion time. */
+    public record RefreshStatusView(boolean running, java.time.Instant lastRefreshedAt) {}
 
     /** The alert feed; {@code unseenOnly=true} for the notification bell. */
     @GetMapping("/snyk/alerts")

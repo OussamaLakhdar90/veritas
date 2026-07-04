@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
@@ -25,10 +27,12 @@ class SnykServiceTest {
     private final SnykVulnRepository vulns = mock(SnykVulnRepository.class);
     private final SnykAlertRepository alerts = mock(SnykAlertRepository.class);
     private final SnykPollService pollService = mock(SnykPollService.class);
+    private final AsyncSnykRefreshRunner refreshRunner = mock(AsyncSnykRefreshRunner.class);
     private final SnykFixTrainRepository fixTrains = mock(SnykFixTrainRepository.class);
     private final SnykFixStepRepository fixSteps = mock(SnykFixStepRepository.class);
     private final SnykService service = new SnykService(
-            client, watches, snapshots, vulns, alerts, pollService, new FrameworkProperties(), fixTrains, fixSteps);
+            client, watches, snapshots, vulns, alerts, pollService, refreshRunner, new FrameworkProperties(),
+            fixTrains, fixSteps);
 
     @Test
     void resolvesTheApplicationTestsTargetPreferringAnExactName() {
@@ -49,6 +53,41 @@ class SnykServiceTest {
 
         assertThat(v.repoSlug()).isEqualTo("application-tests");
         assertThat(v.orgSlug()).isEqualTo("app7576");
+        // The row is saved synchronously (so the UI sees the new watch at once); its initial poll runs in the
+        // background — never on the request thread that added the watch.
+        verify(refreshRunner).pollNewWatch(any(SnykWatch.class));
+        verify(pollService, never()).poll(any());
+    }
+
+    @Test
+    void refreshAllQueuesTheBackgroundPollAndReturnsTheEnabledCountWithoutBlocking() {
+        when(watches.countByEnabledTrue()).thenReturn(3L);
+
+        int queued = service.refreshAll();
+
+        assertThat(queued).isEqualTo(3);
+        // The slow Snyk REST work is handed to the background runner — the request thread never calls pollAll itself.
+        verify(refreshRunner).refreshAll();
+        verify(pollService, never()).pollAll();
+    }
+
+    @Test
+    void refreshOneQueuesTheBackgroundPollForAKnownWatch() {
+        when(watches.existsById("w1")).thenReturn(true);
+
+        service.refresh("w1");
+
+        verify(refreshRunner).refresh("w1");
+        verify(pollService, never()).poll(any());
+    }
+
+    @Test
+    void refreshOneThrowsWhenTheWatchIsUnknown() {
+        when(watches.existsById("nope")).thenReturn(false);
+
+        assertThatThrownBy(() -> service.refresh("nope"))
+                .isInstanceOf(ca.bnc.qe.veritas.skill.NotFoundException.class);
+        verify(refreshRunner, never()).refresh(any());
     }
 
     @Test

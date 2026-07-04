@@ -126,6 +126,70 @@ describe('Snyk page', () => {
     await waitFor(() => expect(summaryCalls).toBeGreaterThan(before))
   })
 
+  it('shows a running indicator on "Refresh now" and settles from the background status poll (button never dead)', async () => {
+    let refreshPosted = false
+    let statusReads = 0
+    server.use(
+      http.get('*/api/v1/snyk/orgs', () => HttpResponse.json([])),
+      http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([])),
+      http.get('*/api/v1/snyk/watches', () => HttpResponse.json([{
+        id: 'w1', orgId: 'o1', orgSlug: 'app7576', orgName: 'CIAM Profile', targetId: 't1',
+        repoSlug: 'application-tests', enabled: true, critical: 0, high: 0, medium: 0, low: 0,
+        fixable: 0, projectCount: 1, lastPolled: '2026-07-01T12:00:00.000Z',
+      }])),
+      // The refresh returns 202 FAST (the poll runs in the background) — the click must not hang on it.
+      http.post('*/api/v1/snyk/refresh', () => { refreshPosted = true; return HttpResponse.json({ polled: 1 }, { status: 202 }) }),
+      // First status read: still running; subsequent reads: done — so the page settles off the background poll.
+      http.get('*/api/v1/snyk/refresh/status', () => {
+        statusReads += 1
+        return HttpResponse.json({ running: statusReads < 2, lastRefreshedAt: '2026-07-04T12:00:00.000Z' })
+      }),
+    )
+    const user = userEvent.setup()
+    renderSnyk()
+
+    await user.click(await screen.findByRole('button', { name: /Refresh now/ }))
+
+    // Immediate running state — the indicator appears without waiting on the long poll.
+    expect(refreshPosted).toBe(true)
+    expect(await screen.findByText('Refreshing from Snyk…')).toBeInTheDocument()
+
+    // The background status poll flips to done → the indicator clears and a success toast confirms it.
+    // Allow a few status-poll cycles (the interval is ~1.5s) before it reports done.
+    expect(await screen.findByText('Refreshed the watched repositories.', {}, { timeout: 5000 })).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText('Refreshing from Snyk…')).not.toBeInTheDocument())
+  })
+
+  it('shows a just-watched app immediately (the row is persisted synchronously; its poll is backgrounded)', async () => {
+    let watched = false
+    server.use(
+      http.get('*/api/v1/snyk/orgs', () => HttpResponse.json([
+        { id: 'o1', slug: 'app7576', name: 'CIAM Profile' },
+      ])),
+      http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([])),
+      // Watches are empty until the by-app POST persists the row, then the invalidated read returns it.
+      http.get('*/api/v1/snyk/watches', () => HttpResponse.json(watched ? [{
+        id: 'w1', orgId: 'o1', orgSlug: 'app7576', orgName: 'CIAM Profile', targetId: 't1',
+        repoSlug: 'application-tests', enabled: true, critical: 0, high: 0, medium: 0, low: 0,
+        fixable: 0, projectCount: 0,
+      }] : [])),
+      http.post('*/api/v1/snyk/watches/by-app', () => {
+        watched = true   // the row is saved before the response — the poll happens in the background
+        return HttpResponse.json({ id: 'w1', orgId: 'o1', orgSlug: 'app7576', orgName: 'CIAM Profile',
+          targetId: 't1', repoSlug: 'application-tests', enabled: true, critical: 0, high: 0, medium: 0,
+          low: 0, fixable: 0, projectCount: 0 }, { status: 201 })
+      }),
+    )
+    const user = userEvent.setup()
+    renderSnyk()
+
+    await user.click((await screen.findAllByRole('checkbox'))[0])
+    await user.click(screen.getByRole('button', { name: /Watch selected/ }))
+
+    // The new watch surfaces right away (from the invalidated watch-list read) — no wait on any poll.
+    expect(await screen.findByText('application-tests')).toBeInTheDocument()
+  })
+
   it('shows the empty state when no repos are watched', async () => {
     emptyBase()
     renderSnyk()
