@@ -776,7 +776,10 @@ public class ContractValidationService {
             boolean phantom = endpoint != null && !endpoint.isBlank() && !isKnownEndpoint(endpoint, knownPaths);
             Severity severity = phantom ? Severity.INFO : parseSeverity(d.path("severity").asText(null));
             String explanation = d.hasNonNull("explanation") ? d.path("explanation").asText() : null;
-            if (phantom) {
+            // Only flag the explanation when the endpoint actually LOOKS like an HTTP endpoint but wasn't parsed
+            // (a genuine "GET /fake" hallucination). A descriptive pseudo-locus ("policies schema (both endpoints)")
+            // is a legitimate design/test-coverage label — keep it clean and don't leak the guard into the report.
+            if (phantom && isHttpEndpoint(endpoint)) {
                 explanation = "[unverified endpoint — '" + endpoint + "' is not a parsed API endpoint] "
                         + (explanation == null ? "" : explanation);
             }

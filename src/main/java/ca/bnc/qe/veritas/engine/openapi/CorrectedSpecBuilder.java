@@ -57,6 +57,7 @@ public class CorrectedSpecBuilder {
 
         if (originalSpecYaml != null && !originalSpecYaml.isBlank()) {
             overlayExtensions(root, originalSpecYaml);
+            preserveOriginalMetadata(root, originalSpecYaml);
         }
 
         try {
@@ -104,6 +105,97 @@ public class CorrectedSpecBuilder {
         }
     }
 
+    /**
+     * Copy through real metadata the code model cannot carry — the original {@code info} block (so the real title and
+     * version replace the hard-coded placeholders), the {@code servers} array, and per-response {@code example(s)} —
+     * so the corrected YAML reads as a drop-in replacement rather than regressing genuine spec metadata. Paths and
+     * schemas stay code-derived; only info/servers/examples are lifted. Unparseable original → no-op (non-fatal).
+     */
+    @SuppressWarnings("unchecked")
+    private void preserveOriginalMetadata(Map<String, Object> root, String originalSpecYaml) {
+        Map<String, Object> orig;
+        try {
+            orig = yaml.readValue(originalSpecYaml, Map.class);
+        } catch (Exception e) {
+            return;   // unparseable original → keep placeholder metadata, non-fatal
+        }
+        if (orig == null) {
+            return;
+        }
+        if (orig.get("info") instanceof Map<?, ?> oInfo && !oInfo.isEmpty()) {
+            root.put("info", new LinkedHashMap<>((Map<String, Object>) oInfo));   // real title/version/etc. wins
+        }
+        if (orig.get("servers") instanceof List<?> oServers && !oServers.isEmpty()) {
+            root.put("servers", new ArrayList<>(oServers));   // verbatim server list
+        }
+        if (orig.get("paths") instanceof Map<?, ?> oPaths && root.get("paths") instanceof Map) {
+            preserveResponseExamples((Map<String, Object>) oPaths, (Map<String, Object>) root.get("paths"));
+        }
+    }
+
+    /** For every corrected path+method+status that also exists in the original, lift the original response's
+     *  {@code example(s)} (response-level and per-content-type) into the corrected response. Match by path string +
+     *  method + status code; anything not present in BOTH is skipped. */
+    @SuppressWarnings("unchecked")
+    private void preserveResponseExamples(Map<String, Object> oPaths, Map<String, Object> rPaths) {
+        for (Map.Entry<String, Object> re : rPaths.entrySet()) {
+            if (!(re.getValue() instanceof Map<?, ?> rItem) || !(oPaths.get(re.getKey()) instanceof Map<?, ?> oItem)) {
+                continue;
+            }
+            for (Map.Entry<?, ?> rm : ((Map<String, Object>) rItem).entrySet()) {
+                if (!(rm.getValue() instanceof Map<?, ?> rOp) || !(oItem.get(rm.getKey()) instanceof Map<?, ?> oOp)) {
+                    continue;
+                }
+                if (!(rOp.get("responses") instanceof Map<?, ?> rResps) || !(oOp.get("responses") instanceof Map<?, ?> oResps)) {
+                    continue;
+                }
+                for (Map.Entry<?, ?> rr : rResps.entrySet()) {
+                    if (rr.getValue() instanceof Map<?, ?> rResp && oResps.get(rr.getKey()) instanceof Map<?, ?> oResp) {
+                        copyResponseExamples((Map<String, Object>) oResp, (Map<String, Object>) rResp);
+                    }
+                }
+            }
+        }
+    }
+
+    /** Copy the response-level {@code example} and each content-type's {@code example(s)} from the original response
+     *  into the corrected one, mutating the corrected content maps (which are built immutable) into writable copies. */
+    @SuppressWarnings("unchecked")
+    private void copyResponseExamples(Map<String, Object> oResp, Map<String, Object> rResp) {
+        if (oResp.containsKey("example") && !rResp.containsKey("example")) {
+            rResp.put("example", oResp.get("example"));
+        }
+        if (!(oResp.get("content") instanceof Map<?, ?> oContent)) {
+            return;
+        }
+        Map<String, Object> rContent = rResp.get("content") instanceof Map<?, ?> existing
+                ? new LinkedHashMap<>((Map<String, Object>) existing)
+                : new LinkedHashMap<>();
+        for (Map.Entry<?, ?> oc : oContent.entrySet()) {
+            if (!(oc.getValue() instanceof Map<?, ?> oMedia)) {
+                continue;
+            }
+            Object hasEx = oMedia.get("examples");
+            Object hasSingle = oMedia.get("example");
+            if (hasEx == null && hasSingle == null) {
+                continue;   // nothing to lift for this content type
+            }
+            Map<String, Object> rMedia = rContent.get(oc.getKey()) instanceof Map<?, ?> rm
+                    ? new LinkedHashMap<>((Map<String, Object>) rm)
+                    : new LinkedHashMap<>();
+            if (hasEx != null && !rMedia.containsKey("examples")) {
+                rMedia.put("examples", hasEx);
+            }
+            if (hasSingle != null && !rMedia.containsKey("example")) {
+                rMedia.put("example", hasSingle);
+            }
+            rContent.put((String) oc.getKey(), rMedia);
+        }
+        if (!rContent.isEmpty()) {
+            rResp.put("content", rContent);
+        }
+    }
+
     private Map<String, Object> operation(Endpoint e) {
         Map<String, Object> op = new LinkedHashMap<>();
         if (e.operationId() != null) {
@@ -136,7 +228,9 @@ public class CorrectedSpecBuilder {
             responses.put(String.valueOf(r.statusCode()), resp);
         }
         if (responses.isEmpty()) {
-            responses.put("200", Map.of("description", "OK"));
+            Map<String, Object> ok = new LinkedHashMap<>();
+            ok.put("description", "OK");
+            responses.put("200", ok);   // mutable so metadata preservation can lift an original 200 example into it
         }
         op.put("responses", responses);
         if (e.security() != null && !e.security().isEmpty()) {
