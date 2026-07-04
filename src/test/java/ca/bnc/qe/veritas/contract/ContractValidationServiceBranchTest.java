@@ -24,8 +24,12 @@ import ca.bnc.qe.veritas.cost.ModelTier;
 import ca.bnc.qe.veritas.engine.diff.DiffEngine;
 import ca.bnc.qe.veritas.engine.extract.java.JavaSpringExtractor;
 import ca.bnc.qe.veritas.engine.model.ApiModel;
+import ca.bnc.qe.veritas.engine.model.ConstraintSet;
 import ca.bnc.qe.veritas.engine.model.Endpoint;
+import ca.bnc.qe.veritas.engine.model.FieldModel;
 import ca.bnc.qe.veritas.engine.model.HttpMethod;
+import ca.bnc.qe.veritas.engine.model.SchemaModel;
+import ca.bnc.qe.veritas.engine.model.SourceRef;
 import ca.bnc.qe.veritas.engine.openapi.CorrectedSpecBuilder;
 import ca.bnc.qe.veritas.engine.openapi.OpenApiModelExtractor;
 import ca.bnc.qe.veritas.engine.openapi.SpecParse;
@@ -136,6 +140,15 @@ class ContractValidationServiceBranchTest {
 
     private static ApiModel codeModel(List<String> blindSpots, Endpoint... eps) {
         return new ApiModel("code", "Svc", "1.0", null, List.of(eps), Map.of(), blindSpots);
+    }
+
+    /** A code model whose {@code schemas} carry a real SourceRef, so evidence binding has something to resolve against. */
+    private static ApiModel codeModelWithSchema(String schemaName, String fieldName, Endpoint... eps) {
+        SourceRef fieldSrc = SourceRef.code("src/main/java/ca/bnc/Dto.java", 42, 42, null);
+        SourceRef schemaSrc = SourceRef.code("src/main/java/ca/bnc/Dto.java", 10, 20, null);
+        FieldModel field = new FieldModel(fieldName, "string", null, false, ConstraintSet.empty(), null, fieldSrc);
+        SchemaModel schema = new SchemaModel(schemaName, "object", List.of(field), List.of(), schemaSrc);
+        return new ApiModel("code", "Svc", "1.0", null, List.of(eps), Map.of(schemaName, schema), List.of());
     }
 
     private static ApiModel specModel(String source, Endpoint... eps) {
@@ -752,5 +765,95 @@ class ContractValidationServiceBranchTest {
 
         assertThat(r.bySeverity()).containsEntry("MAJOR", 1L).containsEntry("MINOR", 1L);
         assertThat(r.bySeverity()).doesNotContainKey("BLOCKER");   // empty buckets omitted
+    }
+
+    // ---- evidence-on-every-finding: closed-world binding in parseDesignFindings -----------------------------------
+
+    /** Helper: run a reconcile with the given single designFinding JSON and a code model, return the L5/L6 design finding. */
+    private Finding runDesignFindingWith(String designFindingJson, ApiModel code) {
+        when(javaExtractor.extract(any())).thenReturn(code);
+        when(diffEngine.l1FromMessages(anyString(), any())).thenReturn(List.of());
+        when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(new ArrayList<>(List.of(deterministic("gap"))));
+        when(openApi.extract(eq("repo-spec"), anyString()))
+                .thenReturn(new SpecParse(specModel("repo-spec"), List.of(), true));
+        armLlm("{\"correctedYaml\":\"openapi: 3.0.3\",\"findings\":[],\"designFindings\":[" + designFindingJson + "]}");
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<List<Finding>> findCap =
+                org.mockito.ArgumentCaptor.forClass((Class) List.class);
+        svc.validate(req(true, new SpecInput("repo-spec", "spec-yaml")));
+        // The svc/mocks are shared across a test's calls, so capture ALL persist invocations and read the last one.
+        verify(scanPersistence, org.mockito.Mockito.atLeastOnce()).complete(any(), findCap.capture(), any());
+        List<Finding> latest = findCap.getAllValues().get(findCap.getAllValues().size() - 1);
+        return latest.stream()
+                .filter(f -> f.getType() == FindingType.DESIGN_QUALITY || f.getType() == FindingType.TEST_BASIS_GAP)
+                .findFirst().orElseThrow();
+    }
+
+    @Test
+    void designEvidencePointingAtAnExistingCodeField_bindsThatFieldsSourceAndSpecLocus() {
+        // The code model has schema "Dto" with field "code" (SourceRef at Dto.java:42). The LLM evidence points at it.
+        ApiModel code = codeModelWithSchema("Dto", "code", endpoint("GET", "/x"));
+        Finding design = runDesignFindingWith(
+                "{\"layer\":\"L6\",\"severity\":\"MINOR\",\"summary\":\"Dto.code has no negative-case coverage\","
+                        + "\"evidence\":{\"codeSchema\":\"Dto\",\"codeField\":\"code\"}}", code);
+
+        assertThat(design.getCodeEvidence()).isNotNull();
+        assertThat(design.getCodeEvidence().location()).isEqualTo("src/main/java/ca/bnc/Dto.java");
+        assertThat(design.getCodeEvidence().startLine()).isEqualTo(42);
+        assertThat(design.getSpecLocus()).isEqualTo("Dto#code");
+    }
+
+    @Test
+    void designEvidencePointingAtANonExistentSchemaOrField_bindsNothing_noFabrication() {
+        ApiModel code = codeModelWithSchema("Dto", "code", endpoint("GET", "/x"));
+        // Schema exists but field does not → no binding (never a wrong location).
+        Finding wrongField = runDesignFindingWith(
+                "{\"layer\":\"L5\",\"severity\":\"MINOR\",\"summary\":\"about a phantom field\","
+                        + "\"evidence\":{\"codeSchema\":\"Dto\",\"codeField\":\"nope\"}}", code);
+        assertThat(wrongField.getCodeEvidence()).isNull();
+        assertThat(wrongField.getSpecLocus()).isNull();
+
+        // Schema does not exist at all → no binding.
+        Finding wrongSchema = runDesignFindingWith(
+                "{\"layer\":\"L5\",\"severity\":\"MINOR\",\"summary\":\"about a phantom schema\","
+                        + "\"evidence\":{\"codeSchema\":\"Ghost\",\"codeField\":\"code\"}}", code);
+        assertThat(wrongSchema.getCodeEvidence()).isNull();
+        assertThat(wrongSchema.getSpecLocus()).isNull();
+    }
+
+    @Test
+    void noEvidencePointer_bindsSchemaSourceOnlyWhenEndpointExactlyNamesAKnownSchema() {
+        ApiModel code = codeModelWithSchema("Dto", "code", endpoint("GET", "/x"));
+        // No evidence, and the finding's endpoint value EXACTLY equals a known schema name → schema-level SourceRef binds.
+        Finding onSchema = runDesignFindingWith(
+                "{\"layer\":\"L5\",\"severity\":\"MINOR\",\"endpoint\":\"Dto\",\"summary\":\"the Dto schema is under-specified\"}",
+                code);
+        assertThat(onSchema.getCodeEvidence()).isNotNull();
+        assertThat(onSchema.getCodeEvidence().location()).isEqualTo("src/main/java/ca/bnc/Dto.java");
+        assertThat(onSchema.getCodeEvidence().startLine()).isEqualTo(10);
+        assertThat(onSchema.getSpecLocus()).isEqualTo("Dto");
+
+        // No evidence and the endpoint does NOT name a schema → stays null (a genuinely spec-wide finding).
+        Finding specWide = runDesignFindingWith(
+                "{\"layer\":\"L5\",\"severity\":\"MINOR\",\"summary\":\"the spec has no examples anywhere\"}", code);
+        assertThat(specWide.getCodeEvidence()).isNull();
+        assertThat(specWide.getSpecLocus()).isNull();
+    }
+
+    @Test
+    void designEvidenceBinding_doesNotChangeTheFindingIdHash() {
+        // The id is hash(type, summary, endpoint) — binding evidence must NOT alter it. Same summary+endpoint, one with
+        // an evidence pointer that resolves, one without → identical findingId.
+        ApiModel code = codeModelWithSchema("Dto", "code", endpoint("GET", "/x"));
+        Finding bound = runDesignFindingWith(
+                "{\"layer\":\"L6\",\"severity\":\"MINOR\",\"summary\":\"same summary\","
+                        + "\"evidence\":{\"codeSchema\":\"Dto\",\"codeField\":\"code\"}}", code);
+        Finding unbound = runDesignFindingWith(
+                "{\"layer\":\"L6\",\"severity\":\"MINOR\",\"summary\":\"same summary\"}", code);
+
+        assertThat(bound.getCodeEvidence()).isNotNull();           // one bound evidence
+        assertThat(unbound.getCodeEvidence()).isNull();            // the other did not
+        assertThat(bound.getFindingId()).isEqualTo(unbound.getFindingId());   // …yet the id is identical
     }
 }

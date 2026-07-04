@@ -574,6 +574,10 @@ public class ContractValidationService {
                 + "descriptive name and rename the code); do NOT prescribe changing the spec. ALSO add L5 "
                 + "(design-quality) and L6 (test-basis adequacy) judgements in "
                 + "designFindings — e.g. a spec with no examples/constraints/error responses is a weak test basis. "
+                + "When a design finding is about a specific code DTO field or endpoint, include an `evidence` pointer to "
+                + "it: `{\"codeSchema\": <a CODE_API schema name>, \"codeField\": <that schema's field jsonName>}` for a "
+                + "field, and/or `{\"endpoint\": <a CODE_API endpoint>}`; omit `evidence` entirely if it is a spec-wide "
+                + "observation. Only point at schema/field/endpoint names that appear in CODE_API — never invent one. "
                 + "SPEC_PRESENCE_FACTS reports what the FULLY-RESOLVED spec actually contains (examples, schema "
                 + "properties, constraints and error responses are resolved through $ref); NEVER assert any of these "
                 + "is absent when the facts say it is present. "
@@ -598,7 +602,8 @@ public class ContractValidationService {
                 + "deterministically. Reply with exactly one fenced ```json block as the LAST thing, matching: "
                 + "{\"correctedYaml\": string, \"findings\": [{\"findingId\": string, \"explanation\": string, "
                 + "\"proposedFix\": string}], \"designFindings\": [{\"layer\": \"L5\"|\"L6\", \"severity\": string, "
-                + "\"endpoint\": string, \"summary\": string, \"explanation\": string}], "
+                + "\"endpoint\": string, \"summary\": string, \"explanation\": string, "
+                + "\"evidence\": {\"codeSchema\": string, \"codeField\": string, \"endpoint\": string}}], "
                 + "\"disputedFindings\": [{\"findingId\": string, \"reason\": string}], "
                 + "\"selfReview\": {\"confidence\": number, \"blindSpots\": [string]}}. No prose after the json.";
 
@@ -701,7 +706,7 @@ public class ContractValidationService {
                 }
                 disputes.putIfAbsent(id, reason);
             }
-            for (Finding df : parseDesignFindings(node, knownPaths)) {
+            for (Finding df : parseDesignFindings(node, knownPaths, code)) {
                 // Suppress an AI absence claim the resolved spec contradicts (e.g. "no examples" when $ref examples
                 // exist). Only for SPEC-WIDE claims: a finding scoped to a specific endpoint can't be refuted by
                 // spec-global "any..." presence facts — that endpoint may genuinely lack the thing.
@@ -763,7 +768,7 @@ public class ContractValidationService {
     }
 
     /** L5/L6 LLM judgement findings (design quality + test-basis adequacy) from the reconcile reply. */
-    private List<Finding> parseDesignFindings(JsonNode node, java.util.Set<String> knownPaths) {
+    private List<Finding> parseDesignFindings(JsonNode node, java.util.Set<String> knownPaths, ApiModel code) {
         List<Finding> out = new ArrayList<>();
         for (JsonNode d : node.path("designFindings")) {
             String layer = d.path("layer").asText("L5");
@@ -783,7 +788,7 @@ public class ContractValidationService {
                 explanation = "[unverified endpoint — '" + endpoint + "' is not a parsed API endpoint] "
                         + (explanation == null ? "" : explanation);
             }
-            out.add(Finding.builder()
+            Finding finding = Finding.builder()
                     .findingId(Integer.toHexString(java.util.Objects.hash(type, summary, endpoint)))
                     .type(type)
                     .layer(l6 ? Layer.L6 : Layer.L5)
@@ -795,9 +800,60 @@ public class ContractValidationService {
                     .summary(summary)
                     .explanation(explanation)
                     .citation(d.hasNonNull("citation") ? d.path("citation").asText() : null)
-                    .build());
+                    .build();
+            // Closed-world: bind evidence to the parsed code model when — and only when — it resolves exactly.
+            // Never mutates findingId (evidence/locus are NOT hash inputs), never fabricates a location.
+            out.add(bindDesignEvidence(finding, d.path("evidence"), code));
         }
         return out;
+    }
+
+    /**
+     * Attach deterministic, verified evidence to a design finding, closed-world against the parsed {@code code} model —
+     * never fabricated. Precedence:
+     * <ol>
+     *   <li>An LLM {@code evidence} pointer {@code {codeSchema, codeField}}: resolve the schema in {@code code.schemas()},
+     *       then the field by {@code jsonName}; bind that field's {@link SourceRef} + {@code specLocus = codeSchema#codeField}
+     *       only if the field has a source. A schema/field that does not resolve binds nothing.</li>
+     *   <li>Else a minimal, safe fallback: if the finding's {@code endpoint} value exactly names a known code schema with a
+     *       schema-level {@link SourceRef}, bind that + {@code specLocus = schemaName}.</li>
+     * </ol>
+     * Returns the finding unchanged when nothing resolves — a genuinely spec-wide finding legitimately keeps null evidence.
+     * Does not touch {@code findingId}: {@code codeEvidence}/{@code specLocus} are never part of the id hash.
+     */
+    private static Finding bindDesignEvidence(Finding finding, JsonNode evidence, ApiModel code) {
+        if (code == null || code.schemas() == null || code.schemas().isEmpty()) {
+            return finding;   // nothing to resolve against
+        }
+        // 1) Explicit code-field pointer — bind only when the exact schema AND field resolve and the field has a source.
+        if (evidence != null && evidence.hasNonNull("codeSchema") && evidence.hasNonNull("codeField")) {
+            String codeSchema = evidence.get("codeSchema").asText();
+            String codeField = evidence.get("codeField").asText();
+            SchemaModel schema = code.schemas().get(codeSchema);
+            if (schema != null && schema.fields() != null) {
+                for (FieldModel field : schema.fields()) {
+                    if (field.jsonName() != null && field.jsonName().equals(codeField) && field.source() != null) {
+                        return finding.toBuilder()
+                                .codeEvidence(field.source())
+                                .specLocus(codeSchema + "#" + codeField)
+                                .build();
+                    }
+                }
+            }
+            return finding;   // pointer given but did not resolve → bind nothing (never a wrong location)
+        }
+        // 2) Minimal fallback: the finding's endpoint value exactly names a known code schema with a schema-level source.
+        String endpoint = finding.getEndpoint();
+        if (endpoint != null && !endpoint.isBlank()) {
+            SchemaModel schema = code.schemas().get(endpoint);
+            if (schema != null && schema.source() != null) {
+                return finding.toBuilder()
+                        .codeEvidence(schema.source())
+                        .specLocus(endpoint)
+                        .build();
+            }
+        }
+        return finding;
     }
 
     /** Whether a design finding's endpoint string references a real (parsed) endpoint path — lenient substring match. */
