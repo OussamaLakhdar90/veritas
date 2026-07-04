@@ -151,8 +151,16 @@ export function SnykBulkFixModal({ open, onClose, watches }:
     onError: (e: Error) => toast.push('error', e.message),
   });
 
+  // When issues are picked but the required Jira project is still empty, the field lives below a long list — so the
+  // disabled Start button gives no clue why. Surface the reason inline (left of the buttons) instead of a dead button.
+  const needsJira = selected.size > 0 && jiraProject.trim() === '';
   const footer = (
     <>
+      {needsJira && (
+        <span className="mr-auto self-center text-xs text-warning" role="status" aria-live="polite">
+          {t('snyk.bulk.needJira')}
+        </span>
+      )}
       <Button variant="secondary" onClick={onClose}>{t('common.close')}</Button>
       <Button disabled={!canStart} loading={start.isPending} onClick={() => start.mutate()}>
         {t('snyk.bulk.confirm', { count: selected.size })}

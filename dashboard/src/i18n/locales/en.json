@@ -272,6 +272,7 @@
       "jiraProjectLabel": "Jira project",
       "jiraProjectHint": "Veritas opens one ticket per fix in this project.",
       "note": "Each fix clones the framework, pushes the version-bump branches and opens the pull requests through your Bitbucket connection. Breaking changes are held for your review — Veritas never merges on its own.",
+      "needJira": "Enter a Jira project below to start.",
       "confirm_one": "Start {{count}} fix",
       "confirm_other": "Start {{count}} fixes",
       "started_one": "Started {{count}} fix.",
