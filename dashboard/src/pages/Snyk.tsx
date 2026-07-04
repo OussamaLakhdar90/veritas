@@ -6,7 +6,7 @@ import { RefreshCw, Trash2, Eye, ExternalLink, ShieldCheck, PackageOpen, X, Shie
   PlugZap, Settings as SettingsIcon } from 'lucide-react';
 import { api, type ApiError, type SnykIssueView } from '../api';
 import {
-  Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Input, Skeleton, TableSkeleton,
+  Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Input, Skeleton, Spinner, TableSkeleton,
   Table, Td, Row, SortableTh, useSort, PageHeader,
 } from '../components/ui';
 import { SnykLogo } from '../components/SnykLogo';
@@ -65,8 +65,12 @@ export function Snyk() {
   // Severity-ranked by default (Critical first) — the order a security reviewer works top-down.
   const { sorted: sortedIssues, ...issueSort } = useSort(issuesQ.data ?? [], { key: 'severity', dir: 'desc' }, ISSUE_ACCESSORS);
 
+  // Any change to what's watched moves every derived read at once: the watched list, the managerial summary/impact
+  // card, the unseen-alert banner + bell, and (if open) the selected watch's issues. Used by refresh AND by the
+  // watch/unwatch mutations so the whole page settles without a manual "Refresh now".
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['snyk-watches'] });
+    qc.invalidateQueries({ queryKey: ['snyk-summary'] });
     qc.invalidateQueries({ queryKey: ['snyk-alerts', 'unseen'] });
     if (selectedWatch) qc.invalidateQueries({ queryKey: ['snyk-issues', selectedWatch] });
   };
@@ -87,7 +91,9 @@ export function Snyk() {
       const ok = results.filter((r) => r.status === 'fulfilled').length;
       const failed = results.length - ok;
       setSelectedOrgs(new Set());
-      qc.invalidateQueries({ queryKey: ['snyk-watches'] });
+      // Refetch the summary/impact card + alerts too, not just the watched list — the just-watched app's
+      // vulnerabilities should surface without the user clicking "Refresh now".
+      invalidate();
       if (ok > 0) toast.push('success', t('snyk.watchedApps', { count: ok }));
       if (failed > 0) toast.push('error', t('snyk.watchSomeFailed', { count: failed }));
     },
@@ -95,7 +101,8 @@ export function Snyk() {
 
   const removeWatch = useMutation({
     mutationFn: (id: string) => api.removeSnykWatch(id),
-    onSuccess: (_r, id) => { if (selectedWatch === id) setSelectedWatch(null); qc.invalidateQueries({ queryKey: ['snyk-watches'] }); toast.push('success', t('snyk.removed')); },
+    // Unwatching also changes the summary/impact totals + alert set — invalidate the whole family, same as watch.
+    onSuccess: (_r, id) => { if (selectedWatch === id) setSelectedWatch(null); invalidate(); toast.push('success', t('snyk.removed')); },
     onError: (e: Error) => toast.push('error', e.message),
   });
 
@@ -203,6 +210,14 @@ export function Snyk() {
         </CardBody>
       </Card>
 
+      {/* A quiet "we're re-polling Snyk" line while a refresh runs — the button already spins; this tells the
+          reader the data regions below are being refreshed too (not stale-but-idle). */}
+      {refresh.isPending && (
+        <p role="status" aria-live="polite" className="mb-3 inline-flex items-center gap-1.5 text-xs text-muted">
+          <Spinner className="h-3.5 w-3.5" /> {t('snyk.refreshing')}
+        </p>
+      )}
+
       {/* Watched repos */}
       {watchesQ.isLoading ? (
         <Card><CardBody className="p-0"><TableSkeleton label={t('snyk.loading')} /></CardBody></Card>
@@ -211,7 +226,8 @@ export function Snyk() {
       ) : watches.length === 0 ? (
         <EmptyState icon={ShieldCheck} title={t('snyk.noWatchesTitle')} body={t('snyk.noWatchesBody')} />
       ) : (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div aria-busy={refresh.isPending}
+          className={`grid gap-4 md:grid-cols-2 transition-opacity ${refresh.isPending ? 'opacity-60' : ''}`}>
           {watches.map((w) => {
             const checked = when(w.lastPolled);
             return (
@@ -248,6 +264,7 @@ export function Snyk() {
 
       {/* Issues for the selected watch */}
       {selectedWatch && (
+        <div aria-busy={refresh.isPending} className={`transition-opacity ${refresh.isPending ? 'opacity-60' : ''}`}>
         <Card className="mt-6">
           <CardHeader title={t('snyk.issuesTitle', { repo: watches.find((w) => w.id === selectedWatch)?.repoSlug ?? '' })}
             action={<Button variant="ghost" size="sm" onClick={() => setSelectedWatch(null)}>{t('common.close')}</Button>} />
@@ -303,6 +320,7 @@ export function Snyk() {
             )}
           </CardBody>
         </Card>
+        </div>
       )}
 
       <SnykFixWizard open={!!fixIssue} onClose={() => setFixIssue(null)} issue={fixIssue} watchId={selectedWatch ?? undefined}

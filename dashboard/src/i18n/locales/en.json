@@ -175,6 +175,7 @@
     "subtitle": "Dependency security — watch your repositories and act on vulnerabilities.",
     "impact": {
       "title": "Dependency security",
+      "loading": "Loading dependency security…",
       "watchingApps_one": "Watching {{count}} application",
       "watchingApps_other": "Watching {{count}} applications",
       "watchingProjects_one": "{{count}} project",
@@ -190,6 +191,7 @@
       "aiCost": "AI cost"
     },
     "refresh": "Refresh now",
+    "refreshing": "Refreshing from Snyk…",
     "refreshed_one": "Refreshed {{count}} watched repository.",
     "refreshed_other": "Refreshed {{count}} watched repositories.",
     "refreshFailed": "Refresh failed: {{message}}",
@@ -324,6 +326,10 @@
     "setupBody": "{{names}} need attention before Veritas can run.",
     "setupBodyMore": "{{names}} and {{count}} more need attention before Veritas can run.",
     "openSettings": "Open Settings",
+    "snykBanner_one": "{{count}} unseen vulnerability alert",
+    "snykBanner_other": "{{count}} unseen vulnerability alerts",
+    "snykBannerCta": "Review in Snyk",
+    "snykBannerDismiss": "Dismiss",
     "kpiBreaking": "Breaking changes caught",
     "kpiBreakingSub": "drift that would have broken a live consumer",
     "heroTitle": "Portfolio fidelity score",
