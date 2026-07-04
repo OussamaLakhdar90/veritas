@@ -281,6 +281,11 @@ export interface JiraIssueRef {
   summary?: string
 }
 
+/** A Jira project the bulk-fix wizard files work under — picked from a dropdown, never free-typed. */
+export interface JiraProject { key: string; name: string }
+/** An existing epic the wizard can file a batch of fixes under (or the user creates a new one instead). */
+export interface JiraEpicOption { key: string; summary: string }
+
 /** One line of the test-generation reconciliation plan (GAP | CURRENT | ORPHAN). */
 export interface TestGenPlanItem {
   status: 'GAP' | 'CURRENT' | 'ORPHAN' | 'STALE'
@@ -497,6 +502,25 @@ export interface SnykFixStepView {
   pomPath: string; diffPreview: string; newModuleVersion?: string; prUrl?: string; prOpenedBy?: string;
   status: string; manual: boolean; reason?: string; reviewers: string[];
 }
+/**
+ * The one request the bulk-fix wizard sends on "Start": the Jira project, the epic (an existing key OR a
+ * create-me flag + summary), optional reviewers, and the selected fixable issues grouped by application.
+ */
+export interface SnykBulkFixRequest {
+  project: string;
+  epicKey?: string;      // an existing epic, OR…
+  createEpic?: boolean;  // …true to create one
+  epicSummary?: string;  // title for the new epic when createEpic
+  reviewers?: string[];
+  apps: { appId: string; watchId: string;
+    issues: { issueId: string; coordinate: string; oldVersion: string; fixedIn: string; severity: string }[] }[];
+}
+/** The result of a bulk-fix run: the epic it filed under and, per app, the Jira ticket + train ids (or an error). */
+export interface SnykBulkFixResult {
+  epicKey: string;
+  apps: { appId: string; jiraKey: string | null; trainIds: string[]; error: string | null }[];
+}
+
 /** A release-cascade fix train: the issue, the Jira + verdict, the reactor result, and every PR. */
 export interface SnykFixTrainView {
   id: string; coordinate: string; oldVersion: string; fixedIn: string; severity: string; appIds: string;
@@ -596,6 +620,13 @@ export const api = {
       + `?appId=${encodeURIComponent(appId)}&serviceRepoSlug=${encodeURIComponent(serviceRepoSlug)}`),
   // Search Jira for the ticket picker: a text query → summary search; a pasted key/URL → exact lookup.
   jiraSearch: (q: string) => get<JiraIssueRef[]>(`/jira/search?q=${encodeURIComponent(q)}`),
+  // The projects the bulk-fix wizard files under — a real dropdown so a user can't type an invalid key.
+  jiraProjects: () => get<JiraProject[]>('/jira/projects'),
+  // Existing epics under a chosen project (to file the batch under), or the user creates a new one instead.
+  jiraEpics: (projectKey: string) => get<JiraEpicOption[]>(`/jira/projects/${encodeURIComponent(projectKey)}/epics`),
+  // Create a fresh epic to group a batch of dependency fixes; returns its key.
+  createJiraEpic: (body: { projectKey: string; summary: string; description?: string }) =>
+    post<{ key: string }>('/jira/epics', body),
 
   // Release test plan trigger + RTM workspace
   triggerReleasePlan: (service: string, body: { fixVersion: string; issuesJql?: string; testsJql?: string; projectKey?: string; createGaps?: boolean }) =>
@@ -711,6 +742,8 @@ export const api = {
     fixedIn: string; severity: string; appIds: string[]; jiraKey?: string; jiraProject?: string;
     jiraIssueType?: string; reviewers?: string[]; owner?: string; autoConfirm?: boolean }) =>
     post<{ trainId: string }>('/snyk/fixes', body),
+  // One call the wizard makes on "Start": creates/uses one epic, then files a ticket + starts a fix train per app.
+  bulkSnykFix: (body: SnykBulkFixRequest) => post<SnykBulkFixResult>('/snyk/fixes/bulk', body),
   snykFixes: () => get<SnykFixTrainView[]>('/snyk/fixes'),
   snykFix: (id: string) => get<SnykFixTrainView>(`/snyk/fixes/${encodeURIComponent(id)}`),
   // Confirm a paused (AWAITING_CONFIRM) train with per-module version + per-step-order reviewer edits.
