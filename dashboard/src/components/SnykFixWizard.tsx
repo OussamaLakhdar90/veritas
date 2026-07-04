@@ -282,6 +282,11 @@ function TrainHeader({ train }: { train: SnykFixTrainView }) {
       {train.status === FIX_STATUS.AWAITING_MANUAL_FIX && (
         <p className="mt-1 text-xs text-warning">{t('snyk.fix.breakingHelp')}</p>
       )}
+      {train.status === FIX_STATUS.FAILED && train.errorMessage && (
+        <p className="mt-2 whitespace-pre-wrap break-words rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger ring-1 ring-danger/20">
+          {train.failedStage ? `${t('snyk.fix.failedAt', { stage: train.failedStage })} ` : ''}{train.errorMessage}
+        </p>
+      )}
     </div>
   );
 }

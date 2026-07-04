@@ -174,7 +174,12 @@ function ActivityRow({ item }: { item: ActivityItem }) {
               </Tooltip>
               <Badge className={cn(TONE.muted, 'hidden sm:inline-flex')}>{t(`activity.type.${item.type}`)}</Badge>
             </div>
-            {detail && <p className="mt-0.5 truncate text-sm text-muted">{detail}</p>}
+            {detail && (
+              <p title={item.status === 'FAILED' ? detail : undefined}
+                className={cn('mt-0.5 truncate text-sm', item.status === 'FAILED' ? 'text-danger' : 'text-muted')}>
+                {detail}
+              </p>
+            )}
           </div>
           <Badge className={STATUS_BADGE[item.status]}>{t(`activity.status.${item.status}`)}</Badge>
           {time && (
