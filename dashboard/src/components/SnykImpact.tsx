@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { ArrowRight, Clock, GitPullRequestArrow, ShieldCheck, Sparkles } from 'lucide-react';
 import { api } from '../api';
-import { Card, CardBody } from './ui';
+import { Card, CardBody, CardSkeleton } from './ui';
 import { SnykLogo } from './SnykLogo';
 import { formatMoney } from '../lib/format';
 
@@ -36,6 +36,12 @@ export function SnykImpactCard({ showLink = true }: { showLink?: boolean }) {
     return Math.round(med * 10) / 10;
   })();
   const s = q.data;
+  // While the first summary is still in flight, hold the space with a loading card so the top of the page
+  // reads as "fetching from Snyk" rather than silently blank. Once it resolves with zero watched apps we
+  // fall through to null (the card only earns its space when there's something to show).
+  if (!s && q.isLoading) {
+    return <div className="mb-6"><CardSkeleton lines={2} label={t('snyk.impact.loading')} /></div>;
+  }
   if (!s || s.watchedApps === 0) return null;
 
   const open = s.critical + s.high + s.medium + s.low;

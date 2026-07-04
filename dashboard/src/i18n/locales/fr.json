@@ -175,6 +175,7 @@
     "subtitle": "Sécurité des dépendances — surveillez vos dépôts et corrigez les vulnérabilités.",
     "impact": {
       "title": "Sécurité des dépendances",
+      "loading": "Chargement de la sécurité des dépendances…",
       "watchingApps_one": "Surveillance de {{count}} application",
       "watchingApps_other": "Surveillance de {{count}} applications",
       "watchingProjects_one": "{{count}} projet",
@@ -190,6 +191,7 @@
       "aiCost": "coût IA"
     },
     "refresh": "Actualiser",
+    "refreshing": "Actualisation depuis Snyk…",
     "refreshed_one": "{{count}} dépôt surveillé actualisé.",
     "refreshed_other": "{{count}} dépôts surveillés actualisés.",
     "refreshFailed": "Échec de l’actualisation : {{message}}",
@@ -324,6 +326,10 @@
     "setupBody": "{{names}} requièrent une intervention avant l’exécution de Veritas.",
     "setupBodyMore": "{{names}} et {{count}} autres requièrent une intervention avant l’exécution de Veritas.",
     "openSettings": "Ouvrir les paramètres",
+    "snykBanner_one": "{{count}} alerte de vulnérabilité non vue",
+    "snykBanner_other": "{{count}} alertes de vulnérabilité non vues",
+    "snykBannerCta": "Examiner dans Snyk",
+    "snykBannerDismiss": "Ignorer",
     "kpiBreaking": "Changements cassants interceptés",
     "kpiBreakingSub": "des dérives qui auraient brisé un consommateur en production",
     "heroTitle": "Score de fidélité du portefeuille",
