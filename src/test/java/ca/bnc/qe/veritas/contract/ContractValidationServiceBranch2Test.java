@@ -96,6 +96,8 @@ class ContractValidationServiceBranch2Test {
         when(reportRenderer.renderHtml(any(), any(), any())).thenReturn("<html>ok</html>");
         when(reportRenderer.renderPdf(any(), any(), any())).thenReturn(new byte[] {1, 2, 3});
         when(correctedSpecBuilder.build(any(), any(), any())).thenReturn("openapi: 3.0.3");
+        // The LLM-preferred corrected YAML is passed through metadata preservation; passthrough by default here.
+        when(correctedSpecBuilder.withOriginalMetadata(any(), any())).thenAnswer(inv -> inv.getArgument(0));
         when(openApi.extract(eq("corrected-check"), anyString()))
                 .thenReturn(new SpecParse(specModel("corrected-check"), List.of(), true));
         when(openApi.presenceOf(anyString())).thenReturn(SpecPresence.empty());

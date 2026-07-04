@@ -174,4 +174,72 @@ class CorrectedSpecBuilderTest {
         // real info still preserved
         assertThat(yaml).contains("CIAM Policies");
     }
+
+    // ---- withOriginalMetadata: the same preservation applied to an ALREADY-BUILT yaml (the LLM reconcile branch) ----
+
+    @Test
+    void withOriginalMetadata_overlaysRealInfoAndServersOntoAnLlmYaml() {
+        // Mirrors the live symptom: the LLM produced placeholder identity ("CIAM Password Policy API" / 1.0.0) and no
+        // servers, because it is never handed the spec's info/servers. The overlay must replace them with the real ones.
+        String llmYaml = """
+                openapi: 3.0.3
+                info:
+                  title: CIAM Password Policy API
+                  version: 1.0.0
+                paths:
+                  /things/{id}:
+                    get:
+                      responses:
+                        '200':
+                          description: OK
+                """;
+        String original = """
+                openapi: 3.0.3
+                info:
+                  title: CIAM Policies
+                  version: 1.0.5
+                  description: The real policies API
+                servers:
+                  - url: https://api.example.com/v1
+                  - url: https://sandbox.example.com/v1
+                paths:
+                  /things/{id}:
+                    get:
+                      responses:
+                        '200':
+                          description: OK
+                """;
+
+        String out = new CorrectedSpecBuilder().withOriginalMetadata(llmYaml, original);
+        SpecParse reparsed = new OpenApiModelExtractor().extract("corrected", out);
+
+        assertThat(reparsed.parsed()).isTrue();
+        // real identity replaces the LLM's invented placeholders
+        assertThat(out).contains("CIAM Policies").contains("1.0.5");
+        assertThat(out).doesNotContain("CIAM Password Policy API");
+        assertThat(out).doesNotContain("version: 1.0.0");
+        // the original servers now present (they were absent from the LLM yaml)
+        assertThat(out).contains("https://api.example.com/v1").contains("https://sandbox.example.com/v1");
+        // the LLM's paths survive — the overlay only touches info/servers/examples/x-*
+        assertThat(reparsed.model().endpoints()).anyMatch(e -> e.signature().endsWith("/things/{id}"));
+    }
+
+    @Test
+    void withOriginalMetadata_passthroughWhenOriginalOrCorrectedMissing() {
+        CorrectedSpecBuilder b = new CorrectedSpecBuilder();
+        String llmYaml = "openapi: 3.0.3\ninfo:\n  title: X\n  version: 1.0.0\n";
+        assertThat(b.withOriginalMetadata(llmYaml, null)).isEqualTo(llmYaml);      // no original → unchanged
+        assertThat(b.withOriginalMetadata(llmYaml, "   ")).isEqualTo(llmYaml);     // blank original → unchanged
+        assertThat(b.withOriginalMetadata(null, "openapi: 3.0.3")).isNull();       // no corrected → null (as given)
+        assertThat(b.withOriginalMetadata("  ", "openapi: 3.0.3")).isEqualTo("  "); // blank corrected → unchanged
+    }
+
+    @Test
+    void withOriginalMetadata_returnsInputWhenCorrectedYamlIsNotAMapping() {
+        // A non-mapping corrected doc can't be enriched — return it untouched, never null (fail-safe).
+        String notAMap = "just a scalar string";
+        String out = new CorrectedSpecBuilder().withOriginalMetadata(notAMap,
+                "openapi: 3.0.3\ninfo:\n  title: CIAM Policies\n  version: 1.0.5\n");
+        assertThat(out).isEqualTo(notAMap);
+    }
 }
