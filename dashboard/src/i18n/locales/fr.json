@@ -272,6 +272,7 @@
       "jiraProjectLabel": "Projet Jira",
       "jiraProjectHint": "Veritas ouvre un ticket par correctif dans ce projet.",
       "note": "Chaque correctif clone le cadre, pousse les branches de mise à niveau et ouvre les demandes de tirage via votre connexion Bitbucket. Les changements cassants sont retenus pour votre révision — Veritas ne fusionne jamais de lui-même.",
+      "needJira": "Saisissez un projet Jira ci-dessous pour lancer.",
       "confirm_one": "Lancer {{count}} correctif",
       "confirm_other": "Lancer {{count}} correctifs",
       "started_one": "{{count}} correctif lancé.",
