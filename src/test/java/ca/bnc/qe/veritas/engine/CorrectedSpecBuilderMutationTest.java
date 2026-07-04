@@ -453,7 +453,7 @@ class CorrectedSpecBuilderMutationTest {
     }
 
     @Test
-    void extensionsOverlaidAtRootInfoPathAndOperation_codeStillWins() {
+    void extensionsOverlaidAtRootPathAndOperation_originalInfoWins() {
         Endpoint ep = getEndpoint(HttpMethod.GET, "/p", "op",
                 List.of(), null, List.of(new ResponseModel(200, null, null, "RETURN", SRC)), null);
         Map<String, Object> root = parse(builder.build(api(List.of(ep), null), "Code Title", specWithExtensions()));
@@ -461,10 +461,11 @@ class CorrectedSpecBuilderMutationTest {
         // L58/L78/L101: root-level x- copied; non-x key NOT copied.
         assertThat(root).containsEntry("x-root-ext", "rootVal");
         assertThat(root).doesNotContainKey("plainRootKey"); // L101 startsWith("x-") guard
-        // L79/L80: info-level x- copied. Code wins on title (still "Code Title", not "Orig").
+        // S13k-2: the original info block wins wholesale — its real title replaces the passed "Code Title", and its
+        // x- extension rides along with the block.
         Map<String, Object> info = asMap(root.get("info"));
         assertThat(info).containsEntry("x-info-ext", "infoVal");
-        assertThat(info).containsEntry("title", "Code Title");
+        assertThat(info).containsEntry("title", "Orig");
         // L82/L85/L89: path-item-level x- copied.
         Map<String, Object> pathItem = asMap(asMap(root.get("paths")).get("/p"));
         assertThat(pathItem).containsEntry("x-path-ext", "pathVal");

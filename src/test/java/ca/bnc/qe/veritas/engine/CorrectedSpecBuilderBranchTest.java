@@ -340,17 +340,18 @@ class CorrectedSpecBuilderBranchTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void codeWinsOnExtensionKeyCollisionAndNonExtKeysIgnored() {
+    void originalInfoWinsWholesaleAndOrphanPathsIgnored() {
         Endpoint ep = new Endpoint(HttpMethod.GET, "/things", "listX", List.of(), null,
                 List.of(new ResponseModel(200, null, null, "RETURN", SRC)), null, null, List.of(), SRC);
         ApiModel code = model(List.of(ep), Map.of());
 
-        // info already has title (code) and version — collision keys must NOT be overwritten; non-x- keys ignored.
+        // The original's info block replaces the placeholder wholesale (S13k-2): its real title/version/description
+        // and any x- extensions carry through, so the corrected doc reflects the true API metadata, not "RealTitle".
         String original = """
                 info:
-                  title: ShouldNotOverride
+                  title: ShouldOverride
                   version: 9.9.9
-                  description: ignored-non-ext
+                  description: real-description
                   x-info-ext: kept
                 paths:
                   /unknown-path:
@@ -359,10 +360,10 @@ class CorrectedSpecBuilderBranchTest {
 
         Map<String, Object> root = parse(builder.build(code, "RealTitle", original));
         Map<String, Object> info = (Map<String, Object>) root.get("info");
-        assertThat(info).containsEntry("title", "RealTitle");      // code wins
-        assertThat(info).containsEntry("version", "1.0.0");        // code wins
-        assertThat(info).containsEntry("x-info-ext", "kept");      // additive x- copied
-        assertThat(info).doesNotContainKey("description");          // non-x- not copied
+        assertThat(info).containsEntry("title", "ShouldOverride");   // original info wins
+        assertThat(info).containsEntry("version", "9.9.9");          // original version, not placeholder 1.0.0
+        assertThat(info).containsEntry("description", "real-description");   // full info block preserved
+        assertThat(info).containsEntry("x-info-ext", "kept");        // x- extension carried through with the block
         // path in original but absent in corrected → skipped (no NPE), corrected path untouched
         Map<String, Object> paths = (Map<String, Object>) root.get("paths");
         assertThat(paths).containsKey("/things").doesNotContainKey("/unknown-path");
