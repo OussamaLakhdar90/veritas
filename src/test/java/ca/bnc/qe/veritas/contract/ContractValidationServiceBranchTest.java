@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -512,6 +513,32 @@ class ContractValidationServiceBranchTest {
         assertThat(r.status()).isEqualTo("COMPLETED");
         verify(scanPersistence).complete(scanCap.capture(), any(), any());
         assertThat(scanCap.getValue().getBlindSpots()).contains("AI review could not run");
+        verify(llm, times(3)).complete(any(), any());   // retried the whole reconcile 3× before degrading
+    }
+
+    @Test
+    void reconcileRetriesAfterATransientDrop_thenSucceeds_noDegrade() {
+        when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(new ArrayList<>(List.of(deterministic("gap"))));
+        when(diffEngine.l1FromMessages(anyString(), any())).thenReturn(List.of());
+        when(openApi.extract(eq("repo-spec"), anyString()))
+                .thenReturn(new SpecParse(specModel("repo-spec"), List.of(), true));
+        armLlm(reconcileReply());   // success-path stubs (jsonExtractor, costRecorder…)
+        // The first Copilot call drops mid-stream; the retry succeeds.
+        when(llm.complete(any(), any()))
+                .thenThrow(new org.springframework.web.client.ResourceAccessException("EOF reached while reading"))
+                .thenReturn(reconcileReply());
+        when(openApi.extract(eq("corrected-check"), eq("openapi: 3.0.3")))
+                .thenReturn(new SpecParse(specModel("corrected-check"), List.of(), true));
+
+        org.mockito.ArgumentCaptor<Scan> scanCap = org.mockito.ArgumentCaptor.forClass(Scan.class);
+        ValidationResult r = svc.validate(req(true, new SpecInput("repo-spec", "spec-yaml")));
+
+        assertThat(r.status()).isEqualTo("COMPLETED");
+        verify(llm, atLeast(2)).complete(any(), any());   // retried after the first drop
+        verify(scanPersistence).complete(scanCap.capture(), any(), any());
+        // Succeeded on the retry → no degrade note.
+        String blind = scanCap.getValue().getBlindSpots();
+        assertThat(blind == null ? "" : blind).doesNotContain("AI review could not run");
     }
 
     @Test
