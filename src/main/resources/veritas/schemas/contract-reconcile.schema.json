@@ -32,7 +32,17 @@
           "endpoint": { "type": ["string", "null"] },
           "summary": { "type": "string" },
           "explanation": { "type": ["string", "null"] },
-          "citation": { "type": ["string", "null"] }
+          "citation": { "type": ["string", "null"] },
+          "evidence": {
+            "type": ["object", "null"],
+            "description": "Optional pointer to the parsed CODE_API artifact the finding is about, bound deterministically (validated, never fabricated). Omit for spec-wide observations.",
+            "additionalProperties": true,
+            "properties": {
+              "codeSchema": { "type": ["string", "null"] },
+              "codeField": { "type": ["string", "null"] },
+              "endpoint": { "type": ["string", "null"] }
+            }
+          }
         }
       }
     },
