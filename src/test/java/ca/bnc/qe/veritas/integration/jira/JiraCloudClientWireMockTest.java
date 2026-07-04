@@ -148,6 +148,49 @@ class JiraCloudClientWireMockTest {
         assertThat(mapper.readTree(p2).path("fields").has("labels")).isFalse();
     }
 
+    // ---------------------------------------------------------------- epic link (Cloud `parent` field)
+
+    @Test
+    void buildCreatePayloadSetsParentWhenEpicPresent() throws Exception {
+        String payload = client().buildCreatePayload(new JiraCreateRequest(
+                "CIAM", "Task", "s", List.of("d"), List.of("l"), "CIAM-100"));
+        JsonNode fields = mapper.readTree(payload).path("fields");
+        assertThat(fields.path("parent").path("key").asText()).isEqualTo("CIAM-100");
+    }
+
+    @Test
+    void buildCreatePayloadOmitsParentWhenNoEpic_regression() throws Exception {
+        JiraCloudClient c = client();
+        String baseline = c.buildCreatePayload(new JiraCreateRequest("CIAM", "Task", "s", List.of("d"), List.of("l")));
+        // A 6-arg request with a null epic → byte-for-byte identical to the old payload (no `parent`).
+        assertThat(c.buildCreatePayload(new JiraCreateRequest("CIAM", "Task", "s", List.of("d"), List.of("l"), null)))
+                .isEqualTo(baseline);
+        assertThat(mapper.readTree(baseline).path("fields").has("parent")).isFalse();
+    }
+
+    // ---------------------------------------------------------------- listProjects (paged project/search)
+
+    @Test
+    void listProjectsPagesThroughProjectSearch() {
+        wm.stubFor(get(urlPathEqualTo("/rest/api/3/project/search")).withQueryParam("startAt", equalTo("0"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json")
+                        .withBody("{\"isLast\":false,\"values\":[{\"key\":\"CIAM\",\"name\":\"Access\"}]}")));
+        wm.stubFor(get(urlPathEqualTo("/rest/api/3/project/search")).withQueryParam("startAt", equalTo("1"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json")
+                        .withBody("{\"isLast\":true,\"values\":[{\"key\":\"APP\",\"name\":\"App\"}]}")));
+        List<JiraProject> projects = client().listProjects();
+        assertThat(projects).extracting(JiraProject::key).containsExactly("CIAM", "APP");
+        assertThat(projects).extracting(JiraProject::name).containsExactly("Access", "App");
+    }
+
+    @Test
+    void listProjectsWrapsErrorAsIllegalState() {
+        wm.stubFor(get(urlPathEqualTo("/rest/api/3/project/search")).willReturn(aResponse().withStatus(500)));
+        assertThatThrownBy(() -> client().listProjects())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Jira listProjects failed");
+    }
+
     // ---------------------------------------------------------------- createIssue
 
     @Test
