@@ -307,6 +307,7 @@
       "recordPr": "Enregistrer ma PR",
       "prUrlPlaceholder": "Collez l’URL de la PR",
       "breakingHelp": "Changement cassant signalé — adaptez le code sur les branches poussées et testez, puis ouvrez les PR (vous-même ou via Veritas).",
+      "failedAt": "Échec à {{stage}} :",
       "verdictBreaking": "Vérif IA : changement cassant probable (confiance {{c}} %)",
       "verdictClean": "Vérif IA : aucun changement cassant attendu (confiance {{c}} %)",
       "verdictNone": "Vérif IA : indisponible — le build de test est le garde-fou",

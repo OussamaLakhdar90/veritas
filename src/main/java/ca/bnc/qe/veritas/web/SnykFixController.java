@@ -140,7 +140,8 @@ public class SnykFixController {
                     parseList(s.getReviewersJson())));
         }
         return new SnykFixTrainView(t.getId(), t.getCoordinate(), t.getOldVersion(), t.getFixedIn(), t.getSeverity(),
-                t.getAppIds(), t.getJiraKey(), t.getStatus(), t.getStageDetail(), t.isBreaking(),
+                t.getAppIds(), t.getJiraKey(), t.getStatus(), t.getStageDetail(),
+                t.getErrorMessage(), t.getFailedStage(), t.isBreaking(),
                 t.getReactorPassed(), t.getReactorFailingLabel(), t.getReactorOutputTail(),
                 parseVerdict(t.getVerdictJson()), t.getStartedAt(), t.getCreatedAt(), t.getFinishedAt(),
                 t.getWatchId(), stepViews);

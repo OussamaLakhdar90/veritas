@@ -494,6 +494,27 @@ class ContractValidationServiceBranchTest {
     }
 
     @Test
+    void reconcileThrows_degradesToDiffOnly_andScanCompletesWithANote() {
+        when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(new ArrayList<>(List.of(deterministic("gap"))));
+        when(diffEngine.l1FromMessages(anyString(), any())).thenReturn(List.of());
+        when(openApi.extract(eq("repo-spec"), anyString()))
+                .thenReturn(new SpecParse(specModel("repo-spec"), List.of(), true));
+        when(llm.isAvailable()).thenReturn(true);
+        // The Copilot streaming call drops mid-response (the live EOF) — reconcile throws.
+        when(llm.complete(any(), any()))
+                .thenThrow(new org.springframework.web.client.ResourceAccessException(
+                        "I/O error on POST: EOF reached while reading"));
+
+        org.mockito.ArgumentCaptor<Scan> scanCap = org.mockito.ArgumentCaptor.forClass(Scan.class);
+        ValidationResult r = svc.validate(req(true, new SpecInput("repo-spec", "spec-yaml")));
+
+        // The scan degrades to the deterministic diff-only report and COMPLETES — it does NOT fail on the blip.
+        assertThat(r.status()).isEqualTo("COMPLETED");
+        verify(scanPersistence).complete(scanCap.capture(), any(), any());
+        assertThat(scanCap.getValue().getBlindSpots()).contains("AI review could not run");
+    }
+
+    @Test
     void llmCorrectedYaml_usedWhenItRoundTrips_inPreferenceToDeterministic() {
         when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(new ArrayList<>(List.of(deterministic("gap"))));
         when(diffEngine.l1FromMessages(anyString(), any())).thenReturn(List.of());

@@ -247,18 +247,29 @@ public class ContractValidationService {
                 for (SpecInput s : req.specs()) {
                     presence = presence.merge(openApiModelExtractor.presenceOf(s.content()));
                 }
-                ReconcileResult rr = reconcile(code, specModels, findings, req.owner(), scan, presence,
-                        req.thoroughness().tier());
-                log.info("Scan {} [{}] AI reconcile finished in {}s",
-                        scan.getId(), scan.getServiceName(), (System.currentTimeMillis() - t0) / 1000);
-                enrich.putAll(rr.enrich());
-                disputes.putAll(rr.disputes());
-                scan.setTotalPremiumRequests(rr.cost().premiumRequests());
-                scan.setTotalEstCostUsd(rr.cost().estCostUsd());
-                llmCorrected = rr.correctedYaml();
-                findings.addAll(rr.llmFindings());   // L5/L6 design + test-basis findings (LLM judgment)
-                scan.setConfidence(rr.confidence());
-                scan.setBlindSpots(rr.blindSpots());
+                try {
+                    ReconcileResult rr = reconcile(code, specModels, findings, req.owner(), scan, presence,
+                            req.thoroughness().tier());
+                    log.info("Scan {} [{}] AI reconcile finished in {}s",
+                            scan.getId(), scan.getServiceName(), (System.currentTimeMillis() - t0) / 1000);
+                    enrich.putAll(rr.enrich());
+                    disputes.putAll(rr.disputes());
+                    scan.setTotalPremiumRequests(rr.cost().premiumRequests());
+                    scan.setTotalEstCostUsd(rr.cost().estCostUsd());
+                    llmCorrected = rr.correctedYaml();
+                    findings.addAll(rr.llmFindings());   // L5/L6 design + test-basis findings (LLM judgment)
+                    scan.setConfidence(rr.confidence());
+                    scan.setBlindSpots(rr.blindSpots());
+                } catch (RuntimeException e) {
+                    // A transient Copilot error (e.g. a dropped SSE stream — I/O EOF) must NOT sink the whole scan.
+                    // Degrade to the deterministic diff-only report and record WHY, so the run is honest, not lost.
+                    log.warn("Scan {} [{}] AI reconcile failed after {}s — degrading to diff-only for this run: {}",
+                            scan.getId(), scan.getServiceName(), (System.currentTimeMillis() - t0) / 1000, e.getMessage());
+                    String note = "AI review could not run this time (" + shortReason(e) + ") — the findings below are "
+                            + "from static analysis only; re-run to include the AI review.";
+                    String existing = scan.getBlindSpots();
+                    scan.setBlindSpots(existing == null || existing.isBlank() ? note : existing + " " + note);
+                }
             }
 
             // Always surface deterministic static-analysis blind spots (unparsed files, unresolved DTOs),
@@ -891,6 +902,19 @@ public class ContractValidationService {
         }
         String deterministic = correctedSpecBuilder.build(code, title, originalSpecYaml);
         return roundTrips(deterministic) ? deterministic : null;
+    }
+
+    /** A short, human-readable reason from an exception chain — the root cause's message (or type), capped. */
+    private static String shortReason(Throwable e) {
+        Throwable root = e;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String msg = root.getMessage();
+        if (msg == null || msg.isBlank()) {
+            msg = root.getClass().getSimpleName();
+        }
+        return msg.length() > 140 ? msg.substring(0, 140) + "…" : msg;
     }
 
     /**

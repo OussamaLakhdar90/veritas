@@ -95,8 +95,8 @@ public class ActivityService {
             return;
         }
         out.add(new ActivityItem(s.getId(), "SCAN", s.getServiceName(), status, s.getStage(),
-                s.getStageDetail(), attention, s.getStartedAt(), s.getFinishedAt(),
-                "/findings/" + s.getId(), acked.contains(s.getId())));
+                failDetail(status, s.getErrorMessage(), s.getStageDetail()), attention,
+                s.getStartedAt(), s.getFinishedAt(), "/findings/" + s.getId(), acked.contains(s.getId())));
     }
 
     private void addTrain(List<ActivityItem> out, SnykFixTrain t, Instant cutoff, Set<String> acked) {
@@ -117,8 +117,8 @@ public class ActivityService {
             return;
         }
         out.add(new ActivityItem(t.getId(), "FIX_TRAIN", t.getCoordinate() + " → " + t.getFixedIn(), status,
-                t.getStatus(), t.getStageDetail(), attention, t.getStartedAt(), t.getFinishedAt(),
-                "/snyk", acked.contains(t.getId())));
+                t.getStatus(), failDetail(status, t.getErrorMessage(), t.getStageDetail()), attention,
+                t.getStartedAt(), t.getFinishedAt(), "/snyk", acked.contains(t.getId())));
     }
 
     private void addCodegen(List<ActivityItem> out, CodegenRun r, Instant cutoff, Set<String> acked) {
@@ -130,6 +130,18 @@ public class ActivityService {
         }
         out.add(new ActivityItem(r.getId(), "CODEGEN", r.getServiceName(), status, r.getBuildStatus(),
                 null, failed, r.getCreatedAt(), r.getCreatedAt(), "/codegen", acked.contains(r.getId())));
+    }
+
+    /**
+     * On a FAILED item, show WHY (the stored error) as the feed detail so the user isn't left with a bare "Failed"
+     * that only bounces them back to the screen; otherwise the live stage sub-line. Failed items null their stageDetail,
+     * so without this the row has no detail at all.
+     */
+    private static String failDetail(String status, String errorMessage, String stageDetail) {
+        if (ActivityItem.FAILED.equals(status) && errorMessage != null && !errorMessage.isBlank()) {
+            return errorMessage;
+        }
+        return stageDetail;
     }
 
     /** Terminal + old (or timestamp-less) → out of the window. Non-terminal always shows. */

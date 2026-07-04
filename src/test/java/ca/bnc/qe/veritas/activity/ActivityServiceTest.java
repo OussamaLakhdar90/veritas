@@ -84,6 +84,32 @@ class ActivityServiceTest {
     }
 
     @Test
+    void failedItemsSurfaceTheStoredErrorAsDetail() {
+        Instant now = Instant.now();
+        Scan failed = scan("FAILED", RunStatus.FAILED, now, now);
+        failed.setStageDetail(null);   // a failed scan nulls its live stage sub-line
+        failed.setErrorMessage("I/O error on POST api.githubcopilot.com: EOF reached while reading");
+        when(scans.findAll()).thenReturn(List.of(failed));
+
+        SnykFixTrain failedTrain = new SnykFixTrain();
+        failedTrain.setStatus("FAILED");
+        failedTrain.setCoordinate("com.x:y");
+        failedTrain.setFixedIn("2.0");
+        failedTrain.setStartedAt(now);
+        failedTrain.setFinishedAt(now);
+        failedTrain.setErrorMessage("Jira createIssue failed: Field 'summary' cannot be set");
+        when(trains.findAll()).thenReturn(List.of(failedTrain));
+
+        List<ActivityItem> feed = service.feed();
+
+        // The row shows WHY it failed instead of a bare "Failed" with no detail.
+        assertThat(feed).filteredOn(i -> "SCAN".equals(i.type()))
+                .singleElement().satisfies(i -> assertThat(i.detail()).contains("EOF reached while reading"));
+        assertThat(feed).filteredOn(i -> "FIX_TRAIN".equals(i.type()))
+                .singleElement().satisfies(i -> assertThat(i.detail()).contains("Field 'summary' cannot be set"));
+    }
+
+    @Test
     void windowsOutOldTerminalWorkButKeepsLiveWorkForever() {
         Instant old = Instant.now().minus(30, ChronoUnit.DAYS);
         when(scans.findAll()).thenReturn(List.of(

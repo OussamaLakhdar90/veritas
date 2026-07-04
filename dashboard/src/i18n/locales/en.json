@@ -307,6 +307,7 @@
       "recordPr": "Record my PR",
       "prUrlPlaceholder": "Paste the PR URL",
       "breakingHelp": "Breaking change flagged — adapt the code on the pushed branches and test, then open the PRs (yourself, or via Veritas).",
+      "failedAt": "Failed at {{stage}}:",
       "verdictBreaking": "AI check: breaking change likely ({{c}}% confidence)",
       "verdictClean": "AI check: no breaking change expected ({{c}}% confidence)",
       "verdictNone": "AI check: not available — the test build is the gate",

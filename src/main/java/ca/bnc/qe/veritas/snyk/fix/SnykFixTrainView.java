@@ -14,6 +14,9 @@ public record SnykFixTrainView(
         String jiraKey,
         String status,
         String stageDetail,
+        /** Why a FAILED train failed + the stage it failed at — surfaced so a failure isn't a bare red badge. */
+        String errorMessage,
+        String failedStage,
         boolean breaking,
         Boolean reactorPassed,
         String reactorFailingLabel,
