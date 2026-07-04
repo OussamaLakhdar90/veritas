@@ -124,7 +124,7 @@ public class JiraServerClient implements JiraClient {
             String resp = corp.postWrite(base() + "/rest/api/2/issue", authHeaders(), payload, "application/json");
             return mapper.readTree(resp == null ? "{}" : resp).path("key").asText("");
         } catch (Exception e) {
-            throw new IllegalStateException("Jira createIssue failed: " + e.getMessage(), e);
+            throw new IllegalStateException(JiraClient.explainCreateFailure(request, e.getMessage()), e);
         }
     }
 

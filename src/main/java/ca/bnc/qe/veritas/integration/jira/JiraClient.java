@@ -11,6 +11,23 @@ public interface JiraClient {
     /** Create an issue; returns the new issue key. */
     String createIssue(JiraCreateRequest request);
 
+    /**
+     * Turn Jira's cryptic create error into an actionable one. When Jira reports every field as "not on the
+     * appropriate screen", it almost always could not resolve a create screen at all — the project key or issue type
+     * is wrong (or the caller can't create there) — rather than a genuine field-config problem. Naming the project +
+     * issue type points the user straight at the fix instead of a raw 400 body.
+     */
+    static String explainCreateFailure(JiraCreateRequest request, String rawMessage) {
+        String msg = rawMessage == null ? "" : rawMessage;
+        if (msg.contains("not on the appropriate screen")) {
+            return "Jira couldn't create a '" + request.issueType() + "' in project '" + request.projectKey()
+                    + "': its fields aren't on that project's create screen. This usually means the project key or "
+                    + "issue type is wrong — verify them in Settings (the project may not exist, or your token can't "
+                    + "create '" + request.issueType() + "' issues there). Jira said: " + msg;
+        }
+        return "Jira createIssue failed: " + msg;
+    }
+
     /** Current workflow status (name + stable category key) of an issue, for defect status sync. */
     JiraStatus getStatus(String key);
 

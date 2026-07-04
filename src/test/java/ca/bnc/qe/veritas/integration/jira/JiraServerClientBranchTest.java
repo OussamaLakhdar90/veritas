@@ -230,6 +230,32 @@ class JiraServerClientBranchTest {
                 .hasMessageContaining("Jira createIssue failed");
     }
 
+    @Test
+    void explainCreateFailure_turnsNotOnScreenIntoActionableProjectHint() {
+        String raw = "400 Bad Request: {\"errors\":{\"summary\":\"Field 'summary' cannot be set. It is not on the "
+                + "appropriate screen, or unknown.\"}}";
+        String msg = JiraClient.explainCreateFailure(
+                new JiraCreateRequest("CIAM", "Task", "s", List.of(), List.of()), raw);
+        assertThat(msg).contains("project 'CIAM'").contains("'Task'").contains("Settings");
+        // a generic (non-screen) error is passed through unchanged, keeping the old wrapping
+        assertThat(JiraClient.explainCreateFailure(
+                new JiraCreateRequest("CIAM", "Task", "s", null, null), "500 Server Error"))
+                .isEqualTo("Jira createIssue failed: 500 Server Error");
+    }
+
+    @Test
+    void createIssueFieldNotOnScreen_surfacesTheActionableHint() {
+        wm.stubFor(post(urlPathEqualTo("/rest/api/2/issue")).willReturn(aResponse().withStatus(400)
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"errorMessages\":[],\"errors\":{\"summary\":\"Field 'summary' cannot be set. "
+                        + "It is not on the appropriate screen, or unknown.\"}}")));
+        assertThatThrownBy(() -> client().createIssue(new JiraCreateRequest(
+                "CIAM", "Task", "s", List.of("d"), List.of())))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("project 'CIAM'")
+                .hasMessageContaining("'Task'");
+    }
+
     // ---------------------------------------------------------------- addComment
 
     @Test

@@ -35,11 +35,18 @@ class SnykBulkFixServiceTest {
         final List<JiraCreateRequest> created = new ArrayList<>();
         final AtomicInteger seq = new AtomicInteger();
         String failForSummaryContaining;
+        List<JiraProject> projects = new ArrayList<>(List.of(new JiraProject("CIAM", "CIAM Access")));
+        RuntimeException listProjectsError;
 
         @Override public List<JiraIssue> search(String jql, List<String> fields, int maxResults) { return List.of(); }
         @Override public JiraIssue getIssue(String key) { return JiraIssue.basic(key, "", null); }
         @Override public JiraStatus getStatus(String key) { return new JiraStatus("", ""); }
-        @Override public List<JiraProject> listProjects() { return List.of(); }
+        @Override public List<JiraProject> listProjects() {
+            if (listProjectsError != null) {
+                throw listProjectsError;
+            }
+            return projects;
+        }
         @Override public String createIssue(JiraCreateRequest request) {
             if (failForSummaryContaining != null && request.summary() != null
                     && request.summary().contains(failForSummaryContaining)) {
@@ -165,5 +172,43 @@ class SnykBulkFixServiceTest {
         assertThat(bad.error()).isNotNull();
         assertThat(bad.trainIds()).isEmpty();
         verify(runner, times(1)).submit(any());   // only the surviving app's train
+    }
+
+    @Test
+    void rejectsUnknownProjectBeforeAnyJiraWriteOrTrain() {
+        CapturingJira jira = new CapturingJira();
+        jira.projects = new ArrayList<>(List.of(new JiraProject("OTHER", "Other")));   // CIAM not accessible
+        AsyncSnykFixRunner runner = mock(AsyncSnykFixRunner.class);
+        assertThatThrownBy(() -> new SnykBulkFixService(jira, runner).launch(
+                new SnykBulkFixRequest("CIAM", "CIAM-9", false, null, List.of(),
+                        List.of(app("APP7576", issue("com.a:x", "2.0.0"))))))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("CIAM");
+        assertThat(jira.created).isEmpty();       // no epic, no app ticket — validated before any write
+        verify(runner, never()).submit(any());    // nothing cloned or started
+    }
+
+    @Test
+    void resolvesProjectKeyCaseInsensitivelyToItsCanonicalForm() {
+        CapturingJira jira = new CapturingJira();   // accessible: "CIAM"
+        AsyncSnykFixRunner runner = mock(AsyncSnykFixRunner.class);
+        when(runner.submit(any())).thenReturn("train-1");
+        new SnykBulkFixService(jira, runner).launch(
+                new SnykBulkFixRequest("ciam", "CIAM-9", false, null, List.of(),   // typed lower-case
+                        List.of(app("APP7576", issue("com.a:x", "2.0.0")))));
+        // the app ticket is filed against the canonical "CIAM", not the typed "ciam"
+        assertThat(jira.created).singleElement().satisfies(r -> assertThat(r.projectKey()).isEqualTo("CIAM"));
+    }
+
+    @Test
+    void surfacesJiraConnectionErrorFromProjectValidationBeforeCloning() {
+        CapturingJira jira = new CapturingJira();
+        jira.listProjectsError = new IllegalStateException("Jira /project failed: 401 Unauthorized");
+        AsyncSnykFixRunner runner = mock(AsyncSnykFixRunner.class);
+        assertThatThrownBy(() -> new SnykBulkFixService(jira, runner).launch(
+                new SnykBulkFixRequest("CIAM", "CIAM-9", false, null, List.of(),
+                        List.of(app("APP7576", issue("com.a:x", "2.0.0"))))))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(jira.created).isEmpty();
+        verify(runner, never()).submit(any());    // connection verified up front → nothing cloned
     }
 }

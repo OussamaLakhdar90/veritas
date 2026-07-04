@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Locale;
 import ca.bnc.qe.veritas.integration.jira.JiraClient;
 import ca.bnc.qe.veritas.integration.jira.JiraCreateRequest;
+import ca.bnc.qe.veritas.integration.jira.JiraProject;
 import ca.bnc.qe.veritas.snyk.fix.SnykBulkFixRequest.AppSelection;
 import ca.bnc.qe.veritas.snyk.fix.SnykBulkFixRequest.IssueSelection;
 import ca.bnc.qe.veritas.snyk.fix.SnykBulkFixResult.AppResult;
@@ -45,8 +46,11 @@ public class SnykBulkFixService {
         // so a bad coordinate can never reach the pom editor (and never leaves a half-created epic behind).
         validateTokens(apps);
 
-        String epicKey = resolveEpic(req);
-        String project = req.project().trim();
+        // Validate the Jira project BEFORE creating any epic/ticket or cloning any repo — this is what stops the old
+        // "clone first, then fail on a bad project" behaviour and the cryptic 400. It also exercises the Jira token,
+        // so a missing token surfaces here as a clean connection error, not a half-run batch.
+        String project = resolveProjectKey(req.project().trim());
+        String epicKey = resolveEpic(req, project);
         List<String> reviewers = req.reviewers() == null ? List.of() : req.reviewers();
 
         List<AppResult> results = new ArrayList<>();
@@ -78,14 +82,28 @@ public class SnykBulkFixService {
         return new SnykBulkFixResult(epicKey, results);
     }
 
-    /** Use the provided epic, or create one in the project; refuse to proceed without one (epic is required). */
-    private String resolveEpic(SnykBulkFixRequest req) {
+    /**
+     * Validate the typed project against the accessible Jira projects and resolve it to its canonical key (so a
+     * lowercase or wrong-case entry that maps to a real project still works, and an unknown one fails clearly). A
+     * missing/blank Jira token makes {@code listProjects} throw a connection error, surfaced before anything is created.
+     */
+    private String resolveProjectKey(String typed) {
+        return jira.listProjects().stream()
+                .filter(p -> typed.equalsIgnoreCase(p.key()))
+                .map(JiraProject::key)
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Jira project '" + typed + "' wasn't found among your "
+                        + "accessible projects — check the project key in Settings (and that your Jira token is set)."));
+    }
+
+    /** Use the provided epic, or create one in the (already-validated) project; refuse to proceed without one. */
+    private String resolveEpic(SnykBulkFixRequest req, String project) {
         if (!isBlank(req.epicKey())) {
             return req.epicKey().trim();
         }
         if (req.createEpic()) {
             String summary = isBlank(req.epicSummary()) ? "Dependency security remediation" : req.epicSummary().trim();
-            return jira.createIssue(new JiraCreateRequest(req.project().trim(), "Epic", summary,
+            return jira.createIssue(new JiraCreateRequest(project, "Epic", summary,
                     List.of("Batch of Snyk dependency-security fixes raised by Veritas."),
                     List.of("veritas", "dependency-security")));
         }
