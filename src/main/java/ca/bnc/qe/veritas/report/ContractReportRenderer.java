@@ -348,7 +348,7 @@ public class ContractReportRenderer {
                         .append("%\"></span></div>");
             }
             for (Finding f : attention) {
-                sb.append(findingCard(scan, f, fr, interactive));
+                sb.append(findingCard(scan, f, fr, interactive, true));
             }
             sb.append("</section>");
         }
@@ -421,12 +421,12 @@ public class ContractReportRenderer {
         StringBuilder sb = new StringBuilder("<h3 class=\"subhead\">").append(title)
                 .append(" <span class=\"count\">").append(items.size()).append("</span></h3>");
         for (Finding f : items) {
-            sb.append(findingCard(scan, f, fr, false));
+            sb.append(findingCard(scan, f, fr, false, false));
         }
         return sb.toString();
     }
 
-    private String findingCard(Scan scan, Finding f, Map<String, String> fr, boolean reviewable) {
+    private String findingCard(Scan scan, Finding f, Map<String, String> fr, boolean reviewable, boolean manualReview) {
         String color = SEVERITY_COLOR.getOrDefault(f.getSeverity() != null ? f.getSeverity().name() : "", "#6B7280");
         // Seed the card's accept/reject state from the persisted disposition so the live tracker is correct on load.
         String stateClass = "";
@@ -499,9 +499,13 @@ public class ContractReportRenderer {
         // the snippet panel's header; for the rest (e.g. a schema-field diff) show it as a standalone trace line so
         // the reviewer can always jump straight to the exact field in the code.
         String codeLoc = loc(f);
+        // §6 manual-review items MUST always show a "Basis" (evidence pointer) — the label the reviewer trusts. For a
+        // finding with a code location the standalone code-trace row IS that basis (relabelled below); for the rest we
+        // synthesize one after the panels so no manual-review card is ever left bare. Counted findings keep "Code".
         if (!isBlank(codeLoc) && isBlank(snippet)) {
             sb.append("<div class=\"code-trace\"><span class=\"code-trace-label\">")
-                    .append(bi("Code", "Code")).append("</span> ").append(codeEvidenceLabel(scan, f)).append("</div>");
+                    .append(manualReview ? bi("Basis", "Fondement") : bi("Code", "Code")).append("</span> ")
+                    .append(codeEvidenceLabel(scan, f)).append("</div>");
         }
         if (!isBlank(snippet) || !isBlank(currentYaml) || !isBlank(proposedFix)) {
             sb.append("<div class=\"dual-view\">");
@@ -519,7 +523,15 @@ public class ContractReportRenderer {
             }
             sb.append("</div>");
         }
-        if (!isBlank(citation)) {
+        // Guarantee a Basis on every manual-review card. A code location already rendered one above; otherwise fall
+        // back — closed-world, never fabricated — to a spec pointer (specLocus / current YAML fragment) or, failing
+        // that, the governing standard citation. A genuinely spec-wide finding legitimately shows a spec pointer +
+        // citation, not a code line.
+        boolean hasCodeBasis = !isBlank(codeLoc);   // a real code location was shown as the Basis above
+        if (manualReview && !hasCodeBasis) {
+            sb.append(manualReviewBasis(f, citation));
+        }
+        if (!isBlank(citation) && !manualReview) {
             sb.append("<div class=\"citation\">").append(bi("Reference", "Référence")).append(": ")
                     .append(esc(citation)).append("</div>");
         }
@@ -536,6 +548,49 @@ public class ContractReportRenderer {
                     .append("</span></span></div>");
         }
         return sb.append("</div>").toString();
+    }
+
+    /**
+     * The "Basis" row for a manual-review card that has no code line: prefer a spec pointer (the schema/field locus,
+     * or a compact reference to the current YAML fragment), else the governing-standard citation, else a plain
+     * "flagged by the assistant" note. Never fabricates a code location — a spec-wide finding legitimately shows a
+     * spec pointer + citation. Compact and non-technical; reuses {@link #bi(String, String)}/{@link #esc(String)}.
+     */
+    private String manualReviewBasis(Finding f, String citation) {
+        String specPointer = specPointer(f);
+        if (!isBlank(specPointer)) {
+            StringBuilder b = new StringBuilder("<div class=\"code-trace\"><span class=\"code-trace-label\">")
+                    .append(bi("Basis", "Fondement")).append("</span> <span class=\"spec-locus\">")
+                    .append(esc(specPointer)).append("</span>");
+            if (!isBlank(citation)) {
+                b.append(" · ").append(esc(citation));   // spec-wide items pair the pointer with the standard
+            }
+            return b.append("</div>").toString();
+        }
+        if (!isBlank(citation)) {
+            return "<div class=\"code-trace\"><span class=\"code-trace-label\">" + bi("Basis", "Fondement")
+                    + "</span> " + esc(citation) + "</div>";
+        }
+        // No code line, no spec pointer, no citation — still never bare: name the source of the observation.
+        return "<div class=\"code-trace\"><span class=\"code-trace-label\">" + bi("Basis", "Fondement")
+                + "</span> " + bi("Design/test-coverage observation raised by the assistant for manual review.",
+                "Observation de conception ou de couverture de tests soulevée par l'assistant à vérifier.") + "</div>";
+    }
+
+    /**
+     * A compact spec-side pointer for a manual-review basis: the schema/field locus when known, otherwise the first
+     * line of the current YAML fragment (a terse reference to the spot in the spec). Null when neither is present.
+     */
+    private String specPointer(Finding f) {
+        if (!isBlank(f.getSpecLocus())) {
+            return f.getSpecLocus();
+        }
+        String yaml = f.getCurrentYamlFragment();
+        if (isBlank(yaml)) {
+            return null;
+        }
+        String firstLine = yaml.strip().lines().findFirst().orElse("").strip();
+        return firstLine.isBlank() ? null : firstLine;
     }
 
     private String panel(String cls, String label, String sub, String body) {
@@ -1081,6 +1136,7 @@ public class ContractReportRenderer {
                 + ".code-trace{margin-top:.55rem;font-size:.84rem;color:#475569;background:#f8fafc;border:1px solid #e5e9f0;"
                 + "border-radius:6px;padding:.4rem .6rem}"
                 + ".code-trace-label{font-weight:600;color:#334155;margin-right:.4rem}"
+                + ".spec-locus{font-family:ui-monospace,Menlo,Consolas,monospace;color:#334155}"
                 + ".affects{margin-top:.4rem;font-size:.82rem;color:#475569}"
                 + ".code-link{font-family:ui-monospace,Menlo,Consolas,monospace}"
                 + ".business-impact{background:#fff8f0;border-left:3px solid #fd7e14;border-radius:0 6px 6px 0;padding:.5rem .75rem;margin-top:.6rem;font-size:.88rem}"

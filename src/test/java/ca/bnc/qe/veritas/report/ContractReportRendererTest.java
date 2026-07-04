@@ -218,6 +218,76 @@ class ContractReportRendererTest {
                 .contains("id=\"rt-acc\"").contains("id=\"rt-rej\"").contains("id=\"rt-pen\"");
     }
 
+    // ---- evidence on every manual-review card: a "Basis" row is always present -----------------------------------
+
+    @Test
+    void manualReviewCardWithCodeEvidenceShowsABasisCodeLink() {
+        ConnectionsProperties cp = new ConnectionsProperties();
+        cp.getBitbucket().setEdition("SERVER_DC");
+        cp.getBitbucket().setBaseUrl("https://git.bnc.ca");
+        ContractReportRenderer renderer = new ContractReportRenderer(new BitbucketLinkBuilder(cp));
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        scan.setAppId("APP7571");
+        scan.setRepoSlug("ciam-policies");
+        scan.setGitRef("develop");
+        // A manual-review (L6) finding bound to a code field's SourceRef → the Basis is the clickable code trace.
+        Finding f = Finding.builder()
+                .findingId("mr1").type(FindingType.TEST_BASIS_GAP).layer(Layer.L6).severity(Severity.MAJOR)
+                .confidence(Confidence.MEDIUM).origin("LLM").service("ciam-policies").specSource("code-vs-spec")
+                .summary("Dto.code lacks negative-case coverage").specLocus("Dto#code")
+                .codeEvidence(SourceRef.code("src/main/java/ca/bnc/Dto.java", 42, 42, null))
+                .build();
+
+        String html = renderer.renderHtml(scan, List.of(f));
+        // The Basis label is present and it is the clickable code link to the exact field.
+        assertThat(html).contains("Basis").contains("Fondement")
+                .contains("class=\"code-link\"")
+                .contains("/browse/src/main/java/ca/bnc/Dto.java")
+                .contains(">Dto.java:42</a>");
+    }
+
+    @Test
+    void manualReviewCardWithoutCodeEvidenceShowsASpecPointerBasis() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        // No codeEvidence, but a specLocus → the Basis is the spec pointer (never a fabricated code line).
+        Finding withLocus = Finding.builder()
+                .findingId("mr2").type(FindingType.DESIGN_QUALITY).layer(Layer.L5).severity(Severity.MINOR)
+                .confidence(Confidence.MEDIUM).origin("LLM").service("ciam-policies").specSource("code-vs-spec")
+                .summary("The policies schema is under-specified").specLocus("PolicySchema")
+                .build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(withLocus));
+        assertThat(html).contains("Basis").contains("PolicySchema").contains("spec-locus");
+        assertThat(html).doesNotContain("class=\"code-link\"");   // no fabricated code line
+
+        // No codeEvidence and no specLocus, but a current YAML fragment → its first line is the spec pointer.
+        Finding withYaml = withLocus.toBuilder().findingId("mr3").specLocus(null)
+                .currentYamlFragment("  /policies:\n    get:\n      responses: {}").build();
+        String html2 = new ContractReportRenderer().renderHtml(scan, List.of(withYaml));
+        assertThat(html2).contains("Basis").contains("/policies:");
+    }
+
+    @Test
+    void manualReviewCardWithOnlyACitationShowsTheCitationAsBasis_neverBare() {
+        Scan scan = new Scan();
+        scan.setServiceName("ciam-policies");
+        // No code line, no spec pointer — only a governing-standard citation → it becomes the Basis.
+        Finding onlyCitation = Finding.builder()
+                .findingId("mr4").type(FindingType.DESIGN_QUALITY).layer(Layer.L5).severity(Severity.MINOR)
+                .confidence(Confidence.MEDIUM).origin("LLM").service("ciam-policies").specSource("code-vs-spec")
+                .summary("Spec offers no examples anywhere").citation("OpenAPI 3.0 — examples")
+                .build();
+        String html = new ContractReportRenderer().renderHtml(scan, List.of(onlyCitation));
+        // The Basis carries the citation; the card is not bare.
+        assertThat(html).contains("Basis").contains("OpenAPI 3.0 — examples");
+
+        // Even with NOTHING to point at, the manual-review card still shows a Basis (never bare).
+        Finding bare = onlyCitation.toBuilder().findingId("mr5").citation(null).build();
+        String htmlBare = new ContractReportRenderer().renderHtml(scan, List.of(bare));
+        assertThat(htmlBare).contains("Basis").contains("raised by the assistant");
+    }
+
     @Test
     void additiveOnlyDriftBelow90RendersProceedWithDocumentationFixes() {
         Scan scan = new Scan();
