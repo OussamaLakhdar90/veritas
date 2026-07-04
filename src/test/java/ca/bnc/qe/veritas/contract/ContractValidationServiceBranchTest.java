@@ -659,8 +659,9 @@ class ContractValidationServiceBranchTest {
         when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(new ArrayList<>(List.of(deterministic("gap"))));
         when(openApi.extract(eq("repo-spec"), anyString()))
                 .thenReturn(new SpecParse(specModel("repo-spec"), List.of(), true));
-        // severity "WAT" is invalid → INFO (never MAJOR); and "GET /y" is not a parsed endpoint (code has GET /x) →
-        // capped to INFO as an unverifiable endpoint-scoped finding. Both guards converge: a junk finding can't ship hot.
+        // severity "WAT" is invalid → INFO (never MAJOR); and "GET /y" is an HTTP-shaped endpoint the code never
+        // parsed (code has GET /x) → capped to INFO AND flagged as an unverified endpoint. Both guards converge: a
+        // junk per-endpoint finding can't ship hot, and the fabricated HTTP locus is called out in the report.
         String reply = "{\"correctedYaml\":\"openapi: 3.0.3\",\"findings\":[],"
                 + "\"designFindings\":[{\"layer\":\"L5\",\"severity\":\"WAT\",\"endpoint\":\"GET /y\",\"summary\":\"odd one\"}]}";
         armLlm(reply);
@@ -674,7 +675,38 @@ class ContractValidationServiceBranchTest {
         Finding design = findCap.getValue().stream()
                 .filter(f -> f.getType() == FindingType.DESIGN_QUALITY).findFirst().orElseThrow();
         assertThat(design.getSeverity()).isEqualTo(Severity.INFO);
+        // An HTTP-shaped phantom endpoint ("GET /y") still keeps the unverified-endpoint fence in its explanation.
         assertThat(design.getExplanation()).contains("unverified endpoint");
+    }
+
+    @Test
+    void designFindingWithDescriptivePseudoLocus_keepsCleanLabel_noUnverifiedFence() {
+        when(diffEngine.l1FromMessages(anyString(), any())).thenReturn(List.of());
+        when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(new ArrayList<>(List.of(deterministic("gap"))));
+        when(openApi.extract(eq("repo-spec"), anyString()))
+                .thenReturn(new SpecParse(specModel("repo-spec"), List.of(), true));
+        // The "endpoint" here is a descriptive pseudo-locus, not an HTTP endpoint. It is not a parsed endpoint (so it
+        // is still capped to INFO as unverifiable) but it must NOT leak the "unverified endpoint" guard into the
+        // customer report — a legitimate design/test-coverage label keeps its clean descriptive text and explanation.
+        String reply = "{\"correctedYaml\":\"openapi: 3.0.3\",\"findings\":[],"
+                + "\"designFindings\":[{\"layer\":\"L5\",\"severity\":\"MINOR\","
+                + "\"endpoint\":\"policies schema (both endpoints)\",\"summary\":\"coverage gap\","
+                + "\"explanation\":\"the schema lacks negative-case coverage\"}]}";
+        armLlm(reply);
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<List<Finding>> findCap =
+                org.mockito.ArgumentCaptor.forClass((Class) List.class);
+        svc.validate(req(true, new SpecInput("repo-spec", "spec-yaml")));
+        verify(scanPersistence).complete(any(), findCap.capture(), any());
+
+        Finding design = findCap.getValue().stream()
+                .filter(f -> f.getType() == FindingType.DESIGN_QUALITY).findFirst().orElseThrow();
+        // Still capped to INFO (unverifiable endpoint-scoped finding), but no bracketed guard leaked into the report.
+        assertThat(design.getSeverity()).isEqualTo(Severity.INFO);
+        assertThat(design.getExplanation()).doesNotContain("unverified endpoint");
+        assertThat(design.getExplanation()).isEqualTo("the schema lacks negative-case coverage");
+        assertThat(design.getEndpoint()).isEqualTo("policies schema (both endpoints)");
     }
 
     @Test
