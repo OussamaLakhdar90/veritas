@@ -477,6 +477,8 @@ export interface SnykAlert {
   id: string; watchId: string; orgSlug: string; repoSlug: string; severity: string; message: string;
   seen: boolean; createdAt?: string;
 }
+/** Background-refresh state: `running` while the async poll of watched repos is in flight (the button reflects it). */
+export interface SnykRefreshStatus { running: boolean; lastRefreshedAt?: string }
 /** Managerial roll-up — what's open (found) vs what Veritas has done about it (fixed). */
 export interface SnykSummary {
   watchedApps: number; projects: number;
@@ -695,8 +697,11 @@ export const api = {
     send<SnykWatchView>('POST', '/snyk/watches/by-app', body),
   removeSnykWatch: (id: string) => send<void>('DELETE', `/snyk/watches/${encodeURIComponent(id)}`),
   snykIssues: (watchId: string) => get<SnykIssueView[]>(`/snyk/watches/${encodeURIComponent(watchId)}/issues`),
+  // Kicks off the poll on the backend and returns 202 immediately (the slow Snyk REST calls run in the background);
+  // poll snykRefreshStatus to know when it completes.
   snykRefresh: () => send<{ polled: number }>('POST', '/snyk/refresh'),
   refreshSnykWatch: (id: string) => send<void>('POST', `/snyk/watches/${encodeURIComponent(id)}/refresh`),
+  snykRefreshStatus: () => get<SnykRefreshStatus>('/snyk/refresh/status'),
   snykAlerts: (unseenOnly = false) => get<SnykAlert[]>(`/snyk/alerts${unseenOnly ? '?unseenOnly=true' : ''}`),
   markSnykAlertSeen: (id: string) => send<void>('POST', `/snyk/alerts/${encodeURIComponent(id)}/seen`),
 

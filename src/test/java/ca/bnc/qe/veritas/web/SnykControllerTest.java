@@ -8,8 +8,10 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Instant;
 import java.util.List;
 import ca.bnc.qe.veritas.integration.snyk.SnykOrg;
+import ca.bnc.qe.veritas.snyk.AsyncSnykRefreshRunner;
 import ca.bnc.qe.veritas.snyk.SnykIssueView;
 import ca.bnc.qe.veritas.snyk.SnykService;
 import ca.bnc.qe.veritas.snyk.SnykSummaryService;
@@ -107,6 +109,25 @@ class SnykControllerTest {
         mvc.perform(post("/api/v1/snyk/refresh"))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.polled").value(3));
+        // The controller delegates to the service, which queues the poll on the background runner and returns at
+        // once — the 30–60s of Snyk REST calls never run on this request thread.
         verify(snyk).refreshAll();
+    }
+
+    @Test
+    void refreshOneReturns202() throws Exception {
+        mvc.perform(post("/api/v1/snyk/watches/w1/refresh"))
+                .andExpect(status().isAccepted());
+        verify(snyk).refresh("w1");
+    }
+
+    @Test
+    void refreshStatusReportsRunningAndLastRefreshedAt() throws Exception {
+        Instant when = Instant.parse("2026-07-04T12:00:00Z");
+        when(snyk.refreshStatus()).thenReturn(new AsyncSnykRefreshRunner.RefreshStatus(true, when));
+        mvc.perform(get("/api/v1/snyk/refresh/status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.running").value(true))
+                .andExpect(jsonPath("$.lastRefreshedAt").value("2026-07-04T12:00:00Z"));
     }
 }
