@@ -39,6 +39,22 @@ public interface JiraClient {
         return CreateMeta.empty();
     }
 
+    /** Projects the caller can file into (key + display name), for a picker. Empty if unsupported. */
+    default List<JiraProject> listProjects() {
+        return List.of();
+    }
+
+    /**
+     * Open epics in a project (most-recently-updated first), for the epic picker. Edition-agnostic — an epic is
+     * {@code issuetype = Epic} on both Cloud and Server/DC (only linking a CHILD to an epic differs by edition).
+     * The project key is validated ({@link JiraKeys#projectKey}) before it reaches the JQL, so it can't inject.
+     */
+    default List<JiraIssue> listEpics(String projectKey, int max) {
+        String jql = "project = \"" + JiraKeys.projectKey(projectKey) + "\""
+                + " AND issuetype = Epic AND statusCategory != Done ORDER BY updated DESC";
+        return search(jql, List.of("summary", "status"), max);
+    }
+
     /** Project versions (fixVersions) — to resolve/validate a release link. Empty if unsupported/none. */
     default List<JiraVersion> listVersions(String projectKey) {
         return List.of();

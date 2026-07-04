@@ -194,6 +194,33 @@ public class JiraCloudClient implements JiraClient {
     }
 
     @Override
+    public List<JiraProject> listProjects() {
+        try {
+            List<JiraProject> out = new ArrayList<>();
+            int startAt = 0;
+            while (out.size() < 500) {   // safety cap so a very large site can't spin forever
+                final int from = startAt;
+                String resp = retries.call(() -> http.get()
+                        .uri(URI.create(base() + "/rest/api/3/project/search?maxResults=50&startAt=" + from))
+                        .header("Authorization", authHeader())
+                        .retrieve().body(String.class));
+                JsonNode root = mapper.readTree(resp == null ? "{}" : resp);
+                JsonNode values = root.path("values");
+                for (JsonNode p : values) {
+                    out.add(new JiraProject(p.path("key").asText(""), p.path("name").asText("")));
+                }
+                if (values.isEmpty() || root.path("isLast").asBoolean(true)) {
+                    break;
+                }
+                startAt += values.size();
+            }
+            return out;
+        } catch (Exception e) {
+            throw new IllegalStateException("Jira listProjects failed: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
     public List<JiraVersion> listVersions(String projectKey) {
         try {
             String resp = retries.call(() -> http.get()
@@ -221,6 +248,11 @@ public class JiraCloudClient implements JiraClient {
         if (request.labels() != null && !request.labels().isEmpty()) {
             ArrayNode labels = fields.putArray("labels");
             request.labels().forEach(labels::add);
+        }
+        if (request.parentEpicKey() != null && !request.parentEpicKey().isBlank()) {
+            // Modern Jira Cloud files an issue under its epic via the `parent` field (both team- and company-managed).
+            // The key is validated so it can't rewrite the payload. Null (default) → byte-for-byte the old payload.
+            fields.set("parent", mapper.createObjectNode().put("key", JiraKeys.issueKey(request.parentEpicKey())));
         }
         ObjectNode payload = mapper.createObjectNode();
         payload.set("fields", fields);

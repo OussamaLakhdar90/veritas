@@ -16,6 +16,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -27,6 +28,7 @@ import org.springframework.web.client.RestClient;
  * {@code veritas.connections.jira.edition=SERVER_DC} (the default); the Cloud v3/ADF client is used for CLOUD.
  */
 @Component
+@Slf4j
 @ConditionalOnProperty(name = "veritas.connections.jira.edition", havingValue = "SERVER_DC", matchIfMissing = true)
 public class JiraServerClient implements JiraClient {
 
@@ -106,7 +108,19 @@ public class JiraServerClient implements JiraClient {
     @Override
     public String createIssue(JiraCreateRequest request) {
         try {
-            String payload = buildCreatePayload(request);
+            // Link to an epic only when asked. On Server/DC the link is the classic "Epic Link" custom field, whose
+            // key varies per instance — discover it via create-meta. If it can't be found, still create the issue (a
+            // tracking ticket with no epic beats no ticket) and warn, rather than failing the whole fix.
+            String epicField = null;
+            if (request.parentEpicKey() != null && !request.parentEpicKey().isBlank()) {
+                epicField = createMeta(request.projectKey(), request.issueType()).epicLinkFieldKey();
+                if (epicField == null) {
+                    log.warn("Jira create: no Epic Link field on the {}/{} create screen — creating '{}' without "
+                            + "linking it to epic {}.", request.projectKey(), request.issueType(),
+                            request.summary(), request.parentEpicKey());
+                }
+            }
+            String payload = buildCreatePayload(request, epicField);
             String resp = corp.postWrite(base() + "/rest/api/2/issue", authHeaders(), payload, "application/json");
             return mapper.readTree(resp == null ? "{}" : resp).path("key").asText("");
         } catch (Exception e) {
@@ -202,6 +216,21 @@ public class JiraServerClient implements JiraClient {
     }
 
     @Override
+    public List<JiraProject> listProjects() {
+        try {
+            String resp = corp.get(base() + "/rest/api/2/project", authHeaders());
+            JsonNode root = mapper.readTree(resp == null ? "[]" : resp);
+            List<JiraProject> out = new ArrayList<>();
+            for (JsonNode p : root) {
+                out.add(new JiraProject(p.path("key").asText(""), p.path("name").asText("")));
+            }
+            return out;
+        } catch (Exception e) {
+            throw new IllegalStateException("Jira listProjects failed: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
     public CreateMeta createMeta(String projectKey, String issueType) {
         try {
             String uri = base() + "/rest/api/2/issue/createmeta?projectKeys="
@@ -235,6 +264,15 @@ public class JiraServerClient implements JiraClient {
 
     /** v2 description is wiki markup (a plain string), not ADF — paragraphs are joined with blank lines. */
     public String buildCreatePayload(JiraCreateRequest request) throws Exception {
+        return buildCreatePayload(request, null);
+    }
+
+    /**
+     * @param epicLinkFieldKey the discovered "Epic Link" custom-field key (e.g. {@code customfield_10001}); when
+     *        non-null AND the request carries a {@code parentEpicKey}, the epic KEY is written to that field to file
+     *        the new issue under the epic. Null (the default) → no epic link, byte-for-byte the previous payload.
+     */
+    public String buildCreatePayload(JiraCreateRequest request, String epicLinkFieldKey) throws Exception {
         ObjectNode fields = mapper.createObjectNode();
         fields.set("project", mapper.createObjectNode().put("key", request.projectKey()));
         fields.set("issuetype", mapper.createObjectNode().put("name", request.issueType()));
@@ -244,6 +282,11 @@ public class JiraServerClient implements JiraClient {
         if (request.labels() != null && !request.labels().isEmpty()) {
             ArrayNode labels = fields.putArray("labels");
             request.labels().forEach(labels::add);
+        }
+        if (epicLinkFieldKey != null && !epicLinkFieldKey.isBlank()
+                && request.parentEpicKey() != null && !request.parentEpicKey().isBlank()) {
+            // Classic "Epic Link" takes the epic's KEY as a string (validated so it can't inject a foreign field).
+            fields.put(epicLinkFieldKey, JiraKeys.issueKey(request.parentEpicKey()));
         }
         ObjectNode payload = mapper.createObjectNode();
         payload.set("fields", fields);

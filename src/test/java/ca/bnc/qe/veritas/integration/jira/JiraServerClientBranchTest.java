@@ -3,6 +3,7 @@ package ca.bnc.qe.veritas.integration.jira;
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalToJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
+import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo;
@@ -446,6 +447,81 @@ class JiraServerClientBranchTest {
         JsonNode n3 = mapper.readTree(withLabels);
         assertThat(n3.path("fields").path("labels")).hasSize(2);
         assertThat(n3.path("fields").path("labels").get(0).asText()).isEqualTo("a");
+    }
+
+    // ---------------------------------------------------------------- epic link (Server/DC "Epic Link" field)
+
+    @Test
+    void buildCreatePayloadSetsEpicLinkWhenFieldKeyAndParentPresent() throws Exception {
+        String json = client().buildCreatePayload(
+                new JiraCreateRequest("CIAM", "Task", "s", List.of("p"), List.of("l"), "CIAM-100"),
+                "customfield_10011");
+        JsonNode fields = mapper.readTree(json).path("fields");
+        assertThat(fields.path("customfield_10011").asText()).isEqualTo("CIAM-100");
+    }
+
+    @Test
+    void buildCreatePayloadOmitsEpicLinkWhenParentOrFieldKeyAbsent_regression() throws Exception {
+        JiraServerClient c = client();
+        // The no-epic payload (5-arg request, the common case) is the byte-for-byte baseline every guard compares to.
+        String baseline = c.buildCreatePayload(new JiraCreateRequest("CIAM", "Task", "s", List.of("p"), List.of("l")));
+        // A field key but no parent → identical to baseline (nothing to link).
+        assertThat(c.buildCreatePayload(
+                new JiraCreateRequest("CIAM", "Task", "s", List.of("p"), List.of("l")), "customfield_10011"))
+                .isEqualTo(baseline);
+        // A parent but no discovered field key → identical to baseline (can't link, don't fabricate a field).
+        assertThat(c.buildCreatePayload(
+                new JiraCreateRequest("CIAM", "Task", "s", List.of("p"), List.of("l"), "CIAM-100"), null))
+                .isEqualTo(baseline);
+    }
+
+    @Test
+    void createIssueUnderEpicDiscoversEpicLinkFieldAndSetsIt() {
+        wm.stubFor(get(urlPathEqualTo("/rest/api/2/issue/createmeta")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"projects\":[{\"issuetypes\":[{\"fields\":{"
+                        + "\"customfield_10011\":{\"name\":\"Epic Link\"}}}]}]}")));
+        wm.stubFor(post(urlPathEqualTo("/rest/api/2/issue")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json").withBody("{\"key\":\"CIAM-201\"}")));
+        String key = client().createIssue(new JiraCreateRequest(
+                "CIAM", "Task", "Bump jackson", List.of("body"), List.of("snyk"), "CIAM-100"));
+        assertThat(key).isEqualTo("CIAM-201");
+        wm.verify(1, postRequestedFor(urlPathEqualTo("/rest/api/2/issue"))
+                .withRequestBody(matchingJsonPath("$.fields.customfield_10011", WireMock.equalTo("CIAM-100"))));
+    }
+
+    @Test
+    void createIssueUnderEpicStillCreatesWhenNoEpicLinkFieldDiscovered() {
+        wm.stubFor(get(urlPathEqualTo("/rest/api/2/issue/createmeta")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"projects\":[{\"issuetypes\":[{\"fields\":{\"summary\":{\"name\":\"Summary\"}}}]}]}")));
+        wm.stubFor(post(urlPathEqualTo("/rest/api/2/issue")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json").withBody("{\"key\":\"CIAM-202\"}")));
+        // Soft-fail: no Epic Link field on the create screen → the ticket is still created (no epic field on it;
+        // the byte-identical guard above proves the field is omitted when the key can't be discovered).
+        String key = client().createIssue(new JiraCreateRequest(
+                "CIAM", "Task", "s", List.of("b"), List.of(), "CIAM-100"));
+        assertThat(key).isEqualTo("CIAM-202");
+    }
+
+    // ---------------------------------------------------------------- listProjects
+
+    @Test
+    void listProjectsReturnsKeyAndNamePairs() {
+        wm.stubFor(get(urlPathEqualTo("/rest/api/2/project")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("[{\"key\":\"CIAM\",\"name\":\"CIAM Access\"},{\"key\":\"APP\",\"name\":\"App\"}]")));
+        List<JiraProject> projects = client().listProjects();
+        assertThat(projects).extracting(JiraProject::key).containsExactly("CIAM", "APP");
+        assertThat(projects).extracting(JiraProject::name).containsExactly("CIAM Access", "App");
+    }
+
+    @Test
+    void listProjectsWrapsErrorAsIllegalState() {
+        wm.stubFor(get(urlPathEqualTo("/rest/api/2/project")).willReturn(aResponse().withStatus(500)));
+        assertThatThrownBy(() -> client().listProjects())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Jira listProjects failed");
     }
 
     /** Builds a Jira search response page with {@code count} sequential issue keys starting at {@code start}. */
