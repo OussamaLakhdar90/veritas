@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { server } from './msw/server'
@@ -63,9 +63,16 @@ function renderDashboard() {
       { path: '/repos', element: <div>repos-page</div> },
       { path: '/settings', element: <div>settings-page</div> },
       { path: '/findings/:scanId', element: <div>findings-page</div> },
+      { path: '/snyk', element: <div>snyk-page</div> },
     ],
   })
 }
+
+/** One unseen Snyk alert row (the shape ActivityBell + the Overview banner read). */
+const alert = (over: Record<string, unknown> = {}) => ({
+  id: 'al-1', watchId: 'w1', orgSlug: 'app7576', repoSlug: 'application-tests',
+  severity: 'high', message: 'New high vulnerability', seen: false, ...over,
+})
 
 /**
  * Find a KPI tile Card by its label and return its container for scoped value assertions.
@@ -283,6 +290,75 @@ describe('Dashboard', () => {
     // costQ.data is undefined → spend = sum of scan costs = 1.25; sub falls back to "this environment".
     expect(within(await tileAsync('Est. analysis cost')).getByText('$1.25')).toBeInTheDocument()
     expect(within(tile('Est. analysis cost')).getByText('this environment')).toBeInTheDocument()
+  })
+
+  it('renders the Overview security banner (critical styling + count + link to /snyk) when unseen alerts exist', async () => {
+    stub({ scans: [scan()] })
+    server.use(http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([
+      alert({ id: 'c1', severity: 'critical', message: 'New critical vulnerability' }),
+      alert({ id: 'h1', severity: 'high' }),
+    ])))
+    const user = userEvent.setup()
+    renderDashboard()
+
+    // Pluralized count (2 unseen), rendered as a role=alert banner with the Critical (danger) accent.
+    const banner = await screen.findByText('2 unseen vulnerability alerts')
+    const row = banner.closest('[role="alert"]') as HTMLElement
+    expect(row).toBeInTheDocument()
+    expect(row.className).toMatch(/border-l-danger/)
+    expect(row.className).toMatch(/animate-pulse/)
+
+    // The CTA jumps to the Snyk page.
+    await user.click(within(row).getByRole('link', { name: /Review in Snyk/ }))
+    expect(await screen.findByText('snyk-page')).toBeInTheDocument()
+  })
+
+  it('uses the calm (amber, no pulse) banner when the unseen alerts are non-critical', async () => {
+    stub({ scans: [scan()] })
+    server.use(http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([alert({ severity: 'high' })])))
+    renderDashboard()
+
+    const banner = await screen.findByText('1 unseen vulnerability alert')
+    const row = banner.closest('[role="alert"]') as HTMLElement
+    expect(row.className).toMatch(/border-l-warning/)
+    expect(row.className).not.toMatch(/animate-pulse/)
+  })
+
+  it('renders NO security banner when there are zero unseen alerts', async () => {
+    stub({ scans: [scan()] })
+    server.use(http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([])))
+    renderDashboard()
+
+    await screen.findByRole('table')
+    expect(screen.queryByText(/unseen vulnerability alert/)).not.toBeInTheDocument()
+  })
+
+  it('dismissing the banner acks every unseen alert (marks them seen) and clears the banner', async () => {
+    const seen: string[] = []
+    let alertsRead = 0
+    stub({ scans: [scan()] })
+    server.use(
+      // First read returns two unseen alerts; after they're acked, the refetch returns none.
+      http.get('*/api/v1/snyk/alerts', () => {
+        alertsRead += 1
+        return HttpResponse.json(seen.length > 0 ? [] : [alert({ id: 'a1' }), alert({ id: 'a2' })])
+      }),
+      http.post('*/api/v1/snyk/alerts/:id/seen', ({ params }) => {
+        seen.push(params.id as string)
+        return new HttpResponse(null, { status: 200 })
+      }),
+    )
+    const user = userEvent.setup()
+    renderDashboard()
+
+    const banner = await screen.findByText('2 unseen vulnerability alerts')
+    const row = banner.closest('[role="alert"]') as HTMLElement
+    await user.click(within(row).getByRole('button', { name: /Dismiss/ }))
+
+    // Both alerts were marked seen, and the invalidated refetch drops the banner.
+    await waitFor(() => expect(seen.sort()).toEqual(['a1', 'a2']))
+    await waitFor(() => expect(screen.queryByText(/unseen vulnerability alert/)).not.toBeInTheDocument())
+    expect(alertsRead).toBeGreaterThan(1)
   })
 })
 

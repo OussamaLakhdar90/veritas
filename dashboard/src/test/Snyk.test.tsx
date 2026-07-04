@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { server } from './msw/server'
@@ -87,6 +87,43 @@ describe('Snyk page', () => {
 
     expect(await screen.findByText('Now watching 1 application.')).toBeInTheDocument()
     expect(posted).toMatchObject({ orgId: 'o1', orgSlug: 'app7576' })
+  })
+
+  it('refetches the summary/impact card after "Watch selected" (broad invalidation, not just the watch list)', async () => {
+    let summaryCalls = 0
+    server.use(
+      http.get('*/api/v1/snyk/orgs', () => HttpResponse.json([
+        { id: 'o1', slug: 'app7576', name: 'CIAM Profile' },
+      ])),
+      http.get('*/api/v1/snyk/watches', () => HttpResponse.json([])),
+      http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([])),
+      // The impact card reads the summary; watching one app must invalidate it so it re-fetches (a refetch = a
+      // second GET). Start with one watched app so the card renders and its query is live from the first load.
+      http.get('*/api/v1/snyk/summary', () => {
+        summaryCalls += 1
+        return HttpResponse.json({
+          watchedApps: 1, projects: 1, critical: 0, high: 0, medium: 0, low: 0, fixable: 0, unseenAlerts: 0,
+          fixesStarted: 0, fixesInProgress: 0, fixesMerged: 0, fixesBreaking: 0, prsOpened: 0, llmChecks: 0, llmCostUsd: 0,
+        })
+      }),
+      http.post('*/api/v1/snyk/watches/by-app', () =>
+        HttpResponse.json({ id: 'w1', orgId: 'o1', orgSlug: 'app7576', orgName: 'CIAM Profile', targetId: 't1',
+          repoSlug: 'application-tests', enabled: true, critical: 0, high: 0, medium: 0, low: 0, fixable: 0,
+          projectCount: 0 }, { status: 201 })),
+    )
+    const user = userEvent.setup()
+    renderSnyk()
+
+    // The impact card's first summary read settles.
+    expect(await screen.findByText('Dependency security')).toBeInTheDocument()
+    const before = summaryCalls
+
+    await user.click((await screen.findAllByRole('checkbox'))[0])
+    await user.click(screen.getByRole('button', { name: /Watch selected/ }))
+
+    // Success toast confirms the mutation resolved; the summary must have re-fetched (invalidate() covers it).
+    expect(await screen.findByText('Now watching 1 application.')).toBeInTheDocument()
+    await waitFor(() => expect(summaryCalls).toBeGreaterThan(before))
   })
 
   it('shows the empty state when no repos are watched', async () => {
