@@ -265,4 +265,112 @@ describe('Snyk page', () => {
     expect(screen.getByRole('button', { name: 'Package' }).closest('th'))
       .toHaveAttribute('aria-sort', 'ascending')
   })
+
+  // ── Bulk "Fix vulnerabilities" flow ──────────────────────────────────────
+  const twoFixableWatches = () => {
+    server.use(
+      http.get('*/api/v1/snyk/orgs', () => HttpResponse.json([])),
+      http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([])),
+      http.get('*/api/v1/snyk/watches', () => HttpResponse.json([
+        { id: 'w1', orgId: 'o1', orgSlug: 'app7576', orgName: 'CIAM Profile', targetId: 't1',
+          repoSlug: 'application-tests', enabled: true, critical: 1, high: 0, medium: 0, low: 0,
+          fixable: 1, projectCount: 1, lastPolled: '2026-07-01T12:00:00.000Z' },
+        { id: 'w2', orgId: 'o2', orgSlug: 'app7571', orgName: 'CIAM Access', targetId: 't2',
+          repoSlug: 'application-tests', enabled: true, critical: 0, high: 1, medium: 0, low: 0,
+          fixable: 1, projectCount: 1, lastPolled: '2026-07-01T12:00:00.000Z' },
+      ])),
+      http.get('*/api/v1/snyk/watches/w1/issues', () => HttpResponse.json([
+        { projectName: 'profile/pom.xml', issueId: 'i1', severity: 'critical', title: 'Deserialization',
+          pkgName: 'com.fasterxml.jackson.core:jackson-databind', pkgVersion: '2.14.0', cve: 'CVE-2020-1',
+          cwe: 'CWE-502', cvss: 9.2, riskScore: 298, fixable: true, fixedIn: '2.15.0' },
+      ])),
+      http.get('*/api/v1/snyk/watches/w2/issues', () => HttpResponse.json([
+        { projectName: 'access/pom.xml', issueId: 'i2', severity: 'high', title: 'Recursion',
+          pkgName: 'org.apache.commons:commons-lang3', pkgVersion: '3.12.0', cve: 'CVE-2024-2',
+          cwe: 'CWE-674', cvss: 7.5, riskScore: 182, fixable: true, fixedIn: '3.18.0' },
+        // A tracked-only issue (no safe version) must NOT appear in the bulk list.
+        { projectName: 'access/pom.xml', issueId: 'i3', severity: 'low', title: 'No fix',
+          pkgName: 'org.example:tracked-only', pkgVersion: '1.0.0', cve: 'CVE-2024-3',
+          cwe: 'CWE-000', cvss: 3.1, riskScore: 40, fixable: false, fixedIn: null },
+      ])),
+    )
+  }
+
+  it('opens the bulk-fix modal, lists fixable issues across apps, and starts a fix per selection', async () => {
+    const posted: unknown[] = []
+    twoFixableWatches()
+    server.use(
+      http.post('*/api/v1/snyk/fixes', async ({ request }) => {
+        posted.push(await request.json())
+        return HttpResponse.json({ trainId: `t${posted.length}` }, { status: 202 })
+      }),
+    )
+    const user = userEvent.setup()
+    renderSnyk()
+
+    // The top-level entry is enabled (watched apps report fixable vulnerabilities) and opens the modal.
+    await user.click(await screen.findByRole('button', { name: /Fix vulnerabilities/ }))
+
+    // Both fixable issues surface (grouped by app); the tracked-only one does not.
+    expect(await screen.findByText('com.fasterxml.jackson.core:jackson-databind')).toBeInTheDocument()
+    expect(screen.getByText('org.apache.commons:commons-lang3')).toBeInTheDocument()
+    expect(screen.queryByText('org.example:tracked-only')).not.toBeInTheDocument()
+
+    // Select everything, provide a Jira project, and start.
+    await user.click(screen.getByRole('button', { name: 'Select all' }))
+    await user.type(screen.getByPlaceholderText('CIAM'), 'CIAM')
+    await user.click(screen.getByRole('button', { name: /Start 2 fixes/ }))
+
+    // One start call per selected issue, each carrying its coordinate + the shared Jira project + autoConfirm.
+    expect(await screen.findByText('Started 2 fixes.')).toBeInTheDocument()
+    expect(posted).toHaveLength(2)
+    expect(posted).toContainEqual(expect.objectContaining({
+      coordinate: 'com.fasterxml.jackson.core:jackson-databind', appIds: ['APP7576'],
+      jiraProject: 'CIAM', autoConfirm: true,
+    }))
+    expect(posted).toContainEqual(expect.objectContaining({
+      coordinate: 'org.apache.commons:commons-lang3', appIds: ['APP7571'], jiraProject: 'CIAM',
+    }))
+  })
+
+  it('starts only a by-severity selection when the user picks that shortcut', async () => {
+    const posted: Array<{ coordinate?: string }> = []
+    twoFixableWatches()
+    server.use(
+      http.post('*/api/v1/snyk/fixes', async ({ request }) => {
+        posted.push((await request.json()) as { coordinate?: string })
+        return HttpResponse.json({ trainId: `t${posted.length}` }, { status: 202 })
+      }),
+    )
+    const user = userEvent.setup()
+    renderSnyk()
+
+    await user.click(await screen.findByRole('button', { name: /Fix vulnerabilities/ }))
+    await screen.findByText('com.fasterxml.jackson.core:jackson-databind')
+
+    // "Critical" shortcut ticks only the critical issue → one fix, for jackson-databind.
+    await user.click(screen.getByRole('button', { name: 'Critical' }))
+    await user.type(screen.getByPlaceholderText('CIAM'), 'CIAM')
+    await user.click(screen.getByRole('button', { name: /Start 1 fix/ }))
+
+    expect(await screen.findByText('Started 1 fix.')).toBeInTheDocument()
+    expect(posted).toHaveLength(1)
+    expect(posted[0].coordinate).toBe('com.fasterxml.jackson.core:jackson-databind')
+  })
+
+  it('disables the "Fix vulnerabilities" entry when no watched app has a fixable vulnerability', async () => {
+    server.use(
+      http.get('*/api/v1/snyk/orgs', () => HttpResponse.json([])),
+      http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([])),
+      http.get('*/api/v1/snyk/watches', () => HttpResponse.json([{
+        id: 'w1', orgId: 'o1', orgSlug: 'app7576', orgName: 'CIAM Profile', targetId: 't1',
+        repoSlug: 'application-tests', enabled: true, critical: 0, high: 0, medium: 0, low: 0,
+        fixable: 0, projectCount: 1, lastPolled: '2026-07-01T12:00:00.000Z',
+      }])),
+    )
+    renderSnyk()
+    const btn = await screen.findByRole('button', { name: /Fix vulnerabilities/ })
+    expect(btn).toBeDisabled()
+    expect(screen.getByText(/Nothing to fix right now/)).toBeInTheDocument()
+  })
 })
