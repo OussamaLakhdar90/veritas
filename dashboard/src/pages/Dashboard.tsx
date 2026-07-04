@@ -8,6 +8,7 @@ import { Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Fres
 import type { KpiTrend } from '../components/ui';
 import { Donut, Gauge, TrendChart, severitySlices, SEV_SWATCH } from '../components/charts';
 import { SnykImpactCard } from '../components/SnykImpact';
+import { SnykAlertBanner } from '../components/SnykAlertBanner';
 import { FidelityScorecard, letterGrade } from '../components/FidelityScorecard';
 import { ValueStrip } from '../components/ValueStrip';
 import { LiveScanRow } from '../components/LiveScanRow';
@@ -237,6 +238,10 @@ export function Dashboard() {
           </CardBody>
         </Card>
       )}
+
+      {/* Security banner — mirrors the TopBar bell: a prominent, dismissible red/amber strip when unseen Snyk
+          alerts exist, with a one-click jump to /snyk. Renders nothing when there are none. */}
+      <SnykAlertBanner />
 
       {/* Hero row — the portfolio fidelity score + the value KPIs. The screen the VP reads in 10 seconds. */}
       {hasHero && (
