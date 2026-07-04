@@ -114,6 +114,9 @@ class ContractValidationServiceBranchTest {
         when(reportRenderer.renderPdf(any(), any(), any())).thenReturn(new byte[] {1, 2, 3});
         // Deterministic corrected spec round-trips by default.
         when(correctedSpecBuilder.build(any(), any(), any())).thenReturn("openapi: 3.0.3");
+        // Metadata overlay on the chosen (LLM-preferred) corrected YAML is a passthrough by default here; the real
+        // info/servers preservation is exercised in CorrectedSpecBuilderTest.
+        when(correctedSpecBuilder.withOriginalMetadata(any(), any())).thenAnswer(inv -> inv.getArgument(0));
         when(openApi.extract(eq("corrected-check"), anyString()))
                 .thenReturn(new SpecParse(specModel("corrected-check"), List.of(), true));
         when(openApi.presenceOf(anyString())).thenReturn(SpecPresence.empty());
@@ -505,6 +508,9 @@ class ContractValidationServiceBranchTest {
 
         assertThat(r.correctedYamlPath()).isNotNull();
         verify(correctedSpecBuilder, never()).build(any(), any(), any());   // LLM yaml won → deterministic skipped
+        // ...but the LLM yaml is still passed through metadata preservation with the original spec, so its invented
+        // info/servers get replaced by the real ones (the honest-drop-in fix).
+        verify(correctedSpecBuilder).withOriginalMetadata(eq("openapi: 3.0.3"), eq("spec-yaml"));
     }
 
     @Test

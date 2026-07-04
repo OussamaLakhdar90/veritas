@@ -67,6 +67,39 @@ public class CorrectedSpecBuilder {
         }
     }
 
+    /**
+     * Overlay the original spec's real metadata onto an <b>already-built corrected YAML from any source</b> — the LLM
+     * reconcile <i>or</i> the deterministic {@link #build}: the {@code info} block (real title/version), {@code servers},
+     * per-response {@code example(s)}, and {@code x-*} vendor extensions. This is what makes the corrected spec an
+     * honest drop-in replacement — its identity and servers match the original; only paths/schemas are code-corrected.
+     * The LLM invents placeholder {@code info}/{@code servers} it was never given, so its output must pass through this
+     * before it can claim to be a drop-in. Returns the input unchanged when either document is absent or unparseable
+     * (non-fatal — better a verbatim corrected spec than none).
+     */
+    @SuppressWarnings("unchecked")
+    public String withOriginalMetadata(String correctedYaml, String originalSpecYaml) {
+        if (correctedYaml == null || correctedYaml.isBlank()
+                || originalSpecYaml == null || originalSpecYaml.isBlank()) {
+            return correctedYaml;
+        }
+        Map<String, Object> root;
+        try {
+            root = yaml.readValue(correctedYaml, Map.class);
+        } catch (Exception e) {
+            return correctedYaml;   // corrected YAML isn't a mapping we can enrich → leave it exactly as-is
+        }
+        if (root == null) {
+            return correctedYaml;
+        }
+        overlayExtensions(root, originalSpecYaml);
+        preserveOriginalMetadata(root, originalSpecYaml);
+        try {
+            return yaml.writeValueAsString(root);
+        } catch (Exception e) {
+            return correctedYaml;   // re-serialization failed → return the untouched original, never null
+        }
+    }
+
     /** Copy {@code x-*} extensions from the original spec into the corrected document (additive, code wins). */
     @SuppressWarnings("unchecked")
     private void overlayExtensions(Map<String, Object> root, String originalSpecYaml) {

@@ -884,7 +884,10 @@ public class ContractValidationService {
      *  deterministic code-wins spec. */
     private String chooseCorrectedYaml(String llmCorrected, ApiModel code, String title, String originalSpecYaml) {
         if (llmCorrected != null && roundTrips(llmCorrected) && preservesEndpoints(llmCorrected, code)) {
-            return llmCorrected;
+            // The LLM output governs paths/schemas, but its info/servers are its own invention (it is never handed the
+            // spec's info/servers) — overlay the real metadata so the "drop-in replacement" is honest. The deterministic
+            // build() already preserves it internally; this makes the LLM-preferred branch match.
+            return correctedSpecBuilder.withOriginalMetadata(llmCorrected, originalSpecYaml);
         }
         String deterministic = correctedSpecBuilder.build(code, title, originalSpecYaml);
         return roundTrips(deterministic) ? deterministic : null;
