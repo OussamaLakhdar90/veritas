@@ -113,7 +113,7 @@ public class JiraCloudClient implements JiraClient {
                     .retrieve().body(String.class));
             return mapper.readTree(resp == null ? "{}" : resp).path("key").asText("");
         } catch (Exception e) {
-            throw new IllegalStateException("Jira createIssue failed: " + e.getMessage(), e);
+            throw new IllegalStateException(JiraClient.explainCreateFailure(request, e.getMessage()), e);
         }
     }
 
