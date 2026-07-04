@@ -178,6 +178,7 @@ function RoutedMain() {
     <Routes location={location}>
       <Route path="/" element={<Dashboard />} />
       <Route path="/onboarding" element={<Onboarding />} />
+      <Route path="/activity" element={<Activity />} />
       <Route path="/repos" element={<RepoPicker />} />
       <Route path="/findings/:scanId" element={<Findings />} />
       <Route path="/defects" element={<Defects />} />
