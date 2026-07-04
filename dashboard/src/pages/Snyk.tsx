@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { RefreshCw, Trash2, Eye, ExternalLink, ShieldCheck, PackageOpen, X, ShieldAlert, AlertTriangle,
-  PlugZap, Settings as SettingsIcon } from 'lucide-react';
+  PlugZap, Wrench, Settings as SettingsIcon } from 'lucide-react';
 import { api, type ApiError, type SnykIssueView } from '../api';
 import {
   Badge, Button, Card, CardBody, CardHeader, EmptyState, ErrorState, Input, Skeleton, Spinner, TableSkeleton,
@@ -12,6 +12,7 @@ import {
 import { SnykLogo } from '../components/SnykLogo';
 import { SnykImpactCard } from '../components/SnykImpact';
 import { SnykFixWizard } from '../components/SnykFixWizard';
+import { SnykBulkFixModal } from '../components/SnykBulkFixModal';
 import { useToast } from '../components/Toast';
 import { snykSeverityBadge, TONE } from '../theme/tokens';
 import { formatDateTime } from '../lib/format';
@@ -52,6 +53,7 @@ export function Snyk() {
   const [selectedOrgs, setSelectedOrgs] = useState<Set<string>>(new Set());
   const [selectedWatch, setSelectedWatch] = useState<string | null>(null);
   const [fixIssue, setFixIssue] = useState<SnykIssueView | null>(null);
+  const [bulkFixOpen, setBulkFixOpen] = useState(false);
 
   const orgsQ = useQuery({ queryKey: ['snyk-orgs'], queryFn: api.snykOrgs });
   const watchesQ = useQuery({ queryKey: ['snyk-watches'], queryFn: api.snykWatches });
@@ -140,6 +142,9 @@ export function Snyk() {
 
   const watches = watchesQ.data ?? [];
   const alerts = alertsQ.data ?? [];
+  // The top-level "Fix vulnerabilities" entry is live once any watched app reports a fixable vulnerability
+  // (the same fixable count the watch cards show) — otherwise there's nothing to bulk-fix.
+  const hasFixable = watches.some((w) => w.fixable > 0);
 
   // "Connect your Snyk token" takes over the moment any Snyk read fails because the token isn't set — a config
   // gap, not a broken page. Shown once at the top; the per-section error states below defer to it.
@@ -159,6 +164,19 @@ export function Snyk() {
 
       {/* Managerial impact strip — found vs fixed (renders once at least one app-id is watched). */}
       <SnykImpactCard showLink={false} />
+
+      {/* Top-level "start fixing" entry — opens the select-what-to-fix modal. Enabled once a watched app has a
+          fixable vulnerability; otherwise a calm hint explains there's nothing to fix right now. */}
+      {watches.length > 0 && (
+        <div className="mb-6 flex flex-wrap items-center gap-3">
+          <Button onClick={() => setBulkFixOpen(true)} disabled={!hasFixable}>
+            <Wrench className="h-4 w-4" /> {t('snyk.bulk.open')}
+          </Button>
+          <span className="text-xs text-muted">
+            {hasFixable ? t('snyk.bulk.openHint') : t('snyk.bulk.noneHint')}
+          </span>
+        </div>
+      )}
 
       {/* Token-missing takes precedence over every other error: a config gap, surfaced as an actionable panel. */}
       {tokenRequired && <SnykTokenRequiredBanner />}
@@ -353,6 +371,9 @@ export function Snyk() {
       <SnykFixWizard open={!!fixIssue} onClose={() => setFixIssue(null)} issue={fixIssue} watchId={selectedWatch ?? undefined}
         apps={Array.from(new Map(watches.map((w) => [w.orgSlug, { slug: w.orgSlug, name: w.orgName }])).values())}
         defaultApp={watches.find((w) => w.id === selectedWatch)?.orgSlug} />
+
+      {/* Select-what-to-fix bulk flow — aggregates fixable issues across the watched apps and starts a fix per pick. */}
+      <SnykBulkFixModal open={bulkFixOpen} onClose={() => setBulkFixOpen(false)} watches={watches} />
     </div>
   );
 }
