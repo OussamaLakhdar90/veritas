@@ -61,6 +61,9 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class ContractValidationService {
 
+    /** A dropped Copilot SSE stream can't resume — retry the whole reconcile up to this many times before degrading. */
+    private static final int RECONCILE_MAX_ATTEMPTS = 3;
+
     private final JavaSpringExtractor javaSpringExtractor;
     private final OpenApiModelExtractor openApiModelExtractor;
     private final CorrectedSpecBuilder correctedSpecBuilder;
@@ -247,26 +250,45 @@ public class ContractValidationService {
                 for (SpecInput s : req.specs()) {
                     presence = presence.merge(openApiModelExtractor.presenceOf(s.content()));
                 }
-                try {
-                    ReconcileResult rr = reconcile(code, specModels, findings, req.owner(), scan, presence,
-                            req.thoroughness().tier());
-                    log.info("Scan {} [{}] AI reconcile finished in {}s",
-                            scan.getId(), scan.getServiceName(), (System.currentTimeMillis() - t0) / 1000);
-                    enrich.putAll(rr.enrich());
-                    disputes.putAll(rr.disputes());
-                    scan.setTotalPremiumRequests(rr.cost().premiumRequests());
-                    scan.setTotalEstCostUsd(rr.cost().estCostUsd());
-                    llmCorrected = rr.correctedYaml();
-                    findings.addAll(rr.llmFindings());   // L5/L6 design + test-basis findings (LLM judgment)
-                    scan.setConfidence(rr.confidence());
-                    scan.setBlindSpots(rr.blindSpots());
-                } catch (RuntimeException e) {
-                    // A transient Copilot error (e.g. a dropped SSE stream — I/O EOF) must NOT sink the whole scan.
-                    // Degrade to the deterministic diff-only report and record WHY, so the run is honest, not lost.
-                    log.warn("Scan {} [{}] AI reconcile failed after {}s — degrading to diff-only for this run: {}",
-                            scan.getId(), scan.getServiceName(), (System.currentTimeMillis() - t0) / 1000, e.getMessage());
-                    String note = "AI review could not run this time (" + shortReason(e) + ") — the findings below are "
-                            + "from static analysis only; re-run to include the AI review.";
+                // A dropped Copilot SSE stream can't be resumed (the partial response is unusable) — so retry the WHOLE
+                // reconcile a few times, telling the user in the progress bar each time, before giving up. Only after
+                // every attempt fails do we degrade to the deterministic diff-only report.
+                RuntimeException lastError = null;
+                for (int attempt = 1; attempt <= RECONCILE_MAX_ATTEMPTS; attempt++) {
+                    try {
+                        ReconcileResult rr = reconcile(code, specModels, findings, req.owner(), scan, presence,
+                                req.thoroughness().tier());
+                        log.info("Scan {} [{}] AI reconcile finished in {}s (attempt {}/{})", scan.getId(),
+                                scan.getServiceName(), (System.currentTimeMillis() - t0) / 1000, attempt,
+                                RECONCILE_MAX_ATTEMPTS);
+                        enrich.putAll(rr.enrich());
+                        disputes.putAll(rr.disputes());
+                        scan.setTotalPremiumRequests(rr.cost().premiumRequests());
+                        scan.setTotalEstCostUsd(rr.cost().estCostUsd());
+                        llmCorrected = rr.correctedYaml();
+                        findings.addAll(rr.llmFindings());   // L5/L6 design + test-basis findings (LLM judgment)
+                        scan.setConfidence(rr.confidence());
+                        scan.setBlindSpots(rr.blindSpots());
+                        lastError = null;
+                        break;
+                    } catch (RuntimeException e) {
+                        lastError = e;
+                        log.warn("Scan {} [{}] AI reconcile attempt {}/{} failed: {}", scan.getId(),
+                                scan.getServiceName(), attempt, RECONCILE_MAX_ATTEMPTS, e.getMessage());
+                        if (attempt < RECONCILE_MAX_ATTEMPTS) {
+                            // Surface the retry live in the progress bar — the connection dropped, we're re-asking Copilot.
+                            detail(scan, "AI review connection dropped — retrying (" + (attempt + 1) + "/"
+                                    + RECONCILE_MAX_ATTEMPTS + ")…");
+                        }
+                    }
+                }
+                if (lastError != null) {
+                    // Every attempt failed — degrade to diff-only and record WHY, so the run is honest, not lost.
+                    log.warn("Scan {} [{}] AI reconcile failed after {} attempts — degrading to diff-only: {}",
+                            scan.getId(), scan.getServiceName(), RECONCILE_MAX_ATTEMPTS, lastError.getMessage());
+                    String note = "AI review could not run this time after " + RECONCILE_MAX_ATTEMPTS + " attempts ("
+                            + shortReason(lastError) + ") — the findings below are from static analysis only; "
+                            + "re-run to include the AI review.";
                     String existing = scan.getBlindSpots();
                     scan.setBlindSpots(existing == null || existing.isBlank() ? note : existing + " " + note);
                 }
