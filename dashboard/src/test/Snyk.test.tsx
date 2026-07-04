@@ -266,7 +266,24 @@ describe('Snyk page', () => {
       .toHaveAttribute('aria-sort', 'ascending')
   })
 
-  // ── Bulk "Fix vulnerabilities" flow ──────────────────────────────────────
+  // ── Bulk "Fix vulnerabilities" wizard (4 steps) ──────────────────────────
+  // Preflight reports all three required connections OK, so step 1's gate opens straight through.
+  const preflightAllOk = () => server.use(
+    http.get('*/api/v1/preflight', () => HttpResponse.json([
+      { name: 'Snyk token', status: 'OK', detail: 'Configured.', remediation: '' },
+      { name: 'Jira token', status: 'OK', detail: 'Configured.', remediation: '' },
+      { name: 'Jira base URL', status: 'OK', detail: 'https://jira', remediation: '' },
+      { name: 'Bitbucket base URL', status: 'OK', detail: 'https://bb', remediation: '' },
+      { name: 'Git access (clone)', status: 'OK', detail: 'Configured.', remediation: '' },
+    ])),
+  )
+  // The step-4 Jira pickers: one project + one existing epic.
+  const jiraPickers = () => server.use(
+    http.get('*/api/v1/jira/projects', () => HttpResponse.json([{ key: 'CIAM', name: 'CIAM Platform' }])),
+    http.get('*/api/v1/jira/projects/CIAM/epics', () =>
+      HttpResponse.json([{ key: 'CIAM-100', summary: 'Security backlog' }])),
+  )
+
   const twoFixableWatches = () => {
     server.use(
       http.get('*/api/v1/snyk/orgs', () => HttpResponse.json([])),
@@ -294,68 +311,172 @@ describe('Snyk page', () => {
           cwe: 'CWE-000', cvss: 3.1, riskScore: 40, fixable: false, fixedIn: null },
       ])),
     )
+    preflightAllOk()
+    jiraPickers()
   }
 
-  it('opens the bulk-fix modal, lists fixable issues across apps, and starts a fix per selection', async () => {
-    const posted: unknown[] = []
+  it('walks the 4-step wizard (connections → choose → review → file) and files one bulk request', async () => {
+    let posted: Record<string, unknown> | null = null
     twoFixableWatches()
     server.use(
-      http.post('*/api/v1/snyk/fixes', async ({ request }) => {
-        posted.push(await request.json())
-        return HttpResponse.json({ trainId: `t${posted.length}` }, { status: 202 })
+      http.post('*/api/v1/snyk/fixes/bulk', async ({ request }) => {
+        posted = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json({
+          epicKey: 'CIAM-100',
+          apps: [
+            { appId: 'APP7576', jiraKey: 'CIAM-101', trainIds: ['t1'], error: null },
+            { appId: 'APP7571', jiraKey: 'CIAM-102', trainIds: ['t2'], error: null },
+          ],
+        }, { status: 202 })
       }),
     )
     const user = userEvent.setup()
     renderSnyk()
 
-    // The top-level entry is enabled (watched apps report fixable vulnerabilities) and opens the modal.
+    // Open the wizard → Step 1: connections gate is satisfied (all OK), so Continue is live.
     await user.click(await screen.findByRole('button', { name: /Fix vulnerabilities/ }))
+    expect(await screen.findByText(/you’re good to go/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    // Both fixable issues surface (grouped by app); the tracked-only one does not.
+    // Step 2: both fixable issues surface (grouped by app); the tracked-only one does not.
     expect(await screen.findByText('com.fasterxml.jackson.core:jackson-databind')).toBeInTheDocument()
     expect(screen.getByText('org.apache.commons:commons-lang3')).toBeInTheDocument()
     expect(screen.queryByText('org.example:tracked-only')).not.toBeInTheDocument()
-
-    // Select everything, provide a Jira project, and start.
     await user.click(screen.getByRole('button', { name: 'Select all' }))
-    await user.type(screen.getByPlaceholderText('CIAM'), 'CIAM')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // Step 3: the impact review lists the distinct app-ids.
+    expect(await screen.findByText(/what Veritas will do/)).toBeInTheDocument()
+    expect(screen.getByText('APP7576')).toBeInTheDocument()
+    expect(screen.getByText('APP7571')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // Step 4: pick the project from the dropdown, then an existing epic, then Start.
+    await user.selectOptions(await screen.findByRole('combobox'), 'CIAM')
+    const selects = await screen.findAllByRole('combobox')
+    await user.selectOptions(selects[1], 'CIAM-100')   // the epic picker appears once a project is chosen
     await user.click(screen.getByRole('button', { name: /Start 2 fixes/ }))
 
-    // One start call per selected issue, each carrying its coordinate + the shared Jira project + autoConfirm.
-    expect(await screen.findByText('Started 2 fixes.')).toBeInTheDocument()
-    expect(posted).toHaveLength(2)
-    expect(posted).toContainEqual(expect.objectContaining({
-      coordinate: 'com.fasterxml.jackson.core:jackson-databind', appIds: ['APP7576'],
-      jiraProject: 'CIAM', autoConfirm: true,
+    // ONE bulk request: the selection grouped by app, the chosen project + existing epic.
+    expect(await screen.findByText(/Started 2 fixes across 2 applications, filed under CIAM-100/)).toBeInTheDocument()
+    expect(posted).toMatchObject({ project: 'CIAM', epicKey: 'CIAM-100' })
+    expect((posted as unknown as { apps: unknown[] }).apps).toHaveLength(2)
+    expect((posted as unknown as { apps: unknown[] }).apps).toContainEqual(expect.objectContaining({
+      appId: 'APP7576', watchId: 'w1',
+      issues: [expect.objectContaining({ coordinate: 'com.fasterxml.jackson.core:jackson-databind', fixedIn: '2.15.0' })],
     }))
-    expect(posted).toContainEqual(expect.objectContaining({
-      coordinate: 'org.apache.commons:commons-lang3', appIds: ['APP7571'], jiraProject: 'CIAM',
+    expect((posted as unknown as { apps: unknown[] }).apps).toContainEqual(expect.objectContaining({
+      appId: 'APP7571', watchId: 'w2',
+      issues: [expect.objectContaining({ coordinate: 'org.apache.commons:commons-lang3' })],
     }))
   })
 
-  it('starts only a by-severity selection when the user picks that shortcut', async () => {
-    const posted: Array<{ coordinate?: string }> = []
+  it('blocks Step 1 when a required connection is missing and links to Settings', async () => {
+    twoFixableWatches()
+    // Override preflight: Bitbucket base URL is MISSING → the gate must hold.
+    server.use(
+      http.get('*/api/v1/preflight', () => HttpResponse.json([
+        { name: 'Snyk token', status: 'OK', detail: 'Configured.', remediation: '' },
+        { name: 'Jira token', status: 'OK', detail: 'Configured.', remediation: '' },
+        { name: 'Bitbucket base URL', status: 'MISSING', detail: 'Not set.', remediation: 'Set it.' },
+      ])),
+    )
+    const user = userEvent.setup()
+    renderSnyk()
+
+    await user.click(await screen.findByRole('button', { name: /Fix vulnerabilities/ }))
+    expect(await screen.findByText(/Some required connections aren’t ready/)).toBeInTheDocument()
+    // Continue is disabled with a one-line reason, and a Settings link is offered.
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeDisabled()
+    expect(screen.getByRole('link', { name: /Open Settings/ })).toHaveAttribute('href', '/settings')
+  })
+
+  it('files under a newly created epic when the user picks "Create a new epic"', async () => {
+    let posted: Record<string, unknown> | null = null
     twoFixableWatches()
     server.use(
-      http.post('*/api/v1/snyk/fixes', async ({ request }) => {
-        posted.push((await request.json()) as { coordinate?: string })
-        return HttpResponse.json({ trainId: `t${posted.length}` }, { status: 202 })
+      http.post('*/api/v1/snyk/fixes/bulk', async ({ request }) => {
+        posted = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json({
+          epicKey: 'CIAM-200',
+          apps: [{ appId: 'APP7576', jiraKey: 'CIAM-201', trainIds: ['t1'], error: null }],
+        }, { status: 202 })
       }),
     )
     const user = userEvent.setup()
     renderSnyk()
 
     await user.click(await screen.findByRole('button', { name: /Fix vulnerabilities/ }))
-    await screen.findByText('com.fasterxml.jackson.core:jackson-databind')
+    await user.click(await screen.findByRole('button', { name: 'Continue' }))   // step 1 → 2
 
-    // "Critical" shortcut ticks only the critical issue → one fix, for jackson-databind.
+    // Step 2: the "Critical" shortcut ticks only the critical issue (one app).
+    await screen.findByText('com.fasterxml.jackson.core:jackson-databind')
     await user.click(screen.getByRole('button', { name: 'Critical' }))
-    await user.type(screen.getByPlaceholderText('CIAM'), 'CIAM')
+    await user.click(screen.getByRole('button', { name: 'Continue' }))   // step 2 → 3
+    await user.click(await screen.findByRole('button', { name: 'Continue' }))   // step 3 → 4
+
+    // Step 4: choose the project, switch to "Create a new epic" (a default title fills in), then Start.
+    await user.selectOptions(await screen.findByRole('combobox'), 'CIAM')
+    await user.click(screen.getByLabelText('Create a new epic'))
     await user.click(screen.getByRole('button', { name: /Start 1 fix/ }))
 
-    expect(await screen.findByText('Started 1 fix.')).toBeInTheDocument()
-    expect(posted).toHaveLength(1)
-    expect(posted[0].coordinate).toBe('com.fasterxml.jackson.core:jackson-databind')
+    expect(await screen.findByText(/filed under CIAM-200/)).toBeInTheDocument()
+    expect(posted).toMatchObject({ project: 'CIAM', createEpic: true })
+    expect((posted as unknown as { epicSummary: string }).epicSummary).toBe('Dependency security remediation')
+    expect((posted as unknown as { epicKey?: string }).epicKey).toBeUndefined()
+  })
+
+  it('surfaces the backend error message when the bulk request fails (e.g. an unknown project)', async () => {
+    twoFixableWatches()
+    server.use(
+      http.post('*/api/v1/snyk/fixes/bulk', () =>
+        HttpResponse.json({ detail: 'Jira project CIAM has no create screen for Epic.', status: 400 }, { status: 400 })),
+    )
+    const user = userEvent.setup()
+    renderSnyk()
+
+    await user.click(await screen.findByRole('button', { name: /Fix vulnerabilities/ }))
+    await user.click(await screen.findByRole('button', { name: 'Continue' }))   // step 1 → 2
+    await screen.findByText('com.fasterxml.jackson.core:jackson-databind')
+    await user.click(screen.getByRole('button', { name: 'Select all' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))   // step 2 → 3
+    await user.click(await screen.findByRole('button', { name: 'Continue' }))   // step 3 → 4
+    await user.selectOptions(await screen.findByRole('combobox'), 'CIAM')
+    const selects = await screen.findAllByRole('combobox')
+    await user.selectOptions(selects[1], 'CIAM-100')
+    await user.click(screen.getByRole('button', { name: /Start 2 fixes/ }))
+
+    // The backend's human-readable 4xx detail is surfaced verbatim in a toast.
+    expect(await screen.findByText('Jira project CIAM has no create screen for Epic.')).toBeInTheDocument()
+  })
+
+  it('reports a partial failure honestly when one application could not be launched', async () => {
+    twoFixableWatches()
+    server.use(
+      http.post('*/api/v1/snyk/fixes/bulk', () => HttpResponse.json({
+        epicKey: 'CIAM-100',
+        apps: [
+          { appId: 'APP7576', jiraKey: 'CIAM-101', trainIds: ['t1'], error: null },
+          { appId: 'APP7571', jiraKey: null, trainIds: [], error: 'No Bitbucket project APP7571.' },
+        ],
+      }, { status: 202 })),
+    )
+    const user = userEvent.setup()
+    renderSnyk()
+
+    await user.click(await screen.findByRole('button', { name: /Fix vulnerabilities/ }))
+    await user.click(await screen.findByRole('button', { name: 'Continue' }))
+    await screen.findByText('com.fasterxml.jackson.core:jackson-databind')
+    await user.click(screen.getByRole('button', { name: 'Select all' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(await screen.findByRole('button', { name: 'Continue' }))
+    await user.selectOptions(await screen.findByRole('combobox'), 'CIAM')
+    const selects = await screen.findAllByRole('combobox')
+    await user.selectOptions(selects[1], 'CIAM-100')
+    await user.click(screen.getByRole('button', { name: /Start 2 fixes/ }))
+
+    // One of two apps started; the toast says so rather than pretending all is well.
+    expect(await screen.findByText(/1 of 2 applications started; 1 had a problem/)).toBeInTheDocument()
   })
 
   it('disables the "Fix vulnerabilities" entry when no watched app has a fixable vulnerability', async () => {

@@ -12,7 +12,7 @@ import {
 import { SnykLogo } from '../components/SnykLogo';
 import { SnykImpactCard } from '../components/SnykImpact';
 import { SnykFixWizard } from '../components/SnykFixWizard';
-import { SnykBulkFixModal } from '../components/SnykBulkFixModal';
+import { SnykBulkFixWizard } from '../components/SnykBulkFixWizard';
 import { useToast } from '../components/Toast';
 import { snykSeverityBadge, TONE } from '../theme/tokens';
 import { formatDateTime } from '../lib/format';
@@ -372,8 +372,8 @@ export function Snyk() {
         apps={Array.from(new Map(watches.map((w) => [w.orgSlug, { slug: w.orgSlug, name: w.orgName }])).values())}
         defaultApp={watches.find((w) => w.id === selectedWatch)?.orgSlug} />
 
-      {/* Select-what-to-fix bulk flow — aggregates fixable issues across the watched apps and starts a fix per pick. */}
-      <SnykBulkFixModal open={bulkFixOpen} onClose={() => setBulkFixOpen(false)} watches={watches} />
+      {/* Select-what-to-fix bulk flow — a 4-step, non-technical wizard: check connections → choose → review → file & start. */}
+      <SnykBulkFixWizard open={bulkFixOpen} onClose={() => setBulkFixOpen(false)} watches={watches} />
     </div>
   );
 }
