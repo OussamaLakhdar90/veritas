@@ -4,7 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import java.util.Map;
 import ca.bnc.qe.veritas.engine.model.ApiModel;
+import ca.bnc.qe.veritas.engine.model.Endpoint;
+import ca.bnc.qe.veritas.engine.model.HttpMethod;
+import ca.bnc.qe.veritas.engine.model.SourceRef;
 import ca.bnc.qe.veritas.engine.openapi.OpenApiModelExtractor;
 import org.junit.jupiter.api.Test;
 
@@ -53,5 +57,24 @@ class ReconcilePromptDeterminismTest {
                         "knownGaps", java.util.List.of()));
         assertThat(json.indexOf("knownGaps")).isLessThan(json.indexOf("parsedEndpoints"));
         assertThat(json.indexOf("parsedEndpoints")).isLessThan(json.indexOf("resolvedTypes"));
+    }
+
+    @Test
+    void apiEvidenceEndpointOrderIsStableRegardlessOfInputOrder() throws Exception {
+        // The extractor fills the endpoint list in Files.walk() order (non-deterministic per its JavaDoc). apiEvidence
+        // must SORT the list (a LIST is not covered by ORDER_MAP_ENTRIES_BY_KEYS) so the prompt is byte-identical
+        // whether the same endpoints arrive in one order or another — the real cross-run churn cause. RED without the sort.
+        Endpoint apples = ep("GET", "/apples");
+        Endpoint zebras = ep("GET", "/zebras");
+        ApiModel m1 = new ApiModel("code", null, null, null, List.of(zebras, apples), Map.of());
+        ApiModel m2 = new ApiModel("code", null, null, null, List.of(apples, zebras), Map.of());
+
+        assertThat(MAPPER.writeValueAsString(ContractValidationService.apiEvidence(List.of(m1))))
+                .isEqualTo(MAPPER.writeValueAsString(ContractValidationService.apiEvidence(List.of(m2))));
+    }
+
+    private static Endpoint ep(String method, String path) {
+        return new Endpoint(HttpMethod.valueOf(method), path, path, List.of(), null, List.of(), null, null, List.of(),
+                SourceRef.code("X.java", 1, 1, null));
     }
 }
