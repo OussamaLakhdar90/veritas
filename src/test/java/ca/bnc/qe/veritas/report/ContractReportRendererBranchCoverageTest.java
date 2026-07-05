@@ -297,9 +297,11 @@ class ContractReportRendererBranchCoverageTest {
     }
 
     @Test
-    void noTrendLineWhenPreviousScoreAbsent() {
+    void firstScanTrendLineWhenPreviousScoreAbsent() {
+        // No prior score (first scan / reset DB): the trend line still renders as a "first scan" note — it must NOT
+        // silently disappear (a missing line reads as a regression).
         String html = renderer.renderHtml(scan("svc"), List.of());
-        assertThat(html).doesNotContain("Trend:");
+        assertThat(html).contains("class=\"trend trend-flat\">").contains("first scan of this service");
     }
 
     // ---- bilingual translation map: biDyn picks the French string ---------------------------------------

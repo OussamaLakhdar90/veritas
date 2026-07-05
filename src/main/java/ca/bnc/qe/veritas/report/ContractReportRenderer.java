@@ -221,6 +221,13 @@ public class ContractReportRenderer {
                     "Trend: " + arrow + " " + sign + delta + " vs previous scan (was " + prev + ")",
                     "Tendance : " + arrow + " " + sign + delta + " vs analyse précédente (était " + prev + ")"))
                     .append("</p>");
+        } else {
+            // No earlier scan of this service to compare against (e.g. the first run, or a reset database). Always
+            // render the trend line — a silently-missing line reads as a regression and loses run-over-run continuity.
+            sb.append("<p class=\"trend trend-flat\">").append(bi(
+                    "Trend: ● first scan of this service — no earlier score to compare",
+                    "Tendance : ● première analyse de ce service — aucun score antérieur à comparer"))
+                    .append("</p>");
         }
 
         // Surface undocumented error responses (500/406/…) that were DEMOTED to manual review (§6) as low-confidence

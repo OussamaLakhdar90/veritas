@@ -37,6 +37,28 @@ class ContractReportRendererTest {
     }
 
     @Test
+    void trendLine_alwaysRenders_deltaWhenPriorScore_elseFirstScanNote() {
+        ContractReportRenderer renderer = new ContractReportRenderer();
+
+        // First scan of a service (no prior score — e.g. a fresh/reset DB): the trend line STILL renders, so it
+        // never silently disappears (a missing line reads as a regression, as a reviewer flagged).
+        Scan first = new Scan();
+        first.setServiceName("ciam-policies");
+        first.setFidelityScore(89);
+        assertThat(renderer.renderHtml(first, List.of(richFinding())))
+                .contains("first scan of this service");
+
+        // With a prior score, the delta trend renders as before — and NOT the first-scan note.
+        Scan again = new Scan();
+        again.setServiceName("ciam-policies");
+        again.setFidelityScore(89);
+        again.setPreviousFidelityScore(89);
+        assertThat(renderer.renderHtml(again, List.of(richFinding())))
+                .contains("vs previous scan (was 89)")
+                .doesNotContain("first scan of this service");
+    }
+
+    @Test
     void codeEvidenceIsAClickableBitbucketLinkWhenRepoCoordsAndConnectionAreKnown() {
         ConnectionsProperties cp = new ConnectionsProperties();
         cp.getBitbucket().setEdition("SERVER_DC");
