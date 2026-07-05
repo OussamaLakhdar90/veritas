@@ -407,6 +407,18 @@ class ContractReportRendererBranchCoverageTest {
         assertThat(html).contains("small effort").doesNotContain("rough est").doesNotContain("(approx.)");
     }
 
+    @Test
+    void footerSelfIdentifiesTheBuildThatProducedTheReport() {
+        // No-arg constructor (tests): no stamp in the footer.
+        assertThat(renderer.renderHtml(scan("svc"), List.of())).doesNotContain("Veritas abc1234");
+        // Spring-injected build info: the footer stamps the exact build, so a stale build is obvious at a glance.
+        ca.bnc.qe.veritas.config.BuildInfoService bi =
+                org.mockito.Mockito.mock(ca.bnc.qe.veritas.config.BuildInfoService.class);
+        org.mockito.Mockito.when(bi.stamp()).thenReturn("abc1234 · built 2026-07-05 18:40");
+        assertThat(new ContractReportRenderer(null, bi).renderHtml(scan("svc"), List.of()))
+                .contains("Veritas abc1234 · built 2026-07-05 18:40");
+    }
+
     // ---- PDF render path uses the stacked distribution bar, not the donut ------------------------------
 
     @Test

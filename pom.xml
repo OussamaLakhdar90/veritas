@@ -214,6 +214,42 @@
                         </exclude>
                     </excludes>
                 </configuration>
+                <executions>
+                    <!-- Generate META-INF/build-info.properties (version + build time) -> a BuildProperties bean,
+                         surfaced in the report footer + /actuator/info so a report identifies the build that made it. -->
+                    <execution>
+                        <goals>
+                            <goal>build-info</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <!-- git.properties (short SHA + branch + commit time) -> a GitProperties bean. Degrades gracefully when
+                 there is no .git (source tarball). With build-info this stamps every report with the exact commit that
+                 produced it — turning "real bug vs stale build" into a fact, not a guess. -->
+            <plugin>
+                <groupId>io.github.git-commit-id</groupId>
+                <artifactId>git-commit-id-maven-plugin</artifactId>
+                <version>8.0.2</version>
+                <executions>
+                    <execution>
+                        <id>git-info</id>
+                        <phase>initialize</phase>
+                        <goals>
+                            <goal>revision</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <configuration>
+                    <failOnNoGitDirectory>false</failOnNoGitDirectory>
+                    <failOnUnableToExtractRepoInfo>false</failOnUnableToExtractRepoInfo>
+                    <generateGitPropertiesFile>true</generateGitPropertiesFile>
+                    <includeOnlyProperties>
+                        <includeOnlyProperty>^git.branch$</includeOnlyProperty>
+                        <includeOnlyProperty>^git.commit.id.abbrev$</includeOnlyProperty>
+                        <includeOnlyProperty>^git.commit.time$</includeOnlyProperty>
+                    </includeOnlyProperties>
+                </configuration>
             </plugin>
             <!-- Line/branch coverage — feeds both the local report and SonarQube (jacoco.xml). -->
             <plugin>

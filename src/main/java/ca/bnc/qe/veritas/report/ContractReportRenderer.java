@@ -3,6 +3,7 @@ package ca.bnc.qe.veritas.report;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import ca.bnc.qe.veritas.config.BuildInfoService;
 import ca.bnc.qe.veritas.finding.Finding;
 import ca.bnc.qe.veritas.persistence.Scan;
 import ca.bnc.qe.veritas.vcs.BitbucketLinkBuilder;
@@ -29,13 +30,22 @@ public class ContractReportRenderer {
      *  no-arg constructor (used by tests), where evidence renders as plain text. */
     private final BitbucketLinkBuilder linkBuilder;
 
+    /** The running build's stamp (short git SHA + build time), shown in the footer so a report self-identifies the
+     *  build that produced it. Null/blank in the no-arg constructor (tests) → the footer simply omits it. */
+    private final String buildStamp;
+
     public ContractReportRenderer() {
-        this(null);
+        this(null, null);
+    }
+
+    public ContractReportRenderer(BitbucketLinkBuilder linkBuilder) {
+        this(linkBuilder, null);
     }
 
     @Autowired
-    public ContractReportRenderer(BitbucketLinkBuilder linkBuilder) {
+    public ContractReportRenderer(BitbucketLinkBuilder linkBuilder, BuildInfoService buildInfo) {
         this.linkBuilder = linkBuilder;
+        this.buildStamp = buildInfo == null ? null : buildInfo.stamp();
     }
 
     public String renderHtml(Scan scan, List<Finding> findings) {
@@ -391,6 +401,10 @@ public class ContractReportRenderer {
                         "Généré par Veritas. Les différences sont détectées par analyse statique automatisée du code "
                                 + "(déterministe — pas une supposition de l'IA); les explications (pourquoi et comment corriger) "
                                 + "utilisent l'assistance IA. Confidentiel — usage interne."));
+        if (buildStamp != null && !buildStamp.isBlank()) {
+            // Which build produced THIS report — baked into the written file, so a stale build is obvious at a glance.
+            sb.append(" · ").append(esc("Veritas " + buildStamp));
+        }
         if (scan.getTotalEstCostUsd() > 0) {   // don't render "$0.0000" on free/mock runs
             sb.append(" · ").append(bi("Est. cost", "Coût est."))
                     .append(String.format(" $%.4f", scan.getTotalEstCostUsd()));
