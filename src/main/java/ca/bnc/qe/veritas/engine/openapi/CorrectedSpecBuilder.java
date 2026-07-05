@@ -304,7 +304,11 @@ public class CorrectedSpecBuilder {
 
     private Map<String, Object> refSchema(String ref) {
         if (ref != null && ref.endsWith("[]")) {
-            return Map.of("type", "array", "items", Map.of("$ref", "#/components/schemas/" + ref.replace("[]", "")));
+            String base = ref.substring(0, ref.length() - 2);
+            Map<String, Object> items = isPrimitive(base)
+                    ? Map.of("type", base)                                    // scalar array → items:{type:string}
+                    : Map.of("$ref", "#/components/schemas/" + base);         // DTO array → items:{$ref}
+            return Map.of("type", "array", "items", items);
         }
         if (ref != null && isPrimitive(ref)) {
             return Map.of("type", ref);

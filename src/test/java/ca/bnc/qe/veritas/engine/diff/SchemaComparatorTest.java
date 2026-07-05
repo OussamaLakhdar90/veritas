@@ -100,6 +100,43 @@ class SchemaComparatorTest {
     }
 
     @Test
+    void scalarArrayItemTypeOnCodeSideDoesNotFalseDiffAgainstUntypedSpecArray() {
+        // The extractor now carries a scalar element type as refSchema "string[]" (so the corrected YAML can emit
+        // items:{type:string}). A faithful spec array of the same field commonly has NO item type (refSchema=null).
+        // The comparator must raise NO SCHEMA_FIELD_* finding off that item-type difference — item type is not a
+        // comparison key. Guards the diff-safety contract of the scalar-array element-type fix (field-compare path).
+        FieldModel codeTags = new FieldModel("tags", "array", null, false, ConstraintSet.empty(), "string[]",
+                SourceRef.code("Bag.java", 10, 10, null));
+        FieldModel specTags = new FieldModel("tags", "array", null, false, ConstraintSet.empty(), null, null);
+        SchemaModel codeSchema = new SchemaModel("Bag", "object", List.of(codeTags), null, null);
+        SchemaModel specSchema = new SchemaModel("Bag", "object", List.of(specTags), null, null);
+
+        List<Finding> findings = new ArrayList<>();
+        SchemaComparator.compareSchema(findings, "code-vs-spec", "GET /bags response", codeSchema, specSchema);
+
+        assertThat(findings).isEmpty();
+    }
+
+    @Test
+    void scalarArrayItemTypeDoesNotProduceAnObjectVsScalarFlipInBinding() {
+        // Binding path: code field is an array carrying a scalar item type ("string[]"); the spec field is the same
+        // untyped array (refSchema null). This must NOT be read as an object-vs-scalar flip — both are arrays.
+        FieldModel codeTags = new FieldModel("tags", "array", null, false, ConstraintSet.empty(), "string[]",
+                SourceRef.code("Bag.java", 10, 10, null));
+        FieldModel specTags = new FieldModel("tags", "array", null, false, ConstraintSet.empty(), null, null);
+        SchemaModel codeWrapper = new SchemaModel("Bag", "object", List.of(codeTags), null, null);
+        SchemaModel specWrapper = new SchemaModel("bag", "object", List.of(specTags), null, null);
+        ApiModel code = new ApiModel("code", null, null, null, List.of(), java.util.Map.of("Bag", codeWrapper));
+        ApiModel spec = new ApiModel("repo-spec", null, null, null, List.of(), java.util.Map.of("bag", specWrapper));
+
+        List<Finding> findings = new ArrayList<>();
+        SchemaComparator.fieldDiffByBinding(findings, code, spec, "Bag", "bag", "GET /bags response",
+                new HashSet<>(), SchemaComparator.MAX_SCHEMA_DEPTH);
+
+        assertThat(findings).isEmpty();
+    }
+
+    @Test
     void constraintGapEmissionCarriesNoSpecLocus() {
         // CONSTRAINT_GAP is deliberately OUTSIDE the spec-locus collapse family — the engine must not hand it a
         // locus either, locking both halves of the two-change regression path (engine emission + service key).
