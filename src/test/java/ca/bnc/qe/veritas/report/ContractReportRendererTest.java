@@ -48,8 +48,10 @@ class ContractReportRendererTest {
         first.setServiceName("ciam-policies");
         first.setFidelityScore(89);
         assertThat(renderer.renderHtml(first, List.of(richFinding())))
-                .contains("no earlier score on record")
-                .doesNotContain("first scan");
+                .contains("no earlier score on record")             // EN neutral note
+                .contains("aucun score antérieur enregistré")       // FR neutral note — bi() embeds BOTH languages
+                .doesNotContain("first scan")                       // never the false EN claim
+                .doesNotContain("première analyse de ce service");  // never the false FR claim
 
         // With a prior score, the delta trend renders as before — and NOT the neutral no-record note.
         Scan again = new Scan();
