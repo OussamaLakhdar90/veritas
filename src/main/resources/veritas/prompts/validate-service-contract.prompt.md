@@ -1,6 +1,6 @@
 # Validate Service Contract — Spring Boot ↔ OpenAPI
 
-Replace `[KNOWLEDGE PACK]` at the bottom with the full knowledge pack before use. Grounding rules: **knowledge pack §0**.
+Only the knowledge-pack sections this prompt needs are appended below under **## Knowledge pack** (auto-sliced at runtime). Grounding rules: **knowledge pack §0**.
 
 ---
 
@@ -183,4 +183,6 @@ components:
 
 ## [KNOWLEDGE PACK]
 
-Paste the full content of `istqb-knowledge-pack.md` here.
+Runtime replaces this marker with only the sections this prompt requests (via `KnowledgePackSlicer`; §0 is always
+included) — see the `compose(..., packSections, ...)` call. For manual/standalone use, paste just those sections from
+`istqb-knowledge-pack.md`.
