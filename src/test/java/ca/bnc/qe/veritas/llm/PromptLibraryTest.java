@@ -24,6 +24,9 @@ class PromptLibraryTest {
         assertThat(prompt).doesNotContain("Seven testing principles"); // §2 not requested → sliced out
         assertThat(prompt).doesNotContain("Standards referenced");  // §13 not requested → sliced out
         assertThat(prompt).doesNotContain("Paste the full content"); // placeholder replaced
+        // The stale "replace with the FULL knowledge pack" build-instruction (which sat BEFORE the marker, so it used
+        // to leak into the runtime prompt) must not reach the model — the pack is auto-sliced, not pasted whole.
+        assertThat(prompt).doesNotContain("full knowledge pack");
     }
 
     @Test
