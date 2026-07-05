@@ -1,9 +1,11 @@
 package ca.bnc.qe.veritas.engine.openapi;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import ca.bnc.qe.veritas.engine.model.ApiModel;
 import ca.bnc.qe.veritas.engine.model.Endpoint;
 import ca.bnc.qe.veritas.engine.model.FieldModel;
@@ -219,6 +221,125 @@ public class CorrectedSpecBuilder {
         if (orig.get("paths") instanceof Map<?, ?> oPaths && root.get("paths") instanceof Map) {
             preserveResponseExamples((Map<String, Object>) oPaths, (Map<String, Object>) root.get("paths"));
         }
+        preserveComponentNames(root, orig);   // restore the spec's component names — a drop-in must not rename $ref keys
+    }
+
+    /**
+     * Restore the ORIGINAL spec's component names in the corrected YAML. The corrected schemas are code-derived and
+     * keyed by Java DTO class names (PascalCase); the original spec used its own names (e.g. kebab/dotted). Renaming
+     * published component/{@code $ref} keys leaks Java naming into the public contract and breaks consumer codegen —
+     * a "drop-in replacement" must keep them. Match a corrected schema to a spec schema by their PROPERTY-name set
+     * (the wire fields agree even when the component key differs), then rename the corrected component keys + every
+     * {@code $ref} uniformly (so it still round-trips). Only confident, unique, injective, non-colliding matches are
+     * renamed; everything else keeps its code name.
+     */
+    private void preserveComponentNames(Map<String, Object> root, Map<String, Object> orig) {
+        Map<String, Object> specSchemas = componentSchemas(orig);
+        Map<String, Object> codeSchemas = componentSchemas(root);
+        if (specSchemas == null || specSchemas.isEmpty() || codeSchemas == null || codeSchemas.isEmpty()) {
+            return;
+        }
+        Map<String, String> rename = new LinkedHashMap<>();   // codeName -> specName
+        Set<String> takenSpecNames = new HashSet<>();
+        for (Map.Entry<String, Object> ce : codeSchemas.entrySet()) {
+            String codeName = ce.getKey();
+            Set<String> codeProps = propertyNames(ce.getValue());
+            if (codeProps.isEmpty()) {
+                continue;
+            }
+            String best = null;
+            boolean ambiguous = false;
+            for (Map.Entry<String, Object> se : specSchemas.entrySet()) {
+                String specName = se.getKey();
+                if (specName.equals(codeName) || takenSpecNames.contains(specName)
+                        || codeSchemas.containsKey(specName)) {
+                    continue;   // already same, already claimed, or would collide with an existing code schema
+                }
+                Set<String> specProps = propertyNames(se.getValue());
+                // The corrected schema is a superset of the spec's fields (code may add fields); require the spec's
+                // fields to be a non-empty subset of the code's — a strong structural signal these are the same schema.
+                if (!specProps.isEmpty() && codeProps.containsAll(specProps)) {
+                    if (best != null) {
+                        ambiguous = true;   // more than one spec schema matches → don't guess
+                        break;
+                    }
+                    best = specName;
+                }
+            }
+            if (best != null && !ambiguous) {
+                rename.put(codeName, best);
+                takenSpecNames.add(best);
+            }
+        }
+        if (rename.isEmpty()) {
+            return;
+        }
+        // Rewrite every $ref across the WHOLE document, rebuilding into fresh mutable maps — the deterministic build()
+        // tree is full of immutable Map.of literals, so we must not mutate in place. Then rename the component KEYS on
+        // the rebuilt schemas map. Applied uniformly (keys + refs), so the corrected YAML still round-trips.
+        Map<String, Object> rewritten = asMap(renameRefs(root, rename));
+        Object componentsObj = rewritten.get("components");
+        if (componentsObj instanceof Map<?, ?>) {
+            Map<String, Object> comps = asMap(componentsObj);
+            if (comps.get("schemas") instanceof Map<?, ?>) {
+                Map<String, Object> renamedKeys = new LinkedHashMap<>();
+                asMap(comps.get("schemas")).forEach((k, v) -> renamedKeys.put(rename.getOrDefault(k, k), v));
+                comps.put("schemas", renamedKeys);   // comps is a fresh mutable map from renameRefs
+            }
+        }
+        root.clear();
+        root.putAll(rewritten);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asMap(Object o) {
+        return (Map<String, Object>) o;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> componentSchemas(Map<String, Object> doc) {
+        if (doc.get("components") instanceof Map<?, ?> c
+                && ((Map<String, Object>) c).get("schemas") instanceof Map<?, ?> s) {
+            return (Map<String, Object>) s;
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Set<String> propertyNames(Object schema) {
+        if (schema instanceof Map<?, ?> m && ((Map<String, Object>) m).get("properties") instanceof Map<?, ?> p) {
+            return new HashSet<>(((Map<String, Object>) p).keySet());
+        }
+        return Set.of();
+    }
+
+    /**
+     * Recursively rewrite every {@code $ref: #/components/schemas/<old>} to its renamed name, rebuilding into fresh
+     * mutable maps/lists. Never mutates in place — the deterministic build tree uses immutable {@code Map.of} literals.
+     */
+    private Object renameRefs(Object node, Map<String, String> rename) {
+        if (node instanceof Map<?, ?> map) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> e : map.entrySet()) {
+                String k = String.valueOf(e.getKey());
+                Object v = e.getValue();
+                if ("$ref".equals(k) && v instanceof String r && r.startsWith("#/components/schemas/")) {
+                    String target = r.substring("#/components/schemas/".length());
+                    out.put(k, rename.containsKey(target) ? "#/components/schemas/" + rename.get(target) : r);
+                } else {
+                    out.put(k, renameRefs(v, rename));
+                }
+            }
+            return out;
+        }
+        if (node instanceof List<?> list) {
+            List<Object> out = new ArrayList<>();
+            for (Object v : list) {
+                out.add(renameRefs(v, rename));
+            }
+            return out;
+        }
+        return node;
     }
 
     /**

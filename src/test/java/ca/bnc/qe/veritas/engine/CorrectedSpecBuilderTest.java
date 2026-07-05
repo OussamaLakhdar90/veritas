@@ -354,4 +354,123 @@ class CorrectedSpecBuilderTest {
                 "openapi: 3.0.3\ninfo:\n  title: CIAM Policies\n  version: 1.0.5\n");
         assertThat(out).isEqualTo(notAMap);
     }
+
+    // ---- component-name preservation: a drop-in must keep the spec's $ref keys, not rename them to Java DTO names ----
+
+    @Test
+    void preservesOriginalComponentNames_insteadOfRenamingThemToJavaDtoClassNames() {
+        // The corrected schema is code-derived and keyed by the Java DTO class name (PascalCase `PasswordComplexity`),
+        // but the original spec published it as `policies-password-complexity`. Renaming a published $ref key leaks
+        // Java naming into the public contract and breaks consumer codegen — the drop-in must keep the spec's name
+        // (both the component KEY and every $ref to it). Matched structurally by the shared property-name set.
+        SourceRef src = SourceRef.code("X.java", 1, 1, "x");
+        Endpoint ep = new Endpoint(HttpMethod.GET, "/policies/password", "getPasswordPolicy", List.of(), null,
+                List.of(new ResponseModel(200, "PasswordComplexity", null, "RETURN", src)), null, null, List.of(), src);
+        SchemaModel schema = new SchemaModel("PasswordComplexity", "object", List.of(
+                new FieldModel("minLength", "integer", null, true, ConstraintSet.empty(), null, src),
+                new FieldModel("requireUppercase", "boolean", null, false, ConstraintSet.empty(), null, src)), null, src);
+        ApiModel code = new ApiModel("code", null, null, null, List.of(ep), Map.of("PasswordComplexity", schema));
+        String original = """
+                openapi: 3.0.3
+                info:
+                  title: CIAM Policies
+                  version: 1.0.5
+                paths: {}
+                components:
+                  schemas:
+                    policies-password-complexity:
+                      type: object
+                      properties:
+                        minLength: { type: integer }
+                        requireUppercase: { type: boolean }
+                """;
+
+        String yaml = new CorrectedSpecBuilder().build(code, "Placeholder", original);
+        SpecParse reparsed = new OpenApiModelExtractor().extract("corrected", yaml);
+
+        assertThat(reparsed.parsed()).isTrue();                       // uniform key+$ref rename still round-trips
+        assertThat(yaml).contains("policies-password-complexity");    // spec's component name preserved as the key
+        assertThat(yaml).doesNotContain("PasswordComplexity");        // Java DTO name gone (component key + response $ref)
+    }
+
+    @Test
+    void doesNotRenameWhenNoSpecComponentStructurallyMatches() {
+        // Safety rail: rename ONLY on a confident structural match. When the spec's components share no property set
+        // with the code schema, the code name must stand — never adopted from an unrelated spec component.
+        SourceRef src = SourceRef.code("X.java", 1, 1, "x");
+        Endpoint ep = new Endpoint(HttpMethod.GET, "/policies/password", "getPasswordPolicy", List.of(), null,
+                List.of(new ResponseModel(200, "PasswordComplexity", null, "RETURN", src)), null, null, List.of(), src);
+        SchemaModel schema = new SchemaModel("PasswordComplexity", "object", List.of(
+                new FieldModel("minLength", "integer", null, true, ConstraintSet.empty(), null, src)), null, src);
+        ApiModel code = new ApiModel("code", null, null, null, List.of(ep), Map.of("PasswordComplexity", schema));
+        String original = """
+                openapi: 3.0.3
+                info:
+                  title: CIAM Policies
+                  version: 1.0.5
+                paths: {}
+                components:
+                  schemas:
+                    error-response:
+                      type: object
+                      properties:
+                        code: { type: integer }
+                        message: { type: string }
+                """;
+
+        String yaml = new CorrectedSpecBuilder().build(code, "Placeholder", original);
+
+        assertThat(yaml).contains("PasswordComplexity");   // unrelated spec component → the code name stands
+        assertThat(yaml).doesNotContain("error-response");  // never adopts a structurally-different spec name
+    }
+
+    @Test
+    void withOriginalMetadata_restoresSpecComponentNamesOnAnLlmYaml() {
+        // The LLM reconcile branch: its YAML also named the schema after the Java class. The overlay must rename it
+        // (component key + $ref) back to the spec's published component name.
+        String llmYaml = """
+                openapi: 3.0.3
+                info:
+                  title: CIAM Password Policy API
+                  version: 1.0.0
+                paths:
+                  /policies/password:
+                    get:
+                      responses:
+                        '200':
+                          description: OK
+                          content:
+                            application/json:
+                              schema:
+                                $ref: '#/components/schemas/PasswordComplexity'
+                components:
+                  schemas:
+                    PasswordComplexity:
+                      type: object
+                      properties:
+                        minLength: { type: integer }
+                        requireUppercase: { type: boolean }
+                """;
+        String original = """
+                openapi: 3.0.3
+                info:
+                  title: CIAM Policies
+                  version: 1.0.5
+                paths: {}
+                components:
+                  schemas:
+                    policies-password-complexity:
+                      type: object
+                      properties:
+                        minLength: { type: integer }
+                        requireUppercase: { type: boolean }
+                """;
+
+        String out = new CorrectedSpecBuilder().withOriginalMetadata(llmYaml, original);
+        SpecParse reparsed = new OpenApiModelExtractor().extract("corrected", out);
+
+        assertThat(reparsed.parsed()).isTrue();                       // key + $ref renamed consistently → round-trips
+        assertThat(out).contains("policies-password-complexity");
+        assertThat(out).doesNotContain("PasswordComplexity");
+    }
 }
