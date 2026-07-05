@@ -4,7 +4,13 @@ spring:
   datasource:
     # WAL lets readers proceed during a write and busy_timeout makes a second writer WAIT (5s) instead of
     # instantly failing with SQLITE_BUSY — required now that concurrent scans/fix-trains write simultaneously.
-    url: jdbc:sqlite:veritas.db?journal_mode=WAL&busy_timeout=5000
+    # Path is anchored under the user home (~/.veritas), NOT the process working directory: a bare relative
+    # "veritas.db" resolves against the JVM cwd, so rebuilding/relaunching from a different directory would open a
+    # DIFFERENT (often empty) database and silently lose run-over-run scan history — which showed up as the report
+    # Trend line resetting to "no earlier score". ~/.veritas already holds secret.key/connections.json, and the
+    # EnvironmentPostProcessor guarantees the directory exists before this datasource opens. Tests override this URL
+    # (src/test/resources/application.properties -> target/veritas-test.db); the EC2 'server' profile uses Postgres.
+    url: jdbc:sqlite:${user.home}/.veritas/veritas.db?journal_mode=WAL&busy_timeout=5000
     driver-class-name: org.sqlite.JDBC
   jpa:
     hibernate:

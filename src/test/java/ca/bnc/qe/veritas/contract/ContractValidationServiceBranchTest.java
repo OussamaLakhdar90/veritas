@@ -659,6 +659,34 @@ class ContractValidationServiceBranchTest {
     }
 
     @Test
+    void previousFidelityScore_matchesPriorScan_despiteWhitespaceAndCaseDifferenceInServiceName() {
+        // Regression: the prior scan's service name differs from the current request's only by casing + surrounding
+        // whitespace ("  SVC  " vs "svc"). A prior exact-equals match dropped the history here, resetting the Trend
+        // line to "no earlier score" across builds. The normalized (trim + case-insensitive) match must still find it.
+        Scan prior = new Scan();
+        prior.setServiceName("  SVC  ");
+        prior.setFidelityScore(84);
+        try {
+            Field idField = ca.bnc.qe.veritas.persistence.AuditableEntity.class.getDeclaredField("id");
+            idField.setAccessible(true);
+            idField.set(prior, "prior-id");
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        when(scanRepo.findAllByOrderByStartedAtDesc()).thenReturn(List.of(prior));
+        when(diffEngine.l1FromMessages(anyString(), any())).thenReturn(List.of());
+        when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(List.of());
+        when(openApi.extract(eq("repo-spec"), anyString()))
+                .thenReturn(new SpecParse(specModel("repo-spec"), List.of(), true));
+
+        org.mockito.ArgumentCaptor<Scan> scanCap = org.mockito.ArgumentCaptor.forClass(Scan.class);
+        svc.validate(req(false, new SpecInput("repo-spec", "spec-yaml")));   // req(...) serviceName == "svc"
+        verify(scanPersistence).complete(scanCap.capture(), any(), any());
+
+        assertThat(scanCap.getValue().getPreviousFidelityScore()).isEqualTo(84);
+    }
+
+    @Test
     void largeFindingSet_isBatchedAcrossMultipleLlmCalls_andBlindSpotNotesTheBatching() throws Exception {
         // Tiny token budget so each finding lands in its own batch → multiple reconcile calls.
         setField(svc, "batchInputTokens", 1);

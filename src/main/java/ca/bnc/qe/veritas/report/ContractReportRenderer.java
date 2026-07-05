@@ -222,11 +222,13 @@ public class ContractReportRenderer {
                     "Tendance : " + arrow + " " + sign + delta + " vs analyse précédente (était " + prev + ")"))
                     .append("</p>");
         } else {
-            // No earlier scan of this service to compare against (e.g. the first run, or a reset database). Always
-            // render the trend line — a silently-missing line reads as a regression and loses run-over-run continuity.
+            // No earlier score for this service is on record to compare against — a genuine first scan, OR a
+            // fresh/reset/relocated database. We CANNOT prove it is the first scan (prior history may simply be in a
+            // different DB file), so we never assert that; we state exactly what is true — nothing earlier is on
+            // record. The line always renders (a silently-missing line reads as a regression).
             sb.append("<p class=\"trend trend-flat\">").append(bi(
-                    "Trend: ● first scan of this service — no earlier score to compare",
-                    "Tendance : ● première analyse de ce service — aucun score antérieur à comparer"))
+                    "Trend: ● no earlier score on record to compare",
+                    "Tendance : ● aucun score antérieur enregistré à comparer"))
                     .append("</p>");
         }
 
