@@ -687,6 +687,77 @@ class ContractValidationServiceBranchTest {
     }
 
     @Test
+    void previousFidelityScore_picksMostRecentPriorDeterministically_regardlessOfListOrder() {
+        // Two prior scans of the same service; the NEWEST by startedAt must win, not whichever the list returns
+        // first (guards the deterministic max(startedAt, id) selection against startedAt-tie / ordering hazards).
+        Scan older = priorScan("p-old", "svc", 70, "2026-07-05T10:00:00Z");
+        Scan newer = priorScan("p-new", "svc", 84, "2026-07-05T11:00:00Z");
+        // Returned oldest-first on purpose — the code must sort by startedAt, not trust list position.
+        when(scanRepo.findAllByOrderByStartedAtDesc()).thenReturn(List.of(older, newer));
+        stubCleanDiffAndSpec();
+
+        org.mockito.ArgumentCaptor<Scan> cap = org.mockito.ArgumentCaptor.forClass(Scan.class);
+        svc.validate(req(false, new SpecInput("repo-spec", "spec-yaml")));
+        verify(scanPersistence).complete(cap.capture(), any(), any());
+        assertThat(cap.getValue().getPreviousFidelityScore()).isEqualTo(84);
+    }
+
+    @Test
+    void previousFidelityScore_skipsPriorScansThatHaveNoScore() {
+        // The most-recent prior has no fidelity score (e.g. an older/failed row): it must be skipped, and the trend
+        // falls back to the most recent SCORED prior — never left null when a scored prior exists.
+        Scan newerUnscored = priorScan("p-null", "svc", null, "2026-07-05T12:00:00Z");
+        Scan olderScored = priorScan("p-84", "svc", 84, "2026-07-05T09:00:00Z");
+        when(scanRepo.findAllByOrderByStartedAtDesc()).thenReturn(List.of(newerUnscored, olderScored));
+        stubCleanDiffAndSpec();
+
+        org.mockito.ArgumentCaptor<Scan> cap = org.mockito.ArgumentCaptor.forClass(Scan.class);
+        svc.validate(req(false, new SpecInput("repo-spec", "spec-yaml")));
+        verify(scanPersistence).complete(cap.capture(), any(), any());
+        assertThat(cap.getValue().getPreviousFidelityScore()).isEqualTo(84);
+    }
+
+    @Test
+    void previousFidelityScore_isNullWhenNoPriorScanMatchesTheService() {
+        // A prior scan exists but for a DIFFERENT service — it must not be borrowed. previousFidelityScore stays
+        // null, and the report then renders the honest "no earlier score on record" note (never a false trend).
+        Scan otherService = priorScan("p-other", "some-other-service", 99, "2026-07-05T10:00:00Z");
+        when(scanRepo.findAllByOrderByStartedAtDesc()).thenReturn(List.of(otherService));
+        stubCleanDiffAndSpec();
+
+        org.mockito.ArgumentCaptor<Scan> cap = org.mockito.ArgumentCaptor.forClass(Scan.class);
+        svc.validate(req(false, new SpecInput("repo-spec", "spec-yaml")));
+        verify(scanPersistence).complete(cap.capture(), any(), any());
+        assertThat(cap.getValue().getPreviousFidelityScore()).isNull();
+    }
+
+    /** Build a prior Scan row with a fixed id (reflection), service name, optional score and startedAt. */
+    private static Scan priorScan(String id, String serviceName, Integer fidelityScore, String startedAtIso) {
+        Scan s = new Scan();
+        s.setServiceName(serviceName);
+        s.setFidelityScore(fidelityScore);
+        if (startedAtIso != null) {
+            s.setStartedAt(java.time.Instant.parse(startedAtIso));
+        }
+        try {
+            Field idField = ca.bnc.qe.veritas.persistence.AuditableEntity.class.getDeclaredField("id");
+            idField.setAccessible(true);
+            idField.set(s, id);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return s;
+    }
+
+    /** Empty diff + a valid parsed spec so validate() reaches the trend lookup with no findings. */
+    private void stubCleanDiffAndSpec() {
+        when(diffEngine.l1FromMessages(anyString(), any())).thenReturn(List.of());
+        when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(List.of());
+        when(openApi.extract(eq("repo-spec"), anyString()))
+                .thenReturn(new SpecParse(specModel("repo-spec"), List.of(), true));
+    }
+
+    @Test
     void largeFindingSet_isBatchedAcrossMultipleLlmCalls_andBlindSpotNotesTheBatching() throws Exception {
         // Tiny token budget so each finding lands in its own batch → multiple reconcile calls.
         setField(svc, "batchInputTokens", 1);

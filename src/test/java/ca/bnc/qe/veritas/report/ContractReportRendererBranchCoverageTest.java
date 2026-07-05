@@ -303,8 +303,10 @@ class ContractReportRendererBranchCoverageTest {
         // unprovable "first scan of this service" claim.
         String html = renderer.renderHtml(scan("svc"), List.of());
         assertThat(html).contains("class=\"trend trend-flat\">")
-                .contains("no earlier score on record")
-                .doesNotContain("first scan");
+                .contains("no earlier score on record")           // EN neutral note
+                .contains("aucun score antérieur enregistré")     // FR neutral note (bi() embeds both languages)
+                .doesNotContain("first scan")                     // never the false EN claim
+                .doesNotContain("première analyse");              // never the false FR claim
     }
 
     // ---- bilingual translation map: biDyn picks the French string ---------------------------------------
