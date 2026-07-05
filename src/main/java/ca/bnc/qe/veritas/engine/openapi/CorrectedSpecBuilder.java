@@ -10,8 +10,11 @@ import ca.bnc.qe.veritas.engine.model.FieldModel;
 import ca.bnc.qe.veritas.engine.model.ParamModel;
 import ca.bnc.qe.veritas.engine.model.ResponseModel;
 import ca.bnc.qe.veritas.engine.model.SchemaModel;
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import com.fasterxml.jackson.dataformat.yaml.YAMLMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.yaml.snakeyaml.LoaderOptions;
 
 /**
  * Builds a drop-in corrected OpenAPI 3.0 document <b>deterministically from the code {@link ApiModel}</b>
@@ -19,9 +22,22 @@ import org.springframework.stereotype.Component;
  * its output fails round-trip validation. Pure + deterministic — no LLM.
  */
 @Component
+@Slf4j
 public class CorrectedSpecBuilder {
 
-    private final YAMLMapper yaml = new YAMLMapper();
+    // snakeyaml 2.x defaults to a 3 MB code-point limit and rejects duplicate keys, but the spec EXTRACTOR uses
+    // swagger-parser (neither limit). Without matching that here, a large real /v3/api-docs (springdoc emits one
+    // minified line, easily > 3 MB) parses for the extractor yet THROWS when this mapper re-reads it for the metadata
+    // overlay — so info/servers silently fall back to placeholders. Lift both limits to match swagger-parser.
+    private final YAMLMapper yaml = YAMLMapper.builder(
+            YAMLFactory.builder().loaderOptions(bigLoaderOptions()).build()).build();
+
+    private static LoaderOptions bigLoaderOptions() {
+        LoaderOptions options = new LoaderOptions();
+        options.setCodePointLimit(Integer.MAX_VALUE);   // no 3 MB cap — match swagger-parser
+        options.setAllowDuplicateKeys(true);            // last-wins, like swagger-parser (some hand-rolled specs repeat keys)
+        return options;
+    }
 
     public String build(ApiModel code, String title) {
         return build(code, title, null);
@@ -86,6 +102,8 @@ public class CorrectedSpecBuilder {
         try {
             root = yaml.readValue(correctedYaml, Map.class);
         } catch (Exception e) {
+            log.warn("CorrectedSpecBuilder: corrected YAML is not a mapping — returned as-is, no metadata overlay ({})",
+                    e.toString());
             return correctedYaml;   // corrected YAML isn't a mapping we can enrich → leave it exactly as-is
         }
         if (root == null) {
@@ -96,6 +114,8 @@ public class CorrectedSpecBuilder {
         try {
             return yaml.writeValueAsString(root);
         } catch (Exception e) {
+            log.warn("CorrectedSpecBuilder: re-serialization failed — returned pre-overlay corrected YAML ({})",
+                    e.toString());
             return correctedYaml;   // re-serialization failed → return the untouched original, never null
         }
     }
@@ -107,6 +127,8 @@ public class CorrectedSpecBuilder {
         try {
             orig = yaml.readValue(originalSpecYaml, Map.class);
         } catch (Exception e) {
+            log.warn("CorrectedSpecBuilder: original spec unparseable for x-* overlay — extensions not carried "
+                    + "(len={}, {})", originalSpecYaml.length(), e.toString());
             return;   // unparseable original → nothing to preserve, non-fatal
         }
         copyExt(orig, root);
@@ -150,6 +172,8 @@ public class CorrectedSpecBuilder {
         try {
             orig = yaml.readValue(originalSpecYaml, Map.class);
         } catch (Exception e) {
+            log.warn("CorrectedSpecBuilder: original spec unparseable — corrected YAML keeps placeholder "
+                    + "info/servers/examples (len={}, {})", originalSpecYaml.length(), e.toString());
             return;   // unparseable original → keep placeholder metadata, non-fatal
         }
         if (orig == null) {
@@ -159,11 +183,33 @@ public class CorrectedSpecBuilder {
             root.put("info", new LinkedHashMap<>((Map<String, Object>) oInfo));   // real title/version/etc. wins
         }
         if (orig.get("servers") instanceof List<?> oServers && !oServers.isEmpty()) {
-            root.put("servers", new ArrayList<>(oServers));   // verbatim server list
+            root.put("servers", new ArrayList<>(oServers));   // verbatim server list (OpenAPI 3)
+        } else {
+            List<Map<String, Object>> synth = swagger2Servers(orig);   // Swagger 2.0 host+basePath+schemes
+            if (!synth.isEmpty()) {
+                root.put("servers", synth);
+            }
         }
         if (orig.get("paths") instanceof Map<?, ?> oPaths && root.get("paths") instanceof Map) {
             preserveResponseExamples((Map<String, Object>) oPaths, (Map<String, Object>) root.get("paths"));
         }
+    }
+
+    /**
+     * Swagger 2.0 has no {@code servers}; synthesize it from {@code <scheme>://<host><basePath>} so the corrected YAML
+     * still carries the real server(s) instead of dropping them. Empty when there is no usable {@code host}.
+     */
+    private List<Map<String, Object>> swagger2Servers(Map<String, Object> orig) {
+        if (!(orig.get("host") instanceof String host) || host.isBlank()) {
+            return List.of();
+        }
+        String basePath = orig.get("basePath") instanceof String bp ? bp : "";
+        List<?> schemes = orig.get("schemes") instanceof List<?> s && !s.isEmpty() ? s : List.of("https");
+        List<Map<String, Object>> servers = new ArrayList<>();
+        for (Object scheme : schemes) {
+            servers.add(Map.of("url", scheme + "://" + host + basePath));
+        }
+        return servers;
     }
 
     /** For every corrected path+method+status that also exists in the original, lift the original response's

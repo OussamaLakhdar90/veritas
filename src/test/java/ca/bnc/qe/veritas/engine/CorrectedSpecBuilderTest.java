@@ -80,6 +80,65 @@ class CorrectedSpecBuilderTest {
         return cur;
     }
 
+    @Test
+    void overlayPreservesInfoAndServersWhenOriginalExceedsSnakeyamls3MbLimit() {
+        // Regression: snakeyaml's default 3 MB code-point limit made the metadata overlay silently no-op for a large
+        // real /v3/api-docs (springdoc emits one minified line), so the corrected drop-in YAML kept placeholder info
+        // (version 1.0.0, no servers). With the lifted limit it must parse and carry the real title/version/servers.
+        StringBuilder big = new StringBuilder(3_500_000)
+                .append("openapi: 3.0.0\n")
+                .append("info:\n  title: CIAM Policies\n  version: 1.0.5\n")
+                .append("servers:\n  - url: https://api.example.com/ciam\n")
+                .append("paths: {}\n");
+        // Pad past the 3,145,728 code-point limit with comment lines — counted by the reader, discarded on parse.
+        while (big.length() < 3_300_000) {
+            big.append("# padding line to exceed the three-megabyte snakeyaml code-point limit for this test\n");
+        }
+        String corrected = new CorrectedSpecBuilder().build(codeWithGetThings(), "Placeholder");
+
+        String out = new CorrectedSpecBuilder().withOriginalMetadata(corrected, big.toString());
+
+        assertThat(out).contains("CIAM Policies").contains("1.0.5").contains("https://api.example.com/ciam");
+    }
+
+    @Test
+    void overlayPreservesInfoWhenOriginalHasDuplicateKeys() {
+        // snakeyaml rejects duplicate keys by default; swagger-parser accepts them (last-wins). A hand-rolled
+        // /v3/api-docs with a repeated key must not blank the overlay back to placeholders.
+        String original = "openapi: 3.0.0\n"
+                + "info:\n  title: Dup API\n  version: 2.0.0\n  version: 2.0.0\n"
+                + "servers:\n  - url: https://dup.example.com\n"
+                + "paths: {}\n";
+        String corrected = new CorrectedSpecBuilder().build(codeWithGetThings(), "Placeholder");
+
+        String out = new CorrectedSpecBuilder().withOriginalMetadata(corrected, original);
+
+        assertThat(out).contains("Dup API").contains("https://dup.example.com");
+    }
+
+    @Test
+    void overlaySynthesizesServersFromSwagger2HostBasePathSchemes() {
+        // Swagger 2.0 has no `servers` — it uses host/basePath/schemes. The overlay must synthesize a servers list so
+        // the corrected drop-in YAML still carries the real server instead of dropping it.
+        String original = """
+            swagger: '2.0'
+            info:
+              title: Legacy API
+              version: 3.1.0
+            host: legacy.example.com
+            basePath: /v2
+            schemes:
+              - https
+              - http
+            paths: {}
+            """;
+        String corrected = new CorrectedSpecBuilder().build(codeWithGetThings(), "Placeholder");
+
+        String out = new CorrectedSpecBuilder().withOriginalMetadata(corrected, original);
+
+        assertThat(out).contains("https://legacy.example.com/v2").contains("http://legacy.example.com/v2");
+    }
+
     /** A code model with one endpoint whose 200 response the original spec also documents (with an example). */
     private static ApiModel codeWithGetThings() {
         SourceRef src = SourceRef.code("X.java", 1, 1, "x");
