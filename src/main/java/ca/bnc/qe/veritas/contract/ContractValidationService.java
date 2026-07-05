@@ -457,19 +457,24 @@ public class ContractValidationService {
     }
 
     static Map<String, Object> apiEvidence(List<ApiModel> models) {
-        List<Map<String, Object>> endpoints = new ArrayList<>();
+        List<Endpoint> collected = new ArrayList<>();
         Map<String, Object> schemas = new LinkedHashMap<>();
         for (ApiModel m : models) {
             if (m == null) {
                 continue;
             }
-            for (Endpoint e : m.endpoints()) {
-                endpoints.add(endpointEvidence(e));
-            }
+            collected.addAll(m.endpoints());
             for (Map.Entry<String, SchemaModel> en : m.schemas().entrySet()) {
                 schemas.putIfAbsent(en.getKey(), schemaEvidence(en.getValue()));   // first model wins on name clash
             }
         }
+        // Sort endpoints by signature: the LIST order is NOT covered by ORDER_MAP_ENTRIES_BY_KEYS, and the extractor
+        // fills it in Files.walk() order (non-deterministic per its JavaDoc), which would drift the prompt every run
+        // and defeat the persistent cache. Schemas are a map → already key-sorted at serialization.
+        List<Map<String, Object>> endpoints = collected.stream()
+                .sorted(java.util.Comparator.comparing(Endpoint::signature))
+                .map(ContractValidationService::endpointEvidence)
+                .toList();
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("endpoints", endpoints);
         out.put("schemas", schemas);
@@ -603,10 +608,15 @@ public class ContractValidationService {
     private ReconcileResult reconcile(ApiModel code, List<ApiModel> specs, List<Finding> findings,
                                       String owner, Scan scan, SpecPresence presence, ModelTier tier) throws Exception {
         String scanId = scan.getId();
+        // Deterministic order: the findings list inherits the extractor's Files.walk() order (non-deterministic), so
+        // sort by the stable findingId before batching — else DETERMINISTIC_FINDINGS (and the SHA-256 cache key) drift
+        // every run and the persistent cache can't converge the design/INFO set.
         List<Map<String, String>> brief = new ArrayList<>();
-        for (Finding f : findings) {
-            brief.add(Map.of("findingId", f.getFindingId(), "type", f.getType().name(), "summary", nz(f.getSummary())));
-        }
+        findings.stream()
+                .sorted(java.util.Comparator.comparing(Finding::getFindingId,
+                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
+                .forEach(f -> brief.add(Map.of("findingId", f.getFindingId(), "type", f.getType().name(),
+                        "summary", nz(f.getSummary()))));
         // Structured, per-endpoint extracted models (params with exact location/type, request/response schemas, DTO
         // fields + constraints) — so the LLM names params by their real location and builds the corrected YAML from
         // the actual DTO shapes instead of inferring them from terse "VERB /path" signatures.
@@ -619,7 +629,7 @@ public class ContractValidationService {
         // What the extractor actually parsed/resolved — so the LLM never claims a source it has is "not supplied".
         String manifest = promptJson(objectMapper, Map.of(
                 "parsedEndpoints", code.endpoints().size(),
-                "resolvedTypes", new ArrayList<>(code.schemas().keySet()),
+                "resolvedTypes", code.schemas().keySet().stream().sorted().toList(),
                 "knownGaps", code.blindSpots() == null ? List.of() : code.blindSpots()));
 
         String outputContract = "Code is the source of truth for behaviour. For each finding add a short "
