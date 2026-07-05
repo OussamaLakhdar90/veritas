@@ -371,6 +371,42 @@ class ContractReportRendererBranchCoverageTest {
                 .doesNotContain(" · L4 ").doesNotContain(">MEDIUM<");
     }
 
+    @Test
+    void confidencePillIsSuppressedForLlmDesignFindingsButShownForDeterministic() {
+        // §6 AI design findings are labelled "raised by the assistant, not deterministically proven", so they must NOT
+        // carry a "Deterministic…" confidence pill (self-contradiction). A deterministic finding still shows its pill.
+        Finding llm = Finding.builder().findingId("d").type(FindingType.DESIGN_QUALITY).layer(Layer.L5)
+                .severity(Severity.INFO).confidence(Confidence.MEDIUM).origin("LLM").service("svc")
+                .specSource("code-vs-spec").endpoint("GET /x").summary("design smell").build();
+        assertThat(renderer.renderHtml(scan("svc"), List.of(llm))).doesNotContain("Medium confidence");
+
+        Finding det = counted(FindingType.STATUS_CODE_MISSING, Severity.MAJOR);   // DETERMINISTIC, HIGH confidence
+        assertThat(renderer.renderHtml(scan("svc"), List.of(det))).contains("High confidence");
+    }
+
+    @Test
+    void estimatedCostClauseIsHiddenWhenCostIsZero() {
+        // "Est. cost $0.0000" on a mock/free-tier run reads as broken — suppress it when the cost is zero.
+        assertThat(renderer.renderHtml(scan("svc"), List.of())).doesNotContain("Est. cost");
+        Scan paid = scan("svc");
+        paid.setTotalEstCostUsd(0.0123);
+        assertThat(renderer.renderHtml(paid, List.of())).contains("Est. cost").contains("$0.0123");
+    }
+
+    @Test
+    void footerCallsAnalysisDeterministicNotReliable() {
+        String html = renderer.renderHtml(scan("svc"), List.of());
+        assertThat(html).contains("deterministic — not an AI guess").doesNotContain("(reliable)");
+    }
+
+    @Test
+    void effortIsAQualitativeBandNotAFabricatedHourEstimate() {
+        List<Finding> two = List.of(counted(FindingType.STATUS_CODE_MISSING, Severity.MAJOR),
+                counted(FindingType.SCHEMA_FIELD_MISSING, Severity.MINOR));
+        String html = renderer.renderHtml(scan("svc"), two);
+        assertThat(html).contains("small effort").doesNotContain("rough est").doesNotContain("(approx.)");
+    }
+
     // ---- PDF render path uses the stacked distribution bar, not the donut ------------------------------
 
     @Test
