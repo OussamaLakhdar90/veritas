@@ -307,7 +307,10 @@ public class ContractValidationService {
             stage(scan, ScanStages.REPORTING);
             // Corrected YAML: prefer the LLM-reconciled spec IF it round-trips; else the deterministic
             // code-wins spec; never write a spec that fails to re-parse.
-            String primarySpecYaml = req.specs().isEmpty() ? null : req.specs().get(0).content();
+            // Choose the spec source that actually carries info/servers (a scan can supply several sources — a
+            // Confluence page, a fragment, the real OpenAPI doc — and the first by accident may have none), so the
+            // corrected "drop-in" YAML's metadata is real, not placeholder.
+            String primarySpecYaml = pickMetadataSpec(req.specs(), correctedSpecBuilder);
             String corrected = chooseCorrectedYaml(llmCorrected, code, req.serviceName(), primarySpecYaml);
             if (corrected != null) {
                 correctedYamlPath = writeOut("openapi.corrected-" + scan.getId() + ".yaml", corrected);
@@ -933,6 +936,29 @@ public class ContractValidationService {
         }
         String deterministic = correctedSpecBuilder.build(code, title, originalSpecYaml);
         return roundTrips(deterministic) ? deterministic : null;
+    }
+
+    /**
+     * Choose the spec source whose metadata the corrected YAML should carry: the first supplied spec that actually
+     * parses with a non-empty {@code info}/{@code servers} (or Swagger-2.0 {@code host}); else the first non-blank
+     * spec; else null. A scan can supply several sources and the first is not always the real OpenAPI document —
+     * selecting on metadata is what keeps the corrected "drop-in" title/version/servers real instead of placeholder.
+     */
+    static String pickMetadataSpec(List<SpecInput> specs, CorrectedSpecBuilder builder) {
+        String firstNonBlank = null;
+        for (SpecInput s : specs) {
+            String content = s == null ? null : s.content();
+            if (content == null || content.isBlank()) {
+                continue;
+            }
+            if (firstNonBlank == null) {
+                firstNonBlank = content;
+            }
+            if (builder.carriesMetadata(content)) {
+                return content;   // a source with real info/servers — prefer it
+            }
+        }
+        return firstNonBlank;
     }
 
     /** A short, human-readable reason from an exception chain — the root cause's message (or type), capped. */
