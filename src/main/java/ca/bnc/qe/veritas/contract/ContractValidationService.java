@@ -46,8 +46,10 @@ import ca.bnc.qe.veritas.persistence.Scan;
 import ca.bnc.qe.veritas.persistence.ScanRepository;
 import ca.bnc.qe.veritas.preflight.Preflight;
 import ca.bnc.qe.veritas.report.ContractReportRenderer;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -443,6 +445,17 @@ public class ContractValidationService {
      * it terse. This is what lets the LLM name params by their real location and build the corrected YAML from the
      * actual DTO shapes — replacing the old terse {@code "VERB /path"} signature lists it had to infer from.
      */
+    /**
+     * Serialize a reconcile-prompt data block with map keys sorted alphabetically, so the prompt — and therefore the
+     * SHA-256 cache key — is byte-stable across JVM runs regardless of source-map iteration order. Notably
+     * {@code Map.of(...)} iterates in a per-JVM RANDOMIZED order (a salted immutable map), which would otherwise
+     * change the prompt every restart, defeat the persistent cache, and re-generate (churn) the LLM design/INFO set.
+     * Sorted keys are semantically identical to the model.
+     */
+    static String promptJson(ObjectMapper mapper, Object value) throws JsonProcessingException {
+        return mapper.writer().with(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS).writeValueAsString(value);
+    }
+
     static Map<String, Object> apiEvidence(List<ApiModel> models) {
         List<Map<String, Object>> endpoints = new ArrayList<>();
         Map<String, Object> schemas = new LinkedHashMap<>();
@@ -597,14 +610,14 @@ public class ContractValidationService {
         // Structured, per-endpoint extracted models (params with exact location/type, request/response schemas, DTO
         // fields + constraints) — so the LLM names params by their real location and builds the corrected YAML from
         // the actual DTO shapes instead of inferring them from terse "VERB /path" signatures.
-        String codeApi = objectMapper.writeValueAsString(apiEvidence(List.of(code)));
-        String specApi = objectMapper.writeValueAsString(apiEvidence(specs));
+        String codeApi = promptJson(objectMapper, apiEvidence(List.of(code)));
+        String specApi = promptJson(objectMapper, apiEvidence(specs));
         // The real endpoint paths (code + spec) — an endpoint-scoped design finding about anything else is unverifiable.
         java.util.Set<String> knownPaths = new HashSet<>();
         code.endpoints().forEach(e -> knownPaths.add(e.pathTemplate().toLowerCase(java.util.Locale.ROOT)));
         specs.forEach(s -> s.endpoints().forEach(e -> knownPaths.add(e.pathTemplate().toLowerCase(java.util.Locale.ROOT))));
         // What the extractor actually parsed/resolved — so the LLM never claims a source it has is "not supplied".
-        String manifest = objectMapper.writeValueAsString(Map.of(
+        String manifest = promptJson(objectMapper, Map.of(
                 "parsedEndpoints", code.endpoints().size(),
                 "resolvedTypes", new ArrayList<>(code.schemas().keySet()),
                 "knownGaps", code.blindSpots() == null ? List.of() : code.blindSpots()));
@@ -687,7 +700,7 @@ public class ContractValidationService {
             if (batches.size() > 1) {
                 log.info("Scan {} reconcile batch {}/{} ({} finding(s))…", scanId, batchNo, batches.size(), batch.size());
             }
-            String batchJson = objectMapper.writeValueAsString(batch);
+            String batchJson = promptJson(objectMapper, batch);
             Set<String> batchIds = new HashSet<>();   // the deterministic ids sent THIS batch — disputes are bounded to them
             for (Map<String, String> m : batch) {
                 String id = m.get("findingId");
@@ -698,7 +711,7 @@ public class ContractValidationService {
             String inputs = promptComposer.data("DETERMINISTIC_FINDINGS", batchJson)
                     + promptComposer.data("CODE_API", codeApi)
                     + promptComposer.data("SPEC_API", specApi)
-                    + promptComposer.data("SPEC_PRESENCE_FACTS", objectMapper.writeValueAsString(presence))
+                    + promptComposer.data("SPEC_PRESENCE_FACTS", promptJson(objectMapper, presence))
                     + promptComposer.data("PARSED_SOURCE_MANIFEST", manifest);
             String prompt = promptComposer.compose("[CONTRACT-RECONCILE]", "validate-service-contract.prompt.md",
                     Set.of("1", "6", "12"), inputs, outputContract, modelSelector.promptTokenCap(model));
