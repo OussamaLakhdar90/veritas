@@ -139,6 +139,19 @@ class CorrectedSpecBuilderTest {
         assertThat(out).contains("https://legacy.example.com/v2").contains("http://legacy.example.com/v2");
     }
 
+    @Test
+    void carriesMetadataDetectsInfoServersHost_andRejectsFragmentsAndJunk() {
+        CorrectedSpecBuilder b = new CorrectedSpecBuilder();
+        assertThat(b.carriesMetadata("openapi: 3.0.0\ninfo:\n  title: X\n  version: 1.0.0\n"
+                + "servers:\n  - url: https://x\npaths: {}\n")).isTrue();          // info + servers
+        assertThat(b.carriesMetadata("openapi: 3.0.0\ninfo:\n  title: X\n  version: 1.0.0\npaths: {}\n")).isTrue(); // info only
+        assertThat(b.carriesMetadata("swagger: '2.0'\nhost: api.example.com\npaths: {}\n")).isTrue();               // Swagger-2 host
+        assertThat(b.carriesMetadata("paths:\n  /x:\n    get:\n      responses: {}\n")).isFalse();  // fragment: no info/servers
+        assertThat(b.carriesMetadata("")).isFalse();
+        assertThat(b.carriesMetadata(null)).isFalse();
+        assertThat(b.carriesMetadata("just a plain scalar, not a mapping")).isFalse();   // unparseable-as-map → false
+    }
+
     /** A code model with one endpoint whose 200 response the original spec also documents (with an example). */
     private static ApiModel codeWithGetThings() {
         SourceRef src = SourceRef.code("X.java", 1, 1, "x");

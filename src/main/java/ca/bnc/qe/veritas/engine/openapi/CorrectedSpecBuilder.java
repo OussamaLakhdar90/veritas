@@ -120,6 +120,32 @@ public class CorrectedSpecBuilder {
         }
     }
 
+    /**
+     * True when this spec text parses AND carries the metadata the overlay lifts — a non-empty {@code info} block,
+     * a non-empty {@code servers} list, or a Swagger-2.0 {@code host}. Used to choose the RIGHT spec source when a
+     * scan supplies several (a Confluence page, a fragment, and the real OpenAPI doc): pick one that actually has
+     * info/servers so the corrected YAML's metadata is real, not the first source by accident.
+     */
+    @SuppressWarnings("unchecked")
+    public boolean carriesMetadata(String specYaml) {
+        if (specYaml == null || specYaml.isBlank()) {
+            return false;
+        }
+        Map<String, Object> orig;
+        try {
+            orig = yaml.readValue(specYaml, Map.class);
+        } catch (Exception e) {
+            return false;   // unparseable → can't lift metadata from it
+        }
+        if (orig == null) {
+            return false;
+        }
+        boolean hasInfo = orig.get("info") instanceof Map<?, ?> info && !info.isEmpty();
+        boolean hasServers = orig.get("servers") instanceof List<?> servers && !servers.isEmpty();
+        boolean hasHost = orig.get("host") instanceof String host && !host.isBlank();
+        return hasInfo || hasServers || hasHost;
+    }
+
     /** Copy {@code x-*} extensions from the original spec into the corrected document (additive, code wins). */
     @SuppressWarnings("unchecked")
     private void overlayExtensions(Map<String, Object> root, String originalSpecYaml) {
