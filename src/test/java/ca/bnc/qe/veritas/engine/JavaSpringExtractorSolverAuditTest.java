@@ -148,8 +148,9 @@ class JavaSpringExtractorSolverAuditTest {
         assertThat(field(order, "items").type()).isEqualTo("array");
         assertThat(field(order, "items").refSchema()).isEqualTo("LineItem[]");   // DTO element captured
         assertThat(field(order, "tags").type()).isEqualTo("array");
-        assertThat(field(order, "tags").refSchema()).isNull();                   // scalar element → bare array
+        assertThat(field(order, "tags").refSchema()).isEqualTo("string[]");       // scalar element type now captured
         assertThat(field(order, "codes").type()).isEqualTo("array");             // Java array String[]
+        assertThat(field(order, "codes").refSchema()).isEqualTo("string[]");      // scalar element type captured
         assertThat(field(order, "id").type()).isEqualTo("string");              // non-collection field unaffected
     }
 

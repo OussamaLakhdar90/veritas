@@ -122,8 +122,8 @@ final class ConstraintReader {
         SourceRef fieldSrc = SourceRef.code(node.findCompilationUnit().flatMap(CompilationUnit::getStorage)
                 .map(s -> relPath(sourceRoot, s.getPath())).orElse("?"), line(node), line(node), null);
         // Collection field (List<Foo>, Set<Foo>, Foo[]) → an ARRAY of the element type, not a single {type:object}.
-        // type="array" matches the spec side; refSchema "Foo[]" lets the corrected-YAML render items (DTO elements
-        // only — a scalar element stays a bare array).
+        // type="array" matches the spec side; refSchema "<elem>[]" lets the corrected-YAML render items — "Foo[]" for
+        // a DTO element (items:$ref) and e.g. "string[]" for a scalar element (items:{type:string}).
         String element = collectionElement(type);
         if (element != null) {
             // byte[]/Byte[] is a BINARY payload Jackson serializes as a base64 STRING (OpenAPI string/binary), NOT a
@@ -133,7 +133,18 @@ final class ConstraintReader {
             if (type instanceof ArrayType && ("byte".equals(element) || "Byte".equals(element))) {
                 return new FieldModel(jsonName, "string", "byte", required, cs.withoutLength(), null, fieldSrc);
             }
-            String elemRef = types.containsKey(element) ? element + "[]" : null;
+            // Carry the element type via the refSchema "<name>[]" convention: a DTO element → "Foo[]" (items:$ref); a
+            // SCALAR element (String/Integer/boolean/…) → its OpenAPI type + "[]" (e.g. "string[]") so the corrected
+            // YAML renders items:{type:string} instead of a bare, self-contradictory type:array. When openApiType
+            // can't map the element to a scalar ("object": an unknown DTO not in `types`, Map, wildcard-Object) we
+            // keep the pre-fix bare array (elemRef=null) — never invent items:{type:object} that could false-diff.
+            String elemRef;
+            if (types.containsKey(element)) {
+                elemRef = element + "[]";
+            } else {
+                String scalar = openApiType(element)[0];
+                elemRef = "object".equals(scalar) ? null : scalar + "[]";
+            }
             // @Size on a collection is an item-count (minItems) bound, not string length — drop it so it doesn't
             // false-diff as a minLength CONSTRAINT_GAP against a spec that (correctly) uses minItems.
             return new FieldModel(jsonName, "array", null, required, cs.withoutLength(), elemRef, fieldSrc);

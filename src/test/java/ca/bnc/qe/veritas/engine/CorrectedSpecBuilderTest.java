@@ -40,6 +40,46 @@ class CorrectedSpecBuilderTest {
         assertThat(reparsed.model().schemas()).containsKey("Thing");
     }
 
+    @Test
+    @SuppressWarnings("unchecked")
+    void scalarArrayFieldEmitsTypedItems_whileDtoArrayStillEmitsRefItems() throws Exception {
+        // Regression: a scalar array (refSchema "string[]") must render items:{type: string} — NOT a bare type:array
+        // (self-contradictory vs a String[] field) and NOT items:{$ref:.../string}. A DTO array ("Thing[]") keeps
+        // items:{$ref}. Guards the ConstraintReader → CorrectedSpecBuilder element-type path.
+        SourceRef src = SourceRef.code("X.java", 1, 1, "x");
+        Endpoint ep = new Endpoint(HttpMethod.GET, "/things", "getThings", List.of(), null,
+                List.of(new ResponseModel(200, "Thing", null, "RETURN", src)), null, null, List.of(), src);
+        SchemaModel thing = new SchemaModel("Thing", "object", List.of(
+                new FieldModel("name", "string", null, true, ConstraintSet.empty(), null, src),
+                new FieldModel("tags", "array", null, false, ConstraintSet.empty(), "string[]", src),
+                new FieldModel("related", "array", null, false, ConstraintSet.empty(), "Thing[]", src)), null, src);
+        ApiModel code = new ApiModel("code", null, null, null, List.of(ep), Map.of("Thing", thing));
+
+        String yaml = new CorrectedSpecBuilder().build(code, "Things API");
+        Map<String, Object> props = (Map<String, Object>) nested(
+                new com.fasterxml.jackson.dataformat.yaml.YAMLMapper().readValue(yaml, Map.class),
+                "components", "schemas", "Thing", "properties");
+
+        Map<String, Object> tags = (Map<String, Object>) props.get("tags");
+        assertThat(tags).containsEntry("type", "array");
+        Map<String, Object> tagItems = (Map<String, Object>) tags.get("items");
+        assertThat(tagItems).containsEntry("type", "string").doesNotContainKey("$ref");
+
+        Map<String, Object> related = (Map<String, Object>) props.get("related");
+        Map<String, Object> relItems = (Map<String, Object>) related.get("items");
+        assertThat(String.valueOf(relItems.get("$ref"))).contains("Thing");
+        assertThat(relItems).doesNotContainKey("type");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Object nested(Map<String, Object> root, String... path) {
+        Object cur = root;
+        for (String k : path) {
+            cur = ((Map<String, Object>) cur).get(k);
+        }
+        return cur;
+    }
+
     /** A code model with one endpoint whose 200 response the original spec also documents (with an example). */
     private static ApiModel codeWithGetThings() {
         SourceRef src = SourceRef.code("X.java", 1, 1, "x");
