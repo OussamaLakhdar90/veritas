@@ -37,25 +37,28 @@ class ContractReportRendererTest {
     }
 
     @Test
-    void trendLine_alwaysRenders_deltaWhenPriorScore_elseFirstScanNote() {
+    void trendLine_alwaysRenders_deltaWhenPriorScore_elseNeutralNote_neverFalseFirstScanClaim() {
         ContractReportRenderer renderer = new ContractReportRenderer();
 
-        // First scan of a service (no prior score — e.g. a fresh/reset DB): the trend line STILL renders, so it
-        // never silently disappears (a missing line reads as a regression, as a reviewer flagged).
+        // No prior score on record (fresh/reset/relocated DB, or a genuine first scan): the trend line STILL renders
+        // (a missing line reads as a regression) but must state ONLY what is true — nothing earlier is on record. It
+        // must NOT claim "first scan of this service": that is unprovable and was factually wrong on a re-scan whose
+        // history lived in another DB file (the regression a reviewer flagged). Regression guard below.
         Scan first = new Scan();
         first.setServiceName("ciam-policies");
         first.setFidelityScore(89);
         assertThat(renderer.renderHtml(first, List.of(richFinding())))
-                .contains("first scan of this service");
+                .contains("no earlier score on record")
+                .doesNotContain("first scan");
 
-        // With a prior score, the delta trend renders as before — and NOT the first-scan note.
+        // With a prior score, the delta trend renders as before — and NOT the neutral no-record note.
         Scan again = new Scan();
         again.setServiceName("ciam-policies");
         again.setFidelityScore(89);
         again.setPreviousFidelityScore(89);
         assertThat(renderer.renderHtml(again, List.of(richFinding())))
                 .contains("vs previous scan (was 89)")
-                .doesNotContain("first scan of this service");
+                .doesNotContain("no earlier score on record");
     }
 
     @Test

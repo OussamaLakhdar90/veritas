@@ -26,6 +26,12 @@ public class SettingsEnvironmentPostProcessor implements EnvironmentPostProcesso
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment env, SpringApplication application) {
+        // Guarantee ~/.veritas exists BEFORE the SQLite datasource opens ${user.home}/.veritas/veritas.db (SQLite
+        // creates the db file but not missing parent dirs). Anchoring the DB in the home dir — not the process cwd —
+        // is what keeps scan history (and the report Trend line) stable across rebuilds/relaunches from any directory.
+        // Runs first so it applies even when a passphrase is already supplied (the early-return below is skipped for it).
+        ensureHomeDir();
+
         boolean auto = env.getProperty("veritas.secret.auto-passphrase", Boolean.class, true);
         boolean already = !env.getProperty("veritas.secret.passphrase", "").isBlank();
         if (!auto || already) {
@@ -103,6 +109,16 @@ public class SettingsEnvironmentPostProcessor implements EnvironmentPostProcesso
             // corrupt/unreadable → fall back to yaml defaults (no crash, pre-context so no logger)
         }
         return out;
+    }
+
+    /** Ensure {@code ~/.veritas} exists so the default SQLite datasource can open its db file there on first run. */
+    private void ensureHomeDir() {
+        try {
+            Files.createDirectories(Path.of(System.getProperty("user.home"), ".veritas"));
+        } catch (Exception ignore) {
+            // pre-context (no logger). Only the default local SQLite path needs this dir; tests override the URL and
+            // the 'server' profile uses Postgres, so a failure here is non-fatal to those paths.
+        }
     }
 
     /** Read the machine key, creating it on first run. Returns null if it can't be created (store stays disabled). */

@@ -342,11 +342,20 @@ public class ContractValidationService {
             // Contract Fidelity Score + trend vs the previous scan of this service (deterministic, management KPI).
             final Scan current = scan;
             current.setFidelityScore(ca.bnc.qe.veritas.report.FidelityScore.of(findings));
-            scanRepository.findAllByOrderByStartedAtDesc().stream()
-                    .filter(s -> req.serviceName() != null && req.serviceName().equals(s.getServiceName()))
-                    .filter(s -> s.getFidelityScore() != null && !s.getId().equals(current.getId()))
-                    .findFirst()
-                    .ifPresent(prev -> current.setPreviousFidelityScore(prev.getFidelityScore()));
+            final String svcName = req.serviceName() == null ? null : req.serviceName().trim();
+            if (svcName != null && !svcName.isEmpty()) {
+                // Match the prior scan on a NORMALIZED service name (trim + case-insensitive) so history is not lost
+                // when the name differs only by whitespace/casing across builds, and pick the most recent qualifying
+                // prior DETERMINISTICALLY (newest startedAt, ties broken by id) so the trend is stable run-to-run.
+                scanRepository.findAllByOrderByStartedAtDesc().stream()
+                        .filter(s -> s.getServiceName() != null && svcName.equalsIgnoreCase(s.getServiceName().trim()))
+                        .filter(s -> s.getFidelityScore() != null && !s.getId().equals(current.getId()))
+                        .max(java.util.Comparator
+                                .comparing(Scan::getStartedAt,
+                                        java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder()))
+                                .thenComparing(s -> s.getId() == null ? "" : s.getId()))
+                        .ifPresent(prev -> current.setPreviousFidelityScore(prev.getFidelityScore()));
+            }
 
             // Report generation is deterministic; the ONLY LLM use here is translating the dynamic strings to
             // French on the cheapest tier (TranslationService). Non-fatal — falls back to English.
