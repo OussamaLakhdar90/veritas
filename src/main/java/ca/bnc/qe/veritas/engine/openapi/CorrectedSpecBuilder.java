@@ -156,6 +156,100 @@ public class CorrectedSpecBuilder {
     }
 
     /**
+     * Factor responses that repeat IDENTICALLY across operations into shared {@code components/responses} entries and
+     * replace each inline occurrence with a {@code $ref} — the DRY structure a hand-written spec (and the original)
+     * uses, instead of inline-duplicating the same body on every operation. Purely structural and behaviour-preserving:
+     * only responses STRUCTURALLY IDENTICAL across &ge; 2 operations are hoisted (differing bodies for a status stay
+     * inline), the hoisted entry is a deep copy keyed by its status code, an existing {@code components/responses} name
+     * is never overwritten, and responses that are already a {@code $ref} are left alone. Returns the input unchanged on
+     * any problem or when there is nothing to share — the caller re-validates.
+     */
+    @SuppressWarnings("unchecked")
+    public String deduplicateResponses(String correctedYaml) {
+        if (correctedYaml == null || correctedYaml.isBlank()) {
+            return correctedYaml;
+        }
+        Map<String, Object> root;
+        try {
+            root = yaml.readValue(correctedYaml, Map.class);
+        } catch (Exception e) {
+            return correctedYaml;
+        }
+        if (root == null || !(root.get("paths") instanceof Map<?, ?> paths)) {
+            return correctedYaml;
+        }
+        // status code -> every inline occurrence of that response across operations: {responses-map, key, body}.
+        Map<String, List<Object[]>> byStatus = new LinkedHashMap<>();
+        for (Object item : asMap(paths).values()) {
+            if (!(item instanceof Map<?, ?> pathItem)) {
+                continue;
+            }
+            for (Object op : asMap(pathItem).values()) {
+                if (!(op instanceof Map<?, ?> opMap) || !(asMap(opMap).get("responses") instanceof Map<?, ?> resps)) {
+                    continue;
+                }
+                Map<String, Object> respMap = asMap(resps);
+                for (Object key : new ArrayList<>(respMap.keySet())) {
+                    if (!(respMap.get(key) instanceof Map<?, ?> body) || asMap(body).containsKey("$ref")) {
+                        continue;   // already a $ref → nothing to hoist
+                    }
+                    byStatus.computeIfAbsent(String.valueOf(key), k -> new ArrayList<>())
+                            .add(new Object[] {respMap, key, body});
+                }
+            }
+        }
+        Map<String, Object> shared = existingResponses(root);
+        boolean changed = false;
+        for (Map.Entry<String, List<Object[]>> e : byStatus.entrySet()) {
+            List<Object[]> occ = e.getValue();
+            Object canonical = occ.get(0)[2];
+            if (occ.size() < 2 || !occ.stream().allMatch(o -> canonical.equals(o[2]))) {
+                continue;   // not duplicated, or the status has differing bodies → can't share
+            }
+            String name = e.getKey();
+            if (shared != null && shared.containsKey(name)) {
+                continue;   // name already taken → don't overwrite
+            }
+            shared = targetResponses(root);
+            shared.put(name, deepCopy(canonical));
+            for (Object[] o : occ) {
+                Map<String, Object> ref = new LinkedHashMap<>();
+                ref.put("$ref", "#/components/responses/" + name);
+                ((Map<Object, Object>) o[0]).put(o[1], ref);   // put back at the response's ORIGINAL status key
+            }
+            changed = true;
+        }
+        if (!changed) {
+            return correctedYaml;
+        }
+        try {
+            return yaml.writeValueAsString(root);
+        } catch (Exception e) {
+            return correctedYaml;
+        }
+    }
+
+    private static Map<String, Object> existingResponses(Map<String, Object> root) {
+        if (root.get("components") instanceof Map<?, ?> c && asMap(c).get("responses") instanceof Map<?, ?> r) {
+            return asMap(r);
+        }
+        return null;
+    }
+
+    /** The corrected document's {@code components/responses} map, creating {@code components}/{@code responses} if absent. */
+    private Map<String, Object> targetResponses(Map<String, Object> root) {
+        Map<String, Object> existing = existingResponses(root);
+        if (existing != null) {
+            return existing;
+        }
+        Map<String, Object> comps = root.get("components") instanceof Map<?, ?> c ? asMap(c) : new LinkedHashMap<>();
+        Map<String, Object> created = new LinkedHashMap<>();
+        comps.put("responses", created);
+        root.put("components", comps);
+        return created;
+    }
+
+    /**
      * Enrich the corrected spec's ERROR responses (4xx/5xx) so a generic {@code {type: object}} body references the
      * ORIGINAL spec's documented error schema (e.g. {@code error-model}) instead of an anonymous object. The code
      * models error bodies as an untyped {@code Object}; the original usually documents a real error contract. The

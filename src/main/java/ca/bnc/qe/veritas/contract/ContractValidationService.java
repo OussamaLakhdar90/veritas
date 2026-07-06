@@ -972,10 +972,11 @@ public class ContractValidationService {
             return null;
         }
         // Optional enrichment: adopt the ORIGINAL spec's structured error schema (e.g. error-model) for error responses
-        // instead of the code's generic {type: object}. Guarded — keep it only if it still round-trips (dangling refs
-        // sanitised first), so it can never regress a valid spec into an invalid one.
-        String enriched = correctedSpecBuilder.withoutDanglingRefs(
-                correctedSpecBuilder.withErrorSchemasFromSpec(base, originalSpecYaml));
+        // instead of the code's generic {type: object}; then factor responses that repeat across operations into shared
+        // components/responses (the DRY structure a hand-written spec uses). Guarded — kept only if the result still
+        // round-trips (dangling refs sanitised first), so it can never regress a valid spec into an invalid one.
+        String enriched = correctedSpecBuilder.deduplicateResponses(correctedSpecBuilder.withoutDanglingRefs(
+                correctedSpecBuilder.withErrorSchemasFromSpec(base, originalSpecYaml)));
         return roundTrips(enriched) ? enriched : base;
     }
 
