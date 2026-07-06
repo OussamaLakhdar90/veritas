@@ -174,4 +174,39 @@ class JiraServerClientWireMockTest {
         assertThat(meta.epicLinkFieldKey()).isEqualTo("customfield_10001");
         assertThat(meta.teamFieldKey()).isEqualTo("customfield_10002");
     }
+
+    @Test
+    void createMetaFallsBackToTheV9EndpointsWhenTheClassicOneIsGone() {
+        // Jira 9.x REMOVED the classic createmeta (?projectKeys&expand) — it 404s. The client must fall back to the
+        // paginated /createmeta/{project}/issuetypes[/{id}] endpoints so Epic-Link discovery keeps working.
+        wm.stubFor(get(urlPathEqualTo("/rest/api/2/issue/createmeta")).willReturn(aResponse().withStatus(404)));
+        wm.stubFor(get(urlPathEqualTo("/rest/api/2/issue/createmeta/CIAM/issuetypes")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"values\":[{\"id\":\"10100\",\"name\":\"Task\"},{\"id\":\"10001\",\"name\":\"Bug\"}]}")));
+        wm.stubFor(get(urlPathEqualTo("/rest/api/2/issue/createmeta/CIAM/issuetypes/10001")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"values\":[{\"fieldId\":\"summary\",\"name\":\"Summary\"},"
+                        + "{\"fieldId\":\"customfield_10014\",\"name\":\"Epic Link\"}]}")));
+
+        CreateMeta meta = client().createMeta("CIAM", "Bug");
+
+        assertThat(meta.allowedFields()).contains("summary", "customfield_10014");
+        assertThat(meta.epicLinkFieldKey()).isEqualTo("customfield_10014");
+    }
+
+    @Test
+    void createIssueStillSucceedsWhenCreateMetaFailsForTheEpicLink() {
+        // A create-meta failure (404 classic + broken v9) must NOT sink the whole create — file the ticket UNLINKED
+        // rather than losing it entirely (the reported regression: a createMeta 404 aborted the app-ticket launch).
+        wm.stubFor(get(urlPathEqualTo("/rest/api/2/issue/createmeta")).willReturn(aResponse().withStatus(404)));
+        wm.stubFor(get(urlPathEqualTo("/rest/api/2/issue/createmeta/CIAM/issuetypes"))
+                .willReturn(aResponse().withStatus(500)));
+        wm.stubFor(post(urlPathEqualTo("/rest/api/2/issue")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json").withBody("{\"key\":\"CIAM-9\"}")));
+
+        String key = client().createIssue(new JiraCreateRequest(
+                "CIAM", "Task", "summary", List.of("desc"), List.of("veritas"), "CIAM-100"));
+
+        assertThat(key).isEqualTo("CIAM-9");   // created (unlinked) despite create-meta being unavailable
+    }
 }
