@@ -28,6 +28,18 @@ public final class ReportNaming {
         return "contract-report-" + service + "-" + model + "-" + date;
     }
 
+    /**
+     * On-disk filename for a scan's corrected OpenAPI YAML: {@code openapi.corrected-<scanId>.yaml}. Keyed on the
+     * (unique) scan id so co-located scans in {@code out/} never collide. The report WRITER, the report's
+     * "Download the corrected OpenAPI YAML" LINK, and the serving ENDPOINT all derive the name here, so they can
+     * never drift out of sync (a mismatch made the link 404 in every report). The id is a UUID-safe token
+     * ({@code [A-Za-z0-9_-]}); slug it defensively so the name can never carry a path separator, with a stable
+     * fallback when the scan is unsaved (no id yet).
+     */
+    public static String correctedSpecName(Scan scan) {
+        return "openapi.corrected-" + slug(scan == null ? null : scan.getId(), "spec") + ".yaml";
+    }
+
     /** A safe filename token: keep {@code [A-Za-z0-9_-]}, collapse everything else (incl. '.', '/', spaces) to '-',
      *  trim leading/trailing '-', cap length, and fall back when the result is blank. */
     private static String slug(String raw, String fallback) {

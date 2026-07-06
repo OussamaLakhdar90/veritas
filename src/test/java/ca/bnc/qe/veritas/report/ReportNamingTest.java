@@ -42,4 +42,25 @@ class ReportNamingTest {
         String name = ReportNaming.baseName(scan("../../etc/passwd", "../x", Instant.parse("2026-01-01T00:00:00Z")));
         assertThat(name).doesNotContain("/").doesNotContain("\\").doesNotContain("..");
     }
+
+    @Test
+    void correctedSpecNameIsKeyedOnTheScanId() {
+        // The corrected-YAML filename the writer + the report link + the serving endpoint all share — keyed on the
+        // (unique) scan id so co-located scans in out/ never collide.
+        Scan s = scan("ciam-policies", "m", Instant.parse("2026-01-01T00:00:00Z"));
+        s.setId("abc-123");
+        assertThat(ReportNaming.correctedSpecName(s)).isEqualTo("openapi.corrected-abc-123.yaml");
+    }
+
+    @Test
+    void correctedSpecNameFallsBackAndStaysSafeWhenIdIsBlankOrUnsafe() {
+        Scan blank = scan("svc", "m", null);
+        blank.setId("   ");
+        assertThat(ReportNaming.correctedSpecName(blank)).isEqualTo("openapi.corrected-spec.yaml");
+        Scan evil = scan("svc", "m", null);
+        evil.setId("../../etc/passwd");
+        assertThat(ReportNaming.correctedSpecName(evil))
+                .doesNotContain("/").doesNotContain("\\").doesNotContain("..")
+                .startsWith("openapi.corrected-").endsWith(".yaml");
+    }
 }
