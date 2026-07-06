@@ -37,4 +37,14 @@ class ReposControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0]").value("develop"));
     }
+
+    @Test
+    void searchesBitbucketUsersForTheReviewerPicker() throws Exception {
+        when(gitHost.searchUsers("ali", 25)).thenReturn(List.of(
+                new GitHost.GitUser("alice", "Alice Ng"), new GitHost.GitUser("alicia", "Alicia Ba")));
+        mvc.perform(get("/api/v1/bitbucket/users").param("query", "ali"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].name").value("alice"))
+                .andExpect(jsonPath("$[0].displayName").value("Alice Ng"));
+    }
 }

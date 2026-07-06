@@ -73,6 +73,27 @@ class BitbucketServerClientWireMockTest {
     }
 
     @Test
+    void searchUsersFiltersByQueryAndDropsBlankNames() {
+        wm.stubFor(get(urlPathEqualTo("/rest/api/1.0/users")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"values\":[{\"name\":\"alice\",\"displayName\":\"Alice Ng\"},"
+                        + "{\"name\":\"\",\"displayName\":\"blank\"},"
+                        + "{\"name\":\"alicia\",\"displayName\":\"Alicia Ba\"}]}")));
+
+        List<GitHost.GitUser> users = client("BEARER").searchUsers("ali", 25);
+
+        assertThat(users).extracting(GitHost.GitUser::name).containsExactly("alice", "alicia");   // blank-name row dropped
+        assertThat(users).extracting(GitHost.GitUser::displayName).containsExactly("Alice Ng", "Alicia Ba");
+        wm.verify(getRequestedFor(urlPathEqualTo("/rest/api/1.0/users")).withQueryParam("filter", equalTo("ali")));
+    }
+
+    @Test
+    void searchUsersReturnsEmptyForABlankQueryWithoutCallingBitbucket() {
+        assertThat(client("BEARER").searchUsers("  ", 25)).isEmpty();
+        wm.verify(0, getRequestedFor(urlPathEqualTo("/rest/api/1.0/users")));
+    }
+
+    @Test
     void rejectsAPathInjectingProjectKeyOrRepoSlug() {
         BitbucketServerClient c = client("BEARER");
         // A valid key builds a normal URL...

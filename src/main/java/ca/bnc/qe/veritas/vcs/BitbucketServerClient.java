@@ -1,6 +1,7 @@
 package ca.bnc.qe.veritas.vcs;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -104,6 +105,31 @@ public class BitbucketServerClient implements GitHost {
             branches.add(0, defaultBranch);
         }
         return branches;
+    }
+
+    @Override
+    public List<GitHost.GitUser> searchUsers(String query, int max) {
+        String q = query == null ? "" : query.trim();
+        if (q.isEmpty()) {
+            return List.of();
+        }
+        try {
+            String uri = base() + "/rest/api/1.0/users?limit=" + Math.max(1, Math.min(max, 50))
+                    + "&filter=" + URLEncoder.encode(q, StandardCharsets.UTF_8);
+            String body = retries.call(() -> http.get().uri(URI.create(uri))
+                    .header("Authorization", authHeader()).retrieve().body(String.class));
+            JsonNode root = mapper.readTree(body == null ? "{}" : body);
+            List<GitHost.GitUser> users = new ArrayList<>();
+            for (JsonNode v : root.path("values")) {
+                String name = v.path("name").asText("");   // the Server/DC username actually used as a PR reviewer
+                if (!name.isBlank()) {
+                    users.add(new GitHost.GitUser(name, v.path("displayName").asText(name)));
+                }
+            }
+            return users;
+        } catch (Exception e) {
+            throw new IllegalStateException("Bitbucket Server user search failed for '" + q + "': " + e.getMessage(), e);
+        }
     }
 
     @Override
