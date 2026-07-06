@@ -190,6 +190,71 @@ describe('Snyk page', () => {
     expect(await screen.findByText('application-tests')).toBeInTheDocument()
   })
 
+  it('surfaces a new watch’s vulnerabilities when its background poll completes (no manual refresh)', async () => {
+    // The row is persisted synchronously (0 counts, never checked), then its initial vulnerability poll runs in the
+    // BACKGROUND. The page must re-read when that poll finishes so the real severity counts appear on their own —
+    // WITHOUT the user clicking "Refresh now" (the reported bug). Completion is signalled by the shared refresh/status.
+    let watched = false
+    let statusReads = 0
+    const polled = () => statusReads >= 2   // 1st status read: still running; 2nd onward: poll done
+    server.use(
+      http.get('*/api/v1/snyk/orgs', () => HttpResponse.json([{ id: 'o1', slug: 'app7576', name: 'CIAM Profile' }])),
+      http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([])),
+      http.get('*/api/v1/snyk/watches', () => HttpResponse.json(!watched ? [] : [{
+        id: 'w1', orgId: 'o1', orgSlug: 'app7576', orgName: 'CIAM Profile', targetId: 't1',
+        repoSlug: 'application-tests', enabled: true,
+        critical: polled() ? 3 : 0, high: polled() ? 1 : 0, medium: 0, low: 0,
+        fixable: polled() ? 2 : 0, projectCount: polled() ? 1 : 0,
+        lastPolled: polled() ? '2026-07-05T12:00:00.000Z' : null,
+      }])),
+      http.post('*/api/v1/snyk/watches/by-app', () => {
+        watched = true   // the row is saved before the response; the poll happens in the background
+        return HttpResponse.json({ id: 'w1', orgId: 'o1', orgSlug: 'app7576', orgName: 'CIAM Profile',
+          targetId: 't1', repoSlug: 'application-tests', enabled: true, critical: 0, high: 0, medium: 0,
+          low: 0, fixable: 0, projectCount: 0 }, { status: 201 })
+      }),
+      // First read: the background poll is still running; subsequent reads: done → the page settles + re-reads.
+      http.get('*/api/v1/snyk/refresh/status', () => {
+        statusReads += 1
+        return HttpResponse.json({ running: statusReads < 2, lastRefreshedAt: '2026-07-05T12:00:00.000Z' })
+      }),
+    )
+    const user = userEvent.setup()
+    renderSnyk()
+
+    await user.click((await screen.findAllByRole('checkbox'))[0])
+    await user.click(screen.getByRole('button', { name: /Watch selected/ }))
+
+    // The card first shows 0 counts (row persisted, poll not done)…
+    expect(await screen.findByText('application-tests')).toBeInTheDocument()
+    // …then, when the background poll completes, the real Critical count surfaces on its own (no manual refresh).
+    expect(await screen.findByText('3 Critical', {}, { timeout: 5000 })).toBeInTheDocument()
+  })
+
+  it('does not get stuck "refreshing" when the status endpoint keeps failing (bounded failsafe)', async () => {
+    // If GET /snyk/refresh/status is down, the settle can never see running:false — without a failsafe the page would
+    // hang in a permanent "refreshing" state (spinner + disabled Refresh). The error-aware settle must clear it.
+    server.use(
+      http.get('*/api/v1/snyk/orgs', () => HttpResponse.json([{ id: 'o1', slug: 'app7576', name: 'CIAM Profile' }])),
+      http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([])),
+      http.get('*/api/v1/snyk/watches', () => HttpResponse.json([])),
+      http.post('*/api/v1/snyk/watches/by-app', () =>
+        HttpResponse.json({ id: 'w1', orgId: 'o1', orgSlug: 'app7576', orgName: 'CIAM Profile', targetId: 't1',
+          repoSlug: 'application-tests', enabled: true, critical: 0, high: 0, medium: 0, low: 0, fixable: 0,
+          projectCount: 0 }, { status: 201 })),
+      http.get('*/api/v1/snyk/refresh/status', () => new HttpResponse(null, { status: 500 })),
+    )
+    const user = userEvent.setup()
+    renderSnyk()
+    await user.click((await screen.findAllByRole('checkbox'))[0])
+    await user.click(screen.getByRole('button', { name: /Watch selected/ }))
+
+    // The watch is added; the "refreshing" indicator must NOT hang once the status query errors out (retries are off).
+    expect(await screen.findByText('Now watching 1 application.')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText('Refreshing from Snyk…')).not.toBeInTheDocument(),
+      { timeout: 5000 })
+  })
+
   it('shows the empty state when no repos are watched', async () => {
     emptyBase()
     renderSnyk()

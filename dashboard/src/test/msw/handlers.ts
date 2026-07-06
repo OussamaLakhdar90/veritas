@@ -32,6 +32,10 @@ export const handlers = [
   })),
   // The TopBar alert bell polls unseen Snyk alerts app-wide; default empty so unrelated tests don't see it.
   http.get('*/api/v1/snyk/alerts', () => HttpResponse.json([])),
+  // A new watch's initial poll (and "Refresh now") run in the background; the Snyk page polls this to know when to
+  // settle. Default to "not running" so tests that don't drive the poll don't see an unhandled request.
+  http.get('*/api/v1/snyk/refresh/status', () =>
+    HttpResponse.json({ running: false, lastRefreshedAt: null })),
   // The ActivityCenterProvider polls the unified activity feed app-wide; default empty (nothing running),
   // and acknowledge succeeds silently. Tests that exercise the dock/bell override via server.use(...).
   http.get('*/api/v1/activity', () => HttpResponse.json([])),
