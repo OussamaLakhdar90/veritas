@@ -574,10 +574,10 @@ class CorrectedSpecBuilderTest {
     // ---- optional enrichment: adopt the original spec's structured error contract for error responses -------------
 
     @Test
-    void withErrorSchemasFromSpec_adoptsTheOriginalStructuredErrorContractForErrorResponses() throws Exception {
-        // The code models error bodies as an untyped Object (→ inline {type: object}). When the original spec defined a
-        // structured error schema (error-model via application/problem+json), preserve it in the corrected error
-        // responses — richer, keeps the original error contract. Success responses stay code-authoritative.
+    void withErrorSchemasFromSpec_referencesTheDocumentedErrorSchemaKeepingTheCorrectedMediaType() throws Exception {
+        // The code models error bodies as an untyped Object (→ inline {type: object}). When the original spec documents
+        // a structured error schema (error-model), reference it — richer — but KEEP the corrected response's own media
+        // type (code wins on media type; never swap it to the spec's). Success responses stay code-authoritative.
         String corrected = """
                 openapi: 3.0.3
                 info: { title: X, version: 1.0.0 }
@@ -622,11 +622,116 @@ class CorrectedSpecBuilderTest {
         String out = new CorrectedSpecBuilder().withErrorSchemasFromSpec(corrected, original);
 
         assertThat(out).contains("#/components/schemas/error-model");   // the 404 now references the structured error…
-        assertThat(out).contains("application/problem+json");           // …via the original's media type
-        assertThat(out).contains("error-model:");                       // and the schema itself was copied into components
+        assertThat(out).contains("error-model:");                       // …and the schema itself was copied into components
         assertThat(out).contains("#/components/schemas/Thing");         // the 200 (success) response is untouched
+        assertThat(out).doesNotContain("application/problem+json");     // the spec's media type was NOT adopted (code wins)
         assertThat(new OpenApiModelExtractor().extract("corrected", out).parsed()).isTrue();
         assertThat(everyRefResolves(out)).isTrue();                     // no dangling ref introduced
+    }
+
+    @Test
+    void withErrorSchemasFromSpec_referencesTheErrorSchemaEvenWhenCodeAndSpecPathsDiffer() throws Exception {
+        // The regression the ciam-policies report kept flagging: the CODE's routes carry a context-path prefix and a
+        // renamed path var (/ciam/policies vs /policies, {app} vs {appId}), and the code returns application/problem+json
+        // generic error bodies for MORE statuses (400/404/406/500) than the spec documents (400/404, via a shared
+        // components/responses with an {error: $ref error-model} wrapper and examples). An exact path match can't fire,
+        // so nothing was enriched (error-model dropped). Path-independent enrichment must: reference error-model on ALL
+        // generic error bodies, KEEP problem+json, copy error-model into components, and NOT drag in the spec's
+        // application/json media type or its dangling example refs. RED before the fix (out == corrected, no error-model).
+        String corrected = """
+                openapi: 3.0.3
+                info: { title: CIAM Policies, version: 1.0.0 }
+                paths:
+                  /ciam/policies:
+                    get:
+                      responses:
+                        '200':
+                          description: OK
+                          content:
+                            application/json:
+                              schema: { $ref: '#/components/schemas/policies' }
+                        '400': { description: Bad Request, content: { application/problem+json: { schema: { type: object } } } }
+                        '404': { description: Not Found, content: { application/problem+json: { schema: { type: object } } } }
+                        '406': { description: Response 406, content: { application/problem+json: { schema: { type: object } } } }
+                        '500': { description: Internal Server Error, content: { application/problem+json: { schema: { type: object } } } }
+                  /ciam/policies/{app}:
+                    get:
+                      responses:
+                        '200':
+                          description: OK
+                          content:
+                            application/json:
+                              schema: { $ref: '#/components/schemas/policies' }
+                        '404': { description: Not Found, content: { application/problem+json: { schema: { type: object } } } }
+                components:
+                  schemas:
+                    policies: { type: object, properties: { password: { type: string } } }
+                """;
+        String original = """
+                openapi: 3.0.0
+                info: { title: CIAM Policies, version: 1.0.5 }
+                paths:
+                  /policies:
+                    get:
+                      responses:
+                        '200': { $ref: '#/components/responses/200' }
+                        '400': { $ref: '#/components/responses/400' }
+                        '404': { $ref: '#/components/responses/404' }
+                  /policies/{appId}:
+                    get:
+                      responses:
+                        '200': { $ref: '#/components/responses/200' }
+                        '400': { $ref: '#/components/responses/400' }
+                        '404': { $ref: '#/components/responses/404' }
+                components:
+                  responses:
+                    '200':
+                      description: OK
+                      content:
+                        application/json:
+                          schema: { $ref: '#/components/schemas/policies' }
+                    '400':
+                      description: Bad request
+                      content:
+                        application/json:
+                          schema:
+                            type: object
+                            properties:
+                              error: { $ref: '#/components/schemas/error-model' }
+                          examples:
+                            policy-bad-request: { $ref: '#/components/examples/400' }
+                    '404':
+                      description: Not found
+                      content:
+                        application/json:
+                          schema:
+                            type: object
+                            properties:
+                              error: { $ref: '#/components/schemas/error-model' }
+                          examples:
+                            policy-not-found: { $ref: '#/components/examples/404' }
+                  examples:
+                    '400': { value: { error: { title: Bad Request } } }
+                    '404': { value: { error: { title: Not Found } } }
+                  schemas:
+                    policies: { type: object, properties: { password: { type: string } } }
+                    error-model:
+                      type: object
+                      required: [type, title, status, message]
+                      properties:
+                        type: { type: string }
+                        title: { type: string }
+                        status: { type: integer }
+                        message: { type: string }
+                """;
+        String out = new CorrectedSpecBuilder().withErrorSchemasFromSpec(corrected, original);
+
+        assertThat(out).contains("#/components/schemas/error-model");   // generic error bodies now reference error-model…
+        assertThat(out).contains("error-model:");                       // …and the schema was carried into components
+        assertThat(out).contains("application/problem+json");           // the CODE's media type is preserved (no drift)
+        assertThat(out).doesNotContain("#/components/examples/400");     // the spec's examples were NOT dragged in (no dangling ref)
+        assertThat(new OpenApiModelExtractor().extract("corrected", out).parsed()).isTrue();
+        assertThat(everyRefResolves(out)).isTrue();                     // every $ref resolves — valid drop-in spec
     }
 
     @Test
@@ -685,6 +790,123 @@ class CorrectedSpecBuilderTest {
         assertThat(out).doesNotContain("SpecError");   // the spec's error shape did NOT leak in
     }
 
+    @Test
+    void withErrorSchemasFromSpec_referencesEVERYMediaTypeOfAMultiMediaErrorBody() throws Exception {
+        // pointSchemasAt guard: an error response can declare more than one media type. EVERY one must get the
+        // reference — a loop that stopped after the first would leave a stale {type:object} the report would flag.
+        String corrected = """
+                openapi: 3.0.3
+                info: { title: X, version: 1.0.0 }
+                paths:
+                  /widgets:
+                    get:
+                      responses:
+                        '500':
+                          description: Internal Server Error
+                          content:
+                            application/problem+json: { schema: { type: object } }
+                            application/json: { schema: { type: object } }
+                components:
+                  schemas: {}
+                """;
+        String original = """
+                openapi: 3.0.3
+                info: { title: X, version: 1.0.5 }
+                paths:
+                  /widgets:
+                    get:
+                      responses:
+                        '500':
+                          description: Internal Server Error
+                          content:
+                            application/problem+json: { schema: { $ref: '#/components/schemas/error-model' } }
+                components:
+                  schemas:
+                    error-model: { type: object, properties: { title: { type: string } } }
+                """;
+        String out = new CorrectedSpecBuilder().withErrorSchemasFromSpec(corrected, original);
+
+        // BOTH media types of the 500 body reference error-model (not just the first).
+        assertThat(errorSchemaRefsAt(out, "/widgets", "get", "500")).containsExactly("error-model", "error-model");
+        assertThat(everyRefResolves(out)).isTrue();
+    }
+
+    @Test
+    void withErrorSchemasFromSpec_dispatchesPerStatusAndLeavesUndocumentedStatusesGeneric() throws Exception {
+        // Two guards: (a) per-status dispatch — 400 and 500 use DIFFERENT documented schemas, each must get ITS own;
+        // (b) the canonical==null boundary — when the spec documents 2+ distinct error schemas there is no single
+        // canonical fallback, so a corrected error status the spec never documented (418) must stay generic rather than
+        // borrow an arbitrary one.
+        String corrected = """
+                openapi: 3.0.3
+                info: { title: X, version: 1.0.0 }
+                paths:
+                  /x:
+                    get:
+                      responses:
+                        '400': { description: Bad Request, content: { application/problem+json: { schema: { type: object } } } }
+                        '500': { description: Server Error, content: { application/problem+json: { schema: { type: object } } } }
+                        '418': { description: Teapot, content: { application/problem+json: { schema: { type: object } } } }
+                components:
+                  schemas: {}
+                """;
+        String original = """
+                openapi: 3.0.3
+                info: { title: X, version: 1.0.5 }
+                paths:
+                  /x:
+                    get:
+                      responses:
+                        '400': { description: Bad Request, content: { application/json: { schema: { $ref: '#/components/schemas/bad-request' } } } }
+                        '500': { description: Server Error, content: { application/json: { schema: { $ref: '#/components/schemas/server-error' } } } }
+                components:
+                  schemas:
+                    bad-request: { type: object, properties: { field: { type: string } } }
+                    server-error: { type: object, properties: { trace: { type: string } } }
+                """;
+        String out = new CorrectedSpecBuilder().withErrorSchemasFromSpec(corrected, original);
+
+        assertThat(errorSchemaRefsAt(out, "/x", "get", "400")).containsExactly("bad-request");   // its OWN schema…
+        assertThat(errorSchemaRefsAt(out, "/x", "get", "500")).containsExactly("server-error");  // …not a shared one
+        assertThat(errorSchemaRefsAt(out, "/x", "get", "418")).containsExactly("<inline>");       // no canonical → generic
+        assertThat(out).contains("bad-request:").contains("server-error:");   // both schemas copied into components
+        assertThat(everyRefResolves(out)).isTrue();
+    }
+
+    @Test
+    void withErrorSchemasFromSpec_leavesGenericSuccessBodiesUntouchedWhenACanonicalErrorSchemaExists() throws Exception {
+        // The isErrorStatus guard is load-bearing: with a single canonical error schema, the per-status fallback would
+        // otherwise apply it to ANY generic body — including a 2xx success. A generic 200 must stay generic.
+        String corrected = """
+                openapi: 3.0.3
+                info: { title: X, version: 1.0.0 }
+                paths:
+                  /x:
+                    get:
+                      responses:
+                        '200': { description: OK, content: { application/json: { schema: { type: object } } } }
+                        '500': { description: Server Error, content: { application/problem+json: { schema: { type: object } } } }
+                components:
+                  schemas: {}
+                """;
+        String original = """
+                openapi: 3.0.3
+                info: { title: X, version: 1.0.5 }
+                paths:
+                  /x:
+                    get:
+                      responses:
+                        '500': { description: Server Error, content: { application/json: { schema: { $ref: '#/components/schemas/error-model' } } } }
+                components:
+                  schemas:
+                    error-model: { type: object, properties: { title: { type: string } } }
+                """;
+        String out = new CorrectedSpecBuilder().withErrorSchemasFromSpec(corrected, original);
+
+        assertThat(errorSchemaRefsAt(out, "/x", "get", "500")).containsExactly("error-model");   // error enriched…
+        assertThat(errorSchemaRefsAt(out, "/x", "get", "200")).containsExactly("<inline>");       // …success left generic
+    }
+
     /** True when every {@code $ref: #/components/schemas/X} in the doc points at a schema X actually defined under
      *  components/schemas — i.e. there are NO dangling references (the invalid-OpenAPI condition). */
     @SuppressWarnings("unchecked")
@@ -712,5 +934,28 @@ class CorrectedSpecBuilderTest {
         } else if (node instanceof List<?> l) {
             l.forEach(v -> collectRefs(v, out));
         }
+    }
+
+    /** For a given path+method+status response, the schema {@code $ref} name under EACH media type of its
+     *  {@code content} (or {@code "<inline>"} when a media type's schema has no {@code $ref}). Empty when there is no
+     *  content. Lets a test assert per-media-type and per-status enrichment precisely — a document-wide string search
+     *  cannot tell WHICH media type / status got the reference. */
+    @SuppressWarnings("unchecked")
+    private static java.util.List<String> errorSchemaRefsAt(String yaml, String path, String method, String status)
+            throws Exception {
+        Map<String, Object> root = new com.fasterxml.jackson.dataformat.yaml.YAMLMapper().readValue(yaml, Map.class);
+        Map<String, Object> op = (Map<String, Object>) ((Map<String, Object>)
+                ((Map<String, Object>) root.get("paths")).get(path)).get(method);
+        Map<String, Object> resp = (Map<String, Object>) ((Map<String, Object>) op.get("responses")).get(status);
+        java.util.List<String> refs = new java.util.ArrayList<>();
+        if (resp == null || !(resp.get("content") instanceof Map<?, ?> byMedia)) {
+            return refs;   // no content → nothing referenced (generic/empty)
+        }
+        for (Object media : ((Map<String, Object>) byMedia).values()) {
+            Object schema = media instanceof Map<?, ?> mm ? ((Map<String, Object>) mm).get("schema") : null;
+            Object ref = schema instanceof Map<?, ?> sm ? ((Map<String, Object>) sm).get("$ref") : null;
+            refs.add(ref instanceof String s ? s.replace("#/components/schemas/", "") : "<inline>");
+        }
+        return refs;
     }
 }

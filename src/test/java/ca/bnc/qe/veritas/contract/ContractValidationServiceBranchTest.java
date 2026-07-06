@@ -566,6 +566,80 @@ class ContractValidationServiceBranchTest {
     }
 
     @Test
+    void chooseCorrectedYaml_referencesTheDocumentedErrorSchema_endToEndThroughARealBuilder() {
+        // Regression guard for the mocked-builder blind spot: every OTHER test here mocks CorrectedSpecBuilder, so the
+        // REAL build→metadata→enrich→sanitise composite is never exercised — which is exactly how three "fixed" builds
+        // shipped the same error-model nit. Drive chooseCorrectedYaml with a NON-mocked builder + extractor on the
+        // shapes the live ciam-policies report showed: the corrected routes carry a /ciam prefix and a renamed path var
+        // (so an exact path match can't fire) and problem+json generic error bodies for 400/404/406/500; the original
+        // documents error-model for 400/404 only, via a shared components/responses wrapper under application/json.
+        ContractValidationService real = new ContractValidationService(javaExtractor, new OpenApiModelExtractor(),
+                new CorrectedSpecBuilder(), diffEngine, llm, jsonExtractor, schemaValidator, modelSelector,
+                costRecorder, promptComposer, reportRenderer, scanRepo, findingRepo, mapper, preflight,
+                scanPersistence, translationService, callContext);
+        String llmCorrected = """
+                openapi: 3.0.3
+                info: { title: CIAM Policies, version: 1.0.0 }
+                paths:
+                  /ciam/policies:
+                    get:
+                      responses:
+                        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/policies' } } } }
+                        '400': { description: Bad Request, content: { application/problem+json: { schema: { type: object } } } }
+                        '404': { description: Not Found, content: { application/problem+json: { schema: { type: object } } } }
+                        '406': { description: Response 406, content: { application/problem+json: { schema: { type: object } } } }
+                        '500': { description: Internal Server Error, content: { application/problem+json: { schema: { type: object } } } }
+                  /ciam/policies/{app}:
+                    get:
+                      responses:
+                        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/policies' } } } }
+                        '404': { description: Not Found, content: { application/problem+json: { schema: { type: object } } } }
+                components:
+                  schemas:
+                    policies: { type: object, properties: { password: { type: string } } }
+                """;
+        String original = """
+                openapi: 3.0.0
+                info: { title: CIAM Policies, version: 1.0.5 }
+                paths:
+                  /policies:
+                    get:
+                      responses:
+                        '400': { $ref: '#/components/responses/400' }
+                        '404': { $ref: '#/components/responses/404' }
+                  /policies/{appId}:
+                    get:
+                      responses:
+                        '404': { $ref: '#/components/responses/404' }
+                components:
+                  responses:
+                    '400':
+                      description: Bad request
+                      content:
+                        application/json:
+                          schema: { type: object, properties: { error: { $ref: '#/components/schemas/error-model' } } }
+                    '404':
+                      description: Not found
+                      content:
+                        application/json:
+                          schema: { type: object, properties: { error: { $ref: '#/components/schemas/error-model' } } }
+                  schemas:
+                    policies: { type: object, properties: { password: { type: string } } }
+                    error-model:
+                      type: object
+                      properties:
+                        title: { type: string }
+                        status: { type: integer }
+                """;
+
+        String out = real.chooseCorrectedYaml(llmCorrected, codeModel(List.of()), "CIAM Policies", original);
+
+        assertThat(out).contains("#/components/schemas/error-model");   // the generic error bodies now reference it…
+        assertThat(out).contains("error-model:");                       // …and error-model was carried into components
+        assertThat(out).contains("application/problem+json");           // the code's media type survives the composite
+    }
+
+    @Test
     void llmCorrectedYamlFailsRoundTrip_fallsBackToDeterministicSpec() {
         when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(new ArrayList<>(List.of(deterministic("gap"))));
         when(diffEngine.l1FromMessages(anyString(), any())).thenReturn(List.of());
