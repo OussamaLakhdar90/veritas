@@ -101,14 +101,30 @@ export function Snyk() {
     enabled: polling, refetchInterval: 1500,
   });
   useEffect(() => {
+    if (!polling) return;
     // Settle only on a fresh (not stale/in-flight) read that reports the poll done. The POST increments the backend's
     // in-flight count before it returns 202, so the first status read after onSuccess reliably sees running:true.
-    if (polling && refreshStatusQ.data && !refreshStatusQ.data.running && !refreshStatusQ.isFetching) {
+    if (refreshStatusQ.data && !refreshStatusQ.data.running && !refreshStatusQ.isFetching) {
       setPolling(false);
       invalidate();
       toast.push('success', t('snyk.refreshDone'));
+    } else if (refreshStatusQ.isError && !refreshStatusQ.isFetching) {
+      // Give up quietly if GET /snyk/refresh/status keeps failing (retries exhausted) — never strand the spinner.
+      // The invalidate() on watch-add/refresh already ran, so counts still update once the background poll persists.
+      setPolling(false);
+      invalidate();
     }
-  }, [polling, refreshStatusQ.data, refreshStatusQ.isFetching]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [polling, refreshStatusQ.data, refreshStatusQ.isError, refreshStatusQ.isFetching]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Hard ceiling so the "refreshing" state can NEVER stick: if the status endpoint stays unreachable, or the backend
+  // in-flight counter never returns to 0 (e.g. a hung upstream Snyk call), the settle above can't fire — so clear the
+  // indicator after a bounded wait and re-read anyway. Covers BOTH the watch-add and "Refresh now" paths (both set
+  // `polling`); the timer is cleared the moment the poll settles normally, so the happy path never invalidates twice.
+  useEffect(() => {
+    if (!polling) return undefined;
+    const timer = window.setTimeout(() => { setPolling(false); invalidate(); }, 120000);
+    return () => window.clearTimeout(timer);
+  }, [polling]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const watchSelected = useMutation({
     mutationFn: async () => {
@@ -123,7 +139,14 @@ export function Snyk() {
       // Refetch the summary/impact card + alerts too, not just the watched list — the just-watched app's
       // vulnerabilities should surface without the user clicking "Refresh now".
       invalidate();
-      if (ok > 0) toast.push('success', t('snyk.watchedApps', { count: ok }));
+      if (ok > 0) {
+        // The new watch's initial vulnerability poll runs in the BACKGROUND on the server (30–60s), on the SAME
+        // in-flight counter as "Refresh now". Track it here so the app's severity counts + issues surface on their
+        // own when that poll completes — otherwise the card sits at 0/"never checked" until a manual refresh.
+        qc.removeQueries({ queryKey: ['snyk-refresh-status'] });
+        setPolling(true);
+        toast.push('success', t('snyk.watchedApps', { count: ok }));
+      }
       if (failed > 0) toast.push('error', t('snyk.watchSomeFailed', { count: failed }));
     },
   });

@@ -74,6 +74,16 @@ public class ConfigDoctor {
         } else {
             checks.add(new Check("Confluence base URL", "OK", connections.getConfluence().getBaseUrl(), ""));
         }
+
+        // 6) Snyk (dependency-vulnerability watch + fix) — needs BOTH a base URL and a personal API token, mirroring
+        // Jira/Bitbucket (two rows). Presence only, like the Jira/Xray tokens (Settings → Test connection does the live
+        // auth probe). Without any Snyk row the fix wizard's connection check treats Snyk as unknown / not-connected;
+        // and the base-URL row keeps the wizard honest — ConnectionTester also requires the base URL, so a token-only
+        // check could otherwise report OK while the live probe / actual fix fails on a blank base URL.
+        checks.add(baseUrl(connections.getSnyk().getBaseUrl(), "Snyk base URL",
+                "Set veritas.connections.snyk.base-url (defaults to https://api.snyk.io)."));
+        checks.add(secret("SNYK_API_TOKEN", "Snyk token",
+                "Set the SNYK_API_TOKEN secret — a personal API token from app.snyk.io → Account settings."));
         return checks;
     }
 
