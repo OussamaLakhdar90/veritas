@@ -4,22 +4,28 @@ import java.util.List;
 
 /**
  * A "Fix vulnerabilities" batch: the vulnerabilities to fix, grouped by application, plus the Jira destination.
- * Design: one Jira ticket per affected application, all filed under a chosen (or newly created) epic in
- * {@code project}. Each application's fix trains then link to that application's ticket (via the train's Jira key),
- * so a bulk run produces a handful of app tickets under one epic — not one ticket per vulnerability.
+ * Design: every application's fix trains link to ONE shared Jira story — an existing OPEN story chosen under the epic,
+ * or a new one created under it — so a bulk run lands all its fixes on a single tracking story inside the chosen (or
+ * newly created) epic, rather than a ticket per app.
  *
- * @param project     the Jira project key the epic + per-app tickets live in
- * @param epicKey     an existing epic to file under, or...
- * @param createEpic  ...{@code true} to create a new epic in {@code project}
- * @param epicSummary the title for the new epic (used only when {@code createEpic})
- * @param reviewers   shared PR reviewers applied to every fix (optional)
- * @param apps        the selected vulnerabilities grouped by application
+ * @param project      the Jira project key the epic + story live in
+ * @param epicKey      an existing epic to file under (or the parent of a new story), or...
+ * @param createEpic   ...{@code true} to create a new epic in {@code project}
+ * @param epicSummary  the title for the new epic (used only when {@code createEpic})
+ * @param storyKey     an existing OPEN story under the epic to file every fix under, or...
+ * @param createStory  ...{@code true} to create a new story under the epic
+ * @param storySummary the title for the new story (used only when {@code createStory})
+ * @param reviewers    shared PR reviewers applied to every fix (validated Bitbucket usernames; optional)
+ * @param apps         the selected vulnerabilities grouped by application
  */
 public record SnykBulkFixRequest(
         String project,
         String epicKey,
         boolean createEpic,
         String epicSummary,
+        String storyKey,
+        boolean createStory,
+        String storySummary,
         List<String> reviewers,
         List<AppSelection> apps) {
 

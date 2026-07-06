@@ -285,6 +285,10 @@ export interface JiraIssueRef {
 export interface JiraProject { key: string; name: string }
 /** An existing epic the wizard can file a batch of fixes under (or the user creates a new one instead). */
 export interface JiraEpicOption { key: string; summary: string }
+/** An open story under an epic the wizard can file every fix under (or the user creates a new one). */
+export interface JiraStoryOption { key: string; summary: string }
+/** A Bitbucket user offered in the reviewer picker — `name` is the identity actually added to the PR. */
+export interface GitUser { name: string; displayName: string }
 
 /** One line of the test-generation reconciliation plan (GAP | CURRENT | ORPHAN). */
 export interface TestGenPlanItem {
@@ -503,21 +507,26 @@ export interface SnykFixStepView {
   status: string; manual: boolean; reason?: string; reviewers: string[];
 }
 /**
- * The one request the bulk-fix wizard sends on "Start": the Jira project, the epic (an existing key OR a
- * create-me flag + summary), optional reviewers, and the selected fixable issues grouped by application.
+ * The one request the bulk-fix wizard sends on "Start": the Jira project, the epic (an existing key OR a create-me
+ * flag + summary), the ONE shared story every fix is filed under (an existing OPEN story under the epic OR a create-me
+ * flag + summary), validated Bitbucket reviewers, and the selected fixable issues grouped by application.
  */
 export interface SnykBulkFixRequest {
   project: string;
   epicKey?: string;      // an existing epic, OR…
   createEpic?: boolean;  // …true to create one
   epicSummary?: string;  // title for the new epic when createEpic
-  reviewers?: string[];
+  storyKey?: string;     // an existing OPEN story under the epic, OR…
+  createStory?: boolean; // …true to create one under the epic
+  storySummary?: string; // title for the new story when createStory
+  reviewers?: string[];  // validated Bitbucket usernames
   apps: { appId: string; watchId: string;
     issues: { issueId: string; coordinate: string; oldVersion: string; fixedIn: string; severity: string }[] }[];
 }
-/** The result of a bulk-fix run: the epic it filed under and, per app, the Jira ticket + train ids (or an error). */
+/** The result of a bulk-fix run: the epic + shared story it filed under and, per app, the story key + train ids. */
 export interface SnykBulkFixResult {
   epicKey: string;
+  storyKey: string;
   apps: { appId: string; jiraKey: string | null; trainIds: string[]; error: string | null }[];
 }
 
@@ -624,6 +633,10 @@ export const api = {
   jiraProjects: () => get<JiraProject[]>('/jira/projects'),
   // Existing epics under a chosen project (to file the batch under), or the user creates a new one instead.
   jiraEpics: (projectKey: string) => get<JiraEpicOption[]>(`/jira/projects/${encodeURIComponent(projectKey)}/epics`),
+  // Open stories under an epic (to file every fix under), or the user creates a new one instead.
+  jiraEpicStories: (epicKey: string) => get<JiraStoryOption[]>(`/jira/epics/${encodeURIComponent(epicKey)}/stories`),
+  // Bitbucket users for the reviewer picker — real identities so the wizard validates instead of free text.
+  bitbucketUsers: (query: string) => get<GitUser[]>(`/bitbucket/users?query=${encodeURIComponent(query)}`),
   // Create a fresh epic to group a batch of dependency fixes; returns its key.
   createJiraEpic: (body: { projectKey: string; summary: string; description?: string }) =>
     post<{ key: string }>('/jira/epics', body),

@@ -342,11 +342,21 @@ describe('Snyk page', () => {
       { name: 'Git access (clone)', status: 'OK', detail: 'Configured.', remediation: '' },
     ])),
   )
-  // The step-4 Jira pickers: one project + one existing epic.
+  // The step-4 Jira pickers: one project, one existing epic, one open story under it, and a Bitbucket user search.
   const jiraPickers = () => server.use(
     http.get('*/api/v1/jira/projects', () => HttpResponse.json([{ key: 'CIAM', name: 'CIAM Platform' }])),
     http.get('*/api/v1/jira/projects/CIAM/epics', () =>
       HttpResponse.json([{ key: 'CIAM-100', summary: 'Security backlog' }])),
+    http.get('*/api/v1/jira/epics/CIAM-100/stories', () =>
+      HttpResponse.json([{ key: 'CIAM-150', summary: 'Q3 dependency fixes' }])),
+    http.get('*/api/v1/bitbucket/users', ({ request }) => {
+      const q = (new URL(request.url).searchParams.get('query') ?? '').toLowerCase()
+      const all = [
+        { name: 'alice', displayName: 'Alice Nguyen' },
+        { name: 'bob', displayName: 'Bob Tremblay' },
+      ]
+      return HttpResponse.json(all.filter((u) => u.name.includes(q) || u.displayName.toLowerCase().includes(q)))
+    }),
   )
 
   const twoFixableWatches = () => {
@@ -388,9 +398,10 @@ describe('Snyk page', () => {
         posted = (await request.json()) as Record<string, unknown>
         return HttpResponse.json({
           epicKey: 'CIAM-100',
+          storyKey: 'CIAM-150',
           apps: [
-            { appId: 'APP7576', jiraKey: 'CIAM-101', trainIds: ['t1'], error: null },
-            { appId: 'APP7571', jiraKey: 'CIAM-102', trainIds: ['t2'], error: null },
+            { appId: 'APP7576', jiraKey: 'CIAM-150', trainIds: ['t1'], error: null },
+            { appId: 'APP7571', jiraKey: 'CIAM-150', trainIds: ['t2'], error: null },
           ],
         }, { status: 202 })
       }),
@@ -416,15 +427,18 @@ describe('Snyk page', () => {
     expect(screen.getByText('APP7571')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Continue' }))
 
-    // Step 4: pick the project from the dropdown, then an existing epic, then Start.
+    // Step 4: pick the project, then an existing epic, then the one shared open story under it, then Start.
     await user.selectOptions(await screen.findByRole('combobox'), 'CIAM')
     const selects = await screen.findAllByRole('combobox')
     await user.selectOptions(selects[1], 'CIAM-100')   // the epic picker appears once a project is chosen
+    // The story picker appears once an existing epic is chosen; select the open story every fix links to.
+    await waitFor(() => expect(screen.getAllByRole('combobox')).toHaveLength(3))
+    await user.selectOptions(screen.getAllByRole('combobox')[2], 'CIAM-150')
     await user.click(screen.getByRole('button', { name: /Start 2 fixes/ }))
 
-    // ONE bulk request: the selection grouped by app, the chosen project + existing epic.
-    expect(await screen.findByText(/Started 2 fixes across 2 applications, filed under CIAM-100/)).toBeInTheDocument()
-    expect(posted).toMatchObject({ project: 'CIAM', epicKey: 'CIAM-100' })
+    // ONE bulk request: the selection grouped by app, the chosen project + existing epic + shared story.
+    expect(await screen.findByText(/Started 2 fixes across 2 applications, filed under CIAM-150/)).toBeInTheDocument()
+    expect(posted).toMatchObject({ project: 'CIAM', epicKey: 'CIAM-100', storyKey: 'CIAM-150' })
     expect((posted as unknown as { apps: unknown[] }).apps).toHaveLength(2)
     expect((posted as unknown as { apps: unknown[] }).apps).toContainEqual(expect.objectContaining({
       appId: 'APP7576', watchId: 'w1',
@@ -464,7 +478,8 @@ describe('Snyk page', () => {
         posted = (await request.json()) as Record<string, unknown>
         return HttpResponse.json({
           epicKey: 'CIAM-200',
-          apps: [{ appId: 'APP7576', jiraKey: 'CIAM-201', trainIds: ['t1'], error: null }],
+          storyKey: 'CIAM-250',
+          apps: [{ appId: 'APP7576', jiraKey: 'CIAM-250', trainIds: ['t1'], error: null }],
         }, { status: 202 })
       }),
     )
@@ -480,15 +495,58 @@ describe('Snyk page', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))   // step 2 → 3
     await user.click(await screen.findByRole('button', { name: 'Continue' }))   // step 3 → 4
 
-    // Step 4: choose the project, switch to "Create a new epic" (a default title fills in), then Start.
+    // Step 4: choose the project, then "Create a new epic" — a brand-new epic has no existing stories, so the
+    // Story section defaults to "create" with a default title too (both filled in), then Start.
     await user.selectOptions(await screen.findByRole('combobox'), 'CIAM')
     await user.click(screen.getByLabelText('Create a new epic'))
     await user.click(screen.getByRole('button', { name: /Start 1 fix/ }))
 
-    expect(await screen.findByText(/filed under CIAM-200/)).toBeInTheDocument()
-    expect(posted).toMatchObject({ project: 'CIAM', createEpic: true })
+    expect(await screen.findByText(/filed under CIAM-250/)).toBeInTheDocument()
+    expect(posted).toMatchObject({ project: 'CIAM', createEpic: true, createStory: true })
     expect((posted as unknown as { epicSummary: string }).epicSummary).toBe('Dependency security remediation')
+    expect((posted as unknown as { storySummary: string }).storySummary).toBe('Dependency security fixes')
     expect((posted as unknown as { epicKey?: string }).epicKey).toBeUndefined()
+    expect((posted as unknown as { storyKey?: string }).storyKey).toBeUndefined()
+  })
+
+  it('adds reviewers only from the Bitbucket-user autocomplete (no free-typed usernames reach the request)', async () => {
+    let posted: Record<string, unknown> | null = null
+    twoFixableWatches()
+    server.use(
+      http.post('*/api/v1/snyk/fixes/bulk', async ({ request }) => {
+        posted = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json({
+          epicKey: 'CIAM-100', storyKey: 'CIAM-150',
+          apps: [{ appId: 'APP7576', jiraKey: 'CIAM-150', trainIds: ['t1'], error: null }],
+        }, { status: 202 })
+      }),
+    )
+    const user = userEvent.setup()
+    renderSnyk()
+
+    await user.click(await screen.findByRole('button', { name: /Fix vulnerabilities/ }))
+    await user.click(await screen.findByRole('button', { name: 'Continue' }))   // step 1 → 2
+    await screen.findByText('com.fasterxml.jackson.core:jackson-databind')
+    await user.click(screen.getByRole('button', { name: 'Critical' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))   // step 2 → 3
+    await user.click(await screen.findByRole('button', { name: 'Continue' }))   // step 3 → 4
+
+    // Project → existing epic → existing story.
+    await user.selectOptions(await screen.findByRole('combobox'), 'CIAM')
+    const selects = await screen.findAllByRole('combobox')
+    await user.selectOptions(selects[1], 'CIAM-100')
+    await waitFor(() => expect(screen.getAllByRole('combobox')).toHaveLength(3))
+    await user.selectOptions(screen.getAllByRole('combobox')[2], 'CIAM-150')
+
+    // Type into the reviewer search → a matching Bitbucket user is suggested → click to add a chip.
+    await user.type(screen.getByPlaceholderText('Search Bitbucket users…'), 'ali')
+    await user.click(await screen.findByText('Alice Nguyen'))
+    expect(await screen.findByText('alice')).toBeInTheDocument()   // the added chip
+
+    await user.click(screen.getByRole('button', { name: /Start 1 fix/ }))
+    await screen.findByText(/filed under CIAM-150/)
+    // Only the picked username is sent — validated against Bitbucket, never a raw free-text string.
+    expect((posted as unknown as { reviewers: string[] }).reviewers).toEqual(['alice'])
   })
 
   it('surfaces the backend error message when the bulk request fails (e.g. an unknown project)', async () => {
@@ -509,6 +567,8 @@ describe('Snyk page', () => {
     await user.selectOptions(await screen.findByRole('combobox'), 'CIAM')
     const selects = await screen.findAllByRole('combobox')
     await user.selectOptions(selects[1], 'CIAM-100')
+    await waitFor(() => expect(screen.getAllByRole('combobox')).toHaveLength(3))
+    await user.selectOptions(screen.getAllByRole('combobox')[2], 'CIAM-150')
     await user.click(screen.getByRole('button', { name: /Start 2 fixes/ }))
 
     // The backend's human-readable 4xx detail is surfaced verbatim in a toast.
@@ -520,8 +580,9 @@ describe('Snyk page', () => {
     server.use(
       http.post('*/api/v1/snyk/fixes/bulk', () => HttpResponse.json({
         epicKey: 'CIAM-100',
+        storyKey: 'CIAM-150',
         apps: [
-          { appId: 'APP7576', jiraKey: 'CIAM-101', trainIds: ['t1'], error: null },
+          { appId: 'APP7576', jiraKey: 'CIAM-150', trainIds: ['t1'], error: null },
           { appId: 'APP7571', jiraKey: null, trainIds: [], error: 'No Bitbucket project APP7571.' },
         ],
       }, { status: 202 })),
@@ -538,6 +599,8 @@ describe('Snyk page', () => {
     await user.selectOptions(await screen.findByRole('combobox'), 'CIAM')
     const selects = await screen.findAllByRole('combobox')
     await user.selectOptions(selects[1], 'CIAM-100')
+    await waitFor(() => expect(screen.getAllByRole('combobox')).toHaveLength(3))
+    await user.selectOptions(screen.getAllByRole('combobox')[2], 'CIAM-150')
     await user.click(screen.getByRole('button', { name: /Start 2 fixes/ }))
 
     // One of two apps started; the toast says so rather than pretending all is well.
