@@ -113,7 +113,15 @@ public class JiraServerClient implements JiraClient {
             // tracking ticket with no epic beats no ticket) and warn, rather than failing the whole fix.
             String epicField = null;
             if (request.parentEpicKey() != null && !request.parentEpicKey().isBlank()) {
-                epicField = createMeta(request.projectKey(), request.issueType()).epicLinkFieldKey();
+                try {
+                    epicField = createMeta(request.projectKey(), request.issueType()).epicLinkFieldKey();
+                } catch (RuntimeException metaFailed) {
+                    // create-meta can 404/500 on some Jira versions/configs — a tracking ticket with no epic beats no
+                    // ticket at all, so log and create it unlinked rather than failing the whole fix.
+                    log.warn("Jira create: couldn't resolve the Epic Link field for {}/{} ({}) — creating '{}' "
+                            + "without linking it to epic {}.", request.projectKey(), request.issueType(),
+                            metaFailed.getMessage(), request.summary(), request.parentEpicKey());
+                }
                 if (epicField == null) {
                     log.warn("Jira create: no Epic Link field on the {}/{} create screen — creating '{}' without "
                             + "linking it to epic {}.", request.projectKey(), request.issueType(),
@@ -232,13 +240,29 @@ public class JiraServerClient implements JiraClient {
 
     @Override
     public CreateMeta createMeta(String projectKey, String issueType) {
+        // Jira < 9.0 exposes the classic createmeta (one call with ?projectKeys&expand=projects.issuetypes.fields).
+        // Jira >= 9.0 REMOVED it (returns 404) in favour of the paginated /createmeta/{project}/issuetypes[/{id}]
+        // endpoints. Prefer classic (a valid 2xx — even an empty one for a non-creatable project/type — is authoritative
+        // on that Jira); only when it FAILS (the 9.x 404) fall back to the v9 endpoints, so Epic-Link discovery keeps
+        // working across Jira versions instead of 404-ing the whole create.
+        try {
+            return createMetaClassic(projectKey, issueType);
+        } catch (RuntimeException classicUnavailable) {
+            log.debug("Jira classic createmeta unavailable for {} ({}) — trying the v9 endpoints",
+                    projectKey, classicUnavailable.getMessage());
+            return createMetaV9(projectKey, issueType);
+        }
+    }
+
+    /** Classic (pre-9.0) create-meta: one call with {@code ?projectKeys&expand=projects.issuetypes.fields}. */
+    private CreateMeta createMetaClassic(String projectKey, String issueType) {
         try {
             String uri = base() + "/rest/api/2/issue/createmeta?projectKeys="
                     + URLEncoder.encode(projectKey, StandardCharsets.UTF_8)
                     + "&issuetypeNames=" + URLEncoder.encode(issueType, StandardCharsets.UTF_8)
                     + "&expand=projects.issuetypes.fields";
             String resp = corp.get(uri, authHeaders());
-            JsonNode fields = mapper.readTree(resp == null ? "{}" : resp)
+            JsonNode fields = mapper.readTree(orEmptyJson(resp))
                     .path("projects").path(0).path("issuetypes").path(0).path("fields");
             List<String> allowed = new ArrayList<>();
             String epicLink = null;
@@ -260,6 +284,55 @@ public class JiraServerClient implements JiraClient {
         } catch (Exception e) {
             throw new IllegalStateException("Jira createMeta failed for " + projectKey + ": " + e.getMessage(), e);
         }
+    }
+
+    /** Jira 9.x+ create-meta: {@code /createmeta/{project}/issuetypes} → resolve the issue-type id → then
+     *  {@code /createmeta/{project}/issuetypes/{id}} for its allowed fields ({@code fieldId} + {@code name}). */
+    private CreateMeta createMetaV9(String projectKey, String issueType) {
+        try {
+            String encodedProject = URLEncoder.encode(projectKey, StandardCharsets.UTF_8);
+            JsonNode types = mapper.readTree(orEmptyJson(corp.get(
+                    base() + "/rest/api/2/issue/createmeta/" + encodedProject + "/issuetypes?maxResults=200",
+                    authHeaders()))).path("values");
+            String issueTypeId = null;
+            for (JsonNode t : types) {
+                if (issueType.equalsIgnoreCase(t.path("name").asText(""))) {
+                    issueTypeId = t.path("id").asText("");
+                    break;
+                }
+            }
+            if (issueTypeId == null || issueTypeId.isBlank()) {
+                return CreateMeta.empty();   // issue type not creatable in this project → no fields to report
+            }
+            JsonNode fields = mapper.readTree(orEmptyJson(corp.get(
+                    base() + "/rest/api/2/issue/createmeta/" + encodedProject + "/issuetypes/"
+                            + URLEncoder.encode(issueTypeId, StandardCharsets.UTF_8) + "?maxResults=200",
+                    authHeaders()))).path("values");
+            List<String> allowed = new ArrayList<>();
+            String epicLink = null;
+            String team = null;
+            for (JsonNode f : fields) {
+                String fieldKey = f.path("fieldId").asText("");
+                if (fieldKey.isBlank()) {
+                    continue;
+                }
+                allowed.add(fieldKey);
+                String name = f.path("name").asText("");
+                if (epicLink == null && name.matches("(?i).*epic\\s*link.*")) {
+                    epicLink = fieldKey;
+                }
+                if (team == null && name.equalsIgnoreCase("team")) {
+                    team = fieldKey;
+                }
+            }
+            return new CreateMeta(allowed, epicLink, team);
+        } catch (Exception e) {
+            throw new IllegalStateException("Jira createMeta failed for " + projectKey + ": " + e.getMessage(), e);
+        }
+    }
+
+    private static String orEmptyJson(String resp) {
+        return resp == null || resp.isBlank() ? "{}" : resp;
     }
 
     /** v2 description is wiki markup (a plain string), not ADF — paragraphs are joined with blank lines. */
