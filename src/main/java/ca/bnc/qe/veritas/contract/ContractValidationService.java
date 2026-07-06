@@ -955,11 +955,15 @@ public class ContractValidationService {
         if (llmCorrected != null && roundTrips(llmCorrected) && preservesEndpoints(llmCorrected, code)) {
             // The LLM output governs paths/schemas, but its info/servers are its own invention (it is never handed the
             // spec's info/servers) — overlay the real metadata so the "drop-in replacement" is honest. The deterministic
-            // build() already preserves it internally; this makes the LLM-preferred branch match.
-            return correctedSpecBuilder.withOriginalMetadata(llmCorrected, originalSpecYaml);
+            // build() already preserves it internally; this makes the LLM-preferred branch match. Then strip any
+            // dangling $ref so an LLM-invented schema name can't ship as invalid OpenAPI.
+            return correctedSpecBuilder.withoutDanglingRefs(
+                    correctedSpecBuilder.withOriginalMetadata(llmCorrected, originalSpecYaml));
         }
         String deterministic = correctedSpecBuilder.build(code, title, originalSpecYaml);
-        return roundTrips(deterministic) ? deterministic : null;
+        // Guarantee the written "drop-in" spec is VALID OpenAPI — no $ref to a schema we never defined (a generic
+        // Object error body). A parse-only round-trip gate tolerates dangling refs, so sanitise explicitly.
+        return roundTrips(deterministic) ? correctedSpecBuilder.withoutDanglingRefs(deterministic) : null;
     }
 
     /**
