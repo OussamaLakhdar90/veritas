@@ -951,7 +951,9 @@ public class ContractValidationService {
 
     /** Prefer the LLM-reconciled corrected YAML when it re-parses AND preserves the code's endpoints; else the
      *  deterministic code-wins spec. */
-    private String chooseCorrectedYaml(String llmCorrected, ApiModel code, String title, String originalSpecYaml) {
+    // package-private so a test can drive the REAL build→enrich→sanitise composite with a non-mocked builder
+    // (the branch tests mock CorrectedSpecBuilder, which hid the error-schema enrichment blind spot).
+    String chooseCorrectedYaml(String llmCorrected, ApiModel code, String title, String originalSpecYaml) {
         String base;
         if (llmCorrected != null && roundTrips(llmCorrected) && preservesEndpoints(llmCorrected, code)) {
             // The LLM output governs paths/schemas, but its info/servers are its own invention (it is never handed the

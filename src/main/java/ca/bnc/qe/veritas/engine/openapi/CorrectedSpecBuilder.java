@@ -156,15 +156,19 @@ public class CorrectedSpecBuilder {
     }
 
     /**
-     * Enrich the corrected spec's ERROR responses (status 4xx/5xx) with the ORIGINAL spec's structured error schema,
-     * when it had one. The code models error bodies as an untyped {@code Object} (→ inline {@code {type: object}}); the
-     * original spec often defined a real error contract (e.g. an {@code error-model} schema referenced via
-     * {@code application/problem+json}). Preserving it keeps the richer, structured error contract in the "drop-in"
-     * spec — a purely additive, optional improvement. Only error statuses present in BOTH documents whose original
-     * response has a {@code $ref}-based body are touched; success responses stay code-authoritative. Referenced schemas
-     * are copied transitively into {@code components}. Parses the string form, so every node is mutable. Returns the
-     * input unchanged on any problem — the caller re-validates (round-trip + dangling-ref sanitise), so this can never
-     * regress a valid spec into an invalid one.
+     * Enrich the corrected spec's ERROR responses (4xx/5xx) so a generic {@code {type: object}} body references the
+     * ORIGINAL spec's documented error schema (e.g. {@code error-model}) instead of an anonymous object. The code
+     * models error bodies as an untyped {@code Object}; the original usually documents a real error contract. The
+     * schema is referenced DIRECTLY under the CORRECTED response's own media type — code wins on media type, so an
+     * {@code application/problem+json} body is never swapped back to the spec's {@code application/json}, and the
+     * spec's {@code examples} are never dragged in (both would be regressions). Matching is PATH-INDEPENDENT: the
+     * code's routes routinely differ from the spec's by a context-path prefix or a renamed path variable
+     * (e.g. {@code /ciam/policies} vs {@code /policies}, {@code {app}} vs {@code {appId}}), so an exact path match
+     * almost never holds; instead we take the error schema the original documents for its OWN error responses and
+     * reference it wherever the corrected body is still generic. A code-authoritative structured body (its own
+     * {@code $ref}) is left untouched. Referenced schemas are copied transitively into {@code components}. Purely
+     * additive; the caller re-validates (round-trip + dangling-ref sanitise), so this can never make a valid spec
+     * invalid. Returns the input unchanged on any problem or when there is nothing to enrich.
      */
     @SuppressWarnings("unchecked")
     public String withErrorSchemasFromSpec(String correctedYaml, String originalSpecYaml) {
@@ -179,17 +183,27 @@ public class CorrectedSpecBuilder {
         } catch (Exception e) {
             return correctedYaml;
         }
-        if (root == null || orig == null
-                || !(root.get("paths") instanceof Map<?, ?> rPaths) || !(orig.get("paths") instanceof Map<?, ?> oPaths)) {
+        if (root == null || orig == null || !(root.get("paths") instanceof Map<?, ?> rPaths)) {
             return correctedYaml;
         }
         Map<String, Object> origSchemas = componentSchemas(orig);
         if (origSchemas == null || origSchemas.isEmpty()) {
             return correctedYaml;   // nothing structured to borrow
         }
+        // What error schema does the ORIGINAL document for its OWN errors? Captured per-status where it varies, plus a
+        // single canonical fallback. Deliberately PATH-INDEPENDENT: the code's routes routinely differ from the spec's
+        // by a context-path prefix or a renamed path variable (/ciam/policies vs /policies, {app} vs {appId}), so an
+        // exact path match almost never holds — that is why the old adopt-by-path approach silently enriched nothing.
+        Map<String, String> byStatus = new LinkedHashMap<>();
+        Set<String> documented = new LinkedHashSet<>();
+        collectDocumentedErrorSchemas(orig, byStatus, documented);
+        String canonical = documented.size() == 1 ? documented.iterator().next() : null;
+        if (byStatus.isEmpty() && canonical == null) {
+            return correctedYaml;   // the original documents no single structured error schema → nothing to reference
+        }
         Set<String> wanted = new LinkedHashSet<>();
-        if (!adoptErrorResponses(asMap(oPaths), asMap(rPaths), wanted)) {
-            return correctedYaml;   // no error response had a structured schema to adopt → leave verbatim
+        if (!referenceErrorSchemas(asMap(rPaths), byStatus, canonical, origSchemas, wanted)) {
+            return correctedYaml;   // no generic error body to enrich → leave verbatim
         }
         copySchemasTransitively(wanted, origSchemas, targetSchemas(root));
         try {
@@ -199,44 +213,120 @@ public class CorrectedSpecBuilder {
         }
     }
 
-    /** For each corrected path+method+error-status (4xx/5xx) whose corrected body is the GENERIC placeholder (no
-     *  structured $ref — i.e. the code returns an untyped Object) and which the original documents with a
-     *  {@code $ref}-based body, replace the corrected error response's {@code content} with a deep copy of the
-     *  original's and record the referenced schema names. Returns true when anything was adopted. */
+    /** Scan the original's error responses (4xx/5xx, resolving {@code $ref: #/components/responses/*}) and record the
+     *  leaf schema each references: {@code byStatus} maps a status to its schema when that status uses exactly one, and
+     *  {@code documented} accumulates every distinct error schema (so a spec with a single {@code error-model} yields a
+     *  canonical fallback). Media types are irrelevant here — only the referenced schema NAME is collected. */
     @SuppressWarnings("unchecked")
-    private boolean adoptErrorResponses(Map<String, Object> oPaths, Map<String, Object> rPaths, Set<String> wanted) {
-        boolean changed = false;
-        for (Map.Entry<String, Object> re : rPaths.entrySet()) {
-            if (!(re.getValue() instanceof Map<?, ?> rItem) || !(oPaths.get(re.getKey()) instanceof Map<?, ?> oItem)) {
+    private void collectDocumentedErrorSchemas(Map<String, Object> orig, Map<String, String> byStatus,
+                                               Set<String> documented) {
+        if (!(orig.get("paths") instanceof Map<?, ?> paths)) {
+            return;
+        }
+        Map<String, Set<String>> perStatus = new LinkedHashMap<>();
+        for (Object item : asMap(paths).values()) {
+            if (!(item instanceof Map<?, ?> pathItem)) {
                 continue;
             }
-            for (Map.Entry<?, ?> rm : ((Map<String, Object>) rItem).entrySet()) {
-                if (!(rm.getValue() instanceof Map<?, ?> rOp) || !(asMap(oItem).get(rm.getKey()) instanceof Map<?, ?> oOp)
-                        || !(asMap(rOp).get("responses") instanceof Map<?, ?> rResps)
-                        || !(asMap(oOp).get("responses") instanceof Map<?, ?> oResps)) {
+            for (Object op : asMap(pathItem).values()) {
+                if (!(op instanceof Map<?, ?> opMap) || !(asMap(opMap).get("responses") instanceof Map<?, ?> resps)) {
                     continue;
                 }
-                for (Map.Entry<?, ?> rr : asMap(rResps).entrySet()) {
-                    if (!isErrorStatus(String.valueOf(rr.getKey())) || !(rr.getValue() instanceof Map<?, ?> rResp)
-                            || !(asMap(oResps).get(rr.getKey()) instanceof Map<?, ?> oResp)
-                            || !isGenericErrorBody(asMap(rResp))) {
-                        // Skip when the CODE already documents a STRUCTURED error body (its own $ref, e.g. from
-                        // @ControllerAdvice): code wins on behaviour, and overwriting it would resurrect the media-type
-                        // drift the deterministic build deliberately avoids. Only enrich the generic {type: object}.
+                for (Map.Entry<?, ?> r : asMap(resps).entrySet()) {
+                    String status = String.valueOf(r.getKey());
+                    if (!isErrorStatus(status) || !(r.getValue() instanceof Map<?, ?> resp)) {
                         continue;
                     }
-                    Object oContent = asMap(oResp).get("content");
                     Set<String> refs = new LinkedHashSet<>();
-                    collectSchemaRefNames(oContent, refs);
-                    if (!refs.isEmpty()) {   // the original error body references a real schema — adopt it
-                        asMap(rResp).put("content", deepCopy(oContent));
-                        wanted.addAll(refs);
+                    collectSchemaRefNames(resolveResponseContent(asMap(resp), orig), refs);
+                    if (refs.isEmpty()) {
+                        continue;
+                    }
+                    documented.addAll(refs);
+                    perStatus.computeIfAbsent(status, k -> new LinkedHashSet<>()).addAll(refs);
+                }
+            }
+        }
+        perStatus.forEach((status, refs) -> {
+            if (refs.size() == 1) {
+                byStatus.put(status, refs.iterator().next());   // unambiguous per-status mapping
+            }
+        });
+    }
+
+    /** The error response's {@code content}, following a single {@code $ref: #/components/responses/<name>} into the
+     *  original document (specs commonly define shared error responses once and reference them from every operation). */
+    @SuppressWarnings("unchecked")
+    private Object resolveResponseContent(Map<String, Object> resp, Map<String, Object> orig) {
+        if (resp.get("$ref") instanceof String ref && ref.startsWith("#/components/responses/")) {
+            String name = ref.substring("#/components/responses/".length());
+            if (orig.get("components") instanceof Map<?, ?> comps
+                    && asMap(comps).get("responses") instanceof Map<?, ?> responses
+                    && asMap(responses).get(name) instanceof Map<?, ?> target) {
+                return asMap(target).get("content");
+            }
+            return null;
+        }
+        return resp.get("content");
+    }
+
+    /** For every corrected error response whose body is still the generic {@code {type: object}} placeholder, point its
+     *  schema(s) at the documented error schema (the per-status one, else the single canonical one), KEEPING the
+     *  corrected response's own media type. A code-authoritative structured body ($ref) is left alone. Returns true if
+     *  anything was referenced; records the schema names to copy into {@code components}. */
+    @SuppressWarnings("unchecked")
+    private boolean referenceErrorSchemas(Map<String, Object> rPaths, Map<String, String> byStatus, String canonical,
+                                          Map<String, Object> origSchemas, Set<String> wanted) {
+        boolean changed = false;
+        for (Object item : rPaths.values()) {
+            if (!(item instanceof Map<?, ?> pathItem)) {
+                continue;
+            }
+            for (Object op : asMap(pathItem).values()) {
+                if (!(op instanceof Map<?, ?> opMap) || !(asMap(opMap).get("responses") instanceof Map<?, ?> resps)) {
+                    continue;
+                }
+                for (Map.Entry<?, ?> r : asMap(resps).entrySet()) {
+                    String status = String.valueOf(r.getKey());
+                    if (!isErrorStatus(status) || !(r.getValue() instanceof Map<?, ?> resp)) {
+                        continue;
+                    }
+                    Map<String, Object> respMap = asMap(resp);
+                    if (!isGenericErrorBody(respMap)) {
+                        continue;   // code gave a structured error body → code wins, leave it
+                    }
+                    String name = byStatus.getOrDefault(status, canonical);
+                    if (name == null || !origSchemas.containsKey(name)) {
+                        continue;   // nothing documented for this status and no single canonical schema
+                    }
+                    if (pointSchemasAt(respMap.get("content"), name)) {
+                        wanted.add(name);
                         changed = true;
                     }
                 }
             }
         }
         return changed;
+    }
+
+    /** Replace every media type's {@code schema} in this response's {@code content} with a {@code $ref} to
+     *  {@code #/components/schemas/<name>}, keeping the media-type keys (code wins on media type). Never fabricates
+     *  content — returns false when there is no content to enrich. */
+    @SuppressWarnings("unchecked")
+    private boolean pointSchemasAt(Object content, String name) {
+        if (!(content instanceof Map<?, ?> byMedia) || ((Map<String, Object>) byMedia).isEmpty()) {
+            return false;
+        }
+        boolean set = false;
+        for (Object media : asMap(byMedia).values()) {
+            if (media instanceof Map<?, ?> mediaMap) {
+                Map<String, Object> ref = new LinkedHashMap<>();
+                ref.put("$ref", "#/components/schemas/" + name);
+                asMap(mediaMap).put("schema", ref);
+                set = true;
+            }
+        }
+        return set;
     }
 
     /** True when the corrected error response has NO structured body — an inline {@code {type: object}} placeholder
