@@ -4,8 +4,8 @@ import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { ShieldCheck, CheckCircle2, AlertTriangle, XCircle, PackageCheck, Settings as SettingsIcon } from 'lucide-react';
 import {
-  api, type JiraProject, type JiraEpicOption, type PreflightCheck, type SnykBulkFixRequest,
-  type SnykIssueView, type SnykWatchView,
+  api, type JiraProject, type JiraEpicOption, type JiraStoryOption, type GitUser, type PreflightCheck,
+  type SnykBulkFixRequest, type SnykIssueView, type SnykWatchView,
 } from '../api';
 import { Modal } from './Modal';
 import { Badge, Button, EmptyState, Field, Input, Select, Spinner } from './ui';
@@ -73,7 +73,10 @@ export function SnykBulkFixWizard({ open, onClose, watches }:
   const [epicMode, setEpicMode] = useState<'existing' | 'create'>('existing');
   const [epicKey, setEpicKey] = useState('');
   const [epicSummary, setEpicSummary] = useState('');
-  const [reviewers, setReviewers] = useState('');
+  const [storyMode, setStoryMode] = useState<'existing' | 'create'>('existing');
+  const [storyKey, setStoryKey] = useState('');
+  const [storySummary, setStorySummary] = useState('');
+  const [reviewers, setReviewers] = useState<string[]>([]);   // validated Bitbucket usernames
 
   // Only apps that report fixable vulnerabilities are worth loading issues for — skip the clean ones entirely.
   const fixableWatches = useMemo(() => watches.filter((w) => w.fixable > 0), [watches]);
@@ -130,7 +133,10 @@ export function SnykBulkFixWizard({ open, onClose, watches }:
       setEpicMode('existing');
       setEpicKey('');
       setEpicSummary('');
-      setReviewers('');
+      setStoryMode('existing');
+      setStoryKey('');
+      setStorySummary('');
+      setReviewers([]);
     }
   }, [open]);
 
@@ -163,6 +169,11 @@ export function SnykBulkFixWizard({ open, onClose, watches }:
     queryKey: ['jira-epics', project], queryFn: () => api.jiraEpics(project),
     enabled: open && step === 4 && project !== '' && epicMode === 'existing',
   });
+  // Open stories under the chosen (existing) epic — loaded only when the user is picking an existing story.
+  const storiesQ = useQuery({
+    queryKey: ['jira-epic-stories', epicKey], queryFn: () => api.jiraEpicStories(epicKey),
+    enabled: open && step === 4 && epicMode === 'existing' && epicKey !== '' && storyMode === 'existing',
+  });
 
   // Default the new-epic title once, when the user first switches to "create" with an empty box.
   useEffect(() => {
@@ -171,11 +182,20 @@ export function SnykBulkFixWizard({ open, onClose, watches }:
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [epicMode]);
-
-  const reviewerList = useMemo(
-    () => reviewers.split(',').map((r) => r.trim()).filter(Boolean),
-    [reviewers],
-  );
+  // A new epic doesn't exist yet, so it has no existing stories to pick — force "create a story".
+  useEffect(() => {
+    if (epicMode === 'create') {
+      setStoryMode('create');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [epicMode]);
+  // Default the new-story title once, when the user first switches to "create" with an empty box.
+  useEffect(() => {
+    if (storyMode === 'create' && storySummary === '') {
+      setStorySummary(t('snyk.bulk.wizard.storySummaryDefault'));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storyMode]);
 
   // Group the selected issues by app into the request shape the backend expects.
   const buildRequest = (): SnykBulkFixRequest => {
@@ -192,13 +212,17 @@ export function SnykBulkFixWizard({ open, onClose, watches }:
       });
       byApp.set(r.watch.id, bucket);
     }
-    const creating = epicMode === 'create';
+    const creatingEpic = epicMode === 'create';
+    const creatingStory = storyMode === 'create';
     return {
       project,
-      epicKey: creating ? undefined : (epicKey || undefined),
-      createEpic: creating || undefined,
-      epicSummary: creating ? epicSummary.trim() : undefined,
-      reviewers: reviewerList.length ? reviewerList : undefined,
+      epicKey: creatingEpic ? undefined : (epicKey || undefined),
+      createEpic: creatingEpic || undefined,
+      epicSummary: creatingEpic ? epicSummary.trim() : undefined,
+      storyKey: creatingStory ? undefined : (storyKey || undefined),
+      createStory: creatingStory || undefined,
+      storySummary: creatingStory ? storySummary.trim() : undefined,
+      reviewers: reviewers.length ? reviewers : undefined,
       apps: [...byApp.values()],
     };
   };
@@ -217,10 +241,10 @@ export function SnykBulkFixWizard({ open, onClose, watches }:
       const failed = res.apps.length - ok;
       const fixes = res.apps.reduce((n, a) => n + a.trainIds.length, 0);
       if (failed === 0) {
-        toast.push('success', t('snyk.bulk.wizard.started', { fixes, apps: ok, epic: res.epicKey }));
+        toast.push('success', t('snyk.bulk.wizard.started', { fixes, apps: ok, story: res.storyKey }));
       } else {
         toast.push('error', t('snyk.bulk.wizard.startedSome',
-          { epic: res.epicKey, ok, total: res.apps.length, failed }));
+          { story: res.storyKey, ok, total: res.apps.length, failed }));
       }
       onClose();
     },
@@ -229,6 +253,7 @@ export function SnykBulkFixWizard({ open, onClose, watches }:
 
   // Per-step gating — every disabled Continue/Start shows a one-line reason (no dead buttons).
   const epicReady = epicMode === 'existing' ? epicKey.trim() !== '' : epicSummary.trim() !== '';
+  const storyReady = storyMode === 'existing' ? storyKey.trim() !== '' : storySummary.trim() !== '';
   const gate: { ok: boolean; reason?: string } = (() => {
     if (step === 1) {
       return connectionsOk ? { ok: true } : { ok: false, reason: t('snyk.bulk.wizard.connNeedReady') };
@@ -238,8 +263,12 @@ export function SnykBulkFixWizard({ open, onClose, watches }:
     }
     if (step === 4) {
       if (project === '') return { ok: false, reason: t('snyk.bulk.wizard.needProject') };
-      if (epicMode === 'existing' && epicKey === '') return { ok: false, reason: t('snyk.bulk.wizard.needEpic') };
-      if (epicMode === 'create' && epicSummary.trim() === '') return { ok: false, reason: t('snyk.bulk.wizard.needEpicSummary') };
+      if (!epicReady) {
+        return { ok: false, reason: t(epicMode === 'existing' ? 'snyk.bulk.wizard.needEpic' : 'snyk.bulk.wizard.needEpicSummary') };
+      }
+      if (!storyReady) {
+        return { ok: false, reason: t(storyMode === 'existing' ? 'snyk.bulk.wizard.needStory' : 'snyk.bulk.wizard.needStorySummary') };
+      }
       return { ok: true };
     }
     return { ok: true };
@@ -291,11 +320,15 @@ export function SnykBulkFixWizard({ open, onClose, watches }:
       {step === 3 && <StepReview rowCount={chosenRows.length} apps={chosenApps} />}
       {step === 4 && <StepJira
         projectsLoading={projectsQ.isLoading} projectsFailed={projectsQ.isError} projects={projectsQ.data ?? []}
-        project={project} setProject={(p) => { setProject(p); setEpicKey(''); }}
+        project={project} setProject={(p) => { setProject(p); setEpicKey(''); setStoryKey(''); }}
         epicMode={epicMode} setEpicMode={setEpicMode}
         epicsLoading={epicsQ.isLoading} epicsFailed={epicsQ.isError} epics={epicsQ.data ?? []}
-        epicKey={epicKey} setEpicKey={setEpicKey}
+        epicKey={epicKey} setEpicKey={(k) => { setEpicKey(k); setStoryKey(''); }}
         epicSummary={epicSummary} setEpicSummary={setEpicSummary} epicReady={epicReady}
+        storyMode={storyMode} setStoryMode={setStoryMode}
+        storiesLoading={storiesQ.isLoading} storiesFailed={storiesQ.isError} stories={storiesQ.data ?? []}
+        storyKey={storyKey} setStoryKey={setStoryKey}
+        storySummary={storySummary} setStorySummary={setStorySummary} storyReady={storyReady}
         reviewers={reviewers} setReviewers={setReviewers} />}
     </Modal>
   );
@@ -466,7 +499,8 @@ function StepReview({ rowCount, apps }: { rowCount: number; apps: SnykWatchView[
 /* ── Step 4: file it in Jira, then start ──────────────────────────────────── */
 function StepJira({ projectsLoading, projectsFailed, projects, project, setProject, epicMode, setEpicMode,
   epicsLoading, epicsFailed, epics, epicKey, setEpicKey, epicSummary, setEpicSummary, epicReady,
-  reviewers, setReviewers }:
+  storyMode, setStoryMode, storiesLoading, storiesFailed, stories, storyKey, setStoryKey,
+  storySummary, setStorySummary, storyReady, reviewers, setReviewers }:
   {
     projectsLoading: boolean; projectsFailed: boolean; projects: JiraProject[];
     project: string; setProject: (p: string) => void;
@@ -474,9 +508,16 @@ function StepJira({ projectsLoading, projectsFailed, projects, project, setProje
     epicsLoading: boolean; epicsFailed: boolean; epics: JiraEpicOption[];
     epicKey: string; setEpicKey: (k: string) => void;
     epicSummary: string; setEpicSummary: (s: string) => void; epicReady: boolean;
-    reviewers: string; setReviewers: (r: string) => void;
+    storyMode: 'existing' | 'create'; setStoryMode: (m: 'existing' | 'create') => void;
+    storiesLoading: boolean; storiesFailed: boolean; stories: JiraStoryOption[];
+    storyKey: string; setStoryKey: (k: string) => void;
+    storySummary: string; setStorySummary: (s: string) => void; storyReady: boolean;
+    reviewers: string[]; setReviewers: (r: string[]) => void;
   }) {
   const { t } = useTranslation();
+  // The story only makes sense once we know the epic: an existing epic that's been chosen, or a brand-new epic.
+  const epicChosen = epicMode === 'existing' ? epicKey !== '' : epicSummary.trim() !== '';
+  const newEpic = epicMode === 'create';
   return (
     <div className="space-y-4">
       {/* Project — a real dropdown, never free-typed (an invalid key was the whole problem) */}
@@ -544,9 +585,137 @@ function StepJira({ projectsLoading, projectsFailed, projects, project, setProje
         </Field>
       )}
 
+      {/* Story — one shared story under the epic that every fix links to. Needs an epic first. A brand-new epic
+          has no existing stories, so we only offer "create" there (the mode is forced upstream). */}
+      {project !== '' && epicChosen && (
+        <Field label={t('snyk.bulk.wizard.storyLabel')} hint={t('snyk.bulk.wizard.storyHint')}>
+          <div className="space-y-2">
+            {!newEpic && (
+              <div className="flex flex-wrap gap-4 text-sm">
+                <label className="inline-flex cursor-pointer items-center gap-2 text-ink-900">
+                  <input type="radio" name="storyMode" className="accent-brand" checked={storyMode === 'existing'}
+                    onChange={() => setStoryMode('existing')} />
+                  {t('snyk.bulk.wizard.storyExisting')}
+                </label>
+                <label className="inline-flex cursor-pointer items-center gap-2 text-ink-900">
+                  <input type="radio" name="storyMode" className="accent-brand" checked={storyMode === 'create'}
+                    onChange={() => setStoryMode('create')} />
+                  {t('snyk.bulk.wizard.storyCreate')}
+                </label>
+              </div>
+            )}
+
+            {storyMode === 'existing' && !newEpic ? (
+              storiesLoading ? (
+                <span className="inline-flex items-center gap-2 text-sm text-muted">
+                  <Spinner /> {t('snyk.bulk.wizard.storyLoading')}
+                </span>
+              ) : storiesFailed ? (
+                <span className="text-sm text-danger">{t('snyk.bulk.wizard.storyLoadFailed')}</span>
+              ) : stories.length === 0 ? (
+                <span className="text-sm text-muted">{t('snyk.bulk.wizard.storyNone')}</span>
+              ) : (
+                <Select value={storyKey} onChange={(e) => setStoryKey(e.target.value)} invalid={!storyReady}>
+                  <option value="">{t('snyk.bulk.wizard.storyChoose')}</option>
+                  {stories.map((s) => (
+                    <option key={s.key} value={s.key}>{s.summary} ({s.key})</option>
+                  ))}
+                </Select>
+              )
+            ) : (
+              <>
+                <Input value={storySummary} onChange={(e) => setStorySummary(e.target.value)}
+                  placeholder={t('snyk.bulk.wizard.storySummaryDefault')} invalid={!storyReady} />
+                <span className="block text-xs text-muted">{t('snyk.bulk.wizard.storySummaryHint')}</span>
+              </>
+            )}
+          </div>
+        </Field>
+      )}
+
+      {/* Reviewers — real Bitbucket users only, picked from an autocomplete (free text let anything through). */}
       <Field label={t('snyk.bulk.wizard.reviewersLabel')} hint={t('snyk.bulk.wizard.reviewersHint')}>
-        <Input value={reviewers} onChange={(e) => setReviewers(e.target.value)} placeholder="alice, bob" />
+        <ReviewerPicker reviewers={reviewers} setReviewers={setReviewers} />
       </Field>
+    </div>
+  );
+}
+
+/* ── Reviewer autocomplete: validated Bitbucket usernames as removable chips ─── */
+function ReviewerPicker({ reviewers, setReviewers }:
+  { reviewers: string[]; setReviewers: (r: string[]) => void }) {
+  const { t } = useTranslation();
+  const [q, setQ] = useState('');
+  const [debounced, setDebounced] = useState('');
+
+  // Debounce keystrokes so we don't fire a lookup per character; the query itself is cached by React Query.
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(q.trim()), 250);
+    return () => clearTimeout(id);
+  }, [q]);
+
+  const usersQ = useQuery({
+    queryKey: ['bitbucket-users', debounced], queryFn: () => api.bitbucketUsers(debounced),
+    enabled: debounced.length >= 2,
+  });
+
+  const add = (name: string) => {
+    if (name && !reviewers.includes(name)) setReviewers([...reviewers, name]);
+    setQ('');
+    setDebounced('');
+  };
+  const remove = (name: string) => setReviewers(reviewers.filter((r) => r !== name));
+
+  // Only suggest users not already picked; the endpoint caps the list, so no client-side slice needed.
+  const suggestions = (usersQ.data ?? []).filter((u) => !reviewers.includes(u.name));
+
+  return (
+    <div className="space-y-2">
+      {reviewers.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {reviewers.map((r) => (
+            <span key={r}
+              className="inline-flex items-center gap-1 rounded-full bg-brand/10 px-2.5 py-1 text-xs font-medium text-brand ring-1 ring-brand/20">
+              {r}
+              <button type="button" onClick={() => remove(r)} aria-label={t('snyk.bulk.wizard.reviewerRemove', { name: r })}
+                className="rounded-full text-brand/70 hover:text-brand">
+                <XCircle className="h-3.5 w-3.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div>
+        <Input value={q} onChange={(e) => setQ(e.target.value)}
+          placeholder={t('snyk.bulk.wizard.reviewerSearch')} aria-label={t('snyk.bulk.wizard.reviewerSearch')} />
+        {/* Suggestions render in normal flow (not an absolute popover) so the modal body scrolls to reach them
+            even when the reviewer field is the last one — an absolute layer would clip under overflow-y-auto. */}
+        {debounced.length >= 2 && (
+          <div className="mt-1 overflow-hidden rounded-lg ring-1 ring-border">
+            {usersQ.isLoading ? (
+              <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted">
+                <Spinner /> {t('snyk.bulk.wizard.reviewerSearching')}
+              </div>
+            ) : usersQ.isError ? (
+              <div className="px-3 py-2 text-sm text-danger">{t('snyk.bulk.wizard.reviewerSearchFailed')}</div>
+            ) : suggestions.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-muted">{t('snyk.bulk.wizard.reviewerNoMatch')}</div>
+            ) : (
+              <ul className="max-h-48 overflow-y-auto py-1">
+                {suggestions.map((u) => (
+                  <li key={u.name}>
+                    <button type="button" onClick={() => add(u.name)}
+                      className="flex w-full flex-col items-start px-3 py-1.5 text-left hover:bg-ink-50">
+                      <span className="text-sm text-ink-900">{u.displayName}</span>
+                      <span className="text-xs text-muted">{u.name}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

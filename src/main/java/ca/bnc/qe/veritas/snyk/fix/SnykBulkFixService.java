@@ -51,6 +51,9 @@ public class SnykBulkFixService {
         // so a missing token surfaces here as a clean connection error, not a half-run batch.
         String project = resolveProjectKey(req.project().trim());
         String epicKey = resolveEpic(req, project);
+        // One shared story under the epic — an existing OPEN one the user chose, or a new one. Created BEFORE any train
+        // starts, so a bad story destination fails the batch fast (never a half-run with orphaned trains).
+        String storyKey = resolveStory(req, project, epicKey, apps);
         List<String> reviewers = req.reviewers() == null ? List.of() : req.reviewers();
 
         List<AppResult> results = new ArrayList<>();
@@ -59,27 +62,23 @@ public class SnykBulkFixService {
                 continue;
             }
             try {
-                // One ticket per app, filed under the epic (the epic link is applied by the edition client).
-                String appTicket = jira.createIssue(new JiraCreateRequest(project, "Task",
-                        "Dependency security fixes — " + app.appId(), appDescription(app),
-                        List.of("snyk", "dependency-security"), epicKey));
                 List<String> trainIds = new ArrayList<>();
                 for (IssueSelection issue : app.issues()) {
-                    // jiraKey = the app ticket → the train reuses it instead of creating its own; autoConfirm=true
+                    // jiraKey = the shared story → every train reuses it instead of creating its own; autoConfirm=true
                     // runs each train straight through (the reactor build is the gate; breaking ones hold for review).
                     String trainId = runner.submit(new SnykFixRequest(app.watchId(), issue.issueId(),
                             issue.coordinate(), issue.oldVersion(), issue.fixedIn(), issue.severity(),
-                            List.of(app.appId()), appTicket, project, null, reviewers, null, true));
+                            List.of(app.appId()), storyKey, project, null, reviewers, null, true));
                     trainIds.add(trainId);
                 }
-                results.add(new AppResult(app.appId(), appTicket, trainIds, null));
+                results.add(new AppResult(app.appId(), storyKey, trainIds, null));
             } catch (RuntimeException e) {
-                // Isolate a single app's failure (e.g. its ticket couldn't be created) — the rest of the batch runs.
+                // Isolate a single app's failure — the rest of the batch (on the same shared story) still runs.
                 log.warn("Bulk fix: application {} could not be launched (non-fatal): {}", app.appId(), e.getMessage());
                 results.add(new AppResult(app.appId(), null, List.of(), e.getMessage()));
             }
         }
-        return new SnykBulkFixResult(epicKey, results);
+        return new SnykBulkFixResult(epicKey, storyKey, results);
     }
 
     /**
@@ -110,6 +109,20 @@ public class SnykBulkFixService {
         throw new IllegalArgumentException("An epic is required — select an existing epic or ask to create one.");
     }
 
+    /** Use the chosen existing story, or create one under the epic; refuse to proceed without a story to file under. */
+    private String resolveStory(SnykBulkFixRequest req, String project, String epicKey, List<AppSelection> apps) {
+        if (!isBlank(req.storyKey())) {
+            return req.storyKey().trim();
+        }
+        if (req.createStory()) {
+            String summary = isBlank(req.storySummary()) ? "Dependency security fixes" : req.storySummary().trim();
+            return jira.createIssue(new JiraCreateRequest(project, "Story", summary, storyDescription(apps),
+                    List.of("veritas", "snyk", "dependency-security"), epicKey));
+        }
+        throw new IllegalArgumentException(
+                "A story is required — select an existing story under the epic or ask to create one.");
+    }
+
     private void validateTokens(List<AppSelection> apps) {
         for (AppSelection app : apps) {
             if (app == null || app.issues() == null) {
@@ -130,16 +143,21 @@ public class SnykBulkFixService {
         }
     }
 
-    /** The per-app ticket body: which vulnerabilities this app's fix covers, deterministically. */
-    private List<String> appDescription(AppSelection app) {
+    /** The shared story body: every app + the vulnerabilities its fixes cover, deterministically. */
+    private List<String> storyDescription(List<AppSelection> apps) {
         List<String> p = new ArrayList<>();
-        p.add("Automated dependency security fixes for " + app.appId() + ", raised by Veritas from Snyk findings.");
-        p.add("Fixes in this ticket:");
-        for (IssueSelection i : app.issues()) {
-            p.add("- " + i.coordinate() + "  (" + i.oldVersion() + " -> " + i.fixedIn() + ", "
-                    + upper(i.severity()) + ")");
+        p.add("Automated dependency-security fixes raised by Veritas from Snyk findings.");
+        for (AppSelection app : apps) {
+            if (!hasIssues(app)) {
+                continue;
+            }
+            p.add(app.appId() + ":");
+            for (IssueSelection i : app.issues()) {
+                p.add("- " + i.coordinate() + "  (" + i.oldVersion() + " -> " + i.fixedIn() + ", "
+                        + upper(i.severity()) + ")");
+            }
         }
-        p.add("The lsist framework repos (bom -> core -> api/web) are bumped first, then this app's application-tests "
+        p.add("The lsist framework repos (bom -> core -> api/web) are bumped first, then each app's application-tests "
                 + "repo picks up the new version. Breaking changes are held for review — Veritas never auto-merges.");
         return p;
     }
