@@ -100,6 +100,8 @@ class ContractValidationServiceBranch2Test {
         when(correctedSpecBuilder.withOriginalMetadata(any(), any())).thenAnswer(inv -> inv.getArgument(0));
         // The write-boundary dangling-ref sanitiser is a passthrough on a clean spec (real logic in CorrectedSpecBuilderTest).
         when(correctedSpecBuilder.withoutDanglingRefs(any())).thenAnswer(inv -> inv.getArgument(0));
+        // The optional error-schema enrichment is a passthrough by default (real logic in CorrectedSpecBuilderTest).
+        when(correctedSpecBuilder.withErrorSchemasFromSpec(any(), any())).thenAnswer(inv -> inv.getArgument(0));
         when(openApi.extract(eq("corrected-check"), anyString()))
                 .thenReturn(new SpecParse(specModel("corrected-check"), List.of(), true));
         when(openApi.presenceOf(anyString())).thenReturn(SpecPresence.empty());

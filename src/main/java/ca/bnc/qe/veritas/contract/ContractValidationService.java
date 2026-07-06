@@ -952,18 +952,29 @@ public class ContractValidationService {
     /** Prefer the LLM-reconciled corrected YAML when it re-parses AND preserves the code's endpoints; else the
      *  deterministic code-wins spec. */
     private String chooseCorrectedYaml(String llmCorrected, ApiModel code, String title, String originalSpecYaml) {
+        String base;
         if (llmCorrected != null && roundTrips(llmCorrected) && preservesEndpoints(llmCorrected, code)) {
             // The LLM output governs paths/schemas, but its info/servers are its own invention (it is never handed the
             // spec's info/servers) — overlay the real metadata so the "drop-in replacement" is honest. The deterministic
             // build() already preserves it internally; this makes the LLM-preferred branch match. Then strip any
             // dangling $ref so an LLM-invented schema name can't ship as invalid OpenAPI.
-            return correctedSpecBuilder.withoutDanglingRefs(
+            base = correctedSpecBuilder.withoutDanglingRefs(
                     correctedSpecBuilder.withOriginalMetadata(llmCorrected, originalSpecYaml));
+        } else {
+            String deterministic = correctedSpecBuilder.build(code, title, originalSpecYaml);
+            // Guarantee the written "drop-in" spec is VALID OpenAPI — no $ref to a schema we never defined (a generic
+            // Object error body). A parse-only round-trip gate tolerates dangling refs, so sanitise explicitly.
+            base = roundTrips(deterministic) ? correctedSpecBuilder.withoutDanglingRefs(deterministic) : null;
         }
-        String deterministic = correctedSpecBuilder.build(code, title, originalSpecYaml);
-        // Guarantee the written "drop-in" spec is VALID OpenAPI — no $ref to a schema we never defined (a generic
-        // Object error body). A parse-only round-trip gate tolerates dangling refs, so sanitise explicitly.
-        return roundTrips(deterministic) ? correctedSpecBuilder.withoutDanglingRefs(deterministic) : null;
+        if (base == null) {
+            return null;
+        }
+        // Optional enrichment: adopt the ORIGINAL spec's structured error schema (e.g. error-model) for error responses
+        // instead of the code's generic {type: object}. Guarded — keep it only if it still round-trips (dangling refs
+        // sanitised first), so it can never regress a valid spec into an invalid one.
+        String enriched = correctedSpecBuilder.withoutDanglingRefs(
+                correctedSpecBuilder.withErrorSchemasFromSpec(base, originalSpecYaml));
+        return roundTrips(enriched) ? enriched : base;
     }
 
     /**

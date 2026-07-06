@@ -571,6 +571,120 @@ class CorrectedSpecBuilderTest {
         assertThat(new OpenApiModelExtractor().extract("corrected", out).parsed()).isTrue();
     }
 
+    // ---- optional enrichment: adopt the original spec's structured error contract for error responses -------------
+
+    @Test
+    void withErrorSchemasFromSpec_adoptsTheOriginalStructuredErrorContractForErrorResponses() throws Exception {
+        // The code models error bodies as an untyped Object (→ inline {type: object}). When the original spec defined a
+        // structured error schema (error-model via application/problem+json), preserve it in the corrected error
+        // responses — richer, keeps the original error contract. Success responses stay code-authoritative.
+        String corrected = """
+                openapi: 3.0.3
+                info: { title: X, version: 1.0.0 }
+                paths:
+                  /things/{id}:
+                    get:
+                      responses:
+                        '200':
+                          description: OK
+                          content:
+                            application/json:
+                              schema: { $ref: '#/components/schemas/Thing' }
+                        '404':
+                          description: Not Found
+                          content:
+                            application/json:
+                              schema: { type: object }
+                components:
+                  schemas:
+                    Thing: { type: object, properties: { name: { type: string } } }
+                """;
+        String original = """
+                openapi: 3.0.3
+                info: { title: X, version: 1.0.5 }
+                paths:
+                  /things/{id}:
+                    get:
+                      responses:
+                        '404':
+                          description: Not Found
+                          content:
+                            application/problem+json:
+                              schema: { $ref: '#/components/schemas/error-model' }
+                components:
+                  schemas:
+                    error-model:
+                      type: object
+                      properties:
+                        code: { type: string }
+                        message: { type: string }
+                """;
+        String out = new CorrectedSpecBuilder().withErrorSchemasFromSpec(corrected, original);
+
+        assertThat(out).contains("#/components/schemas/error-model");   // the 404 now references the structured error…
+        assertThat(out).contains("application/problem+json");           // …via the original's media type
+        assertThat(out).contains("error-model:");                       // and the schema itself was copied into components
+        assertThat(out).contains("#/components/schemas/Thing");         // the 200 (success) response is untouched
+        assertThat(new OpenApiModelExtractor().extract("corrected", out).parsed()).isTrue();
+        assertThat(everyRefResolves(out)).isTrue();                     // no dangling ref introduced
+    }
+
+    @Test
+    void withErrorSchemasFromSpec_returnsInputVerbatimWhenTheOriginalHasNoStructuredErrorSchema() {
+        // Safety: only adopt when the original error response references a real schema. Otherwise return the input
+        // UNCHANGED (so the guarded caller never risks a regression on a spec with nothing to enrich).
+        String corrected = "openapi: 3.0.3\ninfo: { title: X, version: 1.0.0 }\n"
+                + "paths:\n  /x:\n    get:\n      responses:\n        '500': { description: err }\n";
+        String original = "openapi: 3.0.3\ninfo: { title: X, version: 1.0.0 }\n"
+                + "paths:\n  /x:\n    get:\n      responses:\n        '500': { description: err }\n"
+                + "components:\n  schemas:\n    Unrelated: { type: object }\n";
+        assertThat(new CorrectedSpecBuilder().withErrorSchemasFromSpec(corrected, original)).isEqualTo(corrected);
+    }
+
+    @Test
+    void withErrorSchemasFromSpec_doesNotOverwriteACodeAuthoritativeStructuredErrorBody() {
+        // Code wins on behaviour: when the CODE already documents a STRUCTURED error body (its own $ref, e.g. from
+        // @ControllerAdvice/@ExceptionHandler returning a real error DTO), the enrichment must NOT replace it with the
+        // spec's — that would leak an error shape/media type the code doesn't produce AND resurrect the media-type
+        // drift the deterministic build removed. Only the generic {type: object} placeholder is enriched. RED before.
+        String corrected = """
+                openapi: 3.0.3
+                info: { title: X, version: 1.0.0 }
+                paths:
+                  /things/{id}:
+                    get:
+                      responses:
+                        '404':
+                          description: Not Found
+                          content:
+                            application/problem+json:
+                              schema: { $ref: '#/components/schemas/CodeError' }
+                components:
+                  schemas:
+                    CodeError: { type: object, properties: { codeMsg: { type: string } } }
+                """;
+        String original = """
+                openapi: 3.0.3
+                info: { title: X, version: 1.0.5 }
+                paths:
+                  /things/{id}:
+                    get:
+                      responses:
+                        '404':
+                          description: Not Found
+                          content:
+                            application/json:
+                              schema: { $ref: '#/components/schemas/SpecError' }
+                components:
+                  schemas:
+                    SpecError: { type: object, properties: { specMsg: { type: string } } }
+                """;
+        String out = new CorrectedSpecBuilder().withErrorSchemasFromSpec(corrected, original);
+
+        assertThat(out).isEqualTo(corrected);       // the code's structured error body is untouched (no adoption)
+        assertThat(out).doesNotContain("SpecError");   // the spec's error shape did NOT leak in
+    }
+
     /** True when every {@code $ref: #/components/schemas/X} in the doc points at a schema X actually defined under
      *  components/schemas — i.e. there are NO dangling references (the invalid-OpenAPI condition). */
     @SuppressWarnings("unchecked")
