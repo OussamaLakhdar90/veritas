@@ -918,6 +918,59 @@ class CorrectedSpecBuilderTest {
         assertThat(errorSchemaRefsAt(out, "/x", "get", "200")).containsExactly("<inline>");       // …success left generic
     }
 
+    // ---- optional DRY structure: share identical responses via components/responses -------------------------------
+
+    @Test
+    void deduplicateResponses_hoistsResponsesRepeatedAcrossOperationsAndLeavesUniqueOnesInline() throws Exception {
+        // Two operations declare the SAME 200 + 404 bodies inline; a hand-written spec (and the original) shares those
+        // via components/responses. Hoist the duplicated ones to a single $ref referenced from both operations; a body
+        // that DIFFERS across the operations (the 400 here) can't be shared and stays inline.
+        String corrected = """
+                openapi: 3.0.3
+                info: { title: X, version: 1.0.0 }
+                paths:
+                  /a:
+                    get:
+                      responses:
+                        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/T' } } } }
+                        '404': { description: Not Found, content: { application/problem+json: { schema: { type: object } } } }
+                        '400': { description: Bad Request, content: { application/problem+json: { schema: { type: string } } } }
+                  /b:
+                    get:
+                      responses:
+                        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/T' } } } }
+                        '404': { description: Not Found, content: { application/problem+json: { schema: { type: object } } } }
+                        '400': { description: Bad Request, content: { application/problem+json: { schema: { type: integer } } } }
+                components:
+                  schemas:
+                    T: { type: object }
+                """;
+        String out = new CorrectedSpecBuilder().deduplicateResponses(corrected);
+
+        // 200 and 404 are identical across /a and /b → each hoisted once and referenced from BOTH operations.
+        assertThat(responseRefAt(out, "/a", "get", "200")).isEqualTo("#/components/responses/200");
+        assertThat(responseRefAt(out, "/b", "get", "200")).isEqualTo("#/components/responses/200");
+        assertThat(responseRefAt(out, "/a", "get", "404")).isEqualTo("#/components/responses/404");
+        assertThat(responseRefAt(out, "/b", "get", "404")).isEqualTo("#/components/responses/404");
+        // The 400 differs between the two operations → NOT shared, stays inline (no $ref).
+        assertThat(responseRefAt(out, "/a", "get", "400")).isNull();
+        assertThat(responseRefAt(out, "/b", "get", "400")).isNull();
+        // Exactly the duplicated statuses were hoisted into components/responses.
+        assertThat(componentResponseKeys(out)).containsExactlyInAnyOrder("200", "404");
+        assertThat(everyRefResolves(out)).isTrue();
+        assertThat(new OpenApiModelExtractor().extract("corrected", out).parsed()).isTrue();
+    }
+
+    @Test
+    void deduplicateResponses_returnsInputVerbatimWhenNothingIsDuplicated() {
+        // A single operation (or all-distinct bodies) → nothing to share → the input is returned UNCHANGED, so the
+        // guarded caller never risks a needless restructure.
+        String corrected = "openapi: 3.0.3\ninfo: { title: X, version: 1.0.0 }\n"
+                + "paths:\n  /a:\n    get:\n      responses:\n"
+                + "        '404': { description: Not Found, content: { application/problem+json: { schema: { type: object } } } }\n";
+        assertThat(new CorrectedSpecBuilder().deduplicateResponses(corrected)).isEqualTo(corrected);
+    }
+
     /** True when every {@code $ref: #/components/schemas/X} in the doc points at a schema X actually defined under
      *  components/schemas — i.e. there are NO dangling references (the invalid-OpenAPI condition). */
     @SuppressWarnings("unchecked")
@@ -982,5 +1035,28 @@ class CorrectedSpecBuilderTest {
         Map<String, Object> content = (Map<String, Object>) resp.get("content");
         Map<String, Object> media = (Map<String, Object>) content.values().iterator().next();
         return (Map<String, Object>) media.get("schema");
+    }
+
+    /** The {@code $ref} of a given path+method+status response (e.g. after de-duplication), or {@code null} when the
+     *  response is still inline. */
+    @SuppressWarnings("unchecked")
+    private static String responseRefAt(String yaml, String path, String method, String status) throws Exception {
+        Map<String, Object> root = new com.fasterxml.jackson.dataformat.yaml.YAMLMapper().readValue(yaml, Map.class);
+        Map<String, Object> op = (Map<String, Object>) ((Map<String, Object>)
+                ((Map<String, Object>) root.get("paths")).get(path)).get(method);
+        Map<String, Object> resp = (Map<String, Object>) ((Map<String, Object>) op.get("responses")).get(status);
+        Object ref = resp == null ? null : resp.get("$ref");
+        return ref instanceof String s ? s : null;
+    }
+
+    /** The keys defined under {@code components/responses} (empty when absent) — to assert exactly which responses were
+     *  hoisted for sharing. */
+    @SuppressWarnings("unchecked")
+    private static java.util.Set<String> componentResponseKeys(String yaml) throws Exception {
+        Map<String, Object> root = new com.fasterxml.jackson.dataformat.yaml.YAMLMapper().readValue(yaml, Map.class);
+        Object comps = root.get("components");
+        Object responses = comps instanceof Map<?, ?> c ? ((Map<String, Object>) c).get("responses") : null;
+        return responses instanceof Map<?, ?> r ? new java.util.HashSet<>(((Map<String, Object>) r).keySet())
+                : java.util.Set.of();
     }
 }
