@@ -38,6 +38,19 @@ public interface GitHost {
     }
 
     /**
+     * Search host users for the PR-reviewer picker — a username/display-name substring, most-relevant first. Returns
+     * real host identities that can actually be added as PR reviewers, so the wizard can autocomplete + validate
+     * instead of accepting arbitrary text. Empty if unsupported by this host.
+     */
+    default List<GitUser> searchUsers(String query, int max) {
+        return List.of();
+    }
+
+    /** A host user offered in the reviewer picker: {@code name} is the reviewer identity (Server/DC username / Cloud
+     *  account id) actually sent when opening the PR; {@code displayName} is for display only. */
+    record GitUser(String name, String displayName) {}
+
+    /**
      * A pull request to open. {@code project} targets a specific Bitbucket project (Server/DC) — blank uses the
      * configured default; {@code reviewers} are host usernames (Server/DC) or account UUIDs (Cloud), possibly empty.
      */

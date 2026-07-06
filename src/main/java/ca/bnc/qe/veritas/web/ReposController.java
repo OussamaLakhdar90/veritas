@@ -29,4 +29,11 @@ public class ReposController {
     public List<String> branches(@PathVariable String slug, @RequestParam(required = false) String appId) {
         return gitHost.listBranches(appId, slug);
     }
+
+    /** Search Bitbucket users for the PR-reviewer picker (autocomplete + validation) — real identities that can be
+     *  added as reviewers, so the bulk-fix wizard doesn't accept arbitrary usernames. */
+    @GetMapping("/bitbucket/users")
+    public List<GitHost.GitUser> bitbucketUsers(@RequestParam String query) {
+        return gitHost.searchUsers(query, 25);
+    }
 }
