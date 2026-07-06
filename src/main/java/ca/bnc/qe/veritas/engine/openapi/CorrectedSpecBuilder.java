@@ -1,8 +1,11 @@
 package ca.bnc.qe.veritas.engine.openapi;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -150,6 +153,166 @@ public class CorrectedSpecBuilder {
         } catch (Exception e) {
             return correctedYaml;
         }
+    }
+
+    /**
+     * Enrich the corrected spec's ERROR responses (status 4xx/5xx) with the ORIGINAL spec's structured error schema,
+     * when it had one. The code models error bodies as an untyped {@code Object} (→ inline {@code {type: object}}); the
+     * original spec often defined a real error contract (e.g. an {@code error-model} schema referenced via
+     * {@code application/problem+json}). Preserving it keeps the richer, structured error contract in the "drop-in"
+     * spec — a purely additive, optional improvement. Only error statuses present in BOTH documents whose original
+     * response has a {@code $ref}-based body are touched; success responses stay code-authoritative. Referenced schemas
+     * are copied transitively into {@code components}. Parses the string form, so every node is mutable. Returns the
+     * input unchanged on any problem — the caller re-validates (round-trip + dangling-ref sanitise), so this can never
+     * regress a valid spec into an invalid one.
+     */
+    @SuppressWarnings("unchecked")
+    public String withErrorSchemasFromSpec(String correctedYaml, String originalSpecYaml) {
+        if (correctedYaml == null || correctedYaml.isBlank() || originalSpecYaml == null || originalSpecYaml.isBlank()) {
+            return correctedYaml;
+        }
+        Map<String, Object> root;
+        Map<String, Object> orig;
+        try {
+            root = yaml.readValue(correctedYaml, Map.class);
+            orig = yaml.readValue(originalSpecYaml, Map.class);
+        } catch (Exception e) {
+            return correctedYaml;
+        }
+        if (root == null || orig == null
+                || !(root.get("paths") instanceof Map<?, ?> rPaths) || !(orig.get("paths") instanceof Map<?, ?> oPaths)) {
+            return correctedYaml;
+        }
+        Map<String, Object> origSchemas = componentSchemas(orig);
+        if (origSchemas == null || origSchemas.isEmpty()) {
+            return correctedYaml;   // nothing structured to borrow
+        }
+        Set<String> wanted = new LinkedHashSet<>();
+        if (!adoptErrorResponses(asMap(oPaths), asMap(rPaths), wanted)) {
+            return correctedYaml;   // no error response had a structured schema to adopt → leave verbatim
+        }
+        copySchemasTransitively(wanted, origSchemas, targetSchemas(root));
+        try {
+            return yaml.writeValueAsString(root);
+        } catch (Exception e) {
+            return correctedYaml;
+        }
+    }
+
+    /** For each corrected path+method+error-status (4xx/5xx) whose corrected body is the GENERIC placeholder (no
+     *  structured $ref — i.e. the code returns an untyped Object) and which the original documents with a
+     *  {@code $ref}-based body, replace the corrected error response's {@code content} with a deep copy of the
+     *  original's and record the referenced schema names. Returns true when anything was adopted. */
+    @SuppressWarnings("unchecked")
+    private boolean adoptErrorResponses(Map<String, Object> oPaths, Map<String, Object> rPaths, Set<String> wanted) {
+        boolean changed = false;
+        for (Map.Entry<String, Object> re : rPaths.entrySet()) {
+            if (!(re.getValue() instanceof Map<?, ?> rItem) || !(oPaths.get(re.getKey()) instanceof Map<?, ?> oItem)) {
+                continue;
+            }
+            for (Map.Entry<?, ?> rm : ((Map<String, Object>) rItem).entrySet()) {
+                if (!(rm.getValue() instanceof Map<?, ?> rOp) || !(asMap(oItem).get(rm.getKey()) instanceof Map<?, ?> oOp)
+                        || !(asMap(rOp).get("responses") instanceof Map<?, ?> rResps)
+                        || !(asMap(oOp).get("responses") instanceof Map<?, ?> oResps)) {
+                    continue;
+                }
+                for (Map.Entry<?, ?> rr : asMap(rResps).entrySet()) {
+                    if (!isErrorStatus(String.valueOf(rr.getKey())) || !(rr.getValue() instanceof Map<?, ?> rResp)
+                            || !(asMap(oResps).get(rr.getKey()) instanceof Map<?, ?> oResp)
+                            || !isGenericErrorBody(asMap(rResp))) {
+                        // Skip when the CODE already documents a STRUCTURED error body (its own $ref, e.g. from
+                        // @ControllerAdvice): code wins on behaviour, and overwriting it would resurrect the media-type
+                        // drift the deterministic build deliberately avoids. Only enrich the generic {type: object}.
+                        continue;
+                    }
+                    Object oContent = asMap(oResp).get("content");
+                    Set<String> refs = new LinkedHashSet<>();
+                    collectSchemaRefNames(oContent, refs);
+                    if (!refs.isEmpty()) {   // the original error body references a real schema — adopt it
+                        asMap(rResp).put("content", deepCopy(oContent));
+                        wanted.addAll(refs);
+                        changed = true;
+                    }
+                }
+            }
+        }
+        return changed;
+    }
+
+    /** True when the corrected error response has NO structured body — an inline {@code {type: object}} placeholder
+     *  (or nothing). When it already references a real schema, the CODE gave a structured error body and wins. */
+    private boolean isGenericErrorBody(Map<String, Object> rResp) {
+        Set<String> refs = new LinkedHashSet<>();
+        collectSchemaRefNames(rResp.get("content"), refs);
+        return refs.isEmpty();
+    }
+
+    /** Copy {@code wanted} schemas (and everything they reference, transitively) from the original components into the
+     *  corrected ones — but never overwrite a schema the corrected already defines (code stays authoritative). */
+    private void copySchemasTransitively(Set<String> wanted, Map<String, Object> origSchemas,
+                                         Map<String, Object> targetSchemas) {
+        Deque<String> queue = new ArrayDeque<>(wanted);
+        while (!queue.isEmpty()) {
+            String name = queue.poll();
+            if (targetSchemas.containsKey(name) || !origSchemas.containsKey(name)) {
+                continue;   // already present (code's own) or absent upstream → skip (withoutDanglingRefs backstops)
+            }
+            Object schema = origSchemas.get(name);
+            targetSchemas.put(name, deepCopy(schema));
+            Set<String> nested = new LinkedHashSet<>();
+            collectSchemaRefNames(schema, nested);
+            queue.addAll(nested);
+        }
+    }
+
+    /** The corrected document's {@code components/schemas} map, creating {@code components}/{@code schemas} if absent. */
+    private Map<String, Object> targetSchemas(Map<String, Object> root) {
+        Map<String, Object> schemas = componentSchemas(root);
+        if (schemas != null) {
+            return schemas;
+        }
+        Map<String, Object> comps = root.get("components") instanceof Map<?, ?> c ? asMap(c) : new LinkedHashMap<>();
+        Map<String, Object> created = new LinkedHashMap<>();
+        comps.put("schemas", created);
+        root.put("components", comps);
+        return created;
+    }
+
+    private void collectSchemaRefNames(Object node, Set<String> out) {
+        if (node instanceof Map<?, ?> m) {
+            if (m.get("$ref") instanceof String r && r.startsWith("#/components/schemas/")) {
+                out.add(r.substring("#/components/schemas/".length()));
+            }
+            for (Object v : m.values()) {
+                collectSchemaRefNames(v, out);
+            }
+        } else if (node instanceof List<?> list) {
+            for (Object v : list) {
+                collectSchemaRefNames(v, out);
+            }
+        }
+    }
+
+    private Object deepCopy(Object node) {
+        if (node instanceof Map<?, ?> m) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> e : m.entrySet()) {
+                out.put(String.valueOf(e.getKey()), deepCopy(e.getValue()));
+            }
+            return out;
+        }
+        if (node instanceof List<?> list) {
+            List<Object> out = new ArrayList<>();
+            for (Object v : list) {
+                out.add(deepCopy(v));
+            }
+            return out;
+        }
+        return node;
+    }
+
+    private boolean isErrorStatus(String status) {
+        return status != null && !status.isEmpty() && (status.charAt(0) == '4' || status.charAt(0) == '5');
     }
 
     /**
