@@ -730,6 +730,17 @@ class CorrectedSpecBuilderTest {
         assertThat(out).contains("error-model:");                       // …and the schema was carried into components
         assertThat(out).contains("application/problem+json");           // the CODE's media type is preserved (no drift)
         assertThat(out).doesNotContain("#/components/examples/400");     // the spec's examples were NOT dragged in (no dangling ref)
+        // The WHOLE schema shape is preserved: the corrected 400 body is the {error: $ref error-model} WRAPPER the spec
+        // documented (matching the code's Collections.singletonMap("error", body) → {"error": {...}}), NOT a flattened
+        // top-level $ref that would describe {type,title,…} where the code actually emits {error:{type,title,…}}.
+        Map<String, Object> schema400 = schemaNodeAt(out, "/ciam/policies", "get", "400");
+        assertThat(schema400).containsEntry("type", "object").doesNotContainKey("$ref");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> props = (Map<String, Object>) schema400.get("properties");
+        assertThat(props).containsKey("error");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> errorProp = (Map<String, Object>) props.get("error");
+        assertThat(errorProp).containsEntry("$ref", "#/components/schemas/error-model");
         assertThat(new OpenApiModelExtractor().extract("corrected", out).parsed()).isTrue();
         assertThat(everyRefResolves(out)).isTrue();                     // every $ref resolves — valid drop-in spec
     }
@@ -957,5 +968,19 @@ class CorrectedSpecBuilderTest {
             refs.add(ref instanceof String s ? s.replace("#/components/schemas/", "") : "<inline>");
         }
         return refs;
+    }
+
+    /** The first media type's schema NODE of a given path+method+status response — for asserting the exact schema SHAPE
+     *  (e.g. a {@code {error: $ref error-model}} wrapper vs a flattened top-level {@code $ref}). */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> schemaNodeAt(String yaml, String path, String method, String status)
+            throws Exception {
+        Map<String, Object> root = new com.fasterxml.jackson.dataformat.yaml.YAMLMapper().readValue(yaml, Map.class);
+        Map<String, Object> op = (Map<String, Object>) ((Map<String, Object>)
+                ((Map<String, Object>) root.get("paths")).get(path)).get(method);
+        Map<String, Object> resp = (Map<String, Object>) ((Map<String, Object>) op.get("responses")).get(status);
+        Map<String, Object> content = (Map<String, Object>) resp.get("content");
+        Map<String, Object> media = (Map<String, Object>) content.values().iterator().next();
+        return (Map<String, Object>) media.get("schema");
     }
 }

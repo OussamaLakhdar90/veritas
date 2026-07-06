@@ -190,19 +190,22 @@ public class CorrectedSpecBuilder {
         if (origSchemas == null || origSchemas.isEmpty()) {
             return correctedYaml;   // nothing structured to borrow
         }
-        // What error schema does the ORIGINAL document for its OWN errors? Captured per-status where it varies, plus a
-        // single canonical fallback. Deliberately PATH-INDEPENDENT: the code's routes routinely differ from the spec's
-        // by a context-path prefix or a renamed path variable (/ciam/policies vs /policies, {app} vs {appId}), so an
-        // exact path match almost never holds — that is why the old adopt-by-path approach silently enriched nothing.
-        Map<String, String> byStatus = new LinkedHashMap<>();
-        Set<String> documented = new LinkedHashSet<>();
-        collectDocumentedErrorSchemas(orig, byStatus, documented);
-        String canonical = documented.size() == 1 ? documented.iterator().next() : null;
+        // What error schema does the ORIGINAL document for its OWN error responses? We preserve the WHOLE schema NODE
+        // (e.g. the wrapper {type: object, properties: {error: $ref error-model}}), not just the leaf ref, so the
+        // corrected body matches the exact wire shape the code emits — a Collections.singletonMap("error", body) is
+        // {"error": {...}}, which the original spec captured with that wrapper. Captured per-status where it varies,
+        // plus a single canonical fallback. Deliberately PATH-INDEPENDENT: the code's routes routinely differ from the
+        // spec's by a context-path prefix or a renamed path variable (/ciam/policies vs /policies, {app} vs {appId}),
+        // so an exact path match almost never holds — that is why the old adopt-by-path approach enriched nothing.
+        Map<String, Object> byStatus = new LinkedHashMap<>();
+        List<Object> distinct = new ArrayList<>();
+        collectDocumentedErrorSchemas(orig, byStatus, distinct);
+        Object canonical = distinct.size() == 1 ? distinct.get(0) : null;
         if (byStatus.isEmpty() && canonical == null) {
             return correctedYaml;   // the original documents no single structured error schema → nothing to reference
         }
         Set<String> wanted = new LinkedHashSet<>();
-        if (!referenceErrorSchemas(asMap(rPaths), byStatus, canonical, origSchemas, wanted)) {
+        if (!referenceErrorSchemas(asMap(rPaths), byStatus, canonical, wanted)) {
             return correctedYaml;   // no generic error body to enrich → leave verbatim
         }
         copySchemasTransitively(wanted, origSchemas, targetSchemas(root));
@@ -214,16 +217,17 @@ public class CorrectedSpecBuilder {
     }
 
     /** Scan the original's error responses (4xx/5xx, resolving {@code $ref: #/components/responses/*}) and record the
-     *  leaf schema each references: {@code byStatus} maps a status to its schema when that status uses exactly one, and
-     *  {@code documented} accumulates every distinct error schema (so a spec with a single {@code error-model} yields a
-     *  canonical fallback). Media types are irrelevant here — only the referenced schema NAME is collected. */
+     *  error SCHEMA NODE each documents — the WHOLE schema (e.g. an {@code {error: $ref error-model}} wrapper), not just
+     *  a leaf name: {@code byStatus} maps a status to its schema when that status uses exactly one shape, and
+     *  {@code distinct} accumulates every structurally-distinct error schema (so a spec with one error shape yields a
+     *  canonical fallback). Media types are irrelevant here — only the schema SHAPE is captured. */
     @SuppressWarnings("unchecked")
-    private void collectDocumentedErrorSchemas(Map<String, Object> orig, Map<String, String> byStatus,
-                                               Set<String> documented) {
+    private void collectDocumentedErrorSchemas(Map<String, Object> orig, Map<String, Object> byStatus,
+                                               List<Object> distinct) {
         if (!(orig.get("paths") instanceof Map<?, ?> paths)) {
             return;
         }
-        Map<String, Set<String>> perStatus = new LinkedHashMap<>();
+        Map<String, List<Object>> perStatus = new LinkedHashMap<>();
         for (Object item : asMap(paths).values()) {
             if (!(item instanceof Map<?, ?> pathItem)) {
                 continue;
@@ -237,21 +241,38 @@ public class CorrectedSpecBuilder {
                     if (!isErrorStatus(status) || !(r.getValue() instanceof Map<?, ?> resp)) {
                         continue;
                     }
-                    Set<String> refs = new LinkedHashSet<>();
-                    collectSchemaRefNames(resolveResponseContent(asMap(resp), orig), refs);
-                    if (refs.isEmpty()) {
+                    Object schema = firstSchema(resolveResponseContent(asMap(resp), orig));
+                    if (schema == null) {
                         continue;
                     }
-                    documented.addAll(refs);
-                    perStatus.computeIfAbsent(status, k -> new LinkedHashSet<>()).addAll(refs);
+                    if (distinct.stream().noneMatch(schema::equals)) {
+                        distinct.add(schema);
+                    }
+                    perStatus.computeIfAbsent(status, k -> new ArrayList<>()).add(schema);
                 }
             }
         }
-        perStatus.forEach((status, refs) -> {
-            if (refs.size() == 1) {
-                byStatus.put(status, refs.iterator().next());   // unambiguous per-status mapping
+        perStatus.forEach((status, schemas) -> {
+            Object first = schemas.get(0);
+            if (schemas.stream().allMatch(first::equals)) {
+                byStatus.put(status, first);   // unambiguous per-status shape
             }
         });
+    }
+
+    /** The schema node of the first media type under {@code content} that declares one (the media type itself is
+     *  irrelevant — the corrected response keeps the code's own media type), or {@code null} when there is none. */
+    @SuppressWarnings("unchecked")
+    private Object firstSchema(Object content) {
+        if (!(content instanceof Map<?, ?> byMedia)) {
+            return null;
+        }
+        for (Object media : asMap(byMedia).values()) {
+            if (media instanceof Map<?, ?> m && asMap(m).get("schema") instanceof Map<?, ?> schema) {
+                return schema;
+            }
+        }
+        return null;
     }
 
     /** The error response's {@code content}, following a single {@code $ref: #/components/responses/<name>} into the
@@ -270,13 +291,13 @@ public class CorrectedSpecBuilder {
         return resp.get("content");
     }
 
-    /** For every corrected error response whose body is still the generic {@code {type: object}} placeholder, point its
-     *  schema(s) at the documented error schema (the per-status one, else the single canonical one), KEEPING the
-     *  corrected response's own media type. A code-authoritative structured body ($ref) is left alone. Returns true if
-     *  anything was referenced; records the schema names to copy into {@code components}. */
+    /** For every corrected error response whose body is still the generic {@code {type: object}} placeholder, set its
+     *  schema(s) to a deep copy of the documented error SCHEMA NODE (the per-status one, else the single canonical one),
+     *  KEEPING the corrected response's own media type. A code-authoritative structured body ($ref) is left alone.
+     *  Records the schema names the node references so they are copied into {@code components}. */
     @SuppressWarnings("unchecked")
-    private boolean referenceErrorSchemas(Map<String, Object> rPaths, Map<String, String> byStatus, String canonical,
-                                          Map<String, Object> origSchemas, Set<String> wanted) {
+    private boolean referenceErrorSchemas(Map<String, Object> rPaths, Map<String, Object> byStatus, Object canonical,
+                                          Set<String> wanted) {
         boolean changed = false;
         for (Object item : rPaths.values()) {
             if (!(item instanceof Map<?, ?> pathItem)) {
@@ -295,12 +316,12 @@ public class CorrectedSpecBuilder {
                     if (!isGenericErrorBody(respMap)) {
                         continue;   // code gave a structured error body → code wins, leave it
                     }
-                    String name = byStatus.getOrDefault(status, canonical);
-                    if (name == null || !origSchemas.containsKey(name)) {
+                    Object schema = byStatus.getOrDefault(status, canonical);
+                    if (schema == null) {
                         continue;   // nothing documented for this status and no single canonical schema
                     }
-                    if (pointSchemasAt(respMap.get("content"), name)) {
-                        wanted.add(name);
+                    if (setSchemaOnAllMedia(respMap.get("content"), schema)) {
+                        collectSchemaRefNames(schema, wanted);   // copy error-model (& any nested) into components
                         changed = true;
                     }
                 }
@@ -309,20 +330,18 @@ public class CorrectedSpecBuilder {
         return changed;
     }
 
-    /** Replace every media type's {@code schema} in this response's {@code content} with a {@code $ref} to
-     *  {@code #/components/schemas/<name>}, keeping the media-type keys (code wins on media type). Never fabricates
-     *  content — returns false when there is no content to enrich. */
+    /** Set every media type's {@code schema} in this response's {@code content} to an independent deep copy of
+     *  {@code schemaNode}, keeping the media-type keys (code wins on media type). Never fabricates content — returns
+     *  false when there is no content to enrich. */
     @SuppressWarnings("unchecked")
-    private boolean pointSchemasAt(Object content, String name) {
+    private boolean setSchemaOnAllMedia(Object content, Object schemaNode) {
         if (!(content instanceof Map<?, ?> byMedia) || ((Map<String, Object>) byMedia).isEmpty()) {
             return false;
         }
         boolean set = false;
         for (Object media : asMap(byMedia).values()) {
             if (media instanceof Map<?, ?> mediaMap) {
-                Map<String, Object> ref = new LinkedHashMap<>();
-                ref.put("$ref", "#/components/schemas/" + name);
-                asMap(mediaMap).put("schema", ref);
+                asMap(mediaMap).put("schema", deepCopy(schemaNode));   // fresh copy per media type
                 set = true;
             }
         }
