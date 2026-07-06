@@ -98,6 +98,8 @@ class ContractValidationServiceBranch2Test {
         when(correctedSpecBuilder.build(any(), any(), any())).thenReturn("openapi: 3.0.3");
         // The LLM-preferred corrected YAML is passed through metadata preservation; passthrough by default here.
         when(correctedSpecBuilder.withOriginalMetadata(any(), any())).thenAnswer(inv -> inv.getArgument(0));
+        // The write-boundary dangling-ref sanitiser is a passthrough on a clean spec (real logic in CorrectedSpecBuilderTest).
+        when(correctedSpecBuilder.withoutDanglingRefs(any())).thenAnswer(inv -> inv.getArgument(0));
         when(openApi.extract(eq("corrected-check"), anyString()))
                 .thenReturn(new SpecParse(specModel("corrected-check"), List.of(), true));
         when(openApi.presenceOf(anyString())).thenReturn(SpecPresence.empty());

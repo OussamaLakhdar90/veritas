@@ -123,6 +123,36 @@ public class CorrectedSpecBuilder {
     }
 
     /**
+     * Sanitise an already-built corrected spec so it is <b>valid OpenAPI</b>: replace every {@code $ref} that points at
+     * a schema NOT defined under {@code components/schemas} with a permissive inline {@code {type: object}}. A dangling
+     * $ref — a generic {@code Object} error body from the deterministic build, or an LLM-invented schema name — makes
+     * the "drop-in replacement" invalid (validators + codegen fail on it), yet a parse-only round-trip gate never
+     * catches it (swagger-parser tolerates dangling refs). Applied at the write boundary to whichever corrected YAML is
+     * chosen, so no dangling ref can ever ship. Returns the input unchanged when it is blank or not a mapping.
+     */
+    @SuppressWarnings("unchecked")
+    public String withoutDanglingRefs(String correctedYaml) {
+        if (correctedYaml == null || correctedYaml.isBlank()) {
+            return correctedYaml;
+        }
+        Map<String, Object> root;
+        try {
+            root = yaml.readValue(correctedYaml, Map.class);
+        } catch (Exception e) {
+            return correctedYaml;   // not a mapping we can walk → leave it exactly as-is
+        }
+        if (root == null) {
+            return correctedYaml;
+        }
+        resolveDanglingSchemaRefs(root);
+        try {
+            return yaml.writeValueAsString(root);
+        } catch (Exception e) {
+            return correctedYaml;
+        }
+    }
+
+    /**
      * True when this spec text parses AND carries the metadata the overlay lifts — a non-empty {@code info} block,
      * a non-empty {@code servers} list, or a Swagger-2.0 {@code host}. Used to choose the RIGHT spec source when a
      * scan supplies several (a Confluence page, a fragment, and the real OpenAPI doc): pick one that actually has
@@ -449,7 +479,17 @@ public class CorrectedSpecBuilder {
             Map<String, Object> resp = new LinkedHashMap<>();
             resp.put("description", descFor(r.statusCode()));
             if (r.schemaRef() != null) {
-                resp.put("content", Map.of("application/json", Map.of("schema", refSchema(r.schemaRef()))));
+                // Emit the media type(s) the CODE declares (e.g. application/problem+json for RFC-7807 error bodies),
+                // not a hardcoded application/json — otherwise the corrected spec contradicts its own findings that
+                // flag the media-type drift. Same schema under each declared type; default to JSON when none captured.
+                Map<String, Object> schema = Map.of("schema", refSchema(r.schemaRef()));
+                List<String> media = r.mediaTypes() == null || r.mediaTypes().isEmpty()
+                        ? List.of("application/json") : r.mediaTypes();
+                Map<String, Object> content = new LinkedHashMap<>();
+                for (String mt : media) {
+                    content.put(mt, schema);
+                }
+                resp.put("content", content);
             }
             responses.put(String.valueOf(r.statusCode()), resp);
         }
@@ -514,6 +554,44 @@ public class CorrectedSpecBuilder {
             case "string", "integer", "number", "boolean", "array", "object" -> true;
             default -> false;
         };
+    }
+
+    /**
+     * Replace every {@code $ref} that points at a schema NOT defined in {@code components/schemas} with a permissive
+     * inline {@code {type: object}}. A dangling $ref — a generic {@code Object} error body, or an LLM-invented name —
+     * makes the corrected spec INVALID OpenAPI (validators and codegen fail on it), defeating the whole "drop-in
+     * replacement" purpose; a parse-only round-trip check never catches it (swagger-parser tolerates dangling refs).
+     * Applied to the WHOLE document (responses, request bodies, schema fields, array items).
+     */
+    private void resolveDanglingSchemaRefs(Map<String, Object> root) {
+        Map<String, Object> schemas = componentSchemas(root);
+        Set<String> defined = schemas == null ? Set.of() : new HashSet<>(schemas.keySet());
+        Map<String, Object> resolved = asMap(resolveDanglingRefs(root, defined));
+        root.clear();
+        root.putAll(resolved);
+    }
+
+    /** Rebuild the node, replacing any {@code {$ref: #/components/schemas/<undefined>}} with {@code {type: object}}. */
+    private Object resolveDanglingRefs(Object node, Set<String> defined) {
+        if (node instanceof Map<?, ?> map) {
+            if (map.get("$ref") instanceof String r && r.startsWith("#/components/schemas/")
+                    && !defined.contains(r.substring("#/components/schemas/".length()))) {
+                return Map.of("type", "object");   // undefined target → permissive free-form object (valid OpenAPI)
+            }
+            Map<String, Object> out = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> e : map.entrySet()) {
+                out.put(String.valueOf(e.getKey()), resolveDanglingRefs(e.getValue(), defined));
+            }
+            return out;
+        }
+        if (node instanceof List<?> list) {
+            List<Object> out = new ArrayList<>();
+            for (Object v : list) {
+                out.add(resolveDanglingRefs(v, defined));
+            }
+            return out;
+        }
+        return node;
     }
 
     private String descFor(int status) {

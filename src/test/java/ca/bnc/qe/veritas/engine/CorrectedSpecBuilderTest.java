@@ -473,4 +473,130 @@ class CorrectedSpecBuilderTest {
         assertThat(out).contains("policies-password-complexity");
         assertThat(out).doesNotContain("PasswordComplexity");
     }
+
+    // ---- structural validity: never emit a $ref to a schema we didn't define, honour the code's media types --------
+
+    @Test
+    void errorResponseWithGenericObjectBodyDoesNotEmitADanglingRef() throws Exception {
+        // A generic error body typed "Object" (no DTO) must NOT become $ref:#/components/schemas/Object — that's a
+        // DANGLING ref (the schema is never defined), which makes the "drop-in" spec invalid OpenAPI (validators +
+        // codegen fail). It must degrade to an inline {type: object}. RED before the fix — guards the 8-dangling-refs
+        // regression the reviewer caught.
+        SourceRef src = SourceRef.code("X.java", 1, 1, "x");
+        Endpoint ep = new Endpoint(HttpMethod.GET, "/things/{id}", "getThing", List.of(), null, List.of(
+                new ResponseModel(200, "Thing", null, "RETURN", src),
+                new ResponseModel(404, "Object", null, "EXCEPTION_HANDLER", src),
+                new ResponseModel(500, "Object", null, "EXCEPTION_HANDLER", src)), null, null, List.of(), src);
+        SchemaModel thing = new SchemaModel("Thing", "object",
+                List.of(new FieldModel("name", "string", null, true, ConstraintSet.empty(), null, src)), null, src);
+        ApiModel code = new ApiModel("code", null, null, null, List.of(ep), Map.of("Thing", thing));
+
+        CorrectedSpecBuilder b = new CorrectedSpecBuilder();
+        String yaml = b.withoutDanglingRefs(b.build(code, "Things API"));   // sanitised at the write boundary
+        SpecParse reparsed = new OpenApiModelExtractor().extract("corrected", yaml);
+
+        assertThat(reparsed.parsed()).isTrue();
+        assertThat(yaml).doesNotContain("#/components/schemas/Object");   // the dangling ref is gone
+        assertThat(everyRefResolves(yaml)).isTrue();                      // NO $ref points at an undefined component
+        assertThat(reparsed.model().schemas()).containsKey("Thing");      // the real DTO ref still resolves
+    }
+
+    @Test
+    void undefinedFieldRefSchemaDegradesToInlineObjectRatherThanDangling() throws Exception {
+        // Same guard one level down: a schema field whose ref type isn't a defined DTO must not dangle either.
+        SourceRef src = SourceRef.code("X.java", 1, 1, "x");
+        Endpoint ep = new Endpoint(HttpMethod.GET, "/things", "getThings", List.of(), null,
+                List.of(new ResponseModel(200, "Thing", null, "RETURN", src)), null, null, List.of(), src);
+        SchemaModel thing = new SchemaModel("Thing", "object", List.of(
+                new FieldModel("name", "string", null, true, ConstraintSet.empty(), null, src),
+                new FieldModel("mystery", "object", null, false, ConstraintSet.empty(), "GhostDto", src)), null, src);
+        ApiModel code = new ApiModel("code", null, null, null, List.of(ep), Map.of("Thing", thing));
+
+        CorrectedSpecBuilder b = new CorrectedSpecBuilder();
+        String yaml = b.withoutDanglingRefs(b.build(code, "Things API"));
+
+        assertThat(new OpenApiModelExtractor().extract("corrected", yaml).parsed()).isTrue();
+        assertThat(yaml).doesNotContain("GhostDto");
+        assertThat(everyRefResolves(yaml)).isTrue();
+    }
+
+    @Test
+    void responseUsesTheCodeDeclaredMediaTypeNotHardcodedJson() {
+        // The corrected spec must emit the media type the code declares (application/problem+json for RFC-7807 error
+        // bodies), not a hardcoded application/json that contradicts the report's own media-type findings. RED before.
+        SourceRef src = SourceRef.code("X.java", 1, 1, "x");
+        Endpoint ep = new Endpoint(HttpMethod.GET, "/things/{id}", "getThing", List.of(), null, List.of(
+                new ResponseModel(200, "Thing", List.of("application/json"), "RETURN", src),
+                new ResponseModel(404, "Thing", List.of("application/problem+json"), "EXCEPTION_HANDLER", src)),
+                null, null, List.of(), src);
+        SchemaModel thing = new SchemaModel("Thing", "object",
+                List.of(new FieldModel("name", "string", null, true, ConstraintSet.empty(), null, src)), null, src);
+        ApiModel code = new ApiModel("code", null, null, null, List.of(ep), Map.of("Thing", thing));
+
+        String yaml = new CorrectedSpecBuilder().build(code, "Things API");
+
+        assertThat(yaml).contains("application/problem+json");
+    }
+
+    @Test
+    void withoutDanglingRefs_inlinesAnUndefinedRefButKeepsDefinedOnes() {
+        // The write-boundary sanitiser (also applied to the LLM branch): an LLM-invented $ref with no matching
+        // component (e.g. error-model referenced-but-never-defined) becomes {type: object}; a $ref to a DEFINED
+        // component is kept. Mirrors the reviewer's exact regression — 8 dangling error refs + a dropped error-model.
+        String llmYaml = """
+                openapi: 3.0.3
+                info: { title: X, version: 1.0.0 }
+                paths:
+                  /x:
+                    get:
+                      responses:
+                        '200':
+                          description: OK
+                          content:
+                            application/json:
+                              schema: { $ref: '#/components/schemas/Thing' }
+                        '500':
+                          description: Internal Server Error
+                          content:
+                            application/problem+json:
+                              schema: { $ref: '#/components/schemas/error-model' }
+                components:
+                  schemas:
+                    Thing: { type: object, properties: { name: { type: string } } }
+                """;
+        String out = new CorrectedSpecBuilder().withoutDanglingRefs(llmYaml);
+
+        assertThat(out).doesNotContain("#/components/schemas/error-model");   // undefined → inlined {type: object}
+        assertThat(out).contains("#/components/schemas/Thing");                // defined → kept
+        assertThat(new OpenApiModelExtractor().extract("corrected", out).parsed()).isTrue();
+    }
+
+    /** True when every {@code $ref: #/components/schemas/X} in the doc points at a schema X actually defined under
+     *  components/schemas — i.e. there are NO dangling references (the invalid-OpenAPI condition). */
+    @SuppressWarnings("unchecked")
+    private static boolean everyRefResolves(String yaml) throws Exception {
+        Map<String, Object> root = new com.fasterxml.jackson.dataformat.yaml.YAMLMapper().readValue(yaml, Map.class);
+        java.util.Set<String> defined = new java.util.HashSet<>();
+        if (root.get("components") instanceof Map<?, ?> c
+                && ((Map<String, Object>) c).get("schemas") instanceof Map<?, ?> s) {
+            ((Map<String, Object>) s).keySet().forEach(k -> defined.add(String.valueOf(k)));
+        }
+        java.util.Set<String> refs = new java.util.HashSet<>();
+        collectRefs(root, refs);
+        return refs.stream().filter(r -> r.startsWith("#/components/schemas/"))
+                .map(r -> r.substring("#/components/schemas/".length()))
+                .allMatch(defined::contains);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void collectRefs(Object node, java.util.Set<String> out) {
+        if (node instanceof Map<?, ?> m) {
+            if (((Map<String, Object>) m).get("$ref") instanceof String s) {
+                out.add(s);
+            }
+            ((Map<String, Object>) m).values().forEach(v -> collectRefs(v, out));
+        } else if (node instanceof List<?> l) {
+            l.forEach(v -> collectRefs(v, out));
+        }
+    }
 }
