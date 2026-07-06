@@ -84,6 +84,35 @@ public class ReportController {
         return html(Files.readString(file), download, scan);
     }
 
+    /**
+     * Serves a scan's corrected OpenAPI YAML — the sibling the report's "Download the corrected OpenAPI YAML" link
+     * targets, so the link resolves whether the report is viewed here (served at {@code /scans/{id}/report}) or opened
+     * from the {@code out/} directory as a file. The URL's filename segment is cosmetic; the on-disk name is derived
+     * from the scan id via {@link ca.bnc.qe.veritas.report.ReportNaming#correctedSpecName}, so no user input ever
+     * touches the resolved path. 404 when the scan is unknown or the artifact was never written (a clean contract with
+     * no proposed fix writes none).
+     */
+    @GetMapping("/scans/{id}/{filename:openapi\\.corrected-.+\\.yaml}")
+    public ResponseEntity<byte[]> correctedSpec(@PathVariable String id) throws Exception {
+        if (id == null || !SAFE_ID.matcher(id).matches()) {
+            return ResponseEntity.notFound().build();
+        }
+        Scan scan = scanRepository.findById(id).orElse(null);
+        if (scan == null) {
+            return ResponseEntity.notFound().build();
+        }
+        String name = ca.bnc.qe.veritas.report.ReportNaming.correctedSpecName(scan);
+        Path base = Path.of("out").toAbsolutePath().normalize();
+        Path file = base.resolve(name).normalize();
+        if (!file.startsWith(base) || !Files.exists(file)) {   // never written (no fix) or escaped the out dir
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("application/yaml"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + name + "\"")
+                .body(Files.readAllBytes(file));
+    }
+
     /** HTML body, served inline by default or as a named download when {@code download=true}. The report's
      *  accept/reject controls are self-contained JS, so a downloaded copy stays fully interactive offline. */
     private ResponseEntity<String> html(String body, boolean download, Scan scan) {

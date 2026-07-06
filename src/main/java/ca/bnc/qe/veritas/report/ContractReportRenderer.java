@@ -326,8 +326,8 @@ public class ContractReportRenderer {
         // corrected YAML link (anyFix computed above for the TOC)
         if (anyFix) {
             sb.append("<section id=\"sec-5\"><h2>").append(bi("5. Corrected OpenAPI specification", "5. Spécification OpenAPI corrigée"))
-                    .append("</h2><p><a href=\"./").append(esc(slug(scan.getServiceName())))
-                    .append("_corrected.yaml\" target=\"_blank\" rel=\"noreferrer\">")
+                    .append("</h2><p><a href=\"./").append(esc(ReportNaming.correctedSpecName(scan)))
+                    .append("\" target=\"_blank\" rel=\"noreferrer\">")
                     .append(bi("Download the corrected OpenAPI YAML", "Télécharger le YAML OpenAPI corrigé"))
                     .append("</a> ").append(bi("(drop-in replacement reflecting the code).",
                             "(remplacement direct reflétant le code).")).append("</p></section>");
@@ -1060,10 +1060,6 @@ public class ContractReportRenderer {
                 : (l.contains("\\") ? l.substring(l.lastIndexOf('\\') + 1) : l);
         Integer line = f.getCodeEvidence().startLine();
         return shortLoc + (line != null ? ":" + line : "");
-    }
-
-    private String slug(String s) {
-        return s == null ? "service" : s.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9._-]+", "-");
     }
 
     private boolean isBlank(String s) {

@@ -338,13 +338,17 @@ class ContractReportRendererBranchCoverageTest {
     // ---- §5 corrected-spec link + slug -----------------------------------------------------------------
 
     @Test
-    void proposedFixEnablesCorrectedSpecSectionWithSluggedDownloadLink() {
+    void proposedFixEnablesCorrectedSpecSectionWithDownloadLinkMatchingTheWrittenFile() {
+        // The download link must point at the ACTUAL on-disk filename (openapi.corrected-<scanId>.yaml, the single
+        // source of truth in ReportNaming) — a service-name-slug href (…_corrected.yaml) 404s in every report.
         Finding f = counted(FindingType.MISSING_ENDPOINT, Severity.MAJOR).toBuilder()
                 .proposedFix("  /x:\n    get: {}").build();
-        Scan s = scan("CIAM Policies / v2");   // slug lowercases + replaces non [a-z0-9._-] runs with '-'
+        Scan s = scan("CIAM Policies / v2");
+        s.setId("scan-42");
         String html = renderer.renderHtml(s, List.of(f));
         assertThat(html).contains("5. Corrected OpenAPI specification")
-                .contains("ciam-policies-v2_corrected.yaml")
+                .contains("href=\"./openapi.corrected-scan-42.yaml\"")   // == ReportNaming.correctedSpecName + the writer
+                .doesNotContain("_corrected.yaml")                        // the old service-slug filename is gone
                 .contains("Download the corrected OpenAPI YAML");
     }
 

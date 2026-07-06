@@ -315,7 +315,8 @@ public class ContractValidationService {
             String primarySpecYaml = pickMetadataSpec(req.specs(), correctedSpecBuilder);
             String corrected = chooseCorrectedYaml(llmCorrected, code, req.serviceName(), primarySpecYaml);
             if (corrected != null) {
-                correctedYamlPath = writeOut("openapi.corrected-" + scan.getId() + ".yaml", corrected);
+                // Same name the report's download link + the serving endpoint use (ReportNaming), so the link resolves.
+                correctedYamlPath = writeOut(ca.bnc.qe.veritas.report.ReportNaming.correctedSpecName(scan), corrected);
             }
 
             // Coverage honesty: when extraction was complete, strip false "source not supplied" disclaimers so the

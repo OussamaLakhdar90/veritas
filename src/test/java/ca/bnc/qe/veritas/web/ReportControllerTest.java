@@ -75,6 +75,45 @@ class ReportControllerTest {
     }
 
     @Test
+    void servesTheCorrectedSpecYamlAsASiblingOfTheReport() throws Exception {
+        // The report's "Download the corrected OpenAPI YAML" link is a sibling of /scans/{id}/report; this endpoint
+        // serves the file the writer produced (same ReportNaming name) so the link resolves in the dashboard, not just
+        // as an on-disk file. Previously there was NO endpoint at all → the link 404'd in every served report.
+        Scan s = new Scan();
+        s.setId("abc");
+        s.setServiceName("ciam-policies");
+        when(scanRepository.findById("abc")).thenReturn(Optional.of(s));
+        String name = ca.bnc.qe.veritas.report.ReportNaming.correctedSpecName(s);   // openapi.corrected-abc.yaml
+        java.nio.file.Path out = java.nio.file.Files.createDirectories(java.nio.file.Path.of("out"));
+        java.nio.file.Path f = out.resolve(name);
+        java.nio.file.Files.writeString(f, "openapi: 3.0.3\n");
+        try {
+            mvc.perform(get("/api/v1/scans/abc/" + name))
+                    .andExpect(status().isOk())
+                    .andExpect(content().string("openapi: 3.0.3\n"))
+                    .andExpect(header().string("Content-Disposition", "attachment; filename=\"" + name + "\""));
+        } finally {
+            java.nio.file.Files.deleteIfExists(f);
+        }
+    }
+
+    @Test
+    void correctedSpec404sWhenTheArtifactWasNeverWritten() throws Exception {
+        // A clean contract (no proposed fix) writes no corrected spec → 404, not a 200 with an empty/misleading body.
+        Scan s = new Scan();
+        s.setId("abc");
+        when(scanRepository.findById("abc")).thenReturn(Optional.of(s));
+        mvc.perform(get("/api/v1/scans/abc/" + ca.bnc.qe.veritas.report.ReportNaming.correctedSpecName(s)))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void correctedSpec404sForAnUnknownScan() throws Exception {
+        when(scanRepository.findById("zzz")).thenReturn(Optional.empty());
+        mvc.perform(get("/api/v1/scans/zzz/openapi.corrected-zzz.yaml")).andExpect(status().isNotFound());
+    }
+
+    @Test
     void fallsBackToTheReadableNamedFileWhenNoLiveFindings() throws Exception {
         // A clean-contract scan persists no findings → the controller serves the as-scanned file, found by the SAME
         // readable name the writer used (proving ReportNaming is the single source of truth for both sides).
