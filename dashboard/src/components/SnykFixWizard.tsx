@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { ExternalLink, CheckCircle2, AlertTriangle, GitBranch, Loader2 } from 'lucide-react';
+import { ExternalLink, CheckCircle2, AlertTriangle, GitBranch, Loader2, Check } from 'lucide-react';
 import { api, type SnykIssueView, type SnykFixTrainView, type SnykFixStepView } from '../api';
 import { Modal } from './Modal';
 import { Badge, Button, ErrorState, Field, Input, Spinner } from './ui';
@@ -22,6 +22,17 @@ function stepTone(status: string): string {
   if (status === 'FAILED') return TONE.danger;
   if (status === 'MANUAL') return TONE.warn;
   return TONE.muted;
+}
+
+type StepVisual = 'done' | 'active' | 'pending' | 'error' | 'manual' | 'pushed';
+/** The contract-validation-style visual for one cascade step — drives its icon circle + row accent. */
+function stepVisual(step: SnykFixStepView, failedHere: boolean): StepVisual {
+  if (failedHere || step.status === 'FAILED') return 'error';
+  if (step.manual || step.status === 'MANUAL') return 'manual';
+  if (step.status === 'PR_OPEN' || step.status === 'MERGED') return 'done';
+  if (step.status === 'RUNNING') return 'active';
+  if (step.status === 'BRANCH_PUSHED') return 'pushed';
+  return 'pending';   // PLANNED — not yet reached
 }
 
 /** The guided fix flow: pick app-ids + a Jira ticket → review the cascade (edit versions/reviewers) → watch the train. */
@@ -198,7 +209,8 @@ export function SnykFixWizard({ open, onClose, issue, watchId, apps, defaultApp 
               <TrainHeader train={train} />
               <ol className="space-y-2">
                 {train.steps.map((s) => (
-                  <StepRow key={s.order} step={s} awaiting={train.status === FIX_STATUS.AWAITING_MANUAL_FIX}
+                  <StepRow key={s.order} step={s} failedHere={train.failedStepOrder === s.order}
+                    awaiting={train.status === FIX_STATUS.AWAITING_MANUAL_FIX}
                     url={prUrls[s.order] ?? ''} onUrl={(v) => setPrUrls((p) => ({ ...p, [s.order]: v }))}
                     onRecord={() => recordPr.mutate({ order: s.order, url: prUrls[s.order] ?? '' })} />
                 ))}
@@ -257,19 +269,34 @@ function ReviewRow({ step, version, onVersion, reviewers, onReviewers }:
 function TrainHeader({ train }: { train: SnykFixTrainView }) {
   const { t } = useTranslation();
   const inFlight = IN_FLIGHT.includes(train.status);
+  const failed = train.status === FIX_STATUS.FAILED;
+  const actionNeeded = train.status === FIX_STATUS.AWAITING_MANUAL_FIX;
+  // Progress = the share of actionable modules whose branch is up or PR is open (BOM → core → api/web → app).
+  const actionable = train.steps.filter((s) => !s.manual);
+  const done = actionable.filter((s) => ['PR_OPEN', 'MERGED', 'BRANCH_PUSHED'].includes(s.status)).length;
+  const pct = actionable.length ? Math.round((done / actionable.length) * 100) : 0;
   const tone = train.status === FIX_STATUS.DONE || train.status === FIX_STATUS.PR_OPEN ? TONE.ok
-    : train.status === FIX_STATUS.FAILED ? TONE.danger
-    : train.status === FIX_STATUS.AWAITING_MANUAL_FIX ? TONE.warn : TONE.info;
+    : failed ? TONE.danger : actionNeeded ? TONE.warn : TONE.info;
   return (
-    <div className="rounded-lg bg-ink-50/60 px-4 py-3">
+    <div className={`rounded-xl px-4 py-3 ring-1 ${failed ? 'bg-danger/5 ring-danger/20'
+      : actionNeeded ? 'bg-warning/5 ring-warning/20' : 'bg-ink-50/60 ring-border'}`}>
       <div className="flex items-center gap-2">
         {inFlight ? <Loader2 className="h-4 w-4 animate-spin text-brand" />
-          : train.status === FIX_STATUS.AWAITING_MANUAL_FIX ? <AlertTriangle className="h-4 w-4 text-warning" />
+          : actionNeeded ? <AlertTriangle className="h-4 w-4 text-warning" />
           : train.status === FIX_STATUS.DONE ? <SuccessCheck className="h-5 w-5" />
+          : failed ? <AlertTriangle className="h-4 w-4 text-danger" />
           : <CheckCircle2 className="h-4 w-4 text-success" />}
         <Badge className={tone}>{t(`snyk.fix.status.${train.status}`, train.status)}</Badge>
-        {train.stageDetail && <span className="text-sm text-muted">{train.stageDetail}</span>}
+        {train.stageDetail && !actionNeeded && !failed &&
+          <span className="truncate text-sm text-muted">{train.stageDetail}</span>}
       </div>
+      {/* Progress bar — advances BOM → core → api/web → app as each module completes. */}
+      {!failed && (
+        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/60">
+          <div className={`h-full rounded-full transition-all ${actionNeeded ? 'bg-warning' : 'bg-brand'}`}
+            style={{ width: `${pct}%` }} />
+        </div>
+      )}
       {/* Advisory LLM verdict + the real reactor gate */}
       <p className="mt-2 text-xs text-muted">
         {train.verdict?.available
@@ -279,10 +306,14 @@ function TrainHeader({ train }: { train: SnykFixTrainView }) {
         {train.reactorPassed === true && ' · ' + t('snyk.fix.reactorPass')}
         {train.reactorPassed === false && ' · ' + t('snyk.fix.reactorFail', { where: train.reactorFailingLabel ?? '' })}
       </p>
-      {train.status === FIX_STATUS.AWAITING_MANUAL_FIX && (
-        <p className="mt-1 text-xs text-warning">{t('snyk.fix.breakingHelp')}</p>
+      {/* Prominent "action needed" banner — carries the backend's "the local build failed at <module>…" detail. */}
+      {actionNeeded && (
+        <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-warning/10 px-3 py-2 text-xs font-medium text-warning ring-1 ring-warning/20">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{train.stageDetail || t('snyk.fix.breakingHelp')}</span>
+        </p>
       )}
-      {train.status === FIX_STATUS.FAILED && train.errorMessage && (
+      {failed && train.errorMessage && (
         <p className="mt-2 whitespace-pre-wrap break-words rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger ring-1 ring-danger/20">
           {train.failedStage ? `${t('snyk.fix.failedAt', { stage: train.failedStage })} ` : ''}{train.errorMessage}
         </p>
@@ -291,34 +322,53 @@ function TrainHeader({ train }: { train: SnykFixTrainView }) {
   );
 }
 
-function StepRow({ step, awaiting, url, onUrl, onRecord }:
-  { step: SnykFixStepView; awaiting: boolean; url: string; onUrl: (v: string) => void; onRecord: () => void }) {
+function StepRow({ step, failedHere, awaiting, url, onUrl, onRecord }:
+  { step: SnykFixStepView; failedHere: boolean; awaiting: boolean; url: string;
+    onUrl: (v: string) => void; onRecord: () => void }) {
   const { t } = useTranslation();
+  const visual = stepVisual(step, failedHere);
+  // The live line while active, the reason on failure, else the planned diff.
+  const detail = visual === 'active' && step.stageDetail ? step.stageDetail
+    : (visual === 'error' && step.reason) ? step.reason
+    : step.manual ? step.reason : step.diffPreview;
+  const circle = visual === 'done' ? 'bg-success/10 text-success ring-success/30'
+    : visual === 'active' ? 'bg-brand/10 text-brand ring-brand/30'
+    : visual === 'error' ? 'bg-danger/10 text-danger ring-danger/30'
+    : visual === 'manual' ? 'bg-warning/10 text-warning ring-warning/30'
+    : visual === 'pushed' ? 'bg-ink-100 text-ink-700 ring-border'
+    : 'bg-ink-50 text-muted/60 ring-border';
   return (
-    <li className="rounded-lg ring-1 ring-border px-3 py-2">
-      <div className="flex items-center gap-2">
-        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-ink-100 text-2xs font-semibold text-ink-700">{step.order}</span>
-        <GitBranch className="h-3.5 w-3.5 text-muted" />
-        <span className="font-medium text-ink-900">{step.moduleLabel}</span>
-        <span className="truncate text-xs text-muted">{step.bitbucketProject}/{step.repoSlug}</span>
-        <Badge className={`ml-auto ${stepTone(step.status)}`}>
-          {step.manual ? t('snyk.fix.step.MANUAL') : t(`snyk.fix.step.${step.status}`, step.status)}
-        </Badge>
-      </div>
-      <p className="mt-1 pl-7 text-xs text-muted">{step.manual ? step.reason : step.diffPreview}</p>
-      {step.prUrl && isHttpUrl(step.prUrl) && (
-        <a href={step.prUrl} target="_blank" rel="noreferrer"
-          className="ml-7 inline-flex items-center gap-1 text-xs text-gold hover:underline">
-          {t('snyk.fix.viewPr')} {step.prOpenedBy ? `(${step.prOpenedBy.toLowerCase()})` : ''} <ExternalLink className="h-3 w-3" />
-        </a>
-      )}
-      {awaiting && !step.manual && !step.prUrl && (
-        <div className="ml-7 mt-1.5 flex items-center gap-2">
-          <Input value={url} onChange={(e) => onUrl(e.target.value)} placeholder={t('snyk.fix.prUrlPlaceholder')}
-            className="h-8 max-w-xs text-xs" />
-          <Button size="sm" variant="ghost" disabled={!url.trim()} onClick={onRecord}>{t('snyk.fix.recordPr')}</Button>
+    <li className={`flex items-start gap-3 rounded-lg px-2.5 py-2 ${visual === 'active' ? 'bg-brand/5'
+      : visual === 'error' ? 'bg-danger/5' : ''}`}>
+      <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full ring-1 ${circle}`}>
+        {visual === 'done' ? <Check className="h-4 w-4" />
+          : visual === 'active' ? <Loader2 className="h-4 w-4 animate-spin" />
+          : visual === 'error' || visual === 'manual' ? <AlertTriangle className="h-4 w-4" />
+          : <GitBranch className="h-4 w-4" />}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-ink-900">{step.moduleLabel}</span>
+          <span className="truncate text-xs text-muted">{step.bitbucketProject}/{step.repoSlug}</span>
+          <Badge className={`ml-auto ${stepTone(step.status)}`}>
+            {step.manual ? t('snyk.fix.step.MANUAL') : t(`snyk.fix.step.${step.status}`, step.status)}
+          </Badge>
         </div>
-      )}
+        {detail && <p className={`mt-0.5 text-xs ${visual === 'error' ? 'text-danger' : 'text-muted'}`}>{detail}</p>}
+        {step.prUrl && isHttpUrl(step.prUrl) && (
+          <a href={step.prUrl} target="_blank" rel="noreferrer"
+            className="mt-1 inline-flex items-center gap-1 text-xs text-gold hover:underline">
+            {t('snyk.fix.viewPr')} {step.prOpenedBy ? `(${step.prOpenedBy.toLowerCase()})` : ''} <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
+        {awaiting && !step.manual && !step.prUrl && (
+          <div className="mt-1.5 flex items-center gap-2">
+            <Input value={url} onChange={(e) => onUrl(e.target.value)} placeholder={t('snyk.fix.prUrlPlaceholder')}
+              className="h-8 max-w-xs text-xs" />
+            <Button size="sm" variant="ghost" disabled={!url.trim()} onClick={onRecord}>{t('snyk.fix.recordPr')}</Button>
+          </div>
+        )}
+      </div>
     </li>
   );
 }

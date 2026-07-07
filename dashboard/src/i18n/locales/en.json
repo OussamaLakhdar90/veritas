@@ -405,6 +405,7 @@
       },
       "step": {
         "PLANNED": "Planned",
+        "RUNNING": "Working…",
         "BRANCH_PUSHED": "Branch pushed",
         "PR_OPEN": "PR open",
         "MERGED": "Merged",

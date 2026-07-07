@@ -504,7 +504,7 @@ export interface BreakingVerdict {
 export interface SnykFixStepView {
   order: number; moduleLabel: string; bitbucketProject: string; repoSlug: string; branch: string;
   pomPath: string; diffPreview: string; newModuleVersion?: string; prUrl?: string; prOpenedBy?: string;
-  status: string; manual: boolean; reason?: string; reviewers: string[];
+  status: string; stageDetail?: string; manual: boolean; reason?: string; reviewers: string[];
 }
 /**
  * The one request the bulk-fix wizard sends on "Start": the Jira project, the epic (an existing key OR a create-me
@@ -537,7 +537,7 @@ export interface SnykBulkFixResult {
 export interface SnykFixTrainView {
   id: string; coordinate: string; oldVersion: string; fixedIn: string; severity: string; appIds: string;
   jiraKey?: string; status: string; stageDetail?: string; errorMessage?: string; failedStage?: string;
-  breaking: boolean; reactorPassed?: boolean;
+  failedStepOrder?: number | null; breaking: boolean; reactorPassed?: boolean;
   reactorFailingLabel?: string; reactorOutputTail?: string; verdict?: BreakingVerdict; startedAt?: string;
   createdAt?: string; finishedAt?: string; watchId?: string;
   steps: SnykFixStepView[];
