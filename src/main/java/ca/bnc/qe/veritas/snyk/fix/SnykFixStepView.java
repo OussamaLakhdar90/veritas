@@ -15,6 +15,8 @@ public record SnykFixStepView(
         String prUrl,
         String prOpenedBy,
         String status,
+        /** The live line while this module is active (e.g. "Pushing core…"); null once the step is terminal. */
+        String stageDetail,
         boolean manual,
         String reason,
         List<String> reviewers) {

@@ -47,6 +47,7 @@ public class SnykFixTrain extends AuditableEntity {
     private String stageDetail;
     @Column(length = 30)
     private String failedStage;
+    private Integer failedStepOrder;   // the cascade step (BOM/core/api/web/app) that broke, when one module is to blame
 
     /** The decision: the LLM called it breaking OR the reactor build failed → push-only path. */
     private boolean breaking;

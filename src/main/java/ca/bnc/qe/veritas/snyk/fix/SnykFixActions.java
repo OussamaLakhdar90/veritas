@@ -50,8 +50,7 @@ public class SnykFixActions {
                     "Clean — PR train opened; reviewers assigned; awaiting human merge.");
         } else {
             train.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);
-            train.setStageDetail("Breaking change — the version-bump branches are pushed. Adapt the code + test, "
-                    + "then open the PRs (yourself or via Veritas).");
+            train.setStageDetail(breakingDetail(train));
         }
         trains.save(train);
     }
@@ -163,8 +162,23 @@ public class SnykFixActions {
                 + "; this action requires " + String.join(" or ", allowed) + ".");
     }
 
+    /** The action-needed line for a held (breaking) train — names the module that broke the build when one did. */
+    private static String breakingDetail(SnykFixTrain train) {
+        String base = "the version-bump branches are pushed. Adapt the code + test, then open the PRs (yourself or "
+                + "via Veritas).";
+        if (Boolean.FALSE.equals(train.getReactorPassed())
+                && train.getReactorFailingLabel() != null && !train.getReactorFailingLabel().isBlank()) {
+            return "Action needed — the local build failed at " + train.getReactorFailingLabel() + "; " + base;
+        }
+        return "Action needed — breaking change; " + base;
+    }
+
     /** Open one step's PR in its Bitbucket project with its reviewers; records the URL + who opened it. */
     void openStepPr(SnykFixTrain train, SnykFixStep step, String openedBy) {
+        // Mark this module active before the (slow) PR-open so a poll shows the stepper advancing to it.
+        step.setStatus(SnykFixStatus.RUNNING);
+        step.setStageDetail("Opening the PR for " + step.getModuleLabel() + "…");
+        steps.save(step);
         try {
             String url = gitHost.openPullRequest(new GitHost.PullRequestSpec(
                     step.getBitbucketProject(), step.getRepoSlug(), step.getBranch(), fw.getBranch(),
@@ -172,10 +186,12 @@ public class SnykFixActions {
             step.setPrUrl(url);
             step.setPrOpenedBy(openedBy);
             step.setStatus(SnykFixStatus.STEP_PR_OPEN);
+            step.setStageDetail(null);
             steps.save(step);
         } catch (RuntimeException e) {
             log.warn("Opening PR for step {} ({}) failed: {}", step.getModuleLabel(), step.getRepoSlug(), e.getMessage());
             step.setStatus(SnykFixStatus.BRANCH_PUSHED);   // branch is up; the user can retry / open it manually
+            step.setStageDetail(null);
             step.setReason("PR open failed: " + e.getMessage());
             steps.save(step);
         }

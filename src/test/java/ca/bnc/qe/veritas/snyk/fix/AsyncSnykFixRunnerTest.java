@@ -8,6 +8,8 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -40,6 +42,13 @@ class AsyncSnykFixRunnerTest {
         t.setId(id);
         t.setStatus(status);
         return t;
+    }
+
+    private static SnykFixStep stepOf(int order, String moduleLabel) {
+        SnykFixStep s = new SnykFixStep();
+        s.setStepOrder(order);
+        s.setModuleLabel(moduleLabel);
+        return s;
     }
 
     @Test
@@ -84,5 +93,32 @@ class AsyncSnykFixRunnerTest {
         assertThat(AsyncSnykFixRunner.commitMessage(null, "core", "bump y")).isEqualTo("Snyk fix: core — bump y");
         // A malformed value must never land in a git ref (it would break the branch) → fall back.
         assertThat(AsyncSnykFixRunner.branchName("abcdef123456", "not a key")).isEqualTo("veritas/snyk-fix-abcdef12");
+    }
+
+    @Test
+    void failedStepOrderMapsTheReactorFailingModuleToItsCascadeStep() {
+        List<SnykFixStep> plan = List.of(stepOf(1, "BOM"), stepOf(2, "core"), stepOf(3, "consumer:APP7576"));
+        assertThat(AsyncSnykFixRunner.failedStepOrder(plan, "core")).isEqualTo(2);
+        assertThat(AsyncSnykFixRunner.failedStepOrder(plan, "APP7576")).isEqualTo(3);   // a consumer app-id
+        assertThat(AsyncSnykFixRunner.failedStepOrder(plan, "web")).isNull();           // not part of this cascade
+        assertThat(AsyncSnykFixRunner.failedStepOrder(plan, null)).isNull();
+    }
+
+    @Test
+    void pushBranchesMarksEachModuleRunningBeforeItIsPushed() {
+        SnykFixStep bom = stepOf(1, "BOM");
+        bom.setBitbucketProject("P");
+        bom.setRepoSlug("bom-repo");
+        when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of(bom));
+        List<String> statusSequence = new ArrayList<>();
+        when(steps.save(any())).thenAnswer(inv -> {
+            statusSequence.add(((SnykFixStep) inv.getArgument(0)).getStatus());
+            return inv.getArgument(0);
+        });
+
+        runner.pushBranches("t1", Map.of("P/bom-repo", Path.of(".")), "veritas/x", "CIAM-1");
+
+        // The module is shown RUNNING (spinner) BEFORE it flips to BRANCH_PUSHED — the live stepper advance.
+        assertThat(statusSequence).containsSubsequence(SnykFixStatus.RUNNING, SnykFixStatus.BRANCH_PUSHED);
     }
 }

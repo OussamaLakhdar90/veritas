@@ -17,6 +17,8 @@ public record SnykFixTrainView(
         /** Why a FAILED train failed + the stage it failed at — surfaced so a failure isn't a bare red badge. */
         String errorMessage,
         String failedStage,
+        /** The cascade step (BOM/core/api/web/app) to blame when one module broke the build, so the UI can pinpoint it. */
+        Integer failedStepOrder,
         boolean breaking,
         Boolean reactorPassed,
         String reactorFailingLabel,

@@ -136,12 +136,12 @@ public class SnykFixController {
         for (SnykFixStep s : steps.findByTrainIdOrderByStepOrder(t.getId())) {
             stepViews.add(new SnykFixStepView(s.getStepOrder(), s.getModuleLabel(), s.getBitbucketProject(),
                     s.getRepoSlug(), s.getBranch(), s.getPomPath(), s.getDiffPreview(), s.getNewModuleVersion(),
-                    s.getPrUrl(), s.getPrOpenedBy(), s.getStatus(), s.isManual(), s.getReason(),
+                    s.getPrUrl(), s.getPrOpenedBy(), s.getStatus(), s.getStageDetail(), s.isManual(), s.getReason(),
                     parseList(s.getReviewersJson())));
         }
         return new SnykFixTrainView(t.getId(), t.getCoordinate(), t.getOldVersion(), t.getFixedIn(), t.getSeverity(),
                 t.getAppIds(), t.getJiraKey(), t.getStatus(), t.getStageDetail(),
-                t.getErrorMessage(), t.getFailedStage(), t.isBreaking(),
+                t.getErrorMessage(), t.getFailedStage(), t.getFailedStepOrder(), t.isBreaking(),
                 t.getReactorPassed(), t.getReactorFailingLabel(), t.getReactorOutputTail(),
                 parseVerdict(t.getVerdictJson()), t.getStartedAt(), t.getCreatedAt(), t.getFinishedAt(),
                 t.getWatchId(), stepViews);
