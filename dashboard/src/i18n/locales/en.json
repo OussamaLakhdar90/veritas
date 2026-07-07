@@ -344,7 +344,18 @@
         "needStory": "Choose an existing open story, or create a new one.",
         "needStorySummary": "Give the new story a title.",
         "started": "Started {{fixes}} fixes across {{apps}} applications, filed under {{story}}.",
-        "startedSome": "Filed under {{story}}. {{ok}} of {{total}} applications started; {{failed}} had a problem."
+        "startedSome": "Filed under {{story}}. {{ok}} of {{total}} applications started; {{failed}} had a problem.",
+        "successTitle": "Filed in Jira — fixes started",
+        "success": {
+          "filed": "Your fixes are filed in Jira and running.",
+          "summary": "Started {{fixes}} fixes across {{apps}} applications.",
+          "epic": "Epic",
+          "story": "Story",
+          "copy": "Copy",
+          "copied": "Copied to clipboard.",
+          "watch": "Watch progress",
+          "someFailed": "{{count}} application(s) could not start:"
+        }
       }
     },
     "fix": {
