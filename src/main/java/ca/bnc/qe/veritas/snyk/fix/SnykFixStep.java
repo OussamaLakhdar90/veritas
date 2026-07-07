@@ -39,7 +39,9 @@ public class SnykFixStep extends AuditableEntity {
     private String prOpenedBy;      // VERITAS | USER
 
     @Column(length = 20)
-    private String status;          // PLANNED | BRANCH_PUSHED | PR_OPEN | MERGED | MANUAL | FAILED
+    private String status;          // PLANNED | RUNNING | BRANCH_PUSHED | PR_OPEN | MERGED | MANUAL | FAILED
+    @Column(length = 300)
+    private String stageDetail;     // the live line while this module is active (e.g. "Pushing core…")
     private boolean manual;
     @Column(length = 500)
     private String reason;

@@ -18,6 +18,7 @@ public final class SnykFixStatus {
 
     // Step status
     public static final String PLANNED = "PLANNED";
+    public static final String RUNNING = "RUNNING";            // this module is being pushed / its PR opened right now
     public static final String BRANCH_PUSHED = "BRANCH_PUSHED";
     public static final String STEP_PR_OPEN = "PR_OPEN";
     public static final String MERGED = "MERGED";

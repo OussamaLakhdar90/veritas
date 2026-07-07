@@ -207,6 +207,11 @@ public class AsyncSnykFixRunner {
             train.setReactorPassed(reactor.passed());
             train.setReactorFailingLabel(reactor.failingLabel());
             train.setReactorOutputTail(reactor.outputTail());
+            if (!reactor.passed()) {
+                // Pinpoint the module that broke the build so the stepper can flag exactly that étape.
+                train.setFailedStepOrder(
+                        failedStepOrder(steps.findByTrainIdOrderByStepOrder(trainId), reactor.failingLabel()));
+            }
             trains.save(train);
 
             // 5) PUSH — always push the version-bump branches (even on a breaking change).
@@ -390,7 +395,7 @@ public class AsyncSnykFixRunner {
         }
     }
 
-    private void pushBranches(String trainId, Map<String, Path> clones, String branch, String jiraKey) {
+    void pushBranches(String trainId, Map<String, Path> clones, String branch, String jiraKey) {
         for (SnykFixStep s : steps.findByTrainIdOrderByStepOrder(trainId)) {
             if (s.isManual()) {
                 continue;
@@ -399,14 +404,20 @@ public class AsyncSnykFixRunner {
             if (repoDir == null) {
                 continue;
             }
+            // Mark this module active BEFORE the push so a poll mid-loop shows the stepper advancing module by module.
+            s.setStatus(SnykFixStatus.RUNNING);
+            s.setStageDetail("Pushing " + s.getModuleLabel() + "…");
+            steps.save(s);
             try {
                 prPublisher.pushBranch(repoDir, s.getRepoSlug(), branch,
                         commitMessage(jiraKey, s.getModuleLabel(), s.getDiffPreview()));
                 s.setStatus(SnykFixStatus.BRANCH_PUSHED);
+                s.setStageDetail(null);
                 steps.save(s);
             } catch (RuntimeException e) {
                 log.warn("Pushing the fix branch for {} failed: {}", s.getRepoSlug(), e.getMessage());
                 s.setStatus(SnykFixStatus.STEP_FAILED);
+                s.setStageDetail(null);
                 s.setReason("push failed: " + e.getMessage());
                 steps.save(s);
             }
@@ -452,5 +463,19 @@ public class AsyncSnykFixRunner {
         }
         String k = jiraKey.trim();
         return k.matches("[A-Z][A-Z0-9]*-[0-9]+") ? k : null;
+    }
+
+    /** The step order of the module the reactor build failed on (a framework label or a consumer app-id), or null. */
+    static Integer failedStepOrder(List<SnykFixStep> trainSteps, String failingLabel) {
+        if (failingLabel == null || failingLabel.isBlank() || trainSteps == null) {
+            return null;
+        }
+        for (SnykFixStep s : trainSteps) {
+            String label = s.getModuleLabel();
+            if (failingLabel.equals(label) || ("consumer:" + failingLabel).equals(label)) {
+                return s.getStepOrder();
+            }
+        }
+        return null;
     }
 }

@@ -8,6 +8,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import ca.bnc.qe.veritas.vcs.GitHost;
@@ -84,6 +85,36 @@ class SnykFixActionsTest {
         GitHost.PullRequestSpec spec = cap.getValue();
         assertThat(spec.title()).startsWith("CIAM-1 ");                                       // key prefixes the title
         assertThat(spec.description()).contains("Jira: CIAM-1 — Dependency security fixes");  // key + name in the body
+    }
+
+    @Test
+    void openStepPrMarksTheModuleRunningBeforeItsPrOpens() {
+        when(gitHost.openPullRequest(any(GitHost.PullRequestSpec.class))).thenReturn("http://host/pr/1");
+        List<String> statusSequence = new ArrayList<>();
+        when(steps.save(any())).thenAnswer(inv -> {
+            statusSequence.add(((SnykFixStep) inv.getArgument(0)).getStatus());
+            return inv.getArgument(0);
+        });
+        SnykFixTrain t = train();
+        t.setReactorPassed(true);
+        t.setBreaking(false);
+
+        actions.decide(t, List.of(step(1, false, SnykFixStatus.BRANCH_PUSHED)));
+
+        // The module is shown RUNNING (spinner) BEFORE it flips to PR_OPEN — the live stepper advance.
+        assertThat(statusSequence).containsSubsequence(SnykFixStatus.RUNNING, SnykFixStatus.STEP_PR_OPEN);
+    }
+
+    @Test
+    void breakingDetailNamesTheModuleThatFailedTheBuild() {
+        SnykFixTrain t = train();
+        t.setReactorPassed(false);            // the reactor failed → breaking / action-needed
+        t.setReactorFailingLabel("core");
+
+        actions.decide(t, List.of(step(1, false, SnykFixStatus.BRANCH_PUSHED)));
+
+        assertThat(t.getStatus()).isEqualTo(SnykFixStatus.AWAITING_MANUAL_FIX);
+        assertThat(t.getStageDetail()).contains("Action needed").contains("core");   // pinpoints the failed étape
     }
 
     @Test
