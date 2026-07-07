@@ -167,7 +167,7 @@ public class AsyncSnykFixRunner {
             String[] coord = req.coordinate().split(":", 2);
             String groupId = coord[0];
             String artifactId = coord.length > 1 ? coord[1] : coord[0];
-            String branch = "veritas/snyk-fix-" + trainId.substring(0, Math.min(8, trainId.length()));
+            String branch = branchName(trainId, req.jiraKey());
 
             // 1) PLANNING — clone framework + consumers, read poms, plan the cascade, persist the steps.
             FrameworkPoms poms = cloneFramework(clones);
@@ -193,6 +193,7 @@ public class AsyncSnykFixRunner {
             String jiraKey = jiraService.ensureTicket(train, req.jiraKey(), req.jiraProject(), req.jiraIssueType(), verdict);
             train.setJiraKey(jiraKey);
             train.setJiraProject(req.jiraProject());
+            train.setJiraSummary(jiraService.summary(jiraKey));   // the ticket's name, surfaced in each PR body
             trains.save(train);
             jiraService.transitionTo(jiraKey, SnykFixJiraService.Phase.IN_PROGRESS);
 
@@ -211,7 +212,7 @@ public class AsyncSnykFixRunner {
             // 5) PUSH — always push the version-bump branches (even on a breaking change).
             stage = SnykFixStatus.OPENING_PRS;
             stage(train, stage, "Pushing the version-bump branches…");
-            pushBranches(trainId, clones, branch);
+            pushBranches(trainId, clones, branch, train.getJiraKey());
 
             // 6) DECIDE — clean opens the PR train (+ Jira In Review); breaking holds the PRs and awaits the user.
             // Both outcomes (PR_OPEN / AWAITING_MANUAL_FIX) are NON-terminal human-wait states, so we do NOT stamp
@@ -389,7 +390,7 @@ public class AsyncSnykFixRunner {
         }
     }
 
-    private void pushBranches(String trainId, Map<String, Path> clones, String branch) {
+    private void pushBranches(String trainId, Map<String, Path> clones, String branch, String jiraKey) {
         for (SnykFixStep s : steps.findByTrainIdOrderByStepOrder(trainId)) {
             if (s.isManual()) {
                 continue;
@@ -400,7 +401,7 @@ public class AsyncSnykFixRunner {
             }
             try {
                 prPublisher.pushBranch(repoDir, s.getRepoSlug(), branch,
-                        "Snyk fix: " + s.getModuleLabel() + " — " + s.getDiffPreview());
+                        commitMessage(jiraKey, s.getModuleLabel(), s.getDiffPreview()));
                 s.setStatus(SnykFixStatus.BRANCH_PUSHED);
                 steps.save(s);
             } catch (RuntimeException e) {
@@ -428,5 +429,28 @@ public class AsyncSnykFixRunner {
         train.setStatus(status);
         train.setStageDetail(detail);
         trains.save(train);
+    }
+
+    /** The fix branch, embedding the Jira key when it's a real key so the branch links to the ticket's dev panel. */
+    static String branchName(String trainId, String jiraKey) {
+        String suffix = "snyk-fix-" + trainId.substring(0, Math.min(8, trainId.length()));
+        String key = safeKey(jiraKey);
+        return key == null ? "veritas/" + suffix : "veritas/" + key + "/" + suffix;
+    }
+
+    /** The per-module commit, prefixed with the Jira key when known so Bitbucket links the commit to the ticket. */
+    static String commitMessage(String jiraKey, String moduleLabel, String diffPreview) {
+        String base = "Snyk fix: " + moduleLabel + " — " + diffPreview;
+        String key = safeKey(jiraKey);
+        return key == null ? base : key + " " + base;
+    }
+
+    /** A Jira key only when it looks like one (PROJ-123); a blank/malformed value never lands in a git ref. */
+    private static String safeKey(String jiraKey) {
+        if (jiraKey == null) {
+            return null;
+        }
+        String k = jiraKey.trim();
+        return k.matches("[A-Z][A-Z0-9]*-[0-9]+") ? k : null;
     }
 }

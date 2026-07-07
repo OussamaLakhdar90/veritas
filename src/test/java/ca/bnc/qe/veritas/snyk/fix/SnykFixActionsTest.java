@@ -14,6 +14,7 @@ import ca.bnc.qe.veritas.vcs.GitHost;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 /** The clean-vs-breaking decision + the human-in-the-loop PR actions (who opens each PR, merge → Done). */
 class SnykFixActionsTest {
@@ -67,6 +68,22 @@ class SnykFixActionsTest {
         assertThat(s.getPrUrl()).isEqualTo("http://host/pr/1");
         assertThat(s.getPrOpenedBy()).isEqualTo(SnykFixStatus.BY_VERITAS);
         verify(jira).transitionTo(eq("CIAM-1"), eq(SnykFixJiraService.Phase.IN_REVIEW));
+    }
+
+    @Test
+    void prTitleAndBodyCarryTheJiraKeyAndSummaryForLinkage() {
+        ArgumentCaptor<GitHost.PullRequestSpec> cap = ArgumentCaptor.forClass(GitHost.PullRequestSpec.class);
+        when(gitHost.openPullRequest(cap.capture())).thenReturn("http://host/pr/1");
+        SnykFixTrain t = train();                        // jiraKey = CIAM-1
+        t.setJiraSummary("Dependency security fixes");
+        t.setReactorPassed(true);
+        t.setBreaking(false);
+
+        actions.decide(t, List.of(step(1, false, SnykFixStatus.BRANCH_PUSHED)));
+
+        GitHost.PullRequestSpec spec = cap.getValue();
+        assertThat(spec.title()).startsWith("CIAM-1 ");                                       // key prefixes the title
+        assertThat(spec.description()).contains("Jira: CIAM-1 — Dependency security fixes");  // key + name in the body
     }
 
     @Test
