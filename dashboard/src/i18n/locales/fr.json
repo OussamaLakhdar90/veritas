@@ -344,7 +344,18 @@
         "needStory": "Choisissez un récit ouvert existant, ou créez-en un nouveau.",
         "needStorySummary": "Donnez un titre au nouveau récit.",
         "started": "{{fixes}} correctifs lancés dans {{apps}} applications, consignés sous {{story}}.",
-        "startedSome": "Consigné sous {{story}}. {{ok}} des {{total}} applications lancées; {{failed}} ont eu un problème."
+        "startedSome": "Consigné sous {{story}}. {{ok}} des {{total}} applications lancées; {{failed}} ont eu un problème.",
+        "successTitle": "Consigné dans Jira — correctifs lancés",
+        "success": {
+          "filed": "Vos correctifs sont consignés dans Jira et en cours.",
+          "summary": "{{fixes}} correctifs lancés dans {{apps}} applications.",
+          "epic": "Épopée",
+          "story": "Récit",
+          "copy": "Copier",
+          "copied": "Copié dans le presse-papiers.",
+          "watch": "Suivre la progression",
+          "someFailed": "{{count}} application(s) n'ont pas pu démarrer :"
+        }
       }
     },
     "fix": {

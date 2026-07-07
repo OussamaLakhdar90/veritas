@@ -450,6 +450,45 @@ describe('Snyk page', () => {
     }))
   })
 
+  it('shows a confirmation with the created Jira ticket as a clickable link (does not just close)', async () => {
+    twoFixableWatches()
+    server.use(
+      http.post('*/api/v1/snyk/fixes/bulk', () => HttpResponse.json({
+        epicKey: 'CIAM-100', storyKey: 'CIAM-150',
+        epicUrl: 'https://jira.bnc.ca/browse/CIAM-100',
+        storyUrl: 'https://jira.bnc.ca/browse/CIAM-150',
+        apps: [
+          { appId: 'APP7576', jiraKey: 'CIAM-150', jiraUrl: 'https://jira.bnc.ca/browse/CIAM-150', trainIds: ['t1'], error: null },
+          { appId: 'APP7571', jiraKey: 'CIAM-150', jiraUrl: 'https://jira.bnc.ca/browse/CIAM-150', trainIds: ['t2'], error: null },
+        ],
+      }, { status: 202 })),
+    )
+    const user = userEvent.setup()
+    renderSnyk()
+
+    await user.click(await screen.findByRole('button', { name: /Fix vulnerabilities/ }))
+    expect(await screen.findByText(/you’re good to go/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText('com.fasterxml.jackson.core:jackson-databind')
+    await user.click(screen.getByRole('button', { name: 'Select all' }))
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByText(/what Veritas will do/)
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.selectOptions(await screen.findByRole('combobox'), 'CIAM')
+    await user.selectOptions((await screen.findAllByRole('combobox'))[1], 'CIAM-100')
+    await waitFor(() => expect(screen.getAllByRole('combobox')).toHaveLength(3))
+    await user.selectOptions(screen.getAllByRole('combobox')[2], 'CIAM-150')
+    await user.click(screen.getByRole('button', { name: /Start 2 fixes/ }))
+
+    // The wizard stays OPEN on a confirmation screen: the story key is a clickable Jira link (+ epic + a copy
+    // control + a "Watch progress" action) — not a silent close that hides the created ticket number.
+    const storyLink = await screen.findByRole('link', { name: /CIAM-150/ })
+    expect(storyLink).toHaveAttribute('href', 'https://jira.bnc.ca/browse/CIAM-150')
+    expect(screen.getByRole('link', { name: /CIAM-100/ })).toHaveAttribute('href', 'https://jira.bnc.ca/browse/CIAM-100')
+    expect(screen.getByRole('button', { name: /Watch progress/ })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /Copy/ }).length).toBeGreaterThan(0)
+  })
+
   it('blocks Step 1 when a required connection is missing and links to Settings', async () => {
     twoFixableWatches()
     // Override preflight: Bitbucket base URL is MISSING → the gate must hold.

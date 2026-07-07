@@ -527,7 +527,10 @@ export interface SnykBulkFixRequest {
 export interface SnykBulkFixResult {
   epicKey: string;
   storyKey: string;
-  apps: { appId: string; jiraKey: string | null; trainIds: string[]; error: string | null }[];
+  epicUrl?: string | null;   // Jira browse link (null when no Jira base URL is configured)
+  storyUrl?: string | null;
+  apps: { appId: string; jiraKey: string | null; jiraUrl?: string | null;
+    trainIds: string[]; error: string | null }[];
 }
 
 /** A release-cascade fix train: the issue, the Jira + verdict, the reactor result, and every PR. */

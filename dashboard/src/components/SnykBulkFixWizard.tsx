@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Link } from 'react-router-dom';
-import { ShieldCheck, CheckCircle2, AlertTriangle, XCircle, PackageCheck, Settings as SettingsIcon } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { ShieldCheck, CheckCircle2, AlertTriangle, XCircle, PackageCheck, Settings as SettingsIcon,
+  ExternalLink, Copy } from 'lucide-react';
 import {
   api, type JiraProject, type JiraEpicOption, type JiraStoryOption, type GitUser, type PreflightCheck,
-  type SnykBulkFixRequest, type SnykIssueView, type SnykWatchView,
+  type SnykBulkFixRequest, type SnykBulkFixResult, type SnykIssueView, type SnykWatchView,
 } from '../api';
 import { Modal } from './Modal';
 import { Badge, Button, EmptyState, Field, Input, Select, Spinner } from './ui';
@@ -66,6 +67,7 @@ export function SnykBulkFixWizard({ open, onClose, watches }:
   const { t } = useTranslation();
   const toast = useToast();
   const qc = useQueryClient();
+  const navigate = useNavigate();
 
   const [step, setStep] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -77,6 +79,7 @@ export function SnykBulkFixWizard({ open, onClose, watches }:
   const [storyKey, setStoryKey] = useState('');
   const [storySummary, setStorySummary] = useState('');
   const [reviewers, setReviewers] = useState<string[]>([]);   // validated Bitbucket usernames
+  const [result, setResult] = useState<SnykBulkFixResult | null>(null);   // set on success → shows the confirmation
 
   // Only apps that report fixable vulnerabilities are worth loading issues for — skip the clean ones entirely.
   const fixableWatches = useMemo(() => watches.filter((w) => w.fixable > 0), [watches]);
@@ -137,6 +140,7 @@ export function SnykBulkFixWizard({ open, onClose, watches }:
       setStoryKey('');
       setStorySummary('');
       setReviewers([]);
+      setResult(null);
     }
   }, [open]);
 
@@ -246,7 +250,7 @@ export function SnykBulkFixWizard({ open, onClose, watches }:
         toast.push('error', t('snyk.bulk.wizard.startedSome',
           { story: res.storyKey, ok, total: res.apps.length, failed }));
       }
-      onClose();
+      setResult(res);   // keep the wizard open on a confirmation screen instead of vanishing
     },
     onError: (e: Error) => toast.push('error', e.message),
   });
@@ -274,10 +278,10 @@ export function SnykBulkFixWizard({ open, onClose, watches }:
     return { ok: true };
   })();
 
-  const titleKey = ['step1Title', 'step2Title', 'step3Title', 'step4Title'][step - 1];
+  const titleKey = result ? 'successTitle' : ['step1Title', 'step2Title', 'step3Title', 'step4Title'][step - 1];
   const isLast = step === 4;
 
-  const footer = (
+  const stepFooter = (
     <>
       {!gate.ok && gate.reason && (
         <span className="mr-auto self-center text-xs text-warning" role="status" aria-live="polite">
@@ -297,40 +301,113 @@ export function SnykBulkFixWizard({ open, onClose, watches }:
     </>
   );
 
+  // After a successful launch the wizard stays open on a confirmation screen (the created ticket numbers as links).
+  const doneFooter = (
+    <>
+      <Button variant="secondary" onClick={onClose}>{t('common.close')}</Button>
+      <Button onClick={() => { onClose(); navigate('/activity'); }}>{t('snyk.bulk.wizard.success.watch')}</Button>
+    </>
+  );
+
   return (
-    <Modal open={open} onClose={onClose} size="lg" title={t(`snyk.bulk.wizard.${titleKey}`)} footer={footer}>
-      {/* Step indicator */}
-      <div className="mb-4 flex items-center gap-2">
-        <span className="text-xs font-medium text-muted" role="status" aria-live="polite">
-          {t('snyk.bulk.wizard.stepOf', { current: step, total: 4 })}
-        </span>
-        <div className="flex flex-1 items-center gap-1.5" aria-hidden="true">
-          {[1, 2, 3, 4].map((n) => (
-            <span key={n}
-              className={`h-1.5 flex-1 rounded-full ${n <= step ? 'bg-brand' : 'bg-ink-100'}`} />
-          ))}
+    <Modal open={open} onClose={onClose} size="lg" title={t(`snyk.bulk.wizard.${titleKey}`)}
+      footer={result ? doneFooter : stepFooter}>
+      {result ? (
+        <StepDone result={result} onCopy={(text) => {
+          navigator.clipboard?.writeText(text);
+          toast.push('success', t('snyk.bulk.wizard.success.copied'));
+        }} />
+      ) : (
+        <>
+          {/* Step indicator */}
+          <div className="mb-4 flex items-center gap-2">
+            <span className="text-xs font-medium text-muted" role="status" aria-live="polite">
+              {t('snyk.bulk.wizard.stepOf', { current: step, total: 4 })}
+            </span>
+            <div className="flex flex-1 items-center gap-1.5" aria-hidden="true">
+              {[1, 2, 3, 4].map((n) => (
+                <span key={n}
+                  className={`h-1.5 flex-1 rounded-full ${n <= step ? 'bg-brand' : 'bg-ink-100'}`} />
+              ))}
+            </div>
+          </div>
+
+          {step === 1 && <StepConnections loading={preflightQ.isLoading} failed={preflightQ.isError}
+            statuses={connStatuses} allGood={connectionsOk} onClose={onClose} />}
+          {step === 2 && <StepSelect loading={issuesLoading} failed={issuesFailed} rows={rows} rowsByWatch={rowsByWatch}
+            selected={selected} allSelected={allSelected} setAll={setAll} selectSeverity={selectSeverity}
+            toggle={toggle} />}
+          {step === 3 && <StepReview rowCount={chosenRows.length} apps={chosenApps} />}
+          {step === 4 && <StepJira
+            projectsLoading={projectsQ.isLoading} projectsFailed={projectsQ.isError} projects={projectsQ.data ?? []}
+            project={project} setProject={(p) => { setProject(p); setEpicKey(''); setStoryKey(''); }}
+            epicMode={epicMode} setEpicMode={setEpicMode}
+            epicsLoading={epicsQ.isLoading} epicsFailed={epicsQ.isError} epics={epicsQ.data ?? []}
+            epicKey={epicKey} setEpicKey={(k) => { setEpicKey(k); setStoryKey(''); }}
+            epicSummary={epicSummary} setEpicSummary={setEpicSummary} epicReady={epicReady}
+            storyMode={storyMode} setStoryMode={setStoryMode}
+            storiesLoading={storiesQ.isLoading} storiesFailed={storiesQ.isError} stories={storiesQ.data ?? []}
+            storyKey={storyKey} setStoryKey={setStoryKey}
+            storySummary={storySummary} setStorySummary={setStorySummary} storyReady={storyReady}
+            reviewers={reviewers} setReviewers={setReviewers} />}
+        </>
+      )}
+    </Modal>
+  );
+}
+
+/* ── Confirmation: the filed Jira tickets (numbers as links) after a successful launch ──────── */
+function StepDone({ result, onCopy }: { result: SnykBulkFixResult; onCopy: (text: string) => void }) {
+  const { t } = useTranslation();
+  const ok = result.apps.filter((a) => !a.error).length;
+  const failed = result.apps.filter((a) => a.error);
+  const fixes = result.apps.reduce((n, a) => n + a.trainIds.length, 0);
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start gap-3 rounded-xl bg-success/5 p-4 ring-1 ring-success/20">
+        <CheckCircle2 className="mt-0.5 h-6 w-6 shrink-0 text-success" />
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-ink-900">{t('snyk.bulk.wizard.success.filed')}</p>
+          <p className="mt-0.5 text-xs text-muted">{t('snyk.bulk.wizard.success.summary', { fixes, apps: ok })}</p>
         </div>
       </div>
+      <TicketRow label={t('snyk.bulk.wizard.success.epic')} keyText={result.epicKey} url={result.epicUrl} onCopy={onCopy} />
+      <TicketRow label={t('snyk.bulk.wizard.success.story')} keyText={result.storyKey} url={result.storyUrl} onCopy={onCopy} />
+      {failed.length > 0 && (
+        <div className="rounded-lg bg-danger/5 p-3 text-xs ring-1 ring-danger/20">
+          <p className="font-medium text-danger">{t('snyk.bulk.wizard.success.someFailed', { count: failed.length })}</p>
+          <ul className="mt-1 space-y-0.5 text-muted">
+            {failed.map((a) => (
+              <li key={a.appId}><span className="font-medium text-ink-700">{a.appId}</span> — {a.error}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
 
-      {step === 1 && <StepConnections loading={preflightQ.isLoading} failed={preflightQ.isError}
-        statuses={connStatuses} allGood={connectionsOk} onClose={onClose} />}
-      {step === 2 && <StepSelect loading={issuesLoading} failed={issuesFailed} rows={rows} rowsByWatch={rowsByWatch}
-        selected={selected} allSelected={allSelected} setAll={setAll} selectSeverity={selectSeverity}
-        toggle={toggle} />}
-      {step === 3 && <StepReview rowCount={chosenRows.length} apps={chosenApps} />}
-      {step === 4 && <StepJira
-        projectsLoading={projectsQ.isLoading} projectsFailed={projectsQ.isError} projects={projectsQ.data ?? []}
-        project={project} setProject={(p) => { setProject(p); setEpicKey(''); setStoryKey(''); }}
-        epicMode={epicMode} setEpicMode={setEpicMode}
-        epicsLoading={epicsQ.isLoading} epicsFailed={epicsQ.isError} epics={epicsQ.data ?? []}
-        epicKey={epicKey} setEpicKey={(k) => { setEpicKey(k); setStoryKey(''); }}
-        epicSummary={epicSummary} setEpicSummary={setEpicSummary} epicReady={epicReady}
-        storyMode={storyMode} setStoryMode={setStoryMode}
-        storiesLoading={storiesQ.isLoading} storiesFailed={storiesQ.isError} stories={storiesQ.data ?? []}
-        storyKey={storyKey} setStoryKey={setStoryKey}
-        storySummary={storySummary} setStorySummary={setStorySummary} storyReady={storyReady}
-        reviewers={reviewers} setReviewers={setReviewers} />}
-    </Modal>
+/** One filed ticket: its key as a clickable Jira link (or plain text when unconfigured) + a copy button. */
+function TicketRow({ label, keyText, url, onCopy }:
+  { label: string; keyText: string; url?: string | null; onCopy: (text: string) => void }) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex items-center gap-3 rounded-lg bg-surface p-3 ring-1 ring-border">
+      <span className="text-2xs font-semibold uppercase tracking-wide text-muted">{label}</span>
+      {url ? (
+        <a href={url} target="_blank" rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-sm font-semibold text-brand hover:underline">
+          {keyText}<ExternalLink className="h-3.5 w-3.5" />
+        </a>
+      ) : (
+        <span className="text-sm font-semibold text-ink-900">{keyText}</span>
+      )}
+      <button type="button" onClick={() => onCopy(keyText)}
+        className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs text-muted ring-1 ring-border hover:bg-ink-50"
+        aria-label={`${t('snyk.bulk.wizard.success.copy')} ${keyText}`}>
+        <Copy className="h-3.5 w-3.5" />{t('snyk.bulk.wizard.success.copy')}
+      </button>
+    </div>
   );
 }
 
