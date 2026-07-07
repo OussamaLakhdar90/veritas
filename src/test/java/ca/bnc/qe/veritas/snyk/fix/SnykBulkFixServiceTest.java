@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import ca.bnc.qe.veritas.config.ConnectionsProperties;
 import ca.bnc.qe.veritas.integration.jira.JiraClient;
 import ca.bnc.qe.veritas.integration.jira.JiraCreateRequest;
 import ca.bnc.qe.veritas.integration.jira.JiraIssue;
@@ -29,6 +30,14 @@ import org.mockito.ArgumentCaptor;
  * requests; the {@link AsyncSnykFixRunner} is mocked so we assert what trains would start without cloning anything.
  */
 class SnykBulkFixServiceTest {
+
+    private static ConnectionsProperties conns(String jiraBaseUrl) {
+        ConnectionsProperties c = new ConnectionsProperties();
+        c.getJira().setBaseUrl(jiraBaseUrl);
+        return c;
+    }
+
+    private static final ConnectionsProperties CONNS = conns("https://jira.bnc.ca");
 
     /** Captures createIssue requests and hands back sequential keys; can be told to fail a create by summary. */
     private static final class CapturingJira implements JiraClient {
@@ -89,7 +98,7 @@ class SnykBulkFixServiceTest {
                 List.of(app("APP7576", issue("com.a:x", "2.0.0"), issue("com.b:y", "3.0.0")),
                         app("APP7571", issue("com.a:x", "2.0.0"))));
 
-        SnykBulkFixResult result = new SnykBulkFixService(jira, runner).launch(req);
+        SnykBulkFixResult result = new SnykBulkFixService(jira, runner, CONNS).launch(req);
 
         // create[0] = Epic (no parent); create[1] = Story (under the epic). NO per-app Task.
         assertThat(jira.created.get(0).issueType()).isEqualTo("Epic");
@@ -119,7 +128,7 @@ class SnykBulkFixServiceTest {
         AsyncSnykFixRunner runner = mock(AsyncSnykFixRunner.class);
         when(runner.submit(any())).thenReturn("train-1");
 
-        SnykBulkFixResult result = new SnykBulkFixService(jira, runner).launch(
+        SnykBulkFixResult result = new SnykBulkFixService(jira, runner, CONNS).launch(
                 existingStory("CIAM", "CIAM-9", "CIAM-50", List.of(app("APP7576", issue("com.a:x", "2.0.0")))));
 
         assertThat(result.epicKey()).isEqualTo("CIAM-9");
@@ -136,7 +145,7 @@ class SnykBulkFixServiceTest {
         AsyncSnykFixRunner runner = mock(AsyncSnykFixRunner.class);
         when(runner.submit(any())).thenReturn("train-1");
 
-        SnykBulkFixResult result = new SnykBulkFixService(jira, runner).launch(
+        SnykBulkFixResult result = new SnykBulkFixService(jira, runner, CONNS).launch(
                 newStory("CIAM", "CIAM-9", List.of(), List.of(app("APP7576", issue("com.a:x", "2.0.0")))));
 
         assertThat(result.epicKey()).isEqualTo("CIAM-9");
@@ -149,7 +158,7 @@ class SnykBulkFixServiceTest {
     @Test
     void rejectsWhenNoEpicAndNotAskedToCreateOne() {
         AsyncSnykFixRunner runner = mock(AsyncSnykFixRunner.class);
-        assertThatThrownBy(() -> new SnykBulkFixService(new CapturingJira(), runner).launch(
+        assertThatThrownBy(() -> new SnykBulkFixService(new CapturingJira(), runner, CONNS).launch(
                 new SnykBulkFixRequest("CIAM", null, false, null, null, true, "s", List.of(),
                         List.of(app("APP7576", issue("com.a:x", "2.0.0"))))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("epic");
@@ -160,7 +169,7 @@ class SnykBulkFixServiceTest {
     void rejectsWhenNoStoryAndNotAskedToCreateOne() {
         CapturingJira jira = new CapturingJira();
         AsyncSnykFixRunner runner = mock(AsyncSnykFixRunner.class);
-        assertThatThrownBy(() -> new SnykBulkFixService(jira, runner).launch(
+        assertThatThrownBy(() -> new SnykBulkFixService(jira, runner, CONNS).launch(
                 new SnykBulkFixRequest("CIAM", "CIAM-9", false, null, null, false, null, List.of(),
                         List.of(app("APP7576", issue("com.a:x", "2.0.0"))))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("story");
@@ -171,7 +180,7 @@ class SnykBulkFixServiceTest {
     void rejectsUnsafeCoordinateBeforeAnyJiraWrite() {
         CapturingJira jira = new CapturingJira();
         AsyncSnykFixRunner runner = mock(AsyncSnykFixRunner.class);
-        assertThatThrownBy(() -> new SnykBulkFixService(jira, runner).launch(
+        assertThatThrownBy(() -> new SnykBulkFixService(jira, runner, CONNS).launch(
                 existingStory("CIAM", "CIAM-9", "CIAM-50",
                         List.of(app("APP7576", new IssueSelection("s", "com.a:x && rm -rf", "1", "2", "high"))))))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -181,7 +190,7 @@ class SnykBulkFixServiceTest {
 
     @Test
     void rejectsWhenProjectMissingOrNoIssues() {
-        SnykBulkFixService svc = new SnykBulkFixService(new CapturingJira(), mock(AsyncSnykFixRunner.class));
+        SnykBulkFixService svc = new SnykBulkFixService(new CapturingJira(), mock(AsyncSnykFixRunner.class), CONNS);
         assertThatThrownBy(() -> svc.launch(existingStory("", "CIAM-9", "CIAM-50",
                 List.of(app("APP7576", issue("com.a:x", "2.0.0"))))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("project");
@@ -201,7 +210,7 @@ class SnykBulkFixServiceTest {
             return "train-1";
         });
 
-        SnykBulkFixResult result = new SnykBulkFixService(jira, runner).launch(
+        SnykBulkFixResult result = new SnykBulkFixService(jira, runner, CONNS).launch(
                 existingStory("CIAM", "CIAM-9", "CIAM-50",
                         List.of(app("APP7576", issue("com.a:x", "2.0.0")), app("APP7571", issue("com.b:y", "3.0.0")))));
 
@@ -219,7 +228,7 @@ class SnykBulkFixServiceTest {
         CapturingJira jira = new CapturingJira();
         jira.projects = new ArrayList<>(List.of(new JiraProject("OTHER", "Other")));   // CIAM not accessible
         AsyncSnykFixRunner runner = mock(AsyncSnykFixRunner.class);
-        assertThatThrownBy(() -> new SnykBulkFixService(jira, runner).launch(
+        assertThatThrownBy(() -> new SnykBulkFixService(jira, runner, CONNS).launch(
                 existingStory("CIAM", "CIAM-9", "CIAM-50", List.of(app("APP7576", issue("com.a:x", "2.0.0"))))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("CIAM");
         assertThat(jira.created).isEmpty();       // validated before any write
@@ -231,7 +240,7 @@ class SnykBulkFixServiceTest {
         CapturingJira jira = new CapturingJira();   // accessible: "CIAM"
         AsyncSnykFixRunner runner = mock(AsyncSnykFixRunner.class);
         when(runner.submit(any())).thenReturn("train-1");
-        new SnykBulkFixService(jira, runner).launch(
+        new SnykBulkFixService(jira, runner, CONNS).launch(
                 newStory("ciam", "CIAM-9", List.of(), List.of(app("APP7576", issue("com.a:x", "2.0.0")))));   // typed lower-case
         // the new story is filed against the canonical "CIAM", not the typed "ciam"
         assertThat(jira.created).singleElement().satisfies(r -> assertThat(r.projectKey()).isEqualTo("CIAM"));
@@ -242,10 +251,67 @@ class SnykBulkFixServiceTest {
         CapturingJira jira = new CapturingJira();
         jira.listProjectsError = new IllegalStateException("Jira /project failed: 401 Unauthorized");
         AsyncSnykFixRunner runner = mock(AsyncSnykFixRunner.class);
-        assertThatThrownBy(() -> new SnykBulkFixService(jira, runner).launch(
+        assertThatThrownBy(() -> new SnykBulkFixService(jira, runner, CONNS).launch(
                 existingStory("CIAM", "CIAM-9", "CIAM-50", List.of(app("APP7576", issue("com.a:x", "2.0.0"))))))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(jira.created).isEmpty();
         verify(runner, never()).submit(any());    // connection verified up front → nothing cloned
+    }
+
+    @Test
+    void buildsClickableJiraBrowseUrlsFromTheConfiguredBaseUrl() {
+        CapturingJira jira = new CapturingJira();
+        AsyncSnykFixRunner runner = mock(AsyncSnykFixRunner.class);
+        when(runner.submit(any())).thenReturn("train-1");
+
+        // Base URL carries a trailing slash to prove it's trimmed exactly once (no "//browse").
+        SnykBulkFixResult result = new SnykBulkFixService(jira, runner, conns("https://jira.bnc.ca/")).launch(
+                existingStory("CIAM", "CIAM-9", "CIAM-50", List.of(app("APP7576", issue("com.a:x", "2.0.0")))));
+
+        assertThat(result.epicUrl()).isEqualTo("https://jira.bnc.ca/browse/CIAM-9");
+        assertThat(result.storyUrl()).isEqualTo("https://jira.bnc.ca/browse/CIAM-50");
+        assertThat(result.apps()).singleElement().satisfies(a -> {
+            assertThat(a.jiraKey()).isEqualTo("CIAM-50");
+            assertThat(a.jiraUrl()).isEqualTo("https://jira.bnc.ca/browse/CIAM-50");
+        });
+    }
+
+    @Test
+    void omitsBrowseUrlsWhenNoJiraBaseUrlIsConfigured() {
+        CapturingJira jira = new CapturingJira();
+        AsyncSnykFixRunner runner = mock(AsyncSnykFixRunner.class);
+        when(runner.submit(any())).thenReturn("train-1");
+
+        SnykBulkFixResult result = new SnykBulkFixService(jira, runner, conns(null)).launch(
+                existingStory("CIAM", "CIAM-9", "CIAM-50", List.of(app("APP7576", issue("com.a:x", "2.0.0")))));
+
+        assertThat(result.epicUrl()).isNull();
+        assertThat(result.storyUrl()).isNull();
+        assertThat(result.apps()).singleElement().satisfies(a -> assertThat(a.jiraUrl()).isNull());
+    }
+
+    @Test
+    void filesAProfessionalStoryDescriptionThatExplainsScopeCascadeAndGovernance() {
+        CapturingJira jira = new CapturingJira();
+        AsyncSnykFixRunner runner = mock(AsyncSnykFixRunner.class);
+        when(runner.submit(any())).thenReturn("train-1");
+
+        // Two apps, three upgrades, mixed severities — the description must summarize this readably.
+        new SnykBulkFixService(jira, runner, CONNS).launch(newStory("CIAM", "CIAM-9", List.of("alice"),
+                List.of(app("APP7576",
+                            new IssueSelection("s1", "com.a:x", "1.0.0", "2.0.0", "critical"),
+                            new IssueSelection("s2", "com.b:y", "1.2.0", "1.3.0", "high")),
+                        app("APP7571",
+                            new IssueSelection("s3", "com.c:z", "3.0.0", "3.0.1", "medium")))));
+
+        String body = String.join("\n", jira.created.get(0).descriptionParagraphs());
+        // A real scope summary with counts + the cascade/gate + governance — not a bare bullet dump.
+        assertThat(body)
+                .contains("2 application")            // application count
+                .contains("3 dependency")             // upgrade count
+                .containsIgnoringCase("critical")     // severity breakdown
+                .containsIgnoringCase("How this runs")   // the cascade + AI-gate explanation
+                .containsIgnoringCase("Governance")      // the human-merge / never-auto-merge section
+                .contains("APP7576").contains("com.a:x").contains("2.0.0");   // the concrete upgrades still listed
     }
 }

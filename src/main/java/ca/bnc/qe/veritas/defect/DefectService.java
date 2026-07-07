@@ -4,6 +4,7 @@ import java.time.Instant;
 import ca.bnc.qe.veritas.config.ConnectionsProperties;
 import ca.bnc.qe.veritas.integration.jira.JiraClient;
 import ca.bnc.qe.veritas.integration.jira.JiraCreateRequest;
+import ca.bnc.qe.veritas.integration.jira.JiraLinks;
 import ca.bnc.qe.veritas.persistence.DefectLink;
 import ca.bnc.qe.veritas.persistence.DefectLinkRepository;
 import ca.bnc.qe.veritas.persistence.FindingRecord;
@@ -108,11 +109,6 @@ public class DefectService {
     }
 
     private String browseUrl(String key) {
-        String base = connections.getJira().getBaseUrl();
-        if (base == null || base.isBlank() || key == null || key.isBlank()) {
-            return null;
-        }
-        String trimmed = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
-        return trimmed + "/browse/" + key;
+        return JiraLinks.browseUrl(connections.getJira().getBaseUrl(), key);
     }
 }

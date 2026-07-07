@@ -3,8 +3,10 @@ package ca.bnc.qe.veritas.snyk.fix;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import ca.bnc.qe.veritas.config.ConnectionsProperties;
 import ca.bnc.qe.veritas.integration.jira.JiraClient;
 import ca.bnc.qe.veritas.integration.jira.JiraCreateRequest;
+import ca.bnc.qe.veritas.integration.jira.JiraLinks;
 import ca.bnc.qe.veritas.integration.jira.JiraProject;
 import ca.bnc.qe.veritas.snyk.fix.SnykBulkFixRequest.AppSelection;
 import ca.bnc.qe.veritas.snyk.fix.SnykBulkFixRequest.IssueSelection;
@@ -28,10 +30,12 @@ public class SnykBulkFixService {
 
     private final JiraClient jira;
     private final AsyncSnykFixRunner runner;
+    private final ConnectionsProperties connections;
 
-    public SnykBulkFixService(JiraClient jira, AsyncSnykFixRunner runner) {
+    public SnykBulkFixService(JiraClient jira, AsyncSnykFixRunner runner, ConnectionsProperties connections) {
         this.jira = jira;
         this.runner = runner;
+        this.connections = connections;
     }
 
     public SnykBulkFixResult launch(SnykBulkFixRequest req) {
@@ -56,6 +60,11 @@ public class SnykBulkFixService {
         String storyKey = resolveStory(req, project, epicKey, apps);
         List<String> reviewers = req.reviewers() == null ? List.of() : req.reviewers();
 
+        // Clickable Jira links for the confirmation UI (null when no base URL is configured — never a broken link).
+        String jiraBaseUrl = connections.getJira().getBaseUrl();
+        String epicUrl = JiraLinks.browseUrl(jiraBaseUrl, epicKey);
+        String storyUrl = JiraLinks.browseUrl(jiraBaseUrl, storyKey);
+
         List<AppResult> results = new ArrayList<>();
         for (AppSelection app : apps) {
             if (!hasIssues(app)) {
@@ -71,14 +80,14 @@ public class SnykBulkFixService {
                             List.of(app.appId()), storyKey, project, null, reviewers, null, true));
                     trainIds.add(trainId);
                 }
-                results.add(new AppResult(app.appId(), storyKey, trainIds, null));
+                results.add(new AppResult(app.appId(), storyKey, storyUrl, trainIds, null));
             } catch (RuntimeException e) {
                 // Isolate a single app's failure — the rest of the batch (on the same shared story) still runs.
                 log.warn("Bulk fix: application {} could not be launched (non-fatal): {}", app.appId(), e.getMessage());
-                results.add(new AppResult(app.appId(), null, List.of(), e.getMessage()));
+                results.add(new AppResult(app.appId(), null, null, List.of(), e.getMessage()));
             }
         }
-        return new SnykBulkFixResult(epicKey, storyKey, results);
+        return new SnykBulkFixResult(epicKey, storyKey, epicUrl, storyUrl, results);
     }
 
     /**
@@ -143,23 +152,83 @@ public class SnykBulkFixService {
         }
     }
 
-    /** The shared story body: every app + the vulnerabilities its fixes cover, deterministically. */
+    /**
+     * The shared story body — professional plain paragraphs that read well on both Jira editions (Cloud renders one
+     * ADF paragraph per string; Server/DC joins with blank lines, so no wiki/ADF markup here). It explains what the
+     * story covers, a readable scope summary with counts, the concrete per-application upgrades, how the run
+     * proceeds (framework-first, AI-gated), and the human-merge governance.
+     */
     private List<String> storyDescription(List<AppSelection> apps) {
+        List<AppSelection> withIssues = apps.stream().filter(SnykBulkFixService::hasIssues).toList();
+        int appCount = withIssues.size();
+        int upgradeCount = withIssues.stream().mapToInt(a -> a.issues().size()).sum();
+
         List<String> p = new ArrayList<>();
-        p.add("Automated dependency-security fixes raised by Veritas from Snyk findings.");
+        p.add("This story tracks automated dependency-security fixes that Veritas raised from Snyk findings. Each "
+                + "vulnerable dependency is upgraded to its Snyk-recommended safe version and delivered as its own "
+                + "pull request, linked back to this story.");
+        p.add("Scope: " + count(appCount, "application") + ", " + count(upgradeCount, "dependency upgrade")
+                + severityBreakdown(withIssues) + ".");
+        for (AppSelection app : withIssues) {
+            p.add(appLine(app));
+        }
+        p.add("How this runs: Veritas bumps the shared framework first (BOM, then core, then api/web), rebuilds it "
+                + "and runs each application's tests locally, and only when that whole build is green does it open "
+                + "the pull requests in that order under this story. If the AI review flags a breaking change, the "
+                + "version-bump branches are still pushed but the pull requests are held for your review before "
+                + "anything proceeds.");
+        p.add("Governance: Veritas never merges automatically — a human reviewer merges each pull request. The "
+                + "assigned reviewers are notified on every pull request.");
+        return p;
+    }
+
+    /** "1 application" / "2 applications" — a pluralized count for the scope line. */
+    private static String count(int n, String noun) {
+        return n + " " + noun + (n == 1 ? "" : "s");
+    }
+
+    /** " (1 critical, 2 high)" from the selected issues, in severity order, omitting empty buckets; "" if none. */
+    private static String severityBreakdown(List<AppSelection> apps) {
+        int crit = 0;
+        int high = 0;
+        int med = 0;
+        int low = 0;
         for (AppSelection app : apps) {
-            if (!hasIssues(app)) {
-                continue;
-            }
-            p.add(app.appId() + ":");
             for (IssueSelection i : app.issues()) {
-                p.add("- " + i.coordinate() + "  (" + i.oldVersion() + " -> " + i.fixedIn() + ", "
-                        + upper(i.severity()) + ")");
+                switch (upper(i.severity())) {
+                    case "CRITICAL" -> crit++;
+                    case "HIGH" -> high++;
+                    case "MEDIUM" -> med++;
+                    case "LOW" -> low++;
+                    default -> { /* an unknown severity isn't bucketed in the breakdown */ }
+                }
             }
         }
-        p.add("The lsist framework repos (bom -> core -> api/web) are bumped first, then each app's application-tests "
-                + "repo picks up the new version. Breaking changes are held for review — Veritas never auto-merges.");
-        return p;
+        List<String> parts = new ArrayList<>();
+        addBucket(parts, crit, "critical");
+        addBucket(parts, high, "high");
+        addBucket(parts, med, "medium");
+        addBucket(parts, low, "low");
+        return parts.isEmpty() ? "" : " (" + String.join(", ", parts) + ")";
+    }
+
+    private static void addBucket(List<String> parts, int n, String label) {
+        if (n > 0) {
+            parts.add(n + " " + label);
+        }
+    }
+
+    /** One readable line per app: "APP7576 (2 upgrades): com.a:x 1.0.0->2.0.0 [critical]; com.b:y 1.2.0->1.3.0 [high]". */
+    private static String appLine(AppSelection app) {
+        List<String> ups = new ArrayList<>();
+        for (IssueSelection i : app.issues()) {
+            ups.add(i.coordinate() + " " + i.oldVersion() + "->" + i.fixedIn() + " [" + lower(i.severity()) + "]");
+        }
+        return app.appId() + " (" + count(app.issues().size(), "upgrade") + "): " + String.join("; ", ups);
+    }
+
+    private static String lower(String s) {
+        return s == null ? "" : s.toLowerCase(Locale.ROOT);
     }
 
     private static boolean hasIssues(AppSelection app) {
