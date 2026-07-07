@@ -67,4 +67,22 @@ class AsyncSnykFixRunnerTest {
         assertThatThrownBy(() -> runner.confirm("missing", Map.of(), Map.of()))
                 .isInstanceOf(NotFoundException.class);
     }
+
+    @Test
+    void branchAndCommitEmbedTheJiraKeyWhenKnown() {
+        // The Jira key rides in the branch AND the commit so Bitbucket links both to the ticket's dev panel.
+        assertThat(AsyncSnykFixRunner.branchName("abcdef123456", "CIAM-50"))
+                .isEqualTo("veritas/CIAM-50/snyk-fix-abcdef12");
+        assertThat(AsyncSnykFixRunner.commitMessage("CIAM-50", "BOM", "bump x 1->2"))
+                .isEqualTo("CIAM-50 Snyk fix: BOM — bump x 1->2");
+    }
+
+    @Test
+    void branchAndCommitFallBackCleanlyWithoutAValidJiraKey() {
+        // No key → the trainId-only branch + the un-prefixed commit (the pre-change behaviour).
+        assertThat(AsyncSnykFixRunner.branchName("abcdef123456", null)).isEqualTo("veritas/snyk-fix-abcdef12");
+        assertThat(AsyncSnykFixRunner.commitMessage(null, "core", "bump y")).isEqualTo("Snyk fix: core — bump y");
+        // A malformed value must never land in a git ref (it would break the branch) → fall back.
+        assertThat(AsyncSnykFixRunner.branchName("abcdef123456", "not a key")).isEqualTo("veritas/snyk-fix-abcdef12");
+    }
 }

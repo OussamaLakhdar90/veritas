@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Locale;
 import ca.bnc.qe.veritas.integration.jira.JiraClient;
 import ca.bnc.qe.veritas.integration.jira.JiraCreateRequest;
+import ca.bnc.qe.veritas.integration.jira.JiraIssue;
 import ca.bnc.qe.veritas.integration.jira.JiraTransition;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -78,6 +79,20 @@ public class SnykFixJiraService {
                 + " (" + upper(train.getSeverity()) + ")";
         return jira.createIssue(new JiraCreateRequest(project, issueType == null || issueType.isBlank() ? "Task" : issueType,
                 title, description(train, verdict), List.of("snyk", "dependency-security")));
+    }
+
+    /** The ticket's summary/title — best-effort (null on a blank key or a failed fetch), shown in each PR body. */
+    public String summary(String key) {
+        if (key == null || key.isBlank()) {
+            return null;
+        }
+        try {
+            JiraIssue issue = jira.getIssue(key);
+            return issue == null ? null : issue.summary();
+        } catch (RuntimeException e) {
+            log.debug("Could not fetch the Jira summary for {} (non-fatal): {}", key, e.getMessage());
+            return null;
+        }
     }
 
     /** Move the ticket to a lifecycle phase, matching the project's real transitions; never throws. */

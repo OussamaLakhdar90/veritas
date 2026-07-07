@@ -225,7 +225,11 @@ public class SnykFixActions {
         b.append("Local reactor build: ").append(Boolean.TRUE.equals(train.getReactorPassed())
                 ? "passed (mvn install + per-app mvn test)" : "see the fix train for details").append("\n");
         if (train.getJiraKey() != null && !train.getJiraKey().isBlank()) {
-            b.append("Jira: ").append(train.getJiraKey()).append("\n");
+            b.append("Jira: ").append(train.getJiraKey());
+            if (train.getJiraSummary() != null && !train.getJiraSummary().isBlank()) {
+                b.append(" — ").append(train.getJiraSummary());   // the ticket's name, for reviewer context
+            }
+            b.append("\n");
         }
         b.append("\nHumans merge this — Veritas never auto-merges.");
         Instant startedAt = train.getStartedAt();   // referenced only to keep the body deterministic per-train
