@@ -394,6 +394,7 @@
       },
       "step": {
         "PLANNED": "Planifié",
+        "RUNNING": "En cours…",
         "BRANCH_PUSHED": "Branche poussée",
         "PR_OPEN": "PR ouverte",
         "MERGED": "Fusionné",

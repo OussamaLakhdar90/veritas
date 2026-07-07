@@ -142,4 +142,33 @@ describe('Snyk fix wizard', () => {
     // After opening, the train advances to PR_OPEN → the "mark merged" action appears.
     expect(await screen.findByRole('button', { name: /Mark all merged/ })).toBeInTheDocument()
   })
+
+  it('shows the live stepper: the module that failed the build is pinpointed with an action-needed banner', async () => {
+    const liveTrain = {
+      id: 't1', coordinate: 'org.apache.commons:commons-lang3', oldVersion: '3.12.0', fixedIn: '3.18.0',
+      severity: 'high', appIds: 'APP7576', jiraKey: 'CIAM-1', status: 'AWAITING_MANUAL_FIX',
+      stageDetail: 'Action needed — the local build failed at core; the version-bump branches are pushed.',
+      breaking: true, reactorPassed: false, reactorFailingLabel: 'core', failedStepOrder: 2,
+      verdict: { available: true, breaking: true, confidence: 80, reasons: [] },
+      steps: [
+        { order: 1, moduleLabel: 'BOM', bitbucketProject: 'P', repoSlug: 'bom', branch: 'b', pomPath: 'pom.xml',
+          diffPreview: 'bump', status: 'BRANCH_PUSHED', manual: false, reviewers: [] },
+        { order: 2, moduleLabel: 'core', bitbucketProject: 'P', repoSlug: 'core', branch: 'b', pomPath: 'pom.xml',
+          diffPreview: 'bump', reason: 'reactor build failed here', status: 'BRANCH_PUSHED', manual: false, reviewers: [] },
+      ],
+    }
+    server.use(
+      http.post('*/api/v1/snyk/fixes', () => HttpResponse.json({ trainId: 't1' }, { status: 202 })),
+      http.get('*/api/v1/snyk/fixes/t1', () => HttpResponse.json(liveTrain)),
+    )
+    const user = userEvent.setup()
+    renderWizard()
+    await user.type(screen.getByPlaceholderText('CIAM-1234'), 'CIAM-1')
+    await user.click(screen.getByRole('button', { name: /Start fix/ }))
+
+    // A prominent "action needed" banner names the exact module that broke the build…
+    expect(await screen.findByText(/Action needed — the local build failed at core/)).toBeInTheDocument()
+    // …and the failed module's step (failedStepOrder = 2) surfaces its reason, pinpointing the étape.
+    expect(screen.getByText('reactor build failed here')).toBeInTheDocument()
+  })
 })
