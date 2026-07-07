@@ -84,9 +84,11 @@ final class ConstraintReader {
             }
         } else {
             for (FieldDeclaration fd : td.getFields()) {
-                // Skip statics and fields excluded from JSON (@JsonIgnore) — including them produces false
-                // SCHEMA_FIELD_MISSING/EXTRA diffs against a spec that (correctly) omits them.
-                if (fd.isStatic() || isJsonIgnored(fd)) {
+                // Skip statics, @JsonIgnore fields, and a non-serialized logger held on a DTO — including any of them
+                // produces false SCHEMA_FIELD_MISSING/EXTRA diffs against a spec that (correctly) omits them. A
+                // `private final Logger log = LoggerFactory.getLogger(...)` is a common INSTANCE-field form (not static,
+                // no getter) that Jackson never writes, so `fd.isStatic()` alone doesn't catch it.
+                if (fd.isStatic() || isJsonIgnored(fd) || isLoggerField(fd)) {
                     continue;
                 }
                 fd.getVariables().forEach(v ->
@@ -104,6 +106,23 @@ final class ConstraintReader {
         if (seenNames.add(f.jsonName())) {
             out.add(f);
         }
+    }
+
+    /** A logging framework's logger held as a DTO field — never part of the JSON contract (Jackson doesn't serialize it:
+     *  no getter, and a Logger is not a data property), so it must not diff against a spec that omits it. Covers
+     *  SLF4J / JUL / Log4j / Log4j2 (all {@code Logger}) and Apache Commons Logging ({@code Log}, but only when it is
+     *  clearly a logger-factory field, so a domain type named {@code Log} is never dropped). */
+    private static boolean isLoggerField(FieldDeclaration fd) {
+        String type = simpleTypeName(fd.getElementType());
+        if ("Logger".equals(type)) {
+            return true;
+        }
+        if ("Log".equals(type)) {
+            return fd.getVariables().stream().anyMatch(v -> v.getInitializer()
+                    .map(init -> init.toString().contains("getLog") || init.toString().contains("getLogger"))
+                    .orElse(false));
+        }
+        return false;
     }
 
     static FieldModel fieldOf(Path sourceRoot, String javaName, Type type, NodeWithAnnotations<?> annotated,
