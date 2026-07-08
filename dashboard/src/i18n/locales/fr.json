@@ -391,6 +391,8 @@
       "verdictNone": "Vérif IA : indisponible — le build de test est le garde-fou",
       "reactorPass": "build de test réussi",
       "reactorFail": "build de test échoué à {{where}}",
+      "slowHint": "Cette étape peut prendre quelques minutes — toujours en cours, pas bloquée.",
+      "slowHintLong": "Toujours en cours ({{elapsed}}) — les vérifications IA et les builds complets prennent du temps.",
       "status": {
         "PLANNING": "Planification du train de mises à jour…",
         "AWAITING_CONFIRM": "Réviser le plan",
@@ -411,6 +413,24 @@
         "MERGED": "Fusionné",
         "MANUAL": "Manuel",
         "FAILED": "Échec"
+      },
+      "phase": {
+        "PLANNING": {
+          "label": "Récupération du code",
+          "detail": "Clonage du cadriciel et de votre application depuis Bitbucket."
+        },
+        "CHECKING": {
+          "label": "Vérification des changements cassants",
+          "detail": "L’IA évalue si la mise à niveau peut être appliquée sans risque."
+        },
+        "VERIFYING": {
+          "label": "Compilation et tests en local",
+          "detail": "Montée de version BOM → core → api/web → application, puis exécution des tests de chaque application."
+        },
+        "OPENING_PRS": {
+          "label": "Ouverture des demandes de tirage",
+          "detail": "Poussée des branches de montée de version et ouverture d’une PR par module."
+        }
       }
     }
   },

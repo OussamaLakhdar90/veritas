@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { ExternalLink, CheckCircle2, AlertTriangle, GitBranch, Loader2, Check } from 'lucide-react';
+import { ExternalLink, CheckCircle2, AlertTriangle, GitBranch, Loader2, Check, Clock } from 'lucide-react';
 import { api, type SnykIssueView, type SnykFixTrainView, type SnykFixStepView } from '../api';
 import { Modal } from './Modal';
 import { Badge, Button, ErrorState, Field, Input, Spinner } from './ui';
 import { useToast } from './Toast';
 import { TONE } from '../theme/tokens';
 import { FIX_STATUS, IN_FLIGHT } from '../lib/snykStatus';
+import { FIX_PHASES, FIX_PHASE_ORDER, fixPhasePct, phaseVisual } from '../lib/fixPhases';
+import { formatElapsed, useElapsed, useStageElapsed } from '../lib/scanStages';
 import { SuccessCheck } from './SuccessCheck';
 
 const FRAMEWORK_LABELS = ['BOM', 'core', 'api', 'web'];
@@ -266,39 +268,123 @@ function ReviewRow({ step, version, onVersion, reviewers, onReviewers }:
   );
 }
 
+/**
+ * The live lifecycle stepper — the same shape as contract validation's ScanProgress. It shows the fix advancing
+ * through its four machine-driven phases (Getting the code → Checking for breaking changes → Building & testing →
+ * Opening the pull requests) so the user always sees *which operation* is running, and — on a failure — exactly
+ * which étape stopped it. The per-module cascade (BOM → core → api/web → app) renders below as the detail.
+ */
 function TrainHeader({ train }: { train: SnykFixTrainView }) {
   const { t } = useTranslation();
   const inFlight = IN_FLIGHT.includes(train.status);
   const failed = train.status === FIX_STATUS.FAILED;
   const actionNeeded = train.status === FIX_STATUS.AWAITING_MANUAL_FIX;
-  // Progress = the share of actionable modules whose branch is up or PR is open (BOM → core → api/web → app).
-  const actionable = train.steps.filter((s) => !s.manual);
-  const done = actionable.filter((s) => ['PR_OPEN', 'MERGED', 'BRANCH_PUSHED'].includes(s.status)).length;
-  const pct = actionable.length ? Math.round((done / actionable.length) * 100) : 0;
-  const tone = train.status === FIX_STATUS.DONE || train.status === FIX_STATUS.PR_OPEN ? TONE.ok
-    : failed ? TONE.danger : actionNeeded ? TONE.warn : TONE.info;
+  const succeeded = train.status === FIX_STATUS.DONE || train.status === FIX_STATUS.PR_OPEN;
+
+  const current = FIX_PHASE_ORDER[train.status] ?? 0;
+  const stepNo = Math.min(FIX_PHASES.length, current);
+  const activePhase = FIX_PHASES.find((p) => p.key === train.status);
+  const pct = fixPhasePct(train.status, train.failedStage);
+  // Overall clock off createdAt — the honest MTTR clock (startedAt is a machine-phase clock the reconciler resets
+  // mid-flight, which would make the timer jump backwards at the VERIFYING reset).
+  const createdMs = train.createdAt ? Date.parse(train.createdAt) : null;
+  const elapsed = useElapsed(createdMs, inFlight);
+  const stageElapsed = useStageElapsed(train.status, inFlight);   // the current phase's own timer
+
+  const headline = failed ? t(`snyk.fix.status.${FIX_STATUS.FAILED}`, 'Stopped')
+    : activePhase ? t(`snyk.fix.phase.${activePhase.key}.label`)
+    : t(`snyk.fix.status.${train.status}`, train.status);
+  const eyebrow = failed ? t('repos.statusStopped')
+    : stepNo === 0 ? t('repos.statusStarting')
+    : t('repos.statusStep', { stepNo, total: FIX_PHASES.length });
+  // Literal class strings (Tailwind can't see dynamically-built names) keyed off the header tone.
+  const boxCls = failed ? 'bg-danger/5 ring-danger/20' : actionNeeded ? 'bg-warning/5 ring-warning/20'
+    : succeeded ? 'bg-success/5 ring-success/20' : 'bg-brand/5 ring-brand/20';
+  const eyebrowCls = failed ? 'text-danger' : actionNeeded ? 'text-warning' : succeeded ? 'text-success' : 'text-brand';
+  const barCls = failed ? 'bg-danger' : actionNeeded ? 'bg-warning' : succeeded ? 'bg-success' : 'bg-brand';
+
   return (
-    <div className={`rounded-xl px-4 py-3 ring-1 ${failed ? 'bg-danger/5 ring-danger/20'
-      : actionNeeded ? 'bg-warning/5 ring-warning/20' : 'bg-ink-50/60 ring-border'}`}>
-      <div className="flex items-center gap-2">
-        {inFlight ? <Loader2 className="h-4 w-4 animate-spin text-brand" />
-          : actionNeeded ? <AlertTriangle className="h-4 w-4 text-warning" />
-          : train.status === FIX_STATUS.DONE ? <SuccessCheck className="h-5 w-5" />
-          : failed ? <AlertTriangle className="h-4 w-4 text-danger" />
-          : <CheckCircle2 className="h-4 w-4 text-success" />}
-        <Badge className={tone}>{t(`snyk.fix.status.${train.status}`, train.status)}</Badge>
-        {train.stageDetail && !actionNeeded && !failed &&
-          <span className="truncate text-sm text-muted">{train.stageDetail}</span>}
-      </div>
-      {/* Progress bar — advances BOM → core → api/web → app as each module completes. */}
-      {!failed && (
-        <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/60">
-          <div className={`h-full rounded-full transition-all ${actionNeeded ? 'bg-warning' : 'bg-brand'}`}
-            style={{ width: `${pct}%` }} />
+    <div>
+      {/* Live header: where we are, overall progress, and a ticking clock (mirrors ScanProgress). */}
+      <div className={`mb-3 rounded-xl p-4 ring-1 ${boxCls}`}>
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            {(inFlight || failed) && (
+              <p className={`text-2xs font-semibold uppercase tracking-wide ${eyebrowCls}`}>{eyebrow}</p>
+            )}
+            <p className="mt-0.5 flex items-center gap-1.5 truncate text-sm font-semibold text-ink-900">
+              {inFlight ? <Loader2 className="h-4 w-4 animate-spin text-brand" />
+                : actionNeeded ? <AlertTriangle className="h-4 w-4 text-warning" />
+                : train.status === FIX_STATUS.DONE ? <SuccessCheck className="h-5 w-5" />
+                : failed ? <AlertTriangle className="h-4 w-4 text-danger" />
+                : <CheckCircle2 className="h-4 w-4 text-success" />}
+              {headline}
+            </p>
+          </div>
+          {inFlight && (
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-surface/80 px-2.5 py-1 text-xs font-medium tabular-nums text-ink-700 ring-1 ring-border">
+              <Clock className="h-3.5 w-3.5 text-muted" /> {formatElapsed(elapsed)}
+            </span>
+          )}
         </div>
-      )}
-      {/* Advisory LLM verdict + the real reactor gate */}
-      <p className="mt-2 text-xs text-muted">
+        <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-white/60">
+          <div className={`h-full rounded-full ${barCls} transition-all`} style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+
+      {/* The four lifecycle phases as a stepper — done / active / pending / error / manual. */}
+      <ol className="space-y-1">
+        {FIX_PHASES.map((phase) => {
+          const visual = phaseVisual(phase.key, train.status, train.failedStage, train.reactorPassed);
+          const Icon = phase.icon;
+          const staticDetail = t(`snyk.fix.phase.${phase.key}.detail`);
+          // On a held (breaking) train errorMessage is null, so a failed VERIFYING phase names the module that broke.
+          const errorDetail = train.errorMessage
+            || (train.reactorFailingLabel ? t('snyk.fix.reactorFail', { where: train.reactorFailingLabel }) : staticDetail);
+          const detail = visual === 'active' ? (train.stageDetail || staticDetail)
+            : visual === 'error' ? errorDetail
+            : staticDetail;
+          return (
+            <li key={phase.key} className={`flex items-start gap-3 rounded-lg px-2 py-2 ${visual === 'active'
+              ? 'bg-brand/5' : visual === 'error' ? 'bg-danger/5' : ''}`}>
+              <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full ring-1 ${
+                visual === 'done' ? 'bg-success/10 text-success ring-success/30'
+                : visual === 'active' ? 'bg-brand/10 text-brand ring-brand/30'
+                : visual === 'error' ? 'bg-danger/10 text-danger ring-danger/30'
+                : visual === 'manual' ? 'bg-warning/10 text-warning ring-warning/30'
+                : 'bg-ink-50 text-muted/60 ring-border'}`}>
+                {visual === 'done' ? <Check className="h-4 w-4" />
+                  : visual === 'active' ? <Loader2 className="h-4 w-4 animate-spin" />
+                  : visual === 'error' || visual === 'manual' ? <AlertTriangle className="h-4 w-4" />
+                  : <Icon className="h-4 w-4" />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <p className={`truncate text-sm font-medium ${visual === 'pending' ? 'text-muted' : 'text-ink-900'}`}>
+                    {t(`snyk.fix.phase.${phase.key}.label`)}
+                  </p>
+                  {visual === 'active' && (
+                    <span className="shrink-0 text-2xs font-medium tabular-nums text-brand">{formatElapsed(stageElapsed)}</span>
+                  )}
+                  {visual === 'done' && <span className="shrink-0 text-2xs font-medium text-success">{t('repos.done')}</span>}
+                </div>
+                <p className={`text-xs ${visual === 'error' ? 'text-danger' : 'text-muted'}`}>{detail}</p>
+                {/* The two slow phases (AI check, local build) reassure the user they aren't stuck. */}
+                {visual === 'active' && phase.long && (
+                  <p className="mt-1.5 inline-flex items-center gap-1.5 rounded-md bg-brand/10 px-2 py-1 text-2xs text-brand ring-1 ring-brand/20">
+                    <Clock className="h-3 w-3 shrink-0" />
+                    {stageElapsed < 90_000 ? t('snyk.fix.slowHint')
+                      : t('snyk.fix.slowHintLong', { elapsed: formatElapsed(stageElapsed) })}
+                  </p>
+                )}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+
+      {/* Advisory LLM verdict + the real reactor gate. */}
+      <p className="mt-3 text-xs text-muted">
         {train.verdict?.available
           ? (train.breaking ? t('snyk.fix.verdictBreaking', { c: train.verdict.confidence })
               : t('snyk.fix.verdictClean', { c: train.verdict.confidence }))
@@ -315,7 +401,9 @@ function TrainHeader({ train }: { train: SnykFixTrainView }) {
       )}
       {failed && train.errorMessage && (
         <p className="mt-2 whitespace-pre-wrap break-words rounded-lg bg-danger/10 px-3 py-2 text-xs text-danger ring-1 ring-danger/20">
-          {train.failedStage ? `${t('snyk.fix.failedAt', { stage: train.failedStage })} ` : ''}{train.errorMessage}
+          {train.failedStage
+            ? `${t('snyk.fix.failedAt', { stage: t(`snyk.fix.phase.${train.failedStage}.label`, train.failedStage) })} `
+            : ''}{train.errorMessage}
         </p>
       )}
     </div>

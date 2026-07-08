@@ -96,6 +96,20 @@ class AsyncSnykFixRunnerTest {
     }
 
     @Test
+    void recognisesTheOptimisticLockRaceSoAFinalisedTrainIsNotReMarkedWithACrypticError() {
+        // The exact failure the user hit: a train finalized by the reconciler/restart/shutdown underneath the worker
+        // throws "Row was updated or deleted by another transaction". That is a benign "someone else won" — the
+        // runner must NOT re-report it as a fix failure. A real error (anything else) is not swallowed.
+        assertThat(AsyncSnykFixRunner.isConcurrentFinalize(
+                new org.springframework.dao.OptimisticLockingFailureException("Row was updated or deleted"))).isTrue();
+        assertThat(AsyncSnykFixRunner.isConcurrentFinalize(
+                new RuntimeException("wrapped", new org.springframework.dao.OptimisticLockingFailureException("stale"))))
+                .isTrue();
+        assertThat(AsyncSnykFixRunner.isConcurrentFinalize(new IllegalStateException("a genuine bug"))).isFalse();
+        assertThat(AsyncSnykFixRunner.isConcurrentFinalize(null)).isFalse();
+    }
+
+    @Test
     void failedStepOrderMapsTheReactorFailingModuleToItsCascadeStep() {
         List<SnykFixStep> plan = List.of(stepOf(1, "BOM"), stepOf(2, "core"), stepOf(3, "consumer:APP7576"));
         assertThat(AsyncSnykFixRunner.failedStepOrder(plan, "core")).isEqualTo(2);

@@ -143,6 +143,36 @@ describe('Snyk fix wizard', () => {
     expect(await screen.findByRole('button', { name: /Mark all merged/ })).toBeInTheDocument()
   })
 
+  it('shows the lifecycle phase stepper: a fix that stopped at CHECKING pinpoints that exact phase', async () => {
+    // The user's exact failure: a single fix died at CHECKING (before any module step existed) with no visible
+    // progress. The stepper must render the four lifecycle phases and surface where it stopped, not a bare badge.
+    const failedAtChecking = {
+      id: 't1', coordinate: 'org.apache.commons:commons-lang3', oldVersion: '3.12.0', fixedIn: '3.18.0',
+      severity: 'high', appIds: 'APP7576', jiraKey: 'CIAM-1', status: 'FAILED', failedStage: 'CHECKING',
+      errorMessage: 'The breaking-change check could not complete.', breaking: false, reactorPassed: null,
+      verdict: null, steps: [],
+    }
+    server.use(
+      http.post('*/api/v1/snyk/fixes', () => HttpResponse.json({ trainId: 't1' }, { status: 202 })),
+      http.get('*/api/v1/snyk/fixes/t1', () => HttpResponse.json(failedAtChecking)),
+    )
+    const user = userEvent.setup()
+    renderWizard()
+    await user.type(screen.getByPlaceholderText('CIAM-1234'), 'CIAM-1')
+    await user.click(screen.getByRole('button', { name: /Start fix/ }))
+
+    // All four lifecycle phases render by name — the "which operation" view the user asked for…
+    expect(await screen.findByText('Getting the code')).toBeInTheDocument()
+    expect(screen.getByText('Checking for breaking changes')).toBeInTheDocument()
+    expect(screen.getByText('Building & testing locally')).toBeInTheDocument()
+    expect(screen.getByText('Opening the pull requests')).toBeInTheDocument()
+    // …and the failure is explained (surfaced on the failed phase + the failure box), not left as a red badge.
+    expect(screen.getAllByText(/The breaking-change check could not complete/).length).toBeGreaterThan(0)
+    // The failure box names the FRIENDLY phase, never the raw backend stage code (no "Failed at CHECKING").
+    expect(screen.getByText(/Failed at Checking for breaking changes/)).toBeInTheDocument()
+    expect(screen.queryByText(/Failed at CHECKING/)).not.toBeInTheDocument()
+  })
+
   it('shows the live stepper: the module that failed the build is pinpointed with an action-needed banner', async () => {
     const liveTrain = {
       id: 't1', coordinate: 'org.apache.commons:commons-lang3', oldVersion: '3.12.0', fixedIn: '3.18.0',
@@ -170,5 +200,8 @@ describe('Snyk fix wizard', () => {
     expect(await screen.findByText(/Action needed — the local build failed at core/)).toBeInTheDocument()
     // …and the failed module's step (failedStepOrder = 2) surfaces its reason, pinpointing the étape.
     expect(screen.getByText('reactor build failed here')).toBeInTheDocument()
+    // The "Building & testing locally" phase is flagged as the error étape (reactorPassed=false), NOT a green
+    // "done" — only "Getting the code" + "Checking for breaking changes" completed, so exactly two done badges.
+    expect(screen.getAllByText('done')).toHaveLength(2)
   })
 })
