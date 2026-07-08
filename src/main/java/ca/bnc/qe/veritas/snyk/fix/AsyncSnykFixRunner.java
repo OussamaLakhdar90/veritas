@@ -28,6 +28,7 @@ import ca.bnc.qe.veritas.vcs.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 
 /**
@@ -182,8 +183,10 @@ public class AsyncSnykFixRunner {
             }
 
             // 2) CHECKING — advisory breaking-change verdict (never gates on its own).
+            // NOTE: every train save below reassigns `train` — the entity is detached between these calls, and a
+            // discarded save() return would leave a stale @Version and self-inflict an optimistic-lock failure.
             stage = SnykFixStatus.CHECKING;
-            stage(train, stage, "Assessing whether the upgrade is a breaking change…");
+            train = stage(train, stage, "Assessing whether the upgrade is a breaking change…");
             BreakingVerdict verdict = breakingChange.judge(req.coordinate(), req.oldVersion(), req.fixedIn(),
                     usageSites(clones, artifactId), req.owner(), trainId);
             train.setVerdictJson(mapper.writeValueAsString(verdict));
@@ -194,7 +197,7 @@ public class AsyncSnykFixRunner {
             train.setJiraKey(jiraKey);
             train.setJiraProject(req.jiraProject());
             train.setJiraSummary(jiraService.summary(jiraKey));   // the ticket's name, surfaced in each PR body
-            trains.save(train);
+            train = trains.save(train);
             jiraService.transitionTo(jiraKey, SnykFixJiraService.Phase.IN_PROGRESS);
 
             // 4) VERIFYING — apply the edits to the clones, then the local reactor build (the real gate).
@@ -202,7 +205,7 @@ public class AsyncSnykFixRunner {
             // so the staleness reconciler should measure from its start, not from submit/clone/LLM time.
             stage = SnykFixStatus.VERIFYING;
             train.setStartedAt(Instant.now());
-            stage(train, stage, "Building the upgraded framework + running each app's tests locally…");
+            train = stage(train, stage, "Building the upgraded framework + running each app's tests locally…");
             ReactorResult reactor = runReactor(clones, apps);
             train.setReactorPassed(reactor.passed());
             train.setReactorFailingLabel(reactor.failingLabel());
@@ -212,11 +215,11 @@ public class AsyncSnykFixRunner {
                 train.setFailedStepOrder(
                         failedStepOrder(steps.findByTrainIdOrderByStepOrder(trainId), reactor.failingLabel()));
             }
-            trains.save(train);
+            train = trains.save(train);
 
             // 5) PUSH — always push the version-bump branches (even on a breaking change).
             stage = SnykFixStatus.OPENING_PRS;
-            stage(train, stage, "Pushing the version-bump branches…");
+            train = stage(train, stage, "Pushing the version-bump branches…");
             pushBranches(trainId, clones, branch, train.getJiraKey());
 
             // 6) DECIDE — clean opens the PR train (+ Jira In Review); breaking holds the PRs and awaits the user.
@@ -226,14 +229,18 @@ public class AsyncSnykFixRunner {
             actions.decide(train, steps.findByTrainIdOrderByStepOrder(trainId));
         } catch (Exception e) {
             final String failedAt = stage;
-            log.error("Snyk fix train {} failed at {}: {}", trainId, failedAt, e.getMessage());
-            trains.findById(trainId).ifPresent(t -> {
-                t.setStatus(SnykFixStatus.FAILED);
-                t.setFailedStage(failedAt);
-                t.setErrorMessage(e.getMessage());
-                t.setFinishedAt(Instant.now());
-                trains.save(t);
-            });
+            if (isConcurrentFinalize(e) && finalizedElsewhere(trainId)) {
+                // Another writer (the reconciler, a restart recovery, or an app shutdown) has ALREADY finalized this
+                // train (it is no longer machine-driven). That writer's state — with its own clear reason — wins; do
+                // NOT clobber it with the cryptic "Row was updated or deleted by another transaction" this race
+                // surfaces. We only take this branch when the train is genuinely finalized elsewhere, so a lock that
+                // left the train still in-flight falls through to markFailed rather than stranding it as a spinner.
+                log.warn("Snyk fix train {} was finalized by another writer during {} — leaving its state as-is.",
+                        trainId, failedAt);
+            } else {
+                log.error("Snyk fix train {} failed at {}: {}", trainId, failedAt, e.getMessage());
+                markFailed(trainId, failedAt, e.getMessage());
+            }
         } finally {
             clones.values().forEach(workspace::cleanup);
         }
@@ -436,10 +443,17 @@ public class AsyncSnykFixRunner {
         return sb.length() == 0 ? "(no direct references found in the framework/consumer poms)" : sb.toString();
     }
 
-    private void stage(SnykFixTrain train, String status, String detail) {
+    /**
+     * Persist a status/detail transition and RETURN the saved instance. run() reuses a single detached train across
+     * many saves; on a {@code @Version} entity, {@code save()} (a JPA merge) increments the version on a fresh managed
+     * copy and does NOT write it back to the passed detached instance — so the caller MUST reassign the return, or the
+     * next save merges a stale version and throws "Row was updated or deleted by another transaction" with no
+     * concurrent writer. Reassigning keeps the in-memory version in lockstep with the DB.
+     */
+    private SnykFixTrain stage(SnykFixTrain train, String status, String detail) {
         train.setStatus(status);
         train.setStageDetail(detail);
-        trains.save(train);
+        return trains.save(train);
     }
 
     /** The fix branch, embedding the Jira key when it's a real key so the branch links to the ticket's dev panel. */
@@ -463,6 +477,52 @@ public class AsyncSnykFixRunner {
         }
         String k = jiraKey.trim();
         return k.matches("[A-Z][A-Z0-9]*-[0-9]+") ? k : null;
+    }
+
+    /**
+     * Mark a train FAILED after a real error — but only while this worker still owns it (a MACHINE_DRIVEN state).
+     * If another writer already finalized it (FAILED) or handed it to a human (AWAITING_MANUAL_FIX / PR_OPEN), that
+     * state wins. The save itself is guarded against the very optimistic-lock race this method exists to survive.
+     */
+    private void markFailed(String trainId, String failedAt, String message) {
+        try {
+            trains.findById(trainId).ifPresent(t -> {
+                if (!SnykFixStatus.MACHINE_DRIVEN.contains(t.getStatus())) {
+                    return;
+                }
+                t.setStatus(SnykFixStatus.FAILED);
+                t.setFailedStage(failedAt);
+                t.setErrorMessage(message);
+                t.setFinishedAt(Instant.now());
+                trains.save(t);
+            });
+        } catch (OptimisticLockingFailureException race) {
+            log.warn("Snyk fix train {} FAILED-mark lost the write race (already finalized elsewhere).", trainId);
+        }
+    }
+
+    /** True only when the train has ALREADY been finalized by another writer (no longer a machine-driven state, or
+     *  gone). Used to distinguish a genuine "someone else won" race from a self-inflicted/spurious lock that left
+     *  the train still in-flight — the latter must be marked FAILED, not left as a stuck spinner. */
+    private boolean finalizedElsewhere(String trainId) {
+        return trains.findById(trainId)
+                .map(t -> !SnykFixStatus.MACHINE_DRIVEN.contains(t.getStatus()))
+                .orElse(true);
+    }
+
+    /**
+     * True when a throwable (or anything in its cause chain) is the optimistic-lock race that fires when another
+     * writer finalizes a train row underneath this worker — a benign "someone else won", not a real fix failure.
+     * Also matches the raw Hibernate {@code StaleObjectStateException} in case it surfaces untranslated.
+     */
+    static boolean isConcurrentFinalize(Throwable e) {
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof OptimisticLockingFailureException
+                    || "StaleObjectStateException".equals(t.getClass().getSimpleName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** The step order of the module the reactor build failed on (a framework label or a consumer app-id), or null. */

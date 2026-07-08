@@ -82,7 +82,9 @@ public class SnykFixActions {
         // MACHINE_DRIVEN state — without this the staleness reconciler would immediately fail the just-resumed train.
         train.setStatus(SnykFixStatus.OPENING_PRS);
         train.setStartedAt(Instant.now());
-        trains.save(train);
+        // Reassign the saved instance: `train` is detached and @Version-guarded, so a discarded save() return would
+        // leave a stale version and make the second save below throw "Row was updated…" with no concurrent writer.
+        train = trains.save(train);
         List<SnykFixStep> trainSteps = steps.findByTrainIdOrderByStepOrder(trainId);
         openAll(train, trainSteps, SnykFixStatus.BY_VERITAS);
         markPrTrainOpenedOrHeld(train, trainSteps, "PRs opened by Veritas; awaiting human merge.");

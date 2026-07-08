@@ -391,6 +391,8 @@
       "verdictNone": "AI check: not available — the test build is the gate",
       "reactorPass": "test build passed",
       "reactorFail": "test build failed at {{where}}",
+      "slowHint": "This step can take a few minutes — still working, not stuck.",
+      "slowHintLong": "Still working ({{elapsed}}) — long AI checks and full builds are normal.",
       "status": {
         "PLANNING": "Planning the update train…",
         "AWAITING_CONFIRM": "Review the plan",
@@ -411,6 +413,24 @@
         "MERGED": "Merged",
         "MANUAL": "Manual",
         "FAILED": "Failed"
+      },
+      "phase": {
+        "PLANNING": {
+          "label": "Getting the code",
+          "detail": "Cloning the framework and your app from Bitbucket."
+        },
+        "CHECKING": {
+          "label": "Checking for breaking changes",
+          "detail": "The AI assesses whether the upgrade is safe to apply."
+        },
+        "VERIFYING": {
+          "label": "Building & testing locally",
+          "detail": "Bumping BOM → core → api/web → app and running each app’s tests."
+        },
+        "OPENING_PRS": {
+          "label": "Opening the pull requests",
+          "detail": "Pushing the version-bump branches and opening one PR per module."
+        }
       }
     }
   },
