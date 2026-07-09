@@ -150,7 +150,7 @@ public class DemoPortfolioSeeder implements ApplicationRunner {
         return Instant.now().minus(days, ChronoUnit.DAYS).plus(10, ChronoUnit.HOURS);
     }
 
-    /** Four scans per service over ~30 days; previousFidelityScore chains so deltas are consistent. */
+    /** Four scans per service over ~30 days; each carries a persisted release verdict + severity counts. */
     private List<Scan> seedScans() {
         List<Scan> latestPerService = new ArrayList<>();
         for (Svc svc : SERVICES) {
@@ -170,8 +170,12 @@ public class DemoPortfolioSeeder implements ApplicationRunner {
                 s.setQueuedAt(start);
                 s.setStartedAt(start);
                 s.setFinishedAt(start.plus(3 + i, ChronoUnit.MINUTES).plusSeconds(42));
-                s.setFidelityScore(svc.scores()[i]);
-                s.setPreviousFidelityScore(i == 0 ? null : svc.scores()[i - 1]);
+                // Demo release verdict from the quality proxy: high = clean PASS, mid = additive-drift WARN,
+                // low = consumer-breaking FAIL (a FAIL always carries ≥1 breaking finding, per the gate).
+                int q = svc.scores()[i];
+                s.setReleaseSafe(q >= 90 ? "PASS" : q >= 78 ? "WARN" : "FAIL");
+                s.setBlockingCount(q < 65 ? 1 : 0);
+                s.setBreakingCount(q >= 78 ? 0 : Math.max(1, (85 - q) / 8));
                 s.setTotalFindings(Math.max(1, (100 - svc.scores()[i]) / 6));
                 s.setTotalEstCostUsd(0.30 + (i * 0.04));
                 s.setConfidence(88.0 + i * 2);
@@ -188,7 +192,7 @@ public class DemoPortfolioSeeder implements ApplicationRunner {
         List<FindingRecord> out = new ArrayList<>();
         for (int i = 0; i < latest.size(); i++) {
             Scan scan = latest.get(i);
-            boolean weak = scan.getFidelityScore() != null && scan.getFidelityScore() < 70;
+            boolean weak = "FAIL".equals(scan.getReleaseSafe());
             out.add(finding(scan, "SCHEMA_FIELD_MISSING", "MINOR", "GET /" + scan.getServiceName() + "/summary",
                     "Response field `lastUpdatedBy` exists in the code but is not documented in the spec.",
                     "ACCEPTED", false, i));

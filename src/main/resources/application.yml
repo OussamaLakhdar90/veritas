@@ -65,6 +65,10 @@ veritas:
     http-read-timeout-ms: 180000  # read timeout for the Copilot HTTP call — LLM generation can exceed the REST timeout
   report:
     bilingual: true     # render EN/FR; translation is the ONLY LLM call in report generation and uses the cheapest tier
+  gate:                  # release quality gate — categorical, per-severity conditions (SonarQube-style), not a score
+    max-blocker: 0       # FAIL above this many counted BLOCKER findings (unparseable/unresolvable spec)
+    max-critical: 0      # FAIL above this many counted CRITICAL findings (endpoint-level / OWASP API1/2/5 break)
+    max-breaking: 0      # FAIL above this many counted consumer-breaking findings (semver-major; isBreaking types)
   http:                  # BNC-facing HTTP transport (Jira v2 + Copilot)
     powershell-fallback: false      # set true if the JVM is blocked by the corporate firewall but powershell.exe is allowed
     powershell-timeout-seconds: 60

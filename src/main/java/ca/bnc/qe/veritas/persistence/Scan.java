@@ -79,9 +79,13 @@ public class Scan extends AuditableEntity {
     /** Deterministic count of per-scan coverage gaps (files that didn't parse, DTOs that didn't resolve). */
     private Integer coverageGaps;
 
-    /** Contract Fidelity Score 0–100 (deterministic) + the previous scan's score for trend. */
-    private Integer fidelityScore;
-    private Integer previousFidelityScore;
+    /** Release quality-gate verdict for this scan — PASS | WARN | FAIL (categorical, severity-count based, the same
+     *  {@code ReleaseVerdict} the report + executive dashboard compute) + the counts that drive it, persisted per-scan
+     *  so a scan row / live reveal shows the same verdict without re-deriving it. Nullable while RUNNING / on FAILED. */
+    @Column(length = 8)
+    private String releaseSafe;
+    private Integer blockingCount;   // counted BLOCKER + CRITICAL
+    private Integer breakingCount;   // counted consumer-breaking findings (isBreaking types)
 
     @Column(length = 2000)
     private String errorMessage;

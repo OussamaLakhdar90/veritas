@@ -500,7 +500,7 @@ public class DiffEngine {
         }
         // Emit the COARSE RESPONSE_SCHEMA_MISMATCH only when the precise field-level diff did NOT already describe the
         // same response divergence — otherwise one schema defect would be penalised twice (the coarse mismatch AND its
-        // per-field findings), depressing the FidelityScore for a single underlying defect. The coarse finding is still
+        // per-field findings), inflating the finding count for a single underlying defect. The coarse finding is still
         // the only signal for array-vs-object (fieldDiffByBinding returns early there) and is retained for it.
         if (codeRef != null && specRef != null && !fieldLevelEmitted
                 && (arrayRef(codeRef) != arrayRef(specRef) || !normRef(codeRef).equals(normRef(specRef)))
