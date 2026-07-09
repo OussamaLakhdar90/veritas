@@ -111,9 +111,10 @@ export interface Scan {
   finishedAt?: string
   specSources: string
   errorMessage?: string
-  /** Contract Fidelity Score /100 — null while RUNNING or on FAILED scans. */
-  fidelityScore?: number | null
-  previousFidelityScore?: number | null
+  /** Release quality-gate verdict for this scan — null while RUNNING or on FAILED scans. */
+  releaseSafe?: 'PASS' | 'WARN' | 'FAIL' | null
+  blockingCount?: number | null
+  breakingCount?: number | null
   coverageGaps?: number | null
   confidence?: number | null
 }
@@ -121,8 +122,6 @@ export interface Scan {
 /** Executive rollup — the same ReleaseVerdict the HTML report renders (backend guarantees agreement). */
 export interface ExecutiveServiceSummary {
   service: string
-  fidelity?: number | null
-  delta?: number | null
   breakingCount: number
   blockingCount: number
   releaseSafe: 'PASS' | 'WARN' | 'FAIL'
@@ -593,7 +592,6 @@ export const api = {
   costTrend: (days = 30) => get<CostTrendPoint[]>(`/costs/trend?days=${days}`),
   scansTrend: (days = 30) => get<ScanTrendPoint[]>(`/scans/trend?days=${days}`),
   executiveSummary: () => get<ExecutiveSummary>('/summary/executive'),
-  fidelityTrend: (days = 30) => get<{ date: string; value: number }[]>(`/summary/fidelity-trend?days=${days}`),
   preflight: () => get<PreflightCheck[]>('/preflight'),
   defects: () => get<DefectLink[]>('/defects'),
   defectMetrics: () => get<DefectMetrics>('/defects/metrics'),

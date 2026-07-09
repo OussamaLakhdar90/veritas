@@ -45,14 +45,14 @@ class ContractReportRendererBranchCoverageTest {
                 .build();
     }
 
-    // ---- score bands (cover all 4 branches of scoreBand) ------------------------------------------------
+    // ---- verdict bands: PASS (clean) / WARN (drift) / FAIL (breaking) -----------------------------------
 
     @Test
     void cleanBandWhenNoCountedFindings() {
         String html = renderer.renderHtml(scan("svc"), List.of());
-        // score 100 -> band[0]=clean, EN "Excellent — meets target", verdict "Proceed".
+        // No findings -> PASS -> rating-clean "Release-safe", verdict "Proceed".
         assertThat(html).contains("class=\"rating rating-clean\">")
-                .contains("Excellent — meets target")
+                .contains("Release-safe")
                 .contains("Proceed")
                 .contains("No action needed");
         // Quality gate passes; no findings -> §2 prints the "no discrepancies" note and §4 is absent.
@@ -62,50 +62,44 @@ class ContractReportRendererBranchCoverageTest {
     }
 
     @Test
-    void minorBandForScoreBetween75And89() {
-        // Two MAJORs = -16 -> 84 (75..89) -> "Below target", below the 90 gate so it FAILS but no blockers. One is a
-        // breaking type-mismatch, so the release verdict is the strict "Hold for fixes" (not the additive-only proceed).
+    void breakingMajorFails() {
+        // A breaking type-mismatch is consumer-breaking -> FAIL, rating-action "Do not release", regardless of count.
         String html = renderer.renderHtml(scan("svc"),
                 List.of(counted(FindingType.STATUS_CODE_MISSING, Severity.MAJOR),
                         counted(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, Severity.MAJOR)));
-        assertThat(html).contains("class=\"rating rating-minor\">").contains("Below target")
-                .contains("class=\"gate gate-fail\">").contains("Quality gate: FAIL")
-                .contains("Hold for fixes");        // !pass && a breaking finding present
-        assertThat(html).contains("84/100");
+        assertThat(html).contains("class=\"rating rating-action\">").contains("Do not release")
+                .contains("class=\"gate gate-fail\">").contains("Quality gate: FAIL");
     }
 
     @Test
-    void additiveOnlyFailingScanRendersTheGateReconciliationNote() {
-        // Two additive MISSING MAJORs -> 84 (<90, FAIL) but nothing breaks -> additiveProceed -> gate-note present.
+    void additiveOnlyDriftWarns() {
+        // Two additive MISSING MAJORs -> nothing breaks a consumer -> WARN (ship with fixes), never FAIL.
         String html = renderer.renderHtml(scan("svc"),
                 List.of(counted(FindingType.SCHEMA_FIELD_MISSING, Severity.MAJOR).toBuilder().findingId("m1").build(),
                         counted(FindingType.PARAM_MISSING, Severity.MAJOR).toBuilder().findingId("m2").endpoint("GET /y").build()));
-        assertThat(html).contains("class=\"gate gate-fail\">").contains("Quality gate: FAIL")
-                .contains("class=\"gate-note\">")
-                .contains("release risk is assessed separately")
-                .contains("Proceed — documentation fixes recommended");
+        assertThat(html).contains("class=\"gate gate-warn\">").contains("Quality gate: WARN")
+                .contains("class=\"rating rating-warn\">").contains("Ship with fixes")
+                .contains("Proceed — fixes recommended")
+                .doesNotContain("Do not release");
     }
 
     @Test
-    void warnBandForScoreBetween50And74() {
-        // One CRITICAL (-15) + two MAJOR (-16) = -31 -> 69 (50..74) -> "Needs work".
+    void aCriticalFails() {
         String html = renderer.renderHtml(scan("svc"),
                 List.of(counted(FindingType.RESPONSE_SCHEMA_MISMATCH, Severity.CRITICAL),
-                        counted(FindingType.STATUS_CODE_MISSING, Severity.MAJOR),
-                        counted(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, Severity.MAJOR)));
-        assertThat(html).contains("class=\"rating rating-warn\">").contains("Needs work").contains("69/100")
-                .contains("Do not release");        // a CRITICAL counts as release-blocking
+                        counted(FindingType.STATUS_CODE_MISSING, Severity.MAJOR)));
+        assertThat(html).contains("class=\"rating rating-action\">").contains("Do not release")
+                .contains("Quality gate: FAIL");        // a CRITICAL is release-blocking
     }
 
     @Test
-    void actionBandForScoreUnder50() {
-        // Two BLOCKERs (-50) -> 50? No: 100-50=50 is warn. Use three BLOCKERs (-75) -> 25 -> "At risk".
+    void multipleBlockersFail() {
         String html = renderer.renderHtml(scan("svc"),
                 List.of(counted(FindingType.MISSING_ENDPOINT, Severity.BLOCKER),
                         counted(FindingType.VERB_MISMATCH, Severity.BLOCKER),
                         counted(FindingType.PARAM_TYPE_MISMATCH, Severity.BLOCKER)));
-        assertThat(html).contains("class=\"rating rating-action\">").contains("At risk").contains("25/100")
-                .contains("Do not release");
+        assertThat(html).contains("class=\"rating rating-action\">").contains("Do not release")
+                .contains("Quality gate: FAIL");
     }
 
     // ---- buckets: MISSING / DEAD / WRONG drive §4 subsections + recommendations ------------------------
@@ -221,9 +215,9 @@ class ContractReportRendererBranchCoverageTest {
                 .specSource("code-vs-spec").endpoint("GET /p").summary("design smell P").build();
 
         String html = renderer.renderHtml(scan("svc"), List.of(accepted, rejected, pending));
-        // §6 present; score is a perfect 100 because none of these count.
-        assertThat(html).contains("6. Items needing manual review").contains("100/100")
-                .contains("not scored");
+        // §6 present; the gate PASSes because none of these count.
+        assertThat(html).contains("6. Items needing manual review").contains("Quality gate: PASS")
+                .contains("not gated");
         // Cards seeded from persisted disposition -> CSS state classes.
         assertThat(html).contains("finding-card accepted").contains("finding-card rejected");
         // Tracker seed: 1 accepted, 1 rejected, 1 pending. acc0+rej0=2 reviewed of 3; pending count = 1.
@@ -267,46 +261,6 @@ class ContractReportRendererBranchCoverageTest {
         // gaps=0 -> covValue is the bilingual "Full"/"Complète" span + clean KPI tone; §7 reads Full coverage.
         assertThat(html).contains("class=\"en\">Full</span>").contains("Complète")
                 .contains("Full coverage");
-    }
-
-    // ---- trend arrows: up / down / flat ----------------------------------------------------------------
-
-    @Test
-    void trendUpWhenScoreImprovedOverPreviousScan() {
-        Scan s = scan("svc");
-        s.setPreviousFidelityScore(80);   // current is 100 (no findings) -> +20 up.
-        String html = renderer.renderHtml(s, List.of());
-        assertThat(html).contains("class=\"trend trend-up\">").contains("▲").contains("+20").contains("was 80");
-    }
-
-    @Test
-    void trendDownWhenScoreRegressed() {
-        Scan s = scan("svc");
-        s.setPreviousFidelityScore(100);
-        // Current = 92 (one MINOR -3 => 97? use a MAJOR -8 => 92) -> -8 down.
-        String html = renderer.renderHtml(s, List.of(counted(FindingType.STATUS_CODE_MISSING, Severity.MAJOR)));
-        assertThat(html).contains("class=\"trend trend-down\">").contains("▼").contains("-8").contains("was 100");
-    }
-
-    @Test
-    void trendFlatWhenScoreUnchanged() {
-        Scan s = scan("svc");
-        s.setPreviousFidelityScore(100);   // current 100 -> delta 0 -> flat, sign "+".
-        String html = renderer.renderHtml(s, List.of());
-        assertThat(html).contains("class=\"trend trend-flat\">").contains("●").contains("+0");
-    }
-
-    @Test
-    void neutralTrendLineWhenPreviousScoreAbsent() {
-        // No prior score on record (fresh/reset DB, or a genuine first scan): the trend line still renders (a missing
-        // line reads as a regression) but states only what is true — nothing earlier is on record — and never the
-        // unprovable "first scan of this service" claim.
-        String html = renderer.renderHtml(scan("svc"), List.of());
-        assertThat(html).contains("class=\"trend trend-flat\">")
-                .contains("no earlier score on record")           // EN neutral note
-                .contains("aucun score antérieur enregistré")     // FR neutral note (bi() embeds both languages)
-                .doesNotContain("first scan")                     // never the false EN claim
-                .doesNotContain("première analyse");              // never the false FR claim
     }
 
     // ---- bilingual translation map: biDyn picks the French string ---------------------------------------

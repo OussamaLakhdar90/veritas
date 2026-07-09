@@ -55,16 +55,13 @@ class DemoPortfolioSeederTest {
         seeder.run(null);
         assertThat(scans.count()).isEqualTo(scanCount);
 
-        // Fidelity chain: every non-first scan carries the previous score; latest scans all scored.
+        // Release verdict: every scan carries a persisted PASS/WARN/FAIL gate (no scores anymore).
         List<Scan> ciam = scans.findAll().stream()
                 .filter(s -> "ciam-policies".equals(s.getServiceName()))
                 .sorted(Comparator.comparing(Scan::getStartedAt)).toList();
         assertThat(ciam).hasSize(4);
-        assertThat(ciam.get(0).getPreviousFidelityScore()).isNull();
-        for (int i = 1; i < ciam.size(); i++) {
-            assertThat(ciam.get(i).getPreviousFidelityScore()).isEqualTo(ciam.get(i - 1).getFidelityScore());
-        }
-        assertThat(ciam.get(3).getFidelityScore()).isEqualTo(84);
+        assertThat(ciam).allSatisfy(s -> assertThat(s.getReleaseSafe()).isIn("PASS", "WARN", "FAIL"));
+        assertThat(ciam.get(3).getReleaseSafe()).isEqualTo("WARN");   // latest ciam scan (quality proxy 84) → WARN
 
         // Dispositions: accepted findings carry the audit trail; the AI disputed at least one of its own.
         List<FindingRecord> all = findings.findAll();

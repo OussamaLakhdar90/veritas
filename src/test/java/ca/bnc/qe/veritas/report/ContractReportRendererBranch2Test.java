@@ -54,9 +54,8 @@ class ContractReportRendererBranch2Test {
         // DETERMINISTIC + HIGH conf + null type -> NOT needs-attention, so it is counted.
         Finding f = counted(null, Severity.MAJOR).findingId("null-type").build();
         String html = renderer.renderHtml(scan("svc"), List.of(f));
-        // It is scored (one MAJOR -8 -> 92) and shows under §4.2 Contract mismatches, not 4.1/4.3.
-        assertThat(html).contains("92/100")
-                .contains("4.2 Contract mismatches")
+        // It is counted and shows under §4.2 Contract mismatches, not 4.1/4.3.
+        assertThat(html).contains("4.2 Contract mismatches")
                 .contains("Correct the 1 mismatch(es)")
                 .doesNotContain("4.1 Missing from the specification")
                 .doesNotContain("4.3 Dead spec (documented, not in code)");
@@ -172,8 +171,8 @@ class ContractReportRendererBranch2Test {
         assertThat(html).contains("id=\"rt-acc\">0</b>")
                 .contains("id=\"rt-rej\">2</b>")
                 .contains("id=\"rt-pen\">0</b>");
-        // None are counted -> perfect score.
-        assertThat(html).contains("100/100");
+        // None are counted -> clean gate.
+        assertThat(html).contains("Quality gate: PASS");
     }
 
     // ---- L598: exactly one DEAD finding uses the singular "stale entry" copy ------------------------------
@@ -228,19 +227,17 @@ class ContractReportRendererBranch2Test {
         assertThat(new String(pdf, 0, 4)).isEqualTo("%PDF");
     }
 
-    // ---- bonus: blocking summary uses singular "release-blocking item" for exactly one blocker -----------
+    // ---- bonus: action summary uses singular "consumer-breaking change" for exactly one breaking finding --
 
     @Test
-    void singleBlockerUsesSingularReleaseBlockingItemCopy() {
-        // blocking == 1 -> bottomLine's "fix 1 release-blocking item" (singular), distinct from the plural form the
-        // first suite asserts via three blockers.
+    void singleBreakingChangeUsesSingularCopy() {
+        // breaking == 1 -> bottomLine's "fix 1 consumer-breaking change first" (singular).
         Finding blocker = counted(FindingType.MISSING_ENDPOINT, Severity.BLOCKER).findingId("oneblocker").build();
         String html = renderer.renderHtml(scan("svc"), List.of(blocker));
-        // The blocking clause leads the joined action string, so capFirst() yields "Fix 1 release-blocking item first".
-        assertThat(html).contains("Fix 1 release-blocking item first")
-                .doesNotContain("release-blocking items");
-        // One BLOCKER -> -25 -> 75/100, and the verdict is "Do not release".
-        assertThat(html).contains("75/100").contains("Do not release");
+        assertThat(html).contains("Fix 1 consumer-breaking change first")
+                .doesNotContain("consumer-breaking changes");
+        // A BLOCKER breaks a running consumer -> the verdict is "Do not release".
+        assertThat(html).contains("Do not release");
     }
 
     // ---- bonus: a reviewedAt-bearing disposition formats the UTC timestamp -------------------------------

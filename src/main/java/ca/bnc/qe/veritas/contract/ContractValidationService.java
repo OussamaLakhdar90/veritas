@@ -97,6 +97,7 @@ public class ContractValidationService {
     @org.springframework.beans.factory.annotation.Value("${veritas.report.bilingual:true}")
     private boolean bilingualReport;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ContractValidationService(JavaSpringExtractor javaSpringExtractor,
                                      OpenApiModelExtractor openApiModelExtractor,
                                      CorrectedSpecBuilder correctedSpecBuilder,

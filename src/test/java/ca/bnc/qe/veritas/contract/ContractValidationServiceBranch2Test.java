@@ -261,28 +261,6 @@ class ContractValidationServiceBranch2Test {
     }
 
     @Test
-    void nullServiceName_shortCircuitsPreviousFidelityLookup_noPreviousScoreCarried() {
-        Scan prior = new Scan();
-        prior.setServiceName("svc");
-        prior.setFidelityScore(90);
-        try {
-            Field idField = ca.bnc.qe.veritas.persistence.AuditableEntity.class.getDeclaredField("id");
-            idField.setAccessible(true);
-            idField.set(prior, "prior-id");
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        when(scanRepo.findAllByOrderByStartedAtDesc()).thenReturn(List.of(prior));
-        when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(List.of());
-        armRepoSpecParses();
-
-        svc.validate(reqWithService(null, false, new SpecInput("repo-spec", "spec-yaml")));
-        Scan persisted = capturePersistedScan();
-
-        assertThat(persisted.getPreviousFidelityScore()).isNull();
-    }
-
-    @Test
     void findingWithProposedFix_isAddedToTheBilingualTranslationSet() throws Exception {
         setField(svc, "bilingualReport", true);
         Finding det = Finding.builder().findingId("pf1").type(FindingType.STATUS_CODE_MISSING).layer(Layer.L4)

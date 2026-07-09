@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CheckCircle2, Radio, X } from 'lucide-react';
 import type { Scan } from '../api';
-import { Card, CardBody, useCountUp } from './ui';
+import { Card, CardBody } from './ui';
 import { isTestEnv, overlaySpring, exitEase } from '../lib/motion';
 import { STAGE_ORDER, SCAN_STEPS, formatElapsed, stagePct, useElapsed } from '../lib/scanStages';
 
@@ -108,14 +108,14 @@ function RunningStrip({ scan }: { scan: Scan }) {
 
 function CompletedStrip({ scan, onDismiss }: { scan: Scan; onDismiss: () => void }) {
   const { t } = useTranslation();
-  const score = useCountUp(scan.fidelityScore ?? 0);
+  const verdict = scan.releaseSafe;
   return (
     <Card className="border-l-4 border-l-success">
       <CardBody className="flex flex-wrap items-center gap-3 py-4">
         <CheckCircle2 className="h-5 w-5 shrink-0 text-success" aria-hidden="true" />
         <span className="font-semibold text-ink-900">
-          {scan.fidelityScore != null
-            ? t('live.done', { service: scan.serviceName, score })
+          {verdict != null
+            ? t('live.done', { service: scan.serviceName, verdict: t(`overview.verdict.${verdict}`, verdict) })
             : t('live.doneNoScore', { service: scan.serviceName })}
         </span>
         <Link to={`/findings/${scan.id}`} className="text-sm font-medium text-gold hover:underline">
