@@ -826,7 +826,7 @@ public class ContractReportRenderer {
         // Why a WARN still reads "Proceed": no finding breaks a running consumer — the drift is additive documentation
         // (the code is a compatible superset of the spec), so the release is safe on its own timeline. Only assert this
         // when there are genuinely zero breaking findings (a raised gate cap can produce a WARN that still carries some).
-        if (v.equals("WARN") && breaking == 0) {
+        if (v.equals("WARN") && verdict.allNonBreaking()) {
             b.append("<div style=\"margin-top:.6rem;font-size:.82rem;color:#475069\">").append(bi(
                     "No consumer-breaking changes — all drift is additive documentation (the code returns/accepts more "
                             + "than the spec documents). Safe to release; update the spec at your own cadence.",

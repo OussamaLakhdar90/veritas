@@ -245,7 +245,7 @@ public class DemoPortfolioSeeder implements ApplicationRunner {
             // Re-derive the persisted verdict + counts from the ACTUAL findings (excluding human-dismissed, exactly as
             // the executive rollup does) so persisted and live can never disagree.
             List<Finding> live = svc.stream()
-                    .filter(r -> r.getStatus() == null || !DISMISSED.contains(r.getStatus()))
+                    .filter(r -> !DISMISSED.contains(r.getStatus()))   // seeded findings always carry a status
                     .map(FindingMapper::toFinding).toList();
             ReleaseVerdict verdict = ReleaseVerdict.of(live, gate);
             scan.setReleaseSafe(verdict.releaseSafe());
