@@ -5,7 +5,12 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import ca.bnc.qe.veritas.config.GateProperties;
+import ca.bnc.qe.veritas.contract.FindingMapper;
+import ca.bnc.qe.veritas.contract.ReleaseVerdict;
+import ca.bnc.qe.veritas.finding.Finding;
 import ca.bnc.qe.veritas.persistence.CodegenRun;
 import ca.bnc.qe.veritas.persistence.CodegenRunRepository;
 import ca.bnc.qe.veritas.persistence.CostEntry;
@@ -81,6 +86,8 @@ public class DemoPortfolioSeeder implements ApplicationRunner {
     private static final String OWNER = "demo";
     private static final String MODEL = "claude-sonnet-4.6";
     private static final int[] SCAN_DAYS_AGO = {27, 18, 9, 2};
+    /** Statuses a human used to dismiss a finding — excluded from the release verdict (mirrors the gate). */
+    private static final Set<String> DISMISSED = Set.of("REJECTED", "FALSE_POSITIVE", "WONT_FIX");
 
     private final ScanRepository scans;
     private final FindingRecordRepository findings;
@@ -99,6 +106,7 @@ public class DemoPortfolioSeeder implements ApplicationRunner {
     private final TestPlanRepository plans;
     private final CodegenRunRepository codegenRuns;
     private final JdbcTemplate jdbc;
+    private final GateProperties gate;
 
     @SuppressWarnings("java:S107")   // a seeder legitimately touches every aggregate root once
     public DemoPortfolioSeeder(ScanRepository scans, FindingRecordRepository findings, CostEntryRepository costs,
@@ -108,7 +116,7 @@ public class DemoPortfolioSeeder implements ApplicationRunner {
                                SnykFixTrainRepository trains, SnykFixStepRepository steps,
                                TestStrategyRepository strategies, TestConditionRepository conditions,
                                TestCaseRepository cases, TestPlanRepository plans,
-                               CodegenRunRepository codegenRuns, JdbcTemplate jdbc) {
+                               CodegenRunRepository codegenRuns, JdbcTemplate jdbc, GateProperties gate) {
         this.scans = scans;
         this.findings = findings;
         this.costs = costs;
@@ -126,6 +134,7 @@ public class DemoPortfolioSeeder implements ApplicationRunner {
         this.plans = plans;
         this.codegenRuns = codegenRuns;
         this.jdbc = jdbc;
+        this.gate = gate;
     }
 
     @Override
@@ -150,7 +159,7 @@ public class DemoPortfolioSeeder implements ApplicationRunner {
         return Instant.now().minus(days, ChronoUnit.DAYS).plus(10, ChronoUnit.HOURS);
     }
 
-    /** Four scans per service over ~30 days; previousFidelityScore chains so deltas are consistent. */
+    /** Four scans per service over ~30 days; each carries a persisted release verdict + severity counts. */
     private List<Scan> seedScans() {
         List<Scan> latestPerService = new ArrayList<>();
         for (Svc svc : SERVICES) {
@@ -170,8 +179,12 @@ public class DemoPortfolioSeeder implements ApplicationRunner {
                 s.setQueuedAt(start);
                 s.setStartedAt(start);
                 s.setFinishedAt(start.plus(3 + i, ChronoUnit.MINUTES).plusSeconds(42));
-                s.setFidelityScore(svc.scores()[i]);
-                s.setPreviousFidelityScore(i == 0 ? null : svc.scores()[i - 1]);
+                // Demo release verdict from the quality proxy: high = clean PASS, mid = additive-drift WARN,
+                // low = consumer-breaking FAIL (a FAIL always carries ≥1 breaking finding, per the gate).
+                int q = svc.scores()[i];
+                s.setReleaseSafe(q >= 90 ? "PASS" : q >= 78 ? "WARN" : "FAIL");
+                s.setBlockingCount(q < 65 ? 1 : 0);
+                s.setBreakingCount(q >= 78 ? 0 : Math.max(1, (85 - q) / 8));
                 s.setTotalFindings(Math.max(1, (100 - svc.scores()[i]) / 6));
                 s.setTotalEstCostUsd(0.30 + (i * 0.04));
                 s.setConfidence(88.0 + i * 2);
@@ -183,36 +196,64 @@ public class DemoPortfolioSeeder implements ApplicationRunner {
         return latestPerService;
     }
 
-    /** Dispositioned findings on each service's LATEST scan — the human-in-the-loop governance proof. */
+    /**
+     * Dispositioned findings on each service's LATEST scan — the human-in-the-loop governance proof. Findings are
+     * seeded to MATCH the service's release band (clean PASS = no gating findings, WARN = non-breaking additive drift,
+     * FAIL = consumer-breaking findings), then the scan's persisted verdict + counts are RE-DERIVED from those findings
+     * via the same {@link ReleaseVerdict} the dashboard recomputes live — so the recent-scans row and the executive
+     * rollup can never disagree.
+     */
     private List<FindingRecord> seedFindings(List<Scan> latest) {
         List<FindingRecord> out = new ArrayList<>();
         for (int i = 0; i < latest.size(); i++) {
             Scan scan = latest.get(i);
-            boolean weak = scan.getFidelityScore() != null && scan.getFidelityScore() < 70;
-            out.add(finding(scan, "SCHEMA_FIELD_MISSING", "MINOR", "GET /" + scan.getServiceName() + "/summary",
-                    "Response field `lastUpdatedBy` exists in the code but is not documented in the spec.",
-                    "ACCEPTED", false, i));
-            out.add(finding(scan, "STATUS_CODE_MISSING", "MINOR", "GET /" + scan.getServiceName() + "/{id}",
-                    "The code can return 404 (service layer throw) — the spec documents only 200.",
-                    "ACCEPTED", false, i));
-            out.add(finding(scan, "SCHEMA_FIELD_TYPE_MISMATCH", "MAJOR", "POST /" + scan.getServiceName(),
-                    "Field `amount` is a string in the spec but a numeric BigDecimal in the code — a consumer parsing per spec breaks.",
-                    i % 3 == 0 ? "JIRA_CREATED" : "ACCEPTED", false, i));
-            out.add(finding(scan, "PATH_VAR_NAME_MISMATCH", "MINOR", "GET /" + scan.getServiceName() + "/{id}",
+            boolean clean = "PASS".equals(scan.getReleaseSafe());
+            boolean weak = "FAIL".equals(scan.getReleaseSafe());
+            List<FindingRecord> svc = new ArrayList<>();
+            // A disputed advisory on every service — the AI-dispute channel is excluded from the gate, so it never
+            // moves the verdict (a positional path-variable rename is non-breaking anyway) yet keeps a clean PASS honest.
+            svc.add(finding(scan, "PATH_VAR_NAME_MISMATCH", "MINOR", "GET /" + scan.getServiceName() + "/{id}",
                     "Path variable named {app} in the spec vs {appId} in the code — positional, non-breaking; a naming convention decision.",
-                    "OPEN", i % 2 == 0, i));
+                    "OPEN", true, i));
+            if (!clean) {
+                // WARN + FAIL: non-breaking additive / documentation drift → at least WARN. One is filed as a Jira
+                // defect (JIRA_CREATED, still counted) so the defect donut has volume without needing breaking findings.
+                svc.add(finding(scan, "SCHEMA_FIELD_MISSING", "MINOR", "GET /" + scan.getServiceName() + "/summary",
+                        "Response field `lastUpdatedBy` exists in the code but is not documented in the spec.",
+                        "ACCEPTED", false, i));
+                svc.add(finding(scan, "STATUS_CODE_MISSING", "MINOR", "GET /" + scan.getServiceName() + "/{id}",
+                        "The code can return 404 (service layer throw) — the spec documents only 200.",
+                        "JIRA_CREATED", false, i));
+            }
             if (weak) {
-                out.add(finding(scan, "MISSING_ENDPOINT", "CRITICAL", "DELETE /" + scan.getServiceName() + "/{id}",
+                // FAIL: the consumer-breaking findings that drive the gate to FAIL.
+                svc.add(finding(scan, "SCHEMA_FIELD_TYPE_MISMATCH", "MAJOR", "POST /" + scan.getServiceName(),
+                        "Field `amount` is a string in the spec but a numeric BigDecimal in the code — a consumer parsing per spec breaks.",
+                        "JIRA_CREATED", false, i));
+                svc.add(finding(scan, "MISSING_ENDPOINT", "CRITICAL", "DELETE /" + scan.getServiceName() + "/{id}",
                         "Endpoint exists in the code but is absent from the spec — an undocumented (shadow) API surface.",
                         "OPEN", false, i));
-                out.add(finding(scan, "PARAM_REQUIRED_MISMATCH", "MAJOR", "GET /" + scan.getServiceName(),
+                svc.add(finding(scan, "PARAM_REQUIRED_MISMATCH", "MAJOR", "GET /" + scan.getServiceName(),
                         "Query param `context` is required by the code but optional in the spec.",
                         "JIRA_CREATED", false, i));
             }
             if (i % 4 == 1) {
-                out.add(finding(scan, "SPEC_DRIFT", "MINOR", "GET /" + scan.getServiceName() + "/health",
+                // A dead-spec finding a human already dismissed (REJECTED → excluded from the gate) — disposition variety.
+                svc.add(finding(scan, "SPEC_DRIFT", "MINOR", "GET /" + scan.getServiceName() + "/health",
                         "Spec documents an endpoint the code no longer serves (dead spec).", "REJECTED", false, i));
             }
+            // Re-derive the persisted verdict + counts from the ACTUAL findings (excluding human-dismissed, exactly as
+            // the executive rollup does) so persisted and live can never disagree.
+            List<Finding> live = svc.stream()
+                    .filter(r -> !DISMISSED.contains(r.getStatus()))   // seeded findings always carry a status
+                    .map(FindingMapper::toFinding).toList();
+            ReleaseVerdict verdict = ReleaseVerdict.of(live, gate);
+            scan.setReleaseSafe(verdict.releaseSafe());
+            scan.setBlockingCount((int) verdict.blocking());
+            scan.setBreakingCount((int) verdict.breaking());
+            scan.setTotalFindings(svc.size());
+            scans.save(scan);
+            out.addAll(svc);
         }
         return findings.saveAll(out);
     }

@@ -34,6 +34,9 @@ public class ContractReportRenderer {
      *  build that produced it. Null/blank in the no-arg constructor (tests) → the footer simply omits it. */
     private final String buildStamp;
 
+    /** The release quality-gate thresholds. Defaults (0/0/0) in the test constructors. */
+    private final ca.bnc.qe.veritas.config.GateProperties gate;
+
     public ContractReportRenderer() {
         this(null, null);
     }
@@ -42,10 +45,16 @@ public class ContractReportRenderer {
         this(linkBuilder, null);
     }
 
-    @Autowired
     public ContractReportRenderer(BitbucketLinkBuilder linkBuilder, BuildInfoService buildInfo) {
+        this(linkBuilder, buildInfo, new ca.bnc.qe.veritas.config.GateProperties());
+    }
+
+    @Autowired
+    public ContractReportRenderer(BitbucketLinkBuilder linkBuilder, BuildInfoService buildInfo,
+                                  ca.bnc.qe.veritas.config.GateProperties gate) {
         this.linkBuilder = linkBuilder;
         this.buildStamp = buildInfo == null ? null : buildInfo.stamp();
+        this.gate = gate == null ? new ca.bnc.qe.veritas.config.GateProperties() : gate;
     }
 
     public String renderHtml(Scan scan, List<Finding> findings) {
@@ -78,7 +87,8 @@ public class ContractReportRenderer {
     // ---- classification -------------------------------------------------------------------------------------
 
     private boolean isNeedsAttention(Finding f) {
-        return FidelityScore.isNeedsAttention(f);   // shared with the score so report + KPI never drift
+        // Shared with the release gate so the report split + the KPI page never drift.
+        return ca.bnc.qe.veritas.finding.CountedFindings.isNeedsAttention(f);
     }
 
     private String bucket(Finding f) {
@@ -114,14 +124,13 @@ public class ContractReportRenderer {
         counted.addAll(missing);
         counted.addAll(wrong);
         counted.addAll(dead);
-        // One shared verdict computation (score / blocking / breaking / disputed) — the executive dashboard
-        // consumes the same ReleaseVerdict, so the report and the KPI page can never disagree.
-        ca.bnc.qe.veritas.contract.ReleaseVerdict verdict = ca.bnc.qe.veritas.contract.ReleaseVerdict.of(findings);
-        int score = verdict.score();
+        // One shared verdict computation (PASS/WARN/FAIL + blocking / breaking / disputed counts) — the executive
+        // dashboard consumes the same ReleaseVerdict, so the report and the KPI page can never disagree.
+        ca.bnc.qe.veritas.contract.ReleaseVerdict verdict = ca.bnc.qe.veritas.contract.ReleaseVerdict.of(findings, gate);
+        String gateVerdict = verdict.releaseSafe();   // PASS | WARN | FAIL
         long blocking = verdict.blocking();
-        boolean allNonBreaking = verdict.allNonBreaking();
         long disputed = verdict.aiDisputed();
-        String[] band = scoreBand(score);
+        String[] band = verdictBand(gateVerdict);   // [css-class, EN label, FR label] for the cover badge + KPI
 
         StringBuilder sb = new StringBuilder();
         sb.append("<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"/>")
@@ -160,8 +169,7 @@ public class ContractReportRenderer {
         sb.append("<div class=\"content\">");
 
         // ---- Bottom line: the one-glance "is it safe to release?" verdict (deterministic from the gate) ----
-        sb.append(bottomLine(score, blocking, counted.size(), missing.size(), wrong.size(), dead.size(), disputed,
-                allNonBreaking));
+        sb.append(bottomLine(verdict, missing.size(), wrong.size(), dead.size()));
 
         // ---- Table of contents (anchors to each section present) ----
         boolean anyFix = findings.stream().anyMatch(f -> !isBlank(f.getProposedFix()));
@@ -187,60 +195,40 @@ public class ContractReportRenderer {
                 "This report compares the published API spec for " + esc(nz(scan.getServiceName()))
                         + " against what the code actually does. Automated code analysis found " + counted.size()
                         + " difference" + (counted.size() == 1 ? "" : "s") + " (" + blocking
-                        + " that would block release), for an accuracy score of " + score + "/100 ("
-                        + band[1].toLowerCase(java.util.Locale.ROOT) + ") — how often the documentation matches the "
-                        + "software (below " + FidelityScore.PASS_THRESHOLD + " means fixes are needed before release)."
+                        + " release-blocking, " + verdict.breaking() + " that would break a running consumer)."
                         + (attention.isEmpty() ? "" : " A further " + attention.size()
-                        + " item(s) need manual review and are not scored."),
+                        + " item(s) need manual review and are not gated."),
                 "Ce rapport compare la spécification d'API publiée de " + esc(nz(scan.getServiceName()))
                         + " à ce que fait réellement le code. L'analyse automatisée du code a relevé " + counted.size()
-                        + " différence(s) (" + blocking + " bloquant(s) pour la livraison), pour un score de précision de "
-                        + score + "/100 (" + band[2].toLowerCase(java.util.Locale.ROOT) + ") — dans quelle mesure la "
-                        + "documentation correspond au logiciel (sous " + FidelityScore.PASS_THRESHOLD + ", des corrections sont nécessaires)."
+                        + " différence(s) (" + blocking + " bloquant(s), " + verdict.breaking()
+                        + " qui briserai(en)t un consommateur en production)."
                         + (attention.isEmpty() ? "" : " " + attention.size()
-                        + " élément(s) supplémentaire(s) nécessitent une revue manuelle et ne sont pas notés.")))
+                        + " élément(s) supplémentaire(s) nécessitent une revue manuelle et ne sont pas évalués.")))
                 .append("</p>");
 
-        // Quality gate (pass/fail vs threshold) + trend vs the previous scan — the two things management acts on.
-        boolean pass = score >= FidelityScore.PASS_THRESHOLD;
-        sb.append("<p class=\"gate gate-").append(pass ? "pass" : "fail").append("\">").append(bi(
-                "Quality gate: " + (pass ? "PASS" : "FAIL") + " — fidelity " + score + " vs target ≥ " + FidelityScore.PASS_THRESHOLD,
-                "Seuil qualité : " + (pass ? "RÉUSSI" : "ÉCHEC") + " — fidélité " + score + " vs cible ≥ " + FidelityScore.PASS_THRESHOLD))
-                .append("</p>");
-        // Reconcile the apparent contradiction between a FAILED gate and a "Proceed" release verdict, in one line: the
-        // gate measures documentation fidelity while the release verdict measures consumer risk. Only when the drift is
-        // entirely additive (no breaking finding) — a passing gate or a breaking-FAIL Hold needs no such note.
-        if (additiveProceed(score, blocking, counted.size(), allNonBreaking)) {
-            sb.append("<p class=\"gate-note\">").append(bi(
-                    "The quality gate measures documentation fidelity; release risk is assessed separately. Every "
-                            + "finding here is additive documentation drift — nothing breaks a running consumer — so the "
-                            + "release verdict is Proceed despite the failed gate.",
-                    "Le seuil qualité mesure la fidélité de la documentation; le risque de livraison est évalué "
-                            + "séparément. Tous les constats sont des écarts documentaires additifs — rien ne brise un "
-                            + "consommateur en production — la décision de livraison demeure donc « Prêt à livrer » "
-                            + "malgré l'échec du seuil."))
-                    .append("</p>");
-        }
-        if (scan.getPreviousFidelityScore() != null) {
-            int prev = scan.getPreviousFidelityScore();
-            int delta = score - prev;
-            String arrow = delta > 0 ? "▲" : (delta < 0 ? "▼" : "●");
-            String tcls = delta > 0 ? "up" : (delta < 0 ? "down" : "flat");
-            String sign = delta >= 0 ? "+" : "";
-            sb.append("<p class=\"trend trend-").append(tcls).append("\">").append(bi(
-                    "Trend: " + arrow + " " + sign + delta + " vs previous scan (was " + prev + ")",
-                    "Tendance : " + arrow + " " + sign + delta + " vs analyse précédente (était " + prev + ")"))
-                    .append("</p>");
-        } else {
-            // No earlier score for this service is on record to compare against — a genuine first scan, OR a
-            // fresh/reset/relocated database. We CANNOT prove it is the first scan (prior history may simply be in a
-            // different DB file), so we never assert that; we state exactly what is true — nothing earlier is on
-            // record. The line always renders (a silently-missing line reads as a regression).
-            sb.append("<p class=\"trend trend-flat\">").append(bi(
-                    "Trend: ● no earlier score on record to compare",
-                    "Tendance : ● aucun score antérieur enregistré à comparer"))
-                    .append("</p>");
-        }
+        // Quality gate — a categorical PASS/WARN/FAIL from severity counts (the SAME ReleaseVerdict the dashboard
+        // shows), not a composite score: FAIL on any consumer-breaking finding, WARN on additive drift only, PASS clean.
+        String gateCls = gateVerdict.equals("FAIL") ? "fail" : gateVerdict.equals("WARN") ? "warn" : "pass";
+        // Phrasing is conditioned on the ACTUAL breaking count, not just the verdict string: once a gate cap is raised
+        // above 0 a WARN/PASS scan can still carry breaking findings, so we must not hard-assert "no breaking changes".
+        long gateBreaking = verdict.breaking();
+        String gateEn = gateVerdict.equals("FAIL")
+                ? "Quality gate: FAIL — " + gateBreaking + " finding(s) would break a running consumer; do not release"
+                : gateVerdict.equals("WARN")
+                ? "Quality gate: WARN — " + (gateBreaking == 0
+                        ? "no breaking changes; " + counted.size() + " item(s) of additive drift to clean up"
+                        : gateBreaking + " breaking change(s) within the configured cap; " + counted.size() + " item(s) to clean up")
+                : "Quality gate: PASS — " + (gateBreaking == 0 ? "no breaking changes"
+                        : gateBreaking + " breaking change(s) within the configured cap");
+        String gateFr = gateVerdict.equals("FAIL")
+                ? "Seuil qualité : ÉCHEC — " + gateBreaking + " constat(s) briserai(en)t un consommateur; ne pas livrer"
+                : gateVerdict.equals("WARN")
+                ? "Seuil qualité : ATTENTION — " + (gateBreaking == 0
+                        ? "aucun changement cassant; " + counted.size() + " écart(s) additif(s) à corriger"
+                        : gateBreaking + " changement(s) cassant(s) dans la limite configurée; " + counted.size() + " écart(s) à corriger")
+                : "Seuil qualité : RÉUSSI — " + (gateBreaking == 0 ? "aucun changement cassant"
+                        : gateBreaking + " changement(s) cassant(s) dans la limite configurée");
+        sb.append("<p class=\"gate gate-").append(gateCls).append("\">").append(bi(gateEn, gateFr)).append("</p>");
 
         // Surface undocumented error responses (500/406/…) that were DEMOTED to manual review (§6) as low-confidence
         // advice-origin statuses (global @ControllerAdvice or controller-local @ExceptionHandler) — so the team is
@@ -255,8 +243,8 @@ public class ContractReportRenderer {
                 : (isBlank(scan.getBlindSpots()) ? 0 : 1);
         String covValue = gaps == 0 ? bi("Full", "Complète")
                 : bi(gaps + (gaps == 1 ? " gap" : " gaps"), gaps + (gaps == 1 ? " lacune" : " lacunes"));
-        String kpis = kpi(score + "<span class=\"unit\">/100</span>", bi("Contract fidelity", "Fidélité du contrat"), band[0])
-                + kpi(String.valueOf(blocking), bi("Release-blocking", "Bloquants"), blocking > 0 ? "action" : "clean")
+        String kpis = kpi(bi(band[1], band[2]), bi("Release gate", "Seuil de livraison"), band[0])
+                + kpi(String.valueOf(verdict.breaking()), bi("Consumer-breaking", "Cassants"), verdict.breaking() > 0 ? "action" : "clean")
                 + kpi(String.valueOf(counted.size()), bi("Total findings", "Constats totaux"), "neutral")
                 + kpi(covValue, bi("Analysis coverage", "Couverture"), gaps == 0 ? "clean" : "minor");
         String vizLabel = "<div class=\"panel-h\">" + bi("Findings by severity", "Constats par sévérité") + "</div>";
@@ -722,16 +710,6 @@ public class ContractReportRenderer {
         return bar.append("</div>").append(legend).append("</div>").toString();
     }
 
-    /**
-     * True when the scan is below the fidelity bar yet safe to release: no release-blocking finding, and every
-     * finding is additive/non-breaking documentation drift (the code is a compatible superset of the spec). The
-     * one predicate feeds BOTH the bottom-line "Proceed — documentation fixes recommended" verdict AND the §1
-     * gate-reconciliation note, so the two can never drift apart.
-     */
-    private static boolean additiveProceed(int score, long blocking, int total, boolean allNonBreaking) {
-        return blocking == 0 && score < FidelityScore.PASS_THRESHOLD && total > 0 && allNonBreaking;
-    }
-
     /** An HTTP status code (3xx/4xx/5xx) as a standalone token in an advice-status summary. */
     private static final java.util.regex.Pattern ERROR_STATUS = java.util.regex.Pattern.compile("\\b([3-5]\\d\\d)\\b");
 
@@ -788,23 +766,19 @@ public class ContractReportRenderer {
         return f.getEndpoint() == null ? List.of() : List.of(f.getEndpoint());
     }
 
-    /** The plain "is it safe to release?" verdict box — first thing management sees. Release RISK (breaking changes)
-     *  drives the action; the fidelity score is the separate quality bar. */
-    private String bottomLine(int score, long blocking, int total, int missing, int wrong, int dead, long disputed,
-                              boolean allNonBreaking) {
-        boolean pass = score >= FidelityScore.PASS_THRESHOLD;
-        // Below the fidelity bar but nothing would break a running consumer → the release is safe; the spec is just
-        // behind. Call it out as a calm "proceed", distinct from a real "hold".
-        boolean additiveProceed = additiveProceed(score, blocking, total, allNonBreaking);
+    /** The plain "is it safe to release?" verdict box — first thing management sees. Consumer-breaking changes drive
+     *  the FAIL; additive/documentation drift only WARNs; a clean scan PASSes. Mirrors the categorical release gate. */
+    private String bottomLine(ca.bnc.qe.veritas.contract.ReleaseVerdict verdict, int missing, int wrong, int dead) {
+        long breaking = verdict.breaking();
+        long disputed = verdict.aiDisputed();
+        int total = verdict.counted();
+        String v = verdict.releaseSafe();
         String color, tint, statusEn, statusFr;
-        if (blocking > 0) {
+        if (v.equals("FAIL")) {
             color = "#C2122D"; tint = "#fdecef"; statusEn = "Do not release"; statusFr = "Ne pas livrer";
-        } else if (additiveProceed) {
-            color = "#0F766E"; tint = "#e7f5f3";
-            statusEn = "Proceed — documentation fixes recommended";
-            statusFr = "Prêt à livrer — mises à jour de la documentation recommandées";
-        } else if (!pass) {
-            color = "#C2410C"; tint = "#fff4ec"; statusEn = "Hold for fixes"; statusFr = "À corriger avant livraison";
+        } else if (v.equals("WARN")) {
+            color = "#C2410C"; tint = "#fff4ec";
+            statusEn = "Proceed — fixes recommended"; statusFr = "Prêt à livrer — corrections recommandées";
         } else {
             color = "#1E8E5A"; tint = "#e9f6ef"; statusEn = "Proceed"; statusFr = "Prêt à livrer";
         }
@@ -813,14 +787,22 @@ public class ContractReportRenderer {
             actionEn = "No action needed — the documentation matches the code.";
             actionFr = "Aucune action requise — la documentation correspond au code.";
         } else {
+            // The missing/wrong/dead buckets partition the whole counted set, and breaking is a SUBSET of that set —
+            // so breaking must NOT be an additional list item (it would double-count against the Effort total). Render
+            // it as a prioritization qualifier over the bucket items instead.
             List<String> en = new ArrayList<>();
             List<String> frb = new ArrayList<>();
-            if (blocking > 0) { en.add("fix " + blocking + " release-blocking item" + (blocking == 1 ? "" : "s") + " first"); frb.add("corriger d'abord " + blocking + " bloquant(s)"); }
             if (missing > 0) { en.add("document " + missing); frb.add("documenter " + missing); }
             if (wrong > 0) { en.add("correct " + wrong + " mismatch" + (wrong == 1 ? "" : "es")); frb.add("corriger " + wrong + " incohérence(s)"); }
             if (dead > 0) { en.add("remove " + dead + " stale entr" + (dead == 1 ? "y" : "ies")); frb.add("retirer " + dead + " entrée(s) obsolète(s)"); }
             actionEn = capFirst(String.join(", ", en)) + ".";
             actionFr = capFirst(String.join(", ", frb)) + ".";
+            if (breaking > 0) {
+                actionEn += " " + breaking + " of these " + (breaking == 1 ? "is" : "are")
+                        + " consumer-breaking — fix " + (breaking == 1 ? "it" : "those") + " first.";
+                actionFr += " " + breaking + (breaking == 1 ? " de ceux-ci est cassant" : " de ceux-ci sont cassants")
+                        + " — à corriger en priorité.";
+            }
         }
         // Qualitative effort band from the item count — no fabricated per-item hour figure presented as a commitment.
         String effortEn = total <= 3 ? "small" : total <= 8 ? "moderate" : "large";
@@ -841,14 +823,15 @@ public class ContractReportRenderer {
         b.append("<tr><td style=\"color:#475069;padding:.1rem 1rem .1rem 0;vertical-align:top;white-space:nowrap\">")
                 .append(bi("Effort", "Effort")).append("</td><td style=\"padding:.1rem 0\">").append(bi(timeEn, timeFr)).append("</td></tr>");
         b.append("</table>");
-        // Why a sub-target score still reads "Proceed": no finding breaks a running consumer — the drift is additive
-        // documentation (the code is a compatible superset of the spec), so the release is safe on its own timeline.
-        if (additiveProceed) {
+        // Why a WARN still reads "Proceed": no finding breaks a running consumer — the drift is additive documentation
+        // (the code is a compatible superset of the spec), so the release is safe on its own timeline. Only assert this
+        // when there are genuinely zero breaking findings (a raised gate cap can produce a WARN that still carries some).
+        if (v.equals("WARN") && verdict.allNonBreaking()) {
             b.append("<div style=\"margin-top:.6rem;font-size:.82rem;color:#475069\">").append(bi(
-                    "0 release-blocking findings — all drift is additive documentation (the code returns/accepts more "
+                    "No consumer-breaking changes — all drift is additive documentation (the code returns/accepts more "
                             + "than the spec documents). Safe to release; update the spec at your own cadence.",
-                    "0 constat bloquant — toute la dérive est documentaire additive (le code renvoie/accepte plus que "
-                            + "ce que la spéc documente). Livraison sûre; mettez à jour la spéc à votre rythme."))
+                    "Aucun changement cassant — toute la dérive est documentaire additive (le code renvoie/accepte plus "
+                            + "que ce que la spéc documente). Livraison sûre; mettez à jour la spéc à votre rythme."))
                     .append("</div>");
         }
         // Honesty when the gate was conditionally relaxed: surface that the AI excluded N findings as possible false
@@ -926,19 +909,13 @@ public class ContractReportRenderer {
 
     // ---- deterministic narrative helpers (no LLM) -----------------------------------------------------------
 
-    /** {cssClass, EN label, FR label}. Aligned with the PASS_THRESHOLD gate so a sub-target score never reads as
-     * unambiguously positive (a 75–89 scan FAILS the ≥90 gate, so it is "Below target", not "Good"). */
-    private String[] scoreBand(int s) {
-        if (s >= FidelityScore.PASS_THRESHOLD) {
-            return new String[] {"clean", "Excellent — meets target", "Excellent — atteint la cible"};
-        }
-        if (s >= 75) {
-            return new String[] {"minor", "Below target", "Sous la cible"};
-        }
-        if (s >= 50) {
-            return new String[] {"warn", "Needs work", "À améliorer"};
-        }
-        return new String[] {"action", "At risk", "À risque"};
+    /** {cssClass, EN label, FR label} for the categorical release-gate verdict — the cover badge + the KPI tile. */
+    private String[] verdictBand(String verdict) {
+        return switch (verdict) {
+            case "PASS" -> new String[] {"clean", "Release-safe", "Prêt à livrer"};
+            case "WARN" -> new String[] {"warn", "Ship with fixes", "Livrable avec corrections"};
+            default -> new String[] {"action", "Do not release", "Ne pas livrer"};   // FAIL
+        };
     }
 
     private String[] businessImpact(String sev) {
@@ -1145,11 +1122,10 @@ public class ContractReportRenderer {
                 + ".sev-pill{color:#fff;font-size:.7rem;font-weight:700;text-transform:uppercase;padding:2px 9px;border-radius:999px}"
                 + ".gate{display:inline-block;font-weight:700;font-size:.9rem;padding:.4rem .9rem;border-radius:8px;margin:.3rem 0}"
                 + ".gate-pass{background:#e6f4ea;color:#1E8E5A}.gate-fail{background:#fdecef;color:#C2122D}"
-                + ".gate-note{font-size:.82rem;color:#475069;margin:.15rem 0 .3rem;max-width:640px}"
+                + ".gate-warn{background:#fff4ec;color:#C2410C}"
                 + ".err-note{background:#fbf7ee;border:1px solid #ecdfc4;border-left:3px solid #b5852a;border-radius:0 8px 8px 0;padding:.6rem .85rem;margin:.6rem 0}"
                 + ".err-note-h{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:#8a6a1e;font-weight:700;margin-bottom:.3rem}"
                 + ".err-note-line{font-size:.85rem;color:#475069;margin:.12rem 0}"
-                + ".trend{font-size:.85rem;margin:.2rem 0}.trend-up{color:#1E8E5A}.trend-down{color:#C2122D}.trend-flat{color:#475069}"
                 + "table.actions{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e3e6eb;border-radius:10px;overflow:hidden}"
                 + "table.actions th,table.actions td{text-align:left;padding:8px 12px;font-size:.86rem;border-top:1px solid #eef1f5;vertical-align:top}"
                 + "table.actions thead th{background:#f1f3f6;color:#475069;font-size:.72rem;text-transform:uppercase;border-top:0}"
@@ -1184,7 +1160,6 @@ public class ContractReportRenderer {
                 + ".disp-by{color:#9aa1ae;margin-left:.3rem}"
                 + ".count{background:#1a1a2e;color:#fff;font-size:.72rem;border-radius:999px;padding:1px 9px;margin-left:6px}"
                 + ".needs-attention .ns-intro{font-size:.88rem;color:#475069}"
-                + ".review-status{font-size:.85rem;color:#475069;margin:.5rem 0 .2rem}.review-status #rev-count{font-weight:700;color:#1a1a2e}"
                 + ".review-tracker{display:flex;gap:1.1rem;align-items:center;flex-wrap:wrap;margin:.7rem 0 .4rem;font-size:.85rem;color:#475069}"
                 + ".rt-pill{display:inline-flex;align-items:center;gap:.35rem}.rt-pill b{font-size:1.05rem;font-weight:700}"
                 + ".rt-pill.acc b{color:#1E8E5A}.rt-pill.rej b{color:#C2122D}.rt-pill.pen b{color:#475069}"

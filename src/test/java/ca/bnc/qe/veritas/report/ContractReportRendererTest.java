@@ -36,32 +36,6 @@ class ContractReportRendererTest {
                 .build();
     }
 
-    @Test
-    void trendLine_alwaysRenders_deltaWhenPriorScore_elseNeutralNote_neverFalseFirstScanClaim() {
-        ContractReportRenderer renderer = new ContractReportRenderer();
-
-        // No prior score on record (fresh/reset/relocated DB, or a genuine first scan): the trend line STILL renders
-        // (a missing line reads as a regression) but must state ONLY what is true — nothing earlier is on record. It
-        // must NOT claim "first scan of this service": that is unprovable and was factually wrong on a re-scan whose
-        // history lived in another DB file (the regression a reviewer flagged). Regression guard below.
-        Scan first = new Scan();
-        first.setServiceName("ciam-policies");
-        first.setFidelityScore(89);
-        assertThat(renderer.renderHtml(first, List.of(richFinding())))
-                .contains("no earlier score on record")             // EN neutral note
-                .contains("aucun score antérieur enregistré")       // FR neutral note — bi() embeds BOTH languages
-                .doesNotContain("first scan")                       // never the false EN claim
-                .doesNotContain("première analyse de ce service");  // never the false FR claim
-
-        // With a prior score, the delta trend renders as before — and NOT the neutral no-record note.
-        Scan again = new Scan();
-        again.setServiceName("ciam-policies");
-        again.setFidelityScore(89);
-        again.setPreviousFidelityScore(89);
-        assertThat(renderer.renderHtml(again, List.of(richFinding())))
-                .contains("vs previous scan (was 89)")
-                .doesNotContain("no earlier score on record");
-    }
 
     @Test
     void codeEvidenceIsAClickableBitbucketLinkWhenRepoCoordsAndConnectionAreKnown() {
@@ -184,7 +158,7 @@ class ContractReportRendererTest {
         scan.setBlindSpots("Runtime-only routes not visible to static analysis");
         String html = new ContractReportRenderer().renderHtml(scan, List.of(richFinding()));
         // Management report: executive summary KPIs + reframed coverage section.
-        assertThat(html).contains("Executive summary").contains("Contract fidelity").contains("Recommended actions");
+        assertThat(html).contains("Executive summary").contains("Release gate").contains("Recommended actions");
         // Bottom-line verdict box: a one-glance release call with Action + Effort rows, bilingual.
         assertThat(html).contains("Bottom line").contains("En résumé").contains("Effort");
         // AI self-confidence is demoted to a clearly-labelled, plain-language footnote (not a top-line management KPI).
@@ -316,48 +290,31 @@ class ContractReportRendererTest {
     }
 
     @Test
-    void additiveOnlyDriftBelow90RendersProceedWithDocumentationFixes() {
+    void additiveOnlyDriftWarns_notFail() {
         Scan scan = new Scan();
         scan.setServiceName("ciam-policies");
-        // Two additive MAJORs (code returns fields the spec omits) → score 84 (<90) but nothing breaks a consumer.
+        // Two additive MAJORs (code returns fields the spec omits) — nothing breaks a consumer → WARN, not FAIL.
         Finding a = Finding.builder().findingId("a").type(FindingType.SCHEMA_FIELD_MISSING).layer(Layer.L4)
                 .severity(Severity.MAJOR).confidence(Confidence.HIGH).origin("DETERMINISTIC").service("ciam-policies")
                 .specSource("code-vs-spec").endpoint("GET /policies").summary("Field 'x' in code, missing from spec").build();
         Finding b = a.toBuilder().findingId("b").endpoint("GET /policies/{app}")
                 .summary("Field 'y' in code, missing from spec").build();
         String html = new ContractReportRenderer().renderHtml(scan, List.of(a, b));
-        assertThat(html).contains("Proceed — documentation fixes recommended")
-                .contains("0 release-blocking")
-                .doesNotContain("Hold for fixes");
+        assertThat(html).contains("Quality gate: WARN").contains("class=\"gate gate-warn\">")
+                .contains("Proceed — fixes recommended")
+                .doesNotContain("Do not release");
     }
 
     @Test
-    void additiveOnlyDriftBelow90RendersTheGateReconciliationNoteInBothLanguages() {
+    void aCleanScanPasses() {
         Scan scan = new Scan();
-        scan.setServiceName("ciam-policies");
-        Finding a = Finding.builder().findingId("a").type(FindingType.SCHEMA_FIELD_MISSING).layer(Layer.L4)
-                .severity(Severity.MAJOR).confidence(Confidence.HIGH).origin("DETERMINISTIC").service("ciam-policies")
-                .specSource("code-vs-spec").endpoint("GET /policies").summary("Field 'x' in code, missing from spec").build();
-        Finding b = a.toBuilder().findingId("b").endpoint("GET /policies/{app}")
-                .summary("Field 'y' in code, missing from spec").build();
-        String html = new ContractReportRenderer().renderHtml(scan, List.of(a, b));
-        // The gate still FAILS (below 90) — that assertion is unchanged — and a SEPARATE note reconciles it with Proceed.
-        assertThat(html).contains("Quality gate: FAIL").contains("class=\"gate gate-fail\">");
-        assertThat(html).contains("class=\"gate-note\">")
-                .contains("The quality gate measures documentation fidelity; release risk is assessed separately.")
-                .contains("Le seuil qualité mesure la fidélité de la documentation");
-    }
-
-    @Test
-    void gateReconciliationNoteAbsentOnAPassingScan() {
-        Scan scan = new Scan();
-        scan.setServiceName("ciam-policies");   // no findings -> score 100 -> gate PASS
+        scan.setServiceName("ciam-policies");   // no findings -> gate PASS
         String html = new ContractReportRenderer().renderHtml(scan, List.of());
-        assertThat(html).contains("Quality gate: PASS").doesNotContain("class=\"gate-note\">");
+        assertThat(html).contains("Quality gate: PASS").contains("class=\"gate gate-pass\">");
     }
 
     @Test
-    void aBreakingMajorBelow90StillRendersHoldForFixes() {
+    void aBreakingMajorFails() {
         Scan scan = new Scan();
         scan.setServiceName("ciam-policies");
         Finding breaking = Finding.builder().findingId("t").type(FindingType.SCHEMA_FIELD_TYPE_MISMATCH).layer(Layer.L4)
@@ -366,9 +323,9 @@ class ContractReportRendererTest {
         Finding additive = breaking.toBuilder().findingId("m").type(FindingType.SCHEMA_FIELD_MISSING)
                 .summary("Field 'y' in code, missing from spec").build();
         String html = new ContractReportRenderer().renderHtml(scan, List.of(breaking, additive));
-        assertThat(html).contains("Hold for fixes").doesNotContain("documentation fixes recommended");
-        // A breaking finding holds the release -> no gate-reconciliation note (that line is only for additive Proceed).
-        assertThat(html).doesNotContain("class=\"gate-note\">");
+        // A consumer-breaking change fails the gate outright — no "proceed".
+        assertThat(html).contains("Quality gate: FAIL").contains("class=\"gate gate-fail\">")
+                .contains("Do not release").doesNotContain("Proceed —");
     }
 
     @Test

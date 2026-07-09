@@ -61,23 +61,23 @@ describe('CSV export', () => {
     expect(csv).toBe('a,"b,c","he said ""hi"""\r\n1,plain,');
   });
 
-  it('builds the scorecard from the on-screen sources with grade + humanized verdict', () => {
+  it('builds the scorecard from the on-screen sources with the humanized release verdict', () => {
     const services = [{ name: 'ciam', scans: 4 } as ServiceSummary];
     const summary = new Map<string, ExecutiveServiceSummary>([
-      ['ciam', { service: 'ciam', fidelity: 84, delta: 6, breakingCount: 1, blockingCount: 0, releaseSafe: 'PASS', latestScanId: 's1' }],
+      ['ciam', { service: 'ciam', breakingCount: 1, blockingCount: 0, releaseSafe: 'PASS', latestScanId: 's1' }],
     ]);
     const latest = new Map<string, Scan>([['ciam', { coverageGaps: 0 } as Scan]]);
     const csv = buildScorecardCsv(t, services, summary, latest);
     const [header, row] = csv.split('\r\n');
     expect(header).toContain('Service');
-    expect(row).toBe('ciam,B,84,+6,PASS,full,0,4');   // grade B, +delta, PASS verdict, full visibility
+    expect(row).toBe('ciam,PASS,1,full,0,4');   // service, PASS verdict, breaking, full visibility, blocking, scans
   });
 
-  it('renders gaps + blanks for a service with no summary/score', () => {
+  it('renders gaps + blanks for a service with no summary/verdict', () => {
     const services = [{ name: 'x', scans: 0 } as ServiceSummary];
     const latest = new Map<string, Scan>([['x', { coverageGaps: 2 } as Scan]]);
     const csv = buildScorecardCsv(t, services, new Map(), latest);
-    expect(csv.split('\r\n')[1]).toBe('x,,,,,2 gaps,,0');
+    expect(csv.split('\r\n')[1]).toBe('x,,,2 gaps,,0');   // service, verdict, breaking, visibility, blocking, scans
   });
 
   it('downloadTrendCsv serializes a header row + one row per point, dated filename', () => {

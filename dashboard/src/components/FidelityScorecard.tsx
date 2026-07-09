@@ -1,76 +1,68 @@
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
-import { TrendingDown, TrendingUp } from 'lucide-react';
 import type { ExecutiveSummary } from '../api';
 import { Card, CardBody } from './ui';
 import { Tooltip } from './Tooltip';
-import { ScoreRing, scoreTextTone } from './charts';
 import { cn } from './cn';
 
-/** Letter grade — the language bank risk systems already speak (A>=90 tracks the release gate). */
-export function letterGrade(score: number): string {
-  if (score >= 90) return 'A';
-  if (score >= 80) return 'B';
-  if (score >= 70) return 'C';
-  if (score >= 60) return 'D';
-  return 'E';
-}
-
+/** Per-verdict chip styling — the language the release gate speaks. */
 const SAFE_CHIP: Record<string, string> = {
   PASS: 'bg-success/10 text-success ring-1 ring-success/30',
   WARN: 'bg-warning/10 text-warning ring-1 ring-warning/30',
   FAIL: 'bg-danger/10 text-danger ring-1 ring-danger/30',
 };
+/** The summary tile's ring/tint, keyed off the worst verdict in the portfolio. */
+const SAFE_TILE: Record<string, string> = {
+  PASS: 'bg-success/5 text-success ring-success/30',
+  WARN: 'bg-warning/5 text-warning ring-warning/30',
+  FAIL: 'bg-danger/5 text-danger ring-danger/30',
+};
 
 /**
- * The executive hero: the portfolio Contract Fidelity Score (mean of each service's LATEST completed scan —
- * never a mean over history, which would drag a deliberately-improving fleet down), its delta vs the previous
- * audits, the release-safe banner, and per-service chips deep-linking to the findings. Honesty sub-line shows
- * what the scans could NOT see (coverage gaps) so the number reads as earned, not asserted.
+ * The executive hero: the portfolio release gate. A categorical PASS/WARN/FAIL rollup across each service's LATEST
+ * completed scan — how many are release-safe, how many carry breaking changes — with per-service chips deep-linking
+ * to the findings. No composite score: the verdict is the number that matters. Honesty sub-line shows what the scans
+ * could NOT see (coverage gaps) so the verdict reads as earned, not asserted.
  */
 export function FidelityScorecard({ summary, coverageGaps }: { summary: ExecutiveSummary; coverageGaps: number }) {
   const { t } = useTranslation();
-  const scored = summary.perService.filter((s) => s.fidelity != null);
-  if (scored.length === 0) {
+  const svcs = summary.perService;
+  if (svcs.length === 0) {
     return null;
   }
-  const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
-  const portfolio = Math.round(mean(scored.map((s) => s.fidelity as number)));
-  // Delta = the mean change across ONLY the services that were re-audited (have a prior score). Averaging over
-  // all services would dilute a real move with the unchanged ones and misstate the trend.
-  const withDelta = scored.filter((s) => s.delta != null);
-  const delta = withDelta.length === 0 ? null : Math.round(mean(withDelta.map((s) => s.delta as number)));
-  const safe = summary.perService.filter((s) => s.releaseSafe === 'PASS').length;
+  const pass = svcs.filter((s) => s.releaseSafe === 'PASS').length;
+  const warn = svcs.filter((s) => s.releaseSafe === 'WARN').length;
+  const fail = svcs.filter((s) => s.releaseSafe === 'FAIL').length;
+  const totalBreaking = svcs.reduce((a, s) => a + (s.breakingCount ?? 0), 0);
+  // The portfolio headline takes the WORST verdict present — one failing service means the fleet needs attention.
+  const tone: 'PASS' | 'WARN' | 'FAIL' = fail > 0 ? 'FAIL' : warn > 0 ? 'WARN' : 'PASS';
 
   return (
     <Card className="h-full">
       <CardBody className="flex h-full flex-col gap-4 sm:flex-row sm:items-center">
-        <ScoreRing score={portfolio} ariaLabel={t('overview.heroAria')} centerLabel={t('overview.heroCenter')} />
+        {/* Release-safe tally tile — the categorical replacement for the old /100 ring. */}
+        <div className={cn('flex shrink-0 flex-col items-center justify-center rounded-2xl px-6 py-4 ring-1',
+          SAFE_TILE[tone])}>
+          <span className="text-stat font-bold tabular-nums leading-none">{pass}<span
+            className="text-lg font-semibold text-muted">/{svcs.length}</span></span>
+          <span className="mt-1 text-2xs font-semibold uppercase tracking-wide">{t('overview.releaseSafeShort')}</span>
+        </div>
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium uppercase tracking-wide text-muted">{t('overview.heroTitle')}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <span className={cn('text-lg font-semibold', scoreTextTone(portfolio))}>
-              {t('overview.heroGrade', { grade: letterGrade(portfolio) })}
-            </span>
-            {delta != null && delta !== 0 && (
-              <Tooltip label={t('overview.heroDeltaBasis', { count: withDelta.length })}>
-                <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-semibold',
-                  delta > 0 ? 'bg-success/10 text-success' : 'bg-danger/10 text-danger')}>
-                  {delta > 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                  {t('overview.heroDelta', { n: `${delta > 0 ? '+' : ''}${delta}` })}
-                </span>
-              </Tooltip>
-            )}
+          <p className="mt-1 text-lg font-semibold text-ink-900">{t(`overview.verdictHeadline.${tone}`)}</p>
+          {/* PASS / WARN / FAIL breakdown + breaking-change count. */}
+          <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-2xs font-semibold">
+            <span className="text-success">{t('overview.nPass', { n: pass })}</span>
+            <span className="text-warning">{t('overview.nWarn', { n: warn })}</span>
+            <span className="text-danger">{t('overview.nFail', { n: fail })}</span>
+            {totalBreaking > 0 && <span className="text-danger">· {t('overview.nBreaking', { n: totalBreaking })}</span>}
           </div>
-          <p className="mt-2 text-sm font-semibold text-ink-900">
-            {t('overview.releaseSafe', { safe, total: summary.perService.length })}
-          </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {summary.perService.map((s) => (
+            {svcs.map((s) => (
               <Tooltip key={s.service} label={t('overview.serviceChipTooltip', { service: s.service })}>
                 <Link to={`/findings/${s.latestScanId}`}
                   className={cn('rounded-full px-2 py-0.5 text-2xs font-medium hover:opacity-80', SAFE_CHIP[s.releaseSafe])}>
-                  {s.service}{s.fidelity != null ? ` · ${s.fidelity}` : ''}
+                  {s.service}
                 </Link>
               </Tooltip>
             ))}

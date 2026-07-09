@@ -26,20 +26,10 @@ export function downloadCsv(filename: string, text: string): void {
   URL.revokeObjectURL(url);
 }
 
-/** A service's grade letter from its fidelity score — mirrors FidelityScorecard.letterGrade (kept local to avoid a cycle). */
-function grade(score?: number | null): string {
-  if (score == null) return '';
-  if (score >= 90) return 'A';
-  if (score >= 80) return 'B';
-  if (score >= 70) return 'C';
-  if (score >= 60) return 'D';
-  return 'E';
-}
-
 /**
  * Build the per-service scorecard CSV from the same data the on-screen scorecard renders: the services list
- * (asset counts), the executive per-service summary (grade/delta/release-safe/blocking), and the latest
- * completed scan per service (visibility = coverage gaps). Headers are localized; the release-safe verdict is
+ * (asset counts), the executive per-service summary (release verdict / breaking / blocking), and the latest
+ * completed scan per service (visibility = coverage gaps). Headers are localized; the release verdict is
  * humanized. Returns the CSV text (caller downloads it).
  */
 export function buildScorecardCsv(
@@ -49,8 +39,8 @@ export function buildScorecardCsv(
   latestByService: Map<string, Scan>,
 ): string {
   const header = [
-    t('overview.csvService'), t('overview.csvGrade'), t('overview.csvScore'), t('overview.csvDelta'),
-    t('overview.csvReleaseSafe'), t('overview.csvVisibility'), t('overview.csvBlocking'), t('overview.csvScans'),
+    t('overview.csvService'), t('overview.csvReleaseSafe'), t('overview.csvBreaking'),
+    t('overview.csvVisibility'), t('overview.csvBlocking'), t('overview.csvScans'),
   ];
   const safeLabel = (v?: string) =>
     v ? t(`overview.csvSafe_${v}`, { defaultValue: v }) : '';
@@ -60,10 +50,8 @@ export function buildScorecardCsv(
     const gaps = latest?.coverageGaps;
     return [
       s.name,
-      grade(sum?.fidelity),
-      sum?.fidelity ?? '',
-      sum?.delta != null && sum.delta !== 0 ? `${sum.delta > 0 ? '+' : ''}${sum.delta}` : '',
       safeLabel(sum?.releaseSafe),
+      sum?.breakingCount ?? '',
       gaps == null ? '' : gaps === 0 ? t('overview.csvVisibilityFull') : t('overview.csvVisibilityGaps', { count: gaps }),
       sum?.blockingCount ?? '',
       s.scans || 0,

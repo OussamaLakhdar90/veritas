@@ -3,6 +3,7 @@ package ca.bnc.qe.veritas.contract;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.List;
+import ca.bnc.qe.veritas.config.GateProperties;
 import ca.bnc.qe.veritas.finding.Confidence;
 import ca.bnc.qe.veritas.finding.Finding;
 import ca.bnc.qe.veritas.finding.FindingType;
@@ -10,9 +11,14 @@ import ca.bnc.qe.veritas.finding.Layer;
 import ca.bnc.qe.veritas.finding.Severity;
 import org.junit.jupiter.api.Test;
 
-/** The one shared verdict: FAIL on blocking, PASS at/above the gate OR when all drift is additive,
- *  WARN when sub-gate findings would break a consumer. Mirrors the report's bottom line exactly. */
+/**
+ * The categorical release gate: FAIL on any consumer-breaking finding (or over the blocker/critical caps), WARN on
+ * non-breaking additive/documentation drift, PASS when clean. Configurable via {@link GateProperties}. Mirrors the
+ * report's bottom line exactly.
+ */
 class ReleaseVerdictTest {
+
+    private static final GateProperties GATE = new GateProperties();   // defaults: 0/0/0 (zero tolerance)
 
     private static Finding f(FindingType type, Severity sev) {
         return Finding.builder()
@@ -30,49 +36,55 @@ class ReleaseVerdictTest {
     }
 
     @Test
-    void blockingFindingFailsRegardlessOfScore() {
-        ReleaseVerdict v = ReleaseVerdict.of(List.of(f(FindingType.MISSING_ENDPOINT, Severity.CRITICAL)));
+    void aCriticalFindingFails() {
+        ReleaseVerdict v = ReleaseVerdict.of(List.of(f(FindingType.MISSING_ENDPOINT, Severity.CRITICAL)), GATE);
         assertThat(v.blocking()).isEqualTo(1);
         assertThat(v.releaseSafe()).isEqualTo("FAIL");
     }
 
     @Test
-    void subGateButAllAdditiveIsStillReleaseSafe() {
-        // 5 × MINOR (-3) = score 85 < 90, but every finding is documentation drift → PASS (PR #230 policy).
-        List<Finding> additive = List.of(
-                f(FindingType.SCHEMA_FIELD_MISSING, Severity.MINOR), f(FindingType.STATUS_CODE_MISSING, Severity.MINOR),
-                f(FindingType.SCHEMA_FIELD_MISSING, Severity.MINOR), f(FindingType.STATUS_CODE_MISSING, Severity.MINOR),
-                f(FindingType.PATH_VAR_NAME_MISMATCH, Severity.MINOR));
-        ReleaseVerdict v = ReleaseVerdict.of(additive);
-        assertThat(v.score()).isLessThan(90);
-        assertThat(v.allNonBreaking()).isTrue();
-        assertThat(v.releaseSafe()).isEqualTo("PASS");
+    void anySingleBreakingFindingFails() {
+        // A breaking MAJOR (a type mismatch changes the response shape) is semver-major → FAIL at the default caps.
+        ReleaseVerdict v = ReleaseVerdict.of(List.of(f(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, Severity.MAJOR)), GATE);
+        assertThat(v.breaking()).isEqualTo(1);
+        assertThat(v.releaseSafe()).isEqualTo("FAIL");
     }
 
     @Test
-    void subGateWithBreakingFindingsHolds() {
-        // 2 × MAJOR (-8) = 84 < 90 and the type mismatch breaks a consumer → WARN (hold for fixes).
-        ReleaseVerdict v = ReleaseVerdict.of(List.of(
-                f(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, Severity.MAJOR),
-                f(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, Severity.MAJOR)));
-        assertThat(v.score()).isLessThan(90);
-        assertThat(v.breaking()).isEqualTo(2);
+    void nonBreakingAdditiveDriftWarns() {
+        // Additive documentation drift (fields/status the code has beyond the spec) breaks no consumer → WARN, not FAIL.
+        List<Finding> additive = List.of(
+                f(FindingType.SCHEMA_FIELD_MISSING, Severity.MINOR),
+                f(FindingType.STATUS_CODE_MISSING, Severity.MINOR),
+                f(FindingType.PATH_VAR_NAME_MISMATCH, Severity.MINOR));
+        ReleaseVerdict v = ReleaseVerdict.of(additive, GATE);
+        assertThat(v.breaking()).isZero();
         assertThat(v.releaseSafe()).isEqualTo("WARN");
     }
 
     @Test
-    void atOrAboveTheGatePasses() {
-        ReleaseVerdict v = ReleaseVerdict.of(List.of(f(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, Severity.MAJOR)));
-        assertThat(v.score()).isGreaterThanOrEqualTo(90);
-        assertThat(v.releaseSafe()).isEqualTo("PASS");
+    void aCleanScanPasses() {
+        assertThat(ReleaseVerdict.of(List.of(), GATE).releaseSafe()).isEqualTo("PASS");
     }
 
     @Test
     void disputedFindingsAreExcludedFromGatingButCounted() {
         Finding disputed = f(FindingType.MISSING_ENDPOINT, Severity.CRITICAL).toBuilder().aiDisputed(true).build();
-        ReleaseVerdict v = ReleaseVerdict.of(List.of(disputed));
+        ReleaseVerdict v = ReleaseVerdict.of(List.of(disputed), GATE);
         assertThat(v.blocking()).isZero();          // needs-attention → excluded from the gate
         assertThat(v.aiDisputed()).isEqualTo(1);    // …but surfaced honestly
         assertThat(v.releaseSafe()).isEqualTo("PASS");
+    }
+
+    @Test
+    void thresholdsAreConfigurable() {
+        // Raising max-breaking to 1 downgrades a single breaking finding from FAIL to WARN — the gate is a policy,
+        // an auditable threshold, not a magic number.
+        GateProperties lenient = new GateProperties();
+        lenient.setMaxBreaking(1);
+        ReleaseVerdict v = ReleaseVerdict.of(
+                List.of(f(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, Severity.MAJOR)), lenient);
+        assertThat(v.breaking()).isEqualTo(1);
+        assertThat(v.releaseSafe()).isEqualTo("WARN");
     }
 }

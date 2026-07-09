@@ -106,6 +106,33 @@ named `application-tests`), and `framework.default-reviewers`. The four `framewo
 `framework.*-version-property` names are also overridable if your naming differs — the local reactor build is the
 safety net if any name is wrong (a bad name blocks the PRs rather than shipping a broken bump).
 
+## Release quality gate (`veritas.gate.*`)
+
+Each contract scan gets a categorical **PASS / WARN / FAIL** verdict — the same `ReleaseVerdict` the HTML report
+and the executive dashboard show. It is **not** a composite score: it thresholds on the **counts** of *counted*
+findings (AI-disputed, low-confidence and design-quality findings are excluded from gating, exactly as before).
+
+| Verdict | Meaning |
+|---|---|
+| **FAIL** | at least one finding would break a running consumer (or a blocker/critical cap is exceeded) — *do not release* |
+| **WARN** | no breaking changes, but additive/documentation drift remains — *ship with fixes recommended* |
+| **PASS** | clean (or advisory-only) |
+
+Thresholds are an explicit, auditable policy — tune them per team:
+
+| Property | Default | FAILs the gate when the counted… |
+|---|---|---|
+| `veritas.gate.max-blocker` | `0` | BLOCKER count exceeds it (an unparseable / unresolvable spec) |
+| `veritas.gate.max-critical` | `0` | CRITICAL count exceeds it (endpoint-level or security-contract break — OWASP API1/2/5) |
+| `veritas.gate.max-breaking` | `0` | consumer-breaking count exceeds it (any severity; the `DiffEngine.isBreaking` set — semver-major) |
+
+**Why counts, not a score.** The gate follows established release-gating practice — SonarQube-style per-severity
+quality-gate *conditions*, oasdiff/openapi-diff breaking-change classification, OWASP API-security severity, and
+semver backward-compatibility — rather than a weighted 0–100 composite (which has no calibrated basis and saturates).
+Additive drift the engine deems release-safe (a field the code returns beyond the spec, an undocumented status) is
+non-breaking and never trips a FAIL. Raise `max-breaking` to `1+` to let a bounded number of breaking findings pass
+as WARN instead of FAIL.
+
 ## Datasource — local SQLite → server Postgres
 
 Default (no profile) uses an embedded **SQLite** file (`veritas.db`) — zero-setup for local runs. For a

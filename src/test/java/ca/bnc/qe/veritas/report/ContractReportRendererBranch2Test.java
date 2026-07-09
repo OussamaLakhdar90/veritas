@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
 import java.util.List;
+import ca.bnc.qe.veritas.config.GateProperties;
 import ca.bnc.qe.veritas.engine.model.SourceRef;
 import ca.bnc.qe.veritas.finding.Confidence;
 import ca.bnc.qe.veritas.finding.Finding;
@@ -54,9 +55,8 @@ class ContractReportRendererBranch2Test {
         // DETERMINISTIC + HIGH conf + null type -> NOT needs-attention, so it is counted.
         Finding f = counted(null, Severity.MAJOR).findingId("null-type").build();
         String html = renderer.renderHtml(scan("svc"), List.of(f));
-        // It is scored (one MAJOR -8 -> 92) and shows under §4.2 Contract mismatches, not 4.1/4.3.
-        assertThat(html).contains("92/100")
-                .contains("4.2 Contract mismatches")
+        // It is counted and shows under §4.2 Contract mismatches, not 4.1/4.3.
+        assertThat(html).contains("4.2 Contract mismatches")
                 .contains("Correct the 1 mismatch(es)")
                 .doesNotContain("4.1 Missing from the specification")
                 .doesNotContain("4.3 Dead spec (documented, not in code)");
@@ -172,8 +172,8 @@ class ContractReportRendererBranch2Test {
         assertThat(html).contains("id=\"rt-acc\">0</b>")
                 .contains("id=\"rt-rej\">2</b>")
                 .contains("id=\"rt-pen\">0</b>");
-        // None are counted -> perfect score.
-        assertThat(html).contains("100/100");
+        // None are counted -> clean gate.
+        assertThat(html).contains("Quality gate: PASS");
     }
 
     // ---- L598: exactly one DEAD finding uses the singular "stale entry" copy ------------------------------
@@ -228,19 +228,123 @@ class ContractReportRendererBranch2Test {
         assertThat(new String(pdf, 0, 4)).isEqualTo("%PDF");
     }
 
-    // ---- bonus: blocking summary uses singular "release-blocking item" for exactly one blocker -----------
+    // ---- bonus: action summary uses singular "consumer-breaking change" for exactly one breaking finding --
 
     @Test
-    void singleBlockerUsesSingularReleaseBlockingItemCopy() {
-        // blocking == 1 -> bottomLine's "fix 1 release-blocking item" (singular), distinct from the plural form the
-        // first suite asserts via three blockers.
+    void singleBreakingChangeUsesSingularCopy() {
+        // breaking == 1 -> bottomLine renders breaking as a SUBSET qualifier with singular copy ("is"/"it"), not as a
+        // separate double-counted list item.
         Finding blocker = counted(FindingType.MISSING_ENDPOINT, Severity.BLOCKER).findingId("oneblocker").build();
         String html = renderer.renderHtml(scan("svc"), List.of(blocker));
-        // The blocking clause leads the joined action string, so capFirst() yields "Fix 1 release-blocking item first".
-        assertThat(html).contains("Fix 1 release-blocking item first")
-                .doesNotContain("release-blocking items");
-        // One BLOCKER -> -25 -> 75/100, and the verdict is "Do not release".
-        assertThat(html).contains("75/100").contains("Do not release");
+        assertThat(html).contains("1 of these is consumer-breaking — fix it first")
+                .doesNotContain("are consumer-breaking");
+        // A BLOCKER breaks a running consumer -> the verdict is "Do not release".
+        assertThat(html).contains("Do not release");
+    }
+
+    // ---- raised gate caps: a WARN/PASS scan can still carry breaking findings -> the copy must be honest ---
+
+    @Test
+    void raisedBreakingCapRendersWarnWithRealBreakingCountAndPluralAction() {
+        // A gate that tolerates breaking findings turns a 2-breaking scan into WARN (not FAIL). The gate line must
+        // report the real breaking count (never "no breaking changes"), the Action uses the PLURAL qualifier, and the
+        // "additive documentation / safe to release" note is suppressed (breaking != 0).
+        GateProperties gate = new GateProperties();
+        gate.setMaxBreaking(5);
+        ContractReportRenderer r = new ContractReportRenderer(null, null, gate);
+        List<Finding> findings = List.of(
+                counted(FindingType.PARAM_TYPE_MISMATCH, Severity.MAJOR).findingId("b1").endpoint("GET /a").build(),
+                counted(FindingType.PARAM_TYPE_MISMATCH, Severity.MAJOR).findingId("b2").endpoint("GET /b").build());
+        String html = r.renderHtml(scan("svc"), findings);
+        assertThat(html)
+                .contains("Quality gate: WARN — 2 breaking change(s) within the configured cap")
+                .contains("2 of these are consumer-breaking — fix those first")
+                .doesNotContain("no breaking changes")
+                .doesNotContain("Safe to release");
+    }
+
+    @Test
+    void raisedCapsRenderPassWithABreakingChangeStillAcknowledged() {
+        // Critical + breaking caps raised -> a lone CRITICAL breaking finding (no MAJOR/MINOR drift) lands on PASS;
+        // the gate line must acknowledge the breaking change is within the cap, not assert "no breaking changes".
+        GateProperties gate = new GateProperties();
+        gate.setMaxCritical(1);
+        gate.setMaxBreaking(1);
+        ContractReportRenderer r = new ContractReportRenderer(null, null, gate);
+        Finding f = counted(FindingType.MISSING_ENDPOINT, Severity.CRITICAL).findingId("crit1").build();
+        String html = r.renderHtml(scan("svc"), List.of(f));
+        assertThat(html).contains("Quality gate: PASS — 1 breaking change(s) within the configured cap");
+    }
+
+    // ---- bottomLine: empty/disputed, large effort band + plural buckets, manual-review dispositions --------
+
+    @Test
+    void onlyDisputedFindingsShowNoActionNeededPlusTheDisputeNote() {
+        // A lone AI-disputed finding is needs-attention -> excluded from the counted set (total == 0 -> "No action
+        // needed") but still surfaces the "AI flagged N as a possible false positive" note (disputed > 0). LOW
+        // confidence + L5 layer exercise those plain-language label arms while it renders in §6.
+        Finding disputed = counted(FindingType.SCHEMA_FIELD_TYPE_MISMATCH, Severity.MAJOR)
+                .findingId("disp").confidence(Confidence.LOW).layer(Layer.L5).aiDisputed(true)
+                .aiDisputeReason("Likely a documented convention, not a defect.").build();
+        String html = renderer.renderHtml(scan("svc"), List.of(disputed));
+        assertThat(html)
+                .contains("No action needed")
+                .contains("flagged by the AI as a possible false positive");
+    }
+
+    @Test
+    void aLargeDiverseFindingSetUsesTheLargeEffortBandAndPluralBucketCopy() {
+        // 9 counted findings across all three buckets -> total > 8 ("large" effort band) with plural copy in each
+        // bucket; a MEDIUM-confidence finding + L2/L3 layers exercise the remaining label arms.
+        java.util.List<Finding> findings = new java.util.ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            findings.add(counted(FindingType.MISSING_ENDPOINT, Severity.CRITICAL)
+                    .findingId("m" + i).endpoint("GET /m" + i).layer(Layer.L2).build());
+            findings.add(counted(FindingType.PARAM_TYPE_MISMATCH, Severity.MAJOR)
+                    .findingId("w" + i).endpoint("GET /w" + i).confidence(Confidence.MEDIUM).build());
+            findings.add(counted(FindingType.EXTRA_ENDPOINT, Severity.MINOR)
+                    .findingId("d" + i).endpoint("GET /d" + i).layer(Layer.L3).build());
+        }
+        String html = renderer.renderHtml(scan("svc"), findings);
+        assertThat(html)
+                .contains("large effort")
+                .contains("mismatches")       // wrong bucket plural
+                .contains("stale entr");      // dead bucket plural ("stale entries")
+    }
+
+    @Test
+    void acceptedAndRejectedManualReviewFindingsRenderWithoutError() {
+        // Two needs-attention (LOW-confidence) findings in §6 with ACCEPTED / REJECTED dispositions exercise the
+        // isAccepted / isRejected card-state branches during rendering.
+        Finding accepted = counted(FindingType.DESIGN_QUALITY, Severity.INFO)
+                .findingId("acc").confidence(Confidence.LOW).layer(Layer.L6).status("ACCEPTED").build();
+        Finding rejected = counted(FindingType.DESIGN_QUALITY, Severity.INFO)
+                .findingId("rej").confidence(Confidence.LOW).layer(Layer.L6).status("REJECTED")
+                .endpoint("GET /y").build();
+        String html = renderer.renderHtml(scan("svc"), List.of(accepted, rejected));
+        assertThat(html).isNotEmpty().contains("svc");
+    }
+
+    @Test
+    void undocumentedErrorStatusesFromAdviceAreSurfacedInTheErrorNote() {
+        // Needs-attention (LOW-confidence, DETERMINISTIC) STATUS_CODE_MISSING findings whose summary names an HTTP
+        // status roll up into the "undocumented error responses" note: 404 across two endpoints (plural), 500 on one
+        // (singular), and a summary with no status is skipped (defensive !find branch).
+        String html = renderer.renderHtml(scan("svc"), List.of(
+                adviceStatus("e404a", "The controller can return 404 when the policy is absent.", "GET /a"),
+                adviceStatus("e404b", "A 404 is thrown by the service layer here.", "GET /b"),
+                adviceStatus("e500", "This path can surface a 500 from the handler.", "GET /c"),
+                adviceStatus("nostat", "An error can occur but no code is named.", "GET /d")));
+        assertThat(html)
+                .contains("Undocumented error responses")
+                .contains("HTTP 404")
+                .contains("HTTP 500");
+    }
+
+    private Finding adviceStatus(String id, String summary, String endpoint) {
+        return Finding.builder().findingId(id).type(FindingType.STATUS_CODE_MISSING).layer(Layer.L4)
+                .severity(Severity.MAJOR).confidence(Confidence.LOW).origin("DETERMINISTIC")
+                .service("svc").endpoint(endpoint).specSource("code-vs-spec").summary(summary).build();
     }
 
     // ---- bonus: a reviewedAt-bearing disposition formats the UTC timestamp -------------------------------

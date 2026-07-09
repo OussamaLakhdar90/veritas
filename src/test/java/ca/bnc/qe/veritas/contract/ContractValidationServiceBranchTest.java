@@ -315,9 +315,10 @@ class ContractValidationServiceBranchTest {
         assertThat(fid.isAiDisputed()).isTrue();
         assertThat(fid.getAiDisputeReason()).contains("ControllerAdvice");
         assertThat(fid.getSeverity()).isEqualTo(Severity.BLOCKER);   // severity is NEVER altered — a human can overturn
-        // It is still listed (not deleted) but moved out of the score + release gate.
-        assertThat(ca.bnc.qe.veritas.report.FidelityScore.isNeedsAttention(fid)).isTrue();
-        assertThat(scanCap.getValue().getFidelityScore()).isEqualTo(100);   // a disputed BLOCKER costs no penalty
+        // It is still listed (not deleted) but moved out of the release gate.
+        assertThat(ca.bnc.qe.veritas.finding.CountedFindings.isNeedsAttention(fid)).isTrue();
+        assertThat(scanCap.getValue().getReleaseSafe()).isEqualTo("PASS");   // a disputed BLOCKER doesn't gate
+        assertThat(scanCap.getValue().getBlockingCount()).isZero();
     }
 
     @Test
@@ -343,7 +344,8 @@ class ContractValidationServiceBranchTest {
 
         Finding fid = findCap.getValue().stream().filter(f -> "FID".equals(f.getFindingId())).findFirst().orElseThrow();
         assertThat(fid.isAiDisputed()).isFalse();                          // unknown id never honoured
-        assertThat(scanCap.getValue().getFidelityScore()).isEqualTo(75);   // the BLOCKER still counts: 100 - 25
+        assertThat(scanCap.getValue().getReleaseSafe()).isEqualTo("FAIL");  // the BLOCKER still gates
+        assertThat(scanCap.getValue().getBlockingCount()).isEqualTo(1);
     }
 
     @Test
@@ -712,130 +714,6 @@ class ContractValidationServiceBranchTest {
         assertThat(scanCap.getValue().getTranslationsJson()).contains("une lacune");
     }
 
-    @Test
-    void previousFidelityScore_isCarriedFromTheMostRecentPriorScanOfSameService() {
-        Scan prior = new Scan();
-        prior.setServiceName("svc");
-        prior.setFidelityScore(84);
-        // a different id from the current scan so it isn't filtered out as self
-        try {
-            Field idField = ca.bnc.qe.veritas.persistence.AuditableEntity.class.getDeclaredField("id");
-            idField.setAccessible(true);
-            idField.set(prior, "prior-id");
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        when(scanRepo.findAllByOrderByStartedAtDesc()).thenReturn(List.of(prior));
-        when(diffEngine.l1FromMessages(anyString(), any())).thenReturn(List.of());
-        when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(List.of());
-        when(openApi.extract(eq("repo-spec"), anyString()))
-                .thenReturn(new SpecParse(specModel("repo-spec"), List.of(), true));
-
-        org.mockito.ArgumentCaptor<Scan> scanCap = org.mockito.ArgumentCaptor.forClass(Scan.class);
-        svc.validate(req(false, new SpecInput("repo-spec", "spec-yaml")));
-        verify(scanPersistence).complete(scanCap.capture(), any(), any());
-
-        assertThat(scanCap.getValue().getPreviousFidelityScore()).isEqualTo(84);
-    }
-
-    @Test
-    void previousFidelityScore_matchesPriorScan_despiteWhitespaceAndCaseDifferenceInServiceName() {
-        // Regression: the prior scan's service name differs from the current request's only by casing + surrounding
-        // whitespace ("  SVC  " vs "svc"). A prior exact-equals match dropped the history here, resetting the Trend
-        // line to "no earlier score" across builds. The normalized (trim + case-insensitive) match must still find it.
-        Scan prior = new Scan();
-        prior.setServiceName("  SVC  ");
-        prior.setFidelityScore(84);
-        try {
-            Field idField = ca.bnc.qe.veritas.persistence.AuditableEntity.class.getDeclaredField("id");
-            idField.setAccessible(true);
-            idField.set(prior, "prior-id");
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        when(scanRepo.findAllByOrderByStartedAtDesc()).thenReturn(List.of(prior));
-        when(diffEngine.l1FromMessages(anyString(), any())).thenReturn(List.of());
-        when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(List.of());
-        when(openApi.extract(eq("repo-spec"), anyString()))
-                .thenReturn(new SpecParse(specModel("repo-spec"), List.of(), true));
-
-        org.mockito.ArgumentCaptor<Scan> scanCap = org.mockito.ArgumentCaptor.forClass(Scan.class);
-        svc.validate(req(false, new SpecInput("repo-spec", "spec-yaml")));   // req(...) serviceName == "svc"
-        verify(scanPersistence).complete(scanCap.capture(), any(), any());
-
-        assertThat(scanCap.getValue().getPreviousFidelityScore()).isEqualTo(84);
-    }
-
-    @Test
-    void previousFidelityScore_picksMostRecentPriorDeterministically_regardlessOfListOrder() {
-        // Two prior scans of the same service; the NEWEST by startedAt must win, not whichever the list returns
-        // first (guards the deterministic max(startedAt, id) selection against startedAt-tie / ordering hazards).
-        Scan older = priorScan("p-old", "svc", 70, "2026-07-05T10:00:00Z");
-        Scan newer = priorScan("p-new", "svc", 84, "2026-07-05T11:00:00Z");
-        // Returned oldest-first on purpose — the code must sort by startedAt, not trust list position.
-        when(scanRepo.findAllByOrderByStartedAtDesc()).thenReturn(List.of(older, newer));
-        stubCleanDiffAndSpec();
-
-        org.mockito.ArgumentCaptor<Scan> cap = org.mockito.ArgumentCaptor.forClass(Scan.class);
-        svc.validate(req(false, new SpecInput("repo-spec", "spec-yaml")));
-        verify(scanPersistence).complete(cap.capture(), any(), any());
-        assertThat(cap.getValue().getPreviousFidelityScore()).isEqualTo(84);
-    }
-
-    @Test
-    void previousFidelityScore_skipsPriorScansThatHaveNoScore() {
-        // The most-recent prior has no fidelity score (e.g. an older/failed row): it must be skipped, and the trend
-        // falls back to the most recent SCORED prior — never left null when a scored prior exists.
-        Scan newerUnscored = priorScan("p-null", "svc", null, "2026-07-05T12:00:00Z");
-        Scan olderScored = priorScan("p-84", "svc", 84, "2026-07-05T09:00:00Z");
-        when(scanRepo.findAllByOrderByStartedAtDesc()).thenReturn(List.of(newerUnscored, olderScored));
-        stubCleanDiffAndSpec();
-
-        org.mockito.ArgumentCaptor<Scan> cap = org.mockito.ArgumentCaptor.forClass(Scan.class);
-        svc.validate(req(false, new SpecInput("repo-spec", "spec-yaml")));
-        verify(scanPersistence).complete(cap.capture(), any(), any());
-        assertThat(cap.getValue().getPreviousFidelityScore()).isEqualTo(84);
-    }
-
-    @Test
-    void previousFidelityScore_isNullWhenNoPriorScanMatchesTheService() {
-        // A prior scan exists but for a DIFFERENT service — it must not be borrowed. previousFidelityScore stays
-        // null, and the report then renders the honest "no earlier score on record" note (never a false trend).
-        Scan otherService = priorScan("p-other", "some-other-service", 99, "2026-07-05T10:00:00Z");
-        when(scanRepo.findAllByOrderByStartedAtDesc()).thenReturn(List.of(otherService));
-        stubCleanDiffAndSpec();
-
-        org.mockito.ArgumentCaptor<Scan> cap = org.mockito.ArgumentCaptor.forClass(Scan.class);
-        svc.validate(req(false, new SpecInput("repo-spec", "spec-yaml")));
-        verify(scanPersistence).complete(cap.capture(), any(), any());
-        assertThat(cap.getValue().getPreviousFidelityScore()).isNull();
-    }
-
-    /** Build a prior Scan row with a fixed id (reflection), service name, optional score and startedAt. */
-    private static Scan priorScan(String id, String serviceName, Integer fidelityScore, String startedAtIso) {
-        Scan s = new Scan();
-        s.setServiceName(serviceName);
-        s.setFidelityScore(fidelityScore);
-        if (startedAtIso != null) {
-            s.setStartedAt(java.time.Instant.parse(startedAtIso));
-        }
-        try {
-            Field idField = ca.bnc.qe.veritas.persistence.AuditableEntity.class.getDeclaredField("id");
-            idField.setAccessible(true);
-            idField.set(s, id);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        return s;
-    }
-
-    /** Empty diff + a valid parsed spec so validate() reaches the trend lookup with no findings. */
-    private void stubCleanDiffAndSpec() {
-        when(diffEngine.l1FromMessages(anyString(), any())).thenReturn(List.of());
-        when(diffEngine.diffCodeVsSpec(any(), any())).thenReturn(List.of());
-        when(openApi.extract(eq("repo-spec"), anyString()))
-                .thenReturn(new SpecParse(specModel("repo-spec"), List.of(), true));
-    }
 
     @Test
     void largeFindingSet_isBatchedAcrossMultipleLlmCalls_andBlindSpotNotesTheBatching() throws Exception {

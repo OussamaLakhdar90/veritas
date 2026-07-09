@@ -154,7 +154,7 @@ describe('Glossary', () => {
   it('renders the report-metric terms', () => {
     renderPage(<Glossary />)
 
-    expect(screen.getByText('Contract fidelity')).toBeInTheDocument()
+    expect(screen.getByText('Release quality gate')).toBeInTheDocument()
     expect(screen.getByText('Analysis coverage')).toBeInTheDocument()
     expect(screen.getByText('Est. analysis cost')).toBeInTheDocument()
   })

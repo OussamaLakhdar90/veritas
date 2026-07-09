@@ -77,6 +77,7 @@ public class ContractValidationService {
     private final CostRecorder costRecorder;
     private final PromptComposer promptComposer;
     private final ContractReportRenderer reportRenderer;
+    private final ca.bnc.qe.veritas.config.GateProperties gate;
     private final ScanRepository scanRepository;
     private final FindingRecordRepository findingRepository;
     private final ObjectMapper objectMapper;
@@ -96,6 +97,7 @@ public class ContractValidationService {
     @org.springframework.beans.factory.annotation.Value("${veritas.report.bilingual:true}")
     private boolean bilingualReport;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public ContractValidationService(JavaSpringExtractor javaSpringExtractor,
                                      OpenApiModelExtractor openApiModelExtractor,
                                      CorrectedSpecBuilder correctedSpecBuilder,
@@ -107,6 +109,7 @@ public class ContractValidationService {
                                      CostRecorder costRecorder,
                                      PromptComposer promptComposer,
                                      ContractReportRenderer reportRenderer,
+                                     ca.bnc.qe.veritas.config.GateProperties gate,
                                      ScanRepository scanRepository,
                                      FindingRecordRepository findingRepository,
                                      ObjectMapper objectMapper,
@@ -125,6 +128,7 @@ public class ContractValidationService {
         this.costRecorder = costRecorder;
         this.promptComposer = promptComposer;
         this.reportRenderer = reportRenderer;
+        this.gate = gate == null ? new ca.bnc.qe.veritas.config.GateProperties() : gate;
         this.scanRepository = scanRepository;
         this.findingRepository = findingRepository;
         this.objectMapper = objectMapper;
@@ -132,6 +136,23 @@ public class ContractValidationService {
         this.scanPersistence = scanPersistence;
         this.translationService = translationService;
         this.callContext = callContext;
+    }
+
+    /** Test-convenience constructor — defaults the release-gate thresholds (0/0/0). */
+    public ContractValidationService(JavaSpringExtractor javaSpringExtractor,
+                                     OpenApiModelExtractor openApiModelExtractor,
+                                     CorrectedSpecBuilder correctedSpecBuilder, DiffEngine diffEngine, LlmGateway llm,
+                                     JsonBlockExtractor jsonExtractor, ResponseSchemaValidator schemaValidator,
+                                     ModelSelector modelSelector, CostRecorder costRecorder,
+                                     PromptComposer promptComposer, ContractReportRenderer reportRenderer,
+                                     ScanRepository scanRepository, FindingRecordRepository findingRepository,
+                                     ObjectMapper objectMapper, Preflight preflight, ScanPersistence scanPersistence,
+                                     ca.bnc.qe.veritas.report.TranslationService translationService,
+                                     ca.bnc.qe.veritas.llm.LlmCallContext callContext) {
+        this(javaSpringExtractor, openApiModelExtractor, correctedSpecBuilder, diffEngine, llm, jsonExtractor,
+                schemaValidator, modelSelector, costRecorder, promptComposer, reportRenderer,
+                new ca.bnc.qe.veritas.config.GateProperties(), scanRepository, findingRepository, objectMapper,
+                preflight, scanPersistence, translationService, callContext);
     }
 
     /** Synchronous entry (CLI/tests): create the scan row, then run the pipeline on the current thread. */
@@ -345,23 +366,12 @@ public class ContractValidationService {
 
             scan.setTotalFindings(findings.size());
 
-            // Contract Fidelity Score + trend vs the previous scan of this service (deterministic, management KPI).
-            final Scan current = scan;
-            current.setFidelityScore(ca.bnc.qe.veritas.report.FidelityScore.of(findings));
-            final String svcName = req.serviceName() == null ? null : req.serviceName().trim();
-            if (svcName != null && !svcName.isEmpty()) {
-                // Match the prior scan on a NORMALIZED service name (trim + case-insensitive) so history is not lost
-                // when the name differs only by whitespace/casing across builds, and pick the most recent qualifying
-                // prior DETERMINISTICALLY (newest startedAt, ties broken by id) so the trend is stable run-to-run.
-                scanRepository.findAllByOrderByStartedAtDesc().stream()
-                        .filter(s -> s.getServiceName() != null && svcName.equalsIgnoreCase(s.getServiceName().trim()))
-                        .filter(s -> s.getFidelityScore() != null && !s.getId().equals(current.getId()))
-                        .max(java.util.Comparator
-                                .comparing(Scan::getStartedAt,
-                                        java.util.Comparator.nullsFirst(java.util.Comparator.naturalOrder()))
-                                .thenComparing(s -> s.getId() == null ? "" : s.getId()))
-                        .ifPresent(prev -> current.setPreviousFidelityScore(prev.getFidelityScore()));
-            }
+            // Release quality gate (deterministic, severity-count based) — the SAME ReleaseVerdict the report +
+            // executive dashboard compute, persisted per-scan so a scan row / live reveal shows the same verdict.
+            ReleaseVerdict verdict = ReleaseVerdict.of(findings, gate);
+            scan.setReleaseSafe(verdict.releaseSafe());
+            scan.setBlockingCount((int) verdict.blocking());
+            scan.setBreakingCount((int) verdict.breaking());
 
             // Report generation is deterministic; the ONLY LLM use here is translating the dynamic strings to
             // French on the cheapest tier (TranslationService). Non-fatal — falls back to English.
@@ -416,8 +426,8 @@ public class ContractValidationService {
             scan.setFinishedAt(Instant.now());
             // Atomic: the findings and the COMPLETED scan are written together (one transaction).
             scanPersistence.complete(scan, findings, enrich);
-            log.info("Scan {} [{}] → DONE — {} finding(s), fidelity {}/100",
-                    scan.getId(), scan.getServiceName(), findings.size(), scan.getFidelityScore());
+            log.info("Scan {} [{}] → DONE — {} finding(s), release gate {}",
+                    scan.getId(), scan.getServiceName(), findings.size(), scan.getReleaseSafe());
 
             return new ValidationResult(scan.getId(), scan.getStatus().name(), findings.size(),
                     bySeverity(findings), reportPath, reportPdfPath, correctedYamlPath, scan.getTotalEstCostUsd());
@@ -1142,7 +1152,7 @@ public class ContractValidationService {
             // never a design/LLM/low-confidence item (already not counted), and never an escalation. Severity is
             // left intact; the finding stays listed. This is the only place a dispute takes effect.
             boolean dispute = disputeReason != null && "DETERMINISTIC".equalsIgnoreCase(nzs(f.getOrigin()))
-                    && !ca.bnc.qe.veritas.report.FidelityScore.isNeedsAttention(f);
+                    && !ca.bnc.qe.veritas.finding.CountedFindings.isNeedsAttention(f);
             if (e == null && !dispute) {
                 return f;
             }

@@ -247,29 +247,6 @@ describe('Dashboard', () => {
     expect(screen.getByRole('alert')).toBeInTheDocument()
   })
 
-  it('renders the fidelity score-history chart from the /summary/fidelity-trend series', async () => {
-    stub({ scans: [scan({ id: 's1', serviceName: 'alpha', fidelityScore: 60 })] })
-    // A proper daily-bucket series from the backend (not replayed client-side): a rising portfolio mean.
-    server.use(http.get('*/api/v1/summary/fidelity-trend', () => HttpResponse.json([
-      { date: '2026-06-24', value: 70 },
-      { date: '2026-06-25', value: 82 },
-    ])))
-    renderDashboard()
-
-    // The chart card only draws once the backend returns ≥2 points; its title + subtitle confirm the wiring.
-    expect(await screen.findByText('Portfolio fidelity over time')).toBeInTheDocument()
-  })
-
-  it('hides the fidelity score-history chart when the trend series is too short', async () => {
-    stub({ scans: [scan({ id: 's1', serviceName: 'alpha', fidelityScore: 60 })] })
-    server.use(http.get('*/api/v1/summary/fidelity-trend', () => HttpResponse.json([
-      { date: '2026-06-25', value: 82 },
-    ])))
-    renderDashboard()
-
-    await screen.findByRole('table')
-    expect(screen.queryByText('Portfolio fidelity over time')).not.toBeInTheDocument()
-  })
 
   it('falls back to summing scan costs when costs/summary errors', async () => {
     server.use(

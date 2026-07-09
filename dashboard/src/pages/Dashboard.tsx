@@ -9,7 +9,7 @@ import type { KpiTrend } from '../components/ui';
 import { Donut, Gauge, TrendChart, severitySlices, SEV_SWATCH } from '../components/charts';
 import { SnykImpactCard } from '../components/SnykImpact';
 import { SnykAlertBanner } from '../components/SnykAlertBanner';
-import { FidelityScorecard, letterGrade } from '../components/FidelityScorecard';
+import { FidelityScorecard } from '../components/FidelityScorecard';
 import { ValueStrip } from '../components/ValueStrip';
 import { LiveScanRow } from '../components/LiveScanRow';
 import { PrecisionStrip } from '../components/PrecisionStrip';
@@ -39,11 +39,13 @@ function weeklyDelta(series: number[]): number | null {
   return Math.round((last7 - prev7) * 100) / 100;
 }
 
-/** Fidelity pill for a scan row — letter grade + score in the threshold tone. */
-function ScorePill({ score }: { score?: number | null }) {
-  if (score == null) return <span className="text-muted">—</span>;
-  const tone = score >= 90 ? TONE.ok : score >= 70 ? TONE.warn : TONE.danger;
-  return <Badge className={tone}>{letterGrade(score)} · {score}</Badge>;
+const VERDICT_TONE: Record<string, string> = { PASS: TONE.ok, WARN: TONE.warn, FAIL: TONE.danger };
+
+/** Release-gate verdict badge for a scan/service row — PASS / WARN / FAIL. */
+function VerdictBadge({ verdict }: { verdict?: string | null }) {
+  const { t } = useTranslation();
+  if (verdict == null) return <span className="text-muted">—</span>;
+  return <Badge className={VERDICT_TONE[verdict] ?? TONE.muted}>{t(`overview.verdict.${verdict}`, verdict)}</Badge>;
 }
 
 /** The trend-card time ranges, in days. 30 is the default (matches the historical sparkline window). */
@@ -80,8 +82,6 @@ export function Dashboard() {
   const scansTrendQ = useQuery({ queryKey: ['scans-trend', range], queryFn: () => api.scansTrend(range) });
   const costTrendQ = useQuery({ queryKey: ['cost-trend'], queryFn: () => api.costTrend(30) });
   const summaryQ = useQuery({ queryKey: ['executive-summary'], queryFn: api.executiveSummary });
-  // Portfolio fidelity score history — a proper daily-bucket backend series (not capped by the loaded scan window).
-  const fidelityTrendQ = useQuery({ queryKey: ['fidelity-trend'], queryFn: () => api.fidelityTrend(30) });
 
   const scans = scansQ.data ?? [];
   const summary = summaryQ.data;
@@ -99,7 +99,7 @@ export function Dashboard() {
   const latestByService = useMemo(() => {
     const map = new Map<string, Scan>();
     for (const s of scans) {
-      if ((s.status || '').toUpperCase() !== 'COMPLETED' || s.fidelityScore == null) continue;
+      if ((s.status || '').toUpperCase() !== 'COMPLETED' || s.releaseSafe == null) continue;
       const prev = map.get(s.serviceName);
       if (!prev || (s.startedAt ?? '') > (prev.startedAt ?? '')) map.set(s.serviceName, s);
     }
@@ -117,13 +117,6 @@ export function Dashboard() {
       .sort((a, b) => b.blockingCount - a.blockingCount)[0];
     return worst ? { service: worst.service, scanId: worst.latestScanId } : undefined;
   }, [summary]);
-
-  /**
-   * Portfolio fidelity over time — the score history a VP expects, on a fixed 50–100 scale with the release gate
-   * drawn in. Served by GET /summary/fidelity-trend as a proper daily-bucket series (each day = the mean of every
-   * service's latest score as of that day), so the horizon is not capped by the loaded /scans window.
-   */
-  const fidelityHistory = fidelityTrendQ.data ?? [];
 
   // Findings-per-day, keeping the date so the TrendChart can label its axis (Dashboard.tsx:99 used to discard it).
   const findingsTrend = useMemo(
@@ -272,20 +265,6 @@ export function Dashboard() {
           the first thing after the hero + ROI, not buried below the charts). */}
       {hasData && <DecisionQueue blockingOpen={summary?.totals.blockingOpen ?? 0} worstService={worstBlockingService} />}
 
-      {/* Portfolio fidelity over time — the score history a VP expects, on a fixed 50–100 scale with the
-          release gate (90) drawn in. Full width so the line has room to read. */}
-      {hasData && fidelityHistory.length >= 2 && (
-        <Card className="mb-6">
-          <CardHeader title={t('overview.chartFidelityHistory')} subtitle={t('overview.chartFidelityHistorySub')}
-            action={<button type="button" aria-label={t('overview.exportCsv')} title={t('overview.exportCsv')}
-              onClick={() => downloadTrendCsv('veritas-fidelity-history', t('overview.csvDate'), t('overview.csvScore'), fidelityHistory)}
-              className="grid h-8 w-8 place-items-center rounded-md text-ink-600 hover:bg-ink-50"><Download className="h-4 w-4" /></button>} />
-          <CardBody>
-            <TrendChart points={fidelityHistory} ariaLabel={t('overview.chartFidelityHistory')} tone="brand"
-              domain={[50, 100]} target={90} targetLabel={t('overview.chartFidelityTarget')} />
-          </CardBody>
-        </Card>
-      )}
 
       {/* Charts row — severity mix, resolution, findings trend */}
       {hasData && (
@@ -377,7 +356,7 @@ export function Dashboard() {
           <CardBody className="p-0">
             <Table head={<>
               <Th>{t('overview.colService')}</Th>
-              <Th>{t('overview.colGrade')}</Th>
+              <Th>{t('overview.colVerdict')}</Th>
               <Th className="text-right">{t('overview.colCoverage')}</Th>
               <Th>{t('overview.colAssets')}</Th>
               <Th className="text-right">{t('overview.colScans')}</Th>
@@ -395,11 +374,10 @@ export function Dashboard() {
                     <Td className="font-medium text-ink-900">{s.name}</Td>
                     <Td>
                       <span className="inline-flex items-center gap-1.5">
-                        <ScorePill score={sum?.fidelity} />
-                        {sum?.delta != null && sum.delta !== 0 && (
-                          <span className={cn('text-2xs font-semibold tabular-nums',
-                            sum.delta > 0 ? 'text-success' : 'text-danger')}>
-                            {sum.delta > 0 ? '+' : ''}{sum.delta}
+                        <VerdictBadge verdict={sum?.releaseSafe} />
+                        {sum != null && sum.breakingCount > 0 && (
+                          <span className="text-2xs font-semibold tabular-nums text-danger">
+                            {t('overview.nBreaking', { n: sum.breakingCount })}
                           </span>
                         )}
                       </span>
@@ -459,7 +437,7 @@ export function Dashboard() {
             <Table head={<>
               <Th>{t('overview.colService')}</Th>
               <Th>{t('overview.colStatus')}</Th>
-              <Th>{t('overview.colScore')}</Th>
+              <Th>{t('overview.colVerdict')}</Th>
               <Th className="text-right">{t('overview.colFindings')}</Th>
               <Th>{t('overview.colAudit')}</Th>
               <Th>{t('overview.colStarted')}</Th>
@@ -471,7 +449,7 @@ export function Dashboard() {
                   <Row key={s.id} index={i}>
                     <Td className="font-medium text-ink-900">{s.serviceName}</Td>
                     <Td><Badge className={statusTone(s.status)}>{statusLabel(s.status)}</Badge></Td>
-                    <Td><ScorePill score={s.fidelityScore} /></Td>
+                    <Td><VerdictBadge verdict={s.releaseSafe} /></Td>
                     <Td className="text-right tabular-nums text-ink-900">{s.totalFindings}</Td>
                     <Td className="text-muted">
                       {dur ? t('overview.auditedIn', { dur, cost: formatMoney(s.totalEstCostUsd ?? 0) }) : '—'}
