@@ -127,7 +127,7 @@ public class ContractValidationService {
         this.costRecorder = costRecorder;
         this.promptComposer = promptComposer;
         this.reportRenderer = reportRenderer;
-        this.gate = gate;
+        this.gate = gate == null ? new ca.bnc.qe.veritas.config.GateProperties() : gate;
         this.scanRepository = scanRepository;
         this.findingRepository = findingRepository;
         this.objectMapper = objectMapper;
@@ -135,6 +135,23 @@ public class ContractValidationService {
         this.scanPersistence = scanPersistence;
         this.translationService = translationService;
         this.callContext = callContext;
+    }
+
+    /** Test-convenience constructor — defaults the release-gate thresholds (0/0/0). */
+    public ContractValidationService(JavaSpringExtractor javaSpringExtractor,
+                                     OpenApiModelExtractor openApiModelExtractor,
+                                     CorrectedSpecBuilder correctedSpecBuilder, DiffEngine diffEngine, LlmGateway llm,
+                                     JsonBlockExtractor jsonExtractor, ResponseSchemaValidator schemaValidator,
+                                     ModelSelector modelSelector, CostRecorder costRecorder,
+                                     PromptComposer promptComposer, ContractReportRenderer reportRenderer,
+                                     ScanRepository scanRepository, FindingRecordRepository findingRepository,
+                                     ObjectMapper objectMapper, Preflight preflight, ScanPersistence scanPersistence,
+                                     ca.bnc.qe.veritas.report.TranslationService translationService,
+                                     ca.bnc.qe.veritas.llm.LlmCallContext callContext) {
+        this(javaSpringExtractor, openApiModelExtractor, correctedSpecBuilder, diffEngine, llm, jsonExtractor,
+                schemaValidator, modelSelector, costRecorder, promptComposer, reportRenderer,
+                new ca.bnc.qe.veritas.config.GateProperties(), scanRepository, findingRepository, objectMapper,
+                preflight, scanPersistence, translationService, callContext);
     }
 
     /** Synchronous entry (CLI/tests): create the scan row, then run the pipeline on the current thread. */

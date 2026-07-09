@@ -14,7 +14,7 @@ import ca.bnc.qe.veritas.engine.openapi.OpenApiModelExtractor;
 import ca.bnc.qe.veritas.engine.openapi.SpecParse;
 import ca.bnc.qe.veritas.finding.Finding;
 import ca.bnc.qe.veritas.finding.FindingType;
-import ca.bnc.qe.veritas.report.FidelityScore;
+import ca.bnc.qe.veritas.config.GateProperties;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -118,7 +118,8 @@ class SharedSpecSchemaCollapseTest {
                 excludeAttributesMissing(ContractValidationService.collapseByRootCause(reversed)).get(0);
         assertThat(survivor.getFindingId()).isNotBlank().isEqualTo(survivorReversed.getFindingId());
 
-        // Score: the -8 MAJOR charge for excludeAttributes is counted ONCE after collapse, not twice.
-        assertThat(FidelityScore.of(collapsed)).isEqualTo(FidelityScore.of(raw) + 8);
+        // The excludeAttributes MAJOR is counted ONCE after collapse, not twice — collapsed has one fewer MAJOR.
+        GateProperties g = new GateProperties();
+        assertThat(ReleaseVerdict.of(collapsed, g).major()).isEqualTo(ReleaseVerdict.of(raw, g).major() - 1);
     }
 }

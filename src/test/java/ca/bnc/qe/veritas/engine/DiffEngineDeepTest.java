@@ -19,7 +19,8 @@ import ca.bnc.qe.veritas.finding.Confidence;
 import ca.bnc.qe.veritas.finding.Finding;
 import ca.bnc.qe.veritas.finding.FindingType;
 import ca.bnc.qe.veritas.finding.Severity;
-import ca.bnc.qe.veritas.report.FidelityScore;
+import ca.bnc.qe.veritas.config.GateProperties;
+import ca.bnc.qe.veritas.contract.ReleaseVerdict;
 import org.junit.jupiter.api.Test;
 
 /** Deep L4 diff: response-schema mismatch, extra spec status code, and constraint VALUE mismatch. */
@@ -127,9 +128,9 @@ class DiffEngineDeepTest {
                 List.of(ep("Bar", List.of(new ResponseModel(200, "Bar", null, "SPEC", src)))),
                 Map.of("Bar", schema("Bar", "id", "integer")));
 
-        // 100 - 8 (one counted MAJOR). The 'id' SCHEMA_FIELD_EXTRA is LOW/MINOR (excluded); the coarse mismatch is
-        // suppressed. Before the fix this was 100 - 16 (coarse + field both counted) = 84.
-        assertThat(FidelityScore.of(diff.diffCodeVsSpec(code, spec))).isEqualTo(92);
+        // Exactly ONE counted MAJOR. The 'id' SCHEMA_FIELD_EXTRA is LOW/MINOR (excluded); the coarse mismatch is
+        // suppressed. Before the fix both were counted (coarse + field) — the collapse leaves a single MAJOR.
+        assertThat(ReleaseVerdict.of(diff.diffCodeVsSpec(code, spec), new GateProperties()).major()).isEqualTo(1);
     }
 
     @Test
