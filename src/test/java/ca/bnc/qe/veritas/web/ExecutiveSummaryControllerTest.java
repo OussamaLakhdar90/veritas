@@ -86,6 +86,26 @@ class ExecutiveSummaryControllerTest {
     }
 
     @Test
+    void fullyTriagedServiceReadsPassNotFailAndDoesNotInflateBlockingOpen() throws Exception {
+        // Every breaking/blocking finding on the latest scan was human-dismissed → the badge (releaseSafe), the
+        // breaking count AND the DecisionQueue (blockingOpen) must all exclude them, exactly like breakingCount does.
+        // Before the fix this service read FAIL with breakingCount=0 and inflated blockingOpen by 1.
+        when(scans.findAll()).thenReturn(List.of(scan("t1", "triaged", 1)));
+        when(findings.findByScanIdOrderBySeverityAsc("t1")).thenReturn(List.of(
+                rec("MISSING_ENDPOINT", "CRITICAL", "REJECTED", false),
+                rec("SCHEMA_FIELD_TYPE_MISMATCH", "MAJOR", "FALSE_POSITIVE", false)));
+        when(findings.countDistinctCaughtByTypes(anyCollection())).thenReturn(0L);
+
+        mvc.perform(get("/api/v1/summary/executive"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.perService[0].service").value("triaged"))
+                .andExpect(jsonPath("$.perService[0].releaseSafe").value("PASS"))
+                .andExpect(jsonPath("$.perService[0].breakingCount").value(0))
+                .andExpect(jsonPath("$.perService[0].blockingCount").value(0))
+                .andExpect(jsonPath("$.totals.blockingOpen").value(0));
+    }
+
+    @Test
     void emptyPortfolioReturnsZeroesNotErrors() throws Exception {
         when(scans.findAll()).thenReturn(List.of());
         when(findings.countDistinctCaughtByTypes(anyCollection())).thenReturn(0L);

@@ -231,11 +231,12 @@ class ContractReportRendererBranch2Test {
 
     @Test
     void singleBreakingChangeUsesSingularCopy() {
-        // breaking == 1 -> bottomLine's "fix 1 consumer-breaking change first" (singular).
+        // breaking == 1 -> bottomLine renders breaking as a SUBSET qualifier with singular copy ("is"/"it"), not as a
+        // separate double-counted list item.
         Finding blocker = counted(FindingType.MISSING_ENDPOINT, Severity.BLOCKER).findingId("oneblocker").build();
         String html = renderer.renderHtml(scan("svc"), List.of(blocker));
-        assertThat(html).contains("Fix 1 consumer-breaking change first")
-                .doesNotContain("consumer-breaking changes");
+        assertThat(html).contains("1 of these is consumer-breaking — fix it first")
+                .doesNotContain("are consumer-breaking");
         // A BLOCKER breaks a running consumer -> the verdict is "Do not release".
         assertThat(html).contains("Do not release");
     }

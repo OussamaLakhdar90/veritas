@@ -59,12 +59,15 @@ public class ExecutiveSummaryController {
         long blockingOpen = 0;
         for (Scan scan : latestCompletedPerService()) {
             List<FindingRecord> rows = findings.findByScanIdOrderBySeverityAsc(scan.getId());
-            List<Finding> live = rows.stream().map(FindingMapper::toFinding).toList();
+            // Exclude human-dismissed findings BEFORE the verdict so the badge (releaseSafe), the blocking count and
+            // the breaking count all use the same inclusion rule — a fully-triaged service can't read FAIL with a
+            // breaking count of 0, and a dismissed blocker can't inflate the DecisionQueue. (Tally below still sees
+            // every row: the disposition stats deliberately count the dismissals.)
+            List<Finding> live = rows.stream()
+                    .filter(r -> !isDismissed(r.getStatus())).map(FindingMapper::toFinding).toList();
             ReleaseVerdict verdict = ReleaseVerdict.of(live, gate);
-            long breakingCount = rows.stream()
-                    .filter(r -> isBreakingType(r.getType()) && !isDismissed(r.getStatus())).count();
             perService.add(new ServiceSummary(scan.getServiceName(),
-                    breakingCount, verdict.blocking(), verdict.releaseSafe(), scan.getId()));
+                    verdict.breaking(), verdict.blocking(), verdict.releaseSafe(), scan.getId()));
             blockingOpen += verdict.blocking();
             rows.forEach(t::add);
         }
@@ -87,10 +90,6 @@ public class ExecutiveSummaryController {
 
     private static boolean isDismissed(String status) {
         return status != null && DISMISSED.contains(status);
-    }
-
-    private static boolean isBreakingType(String type) {
-        return type != null && BREAKING_TYPES.contains(type);
     }
 
     /** Disposition tallies over the latest scans (mutable accumulator kept local to one request). */

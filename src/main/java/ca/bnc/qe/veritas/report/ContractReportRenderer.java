@@ -209,16 +209,25 @@ public class ContractReportRenderer {
         // Quality gate — a categorical PASS/WARN/FAIL from severity counts (the SAME ReleaseVerdict the dashboard
         // shows), not a composite score: FAIL on any consumer-breaking finding, WARN on additive drift only, PASS clean.
         String gateCls = gateVerdict.equals("FAIL") ? "fail" : gateVerdict.equals("WARN") ? "warn" : "pass";
+        // Phrasing is conditioned on the ACTUAL breaking count, not just the verdict string: once a gate cap is raised
+        // above 0 a WARN/PASS scan can still carry breaking findings, so we must not hard-assert "no breaking changes".
+        long gateBreaking = verdict.breaking();
         String gateEn = gateVerdict.equals("FAIL")
-                ? "Quality gate: FAIL — " + verdict.breaking() + " finding(s) would break a running consumer; do not release"
+                ? "Quality gate: FAIL — " + gateBreaking + " finding(s) would break a running consumer; do not release"
                 : gateVerdict.equals("WARN")
-                ? "Quality gate: WARN — no breaking changes; " + counted.size() + " item(s) of additive drift to clean up"
-                : "Quality gate: PASS — no breaking changes";
+                ? "Quality gate: WARN — " + (gateBreaking == 0
+                        ? "no breaking changes; " + counted.size() + " item(s) of additive drift to clean up"
+                        : gateBreaking + " breaking change(s) within the configured cap; " + counted.size() + " item(s) to clean up")
+                : "Quality gate: PASS — " + (gateBreaking == 0 ? "no breaking changes"
+                        : gateBreaking + " breaking change(s) within the configured cap");
         String gateFr = gateVerdict.equals("FAIL")
-                ? "Seuil qualité : ÉCHEC — " + verdict.breaking() + " constat(s) briserai(en)t un consommateur; ne pas livrer"
+                ? "Seuil qualité : ÉCHEC — " + gateBreaking + " constat(s) briserai(en)t un consommateur; ne pas livrer"
                 : gateVerdict.equals("WARN")
-                ? "Seuil qualité : ATTENTION — aucun changement cassant; " + counted.size() + " écart(s) additif(s) à corriger"
-                : "Seuil qualité : RÉUSSI — aucun changement cassant";
+                ? "Seuil qualité : ATTENTION — " + (gateBreaking == 0
+                        ? "aucun changement cassant; " + counted.size() + " écart(s) additif(s) à corriger"
+                        : gateBreaking + " changement(s) cassant(s) dans la limite configurée; " + counted.size() + " écart(s) à corriger")
+                : "Seuil qualité : RÉUSSI — " + (gateBreaking == 0 ? "aucun changement cassant"
+                        : gateBreaking + " changement(s) cassant(s) dans la limite configurée");
         sb.append("<p class=\"gate gate-").append(gateCls).append("\">").append(bi(gateEn, gateFr)).append("</p>");
 
         // Surface undocumented error responses (500/406/…) that were DEMOTED to manual review (§6) as low-confidence
@@ -235,7 +244,7 @@ public class ContractReportRenderer {
         String covValue = gaps == 0 ? bi("Full", "Complète")
                 : bi(gaps + (gaps == 1 ? " gap" : " gaps"), gaps + (gaps == 1 ? " lacune" : " lacunes"));
         String kpis = kpi(bi(band[1], band[2]), bi("Release gate", "Seuil de livraison"), band[0])
-                + kpi(String.valueOf(blocking), bi("Release-blocking", "Bloquants"), blocking > 0 ? "action" : "clean")
+                + kpi(String.valueOf(verdict.breaking()), bi("Consumer-breaking", "Cassants"), verdict.breaking() > 0 ? "action" : "clean")
                 + kpi(String.valueOf(counted.size()), bi("Total findings", "Constats totaux"), "neutral")
                 + kpi(covValue, bi("Analysis coverage", "Couverture"), gaps == 0 ? "clean" : "minor");
         String vizLabel = "<div class=\"panel-h\">" + bi("Findings by severity", "Constats par sévérité") + "</div>";
@@ -778,14 +787,22 @@ public class ContractReportRenderer {
             actionEn = "No action needed — the documentation matches the code.";
             actionFr = "Aucune action requise — la documentation correspond au code.";
         } else {
+            // The missing/wrong/dead buckets partition the whole counted set, and breaking is a SUBSET of that set —
+            // so breaking must NOT be an additional list item (it would double-count against the Effort total). Render
+            // it as a prioritization qualifier over the bucket items instead.
             List<String> en = new ArrayList<>();
             List<String> frb = new ArrayList<>();
-            if (breaking > 0) { en.add("fix " + breaking + " consumer-breaking change" + (breaking == 1 ? "" : "s") + " first"); frb.add("corriger d'abord " + breaking + " changement(s) cassant(s)"); }
             if (missing > 0) { en.add("document " + missing); frb.add("documenter " + missing); }
             if (wrong > 0) { en.add("correct " + wrong + " mismatch" + (wrong == 1 ? "" : "es")); frb.add("corriger " + wrong + " incohérence(s)"); }
             if (dead > 0) { en.add("remove " + dead + " stale entr" + (dead == 1 ? "y" : "ies")); frb.add("retirer " + dead + " entrée(s) obsolète(s)"); }
             actionEn = capFirst(String.join(", ", en)) + ".";
             actionFr = capFirst(String.join(", ", frb)) + ".";
+            if (breaking > 0) {
+                actionEn += " " + breaking + " of these " + (breaking == 1 ? "is" : "are")
+                        + " consumer-breaking — fix " + (breaking == 1 ? "it" : "those") + " first.";
+                actionFr += " " + breaking + (breaking == 1 ? " de ceux-ci est cassant" : " de ceux-ci sont cassants")
+                        + " — à corriger en priorité.";
+            }
         }
         // Qualitative effort band from the item count — no fabricated per-item hour figure presented as a commitment.
         String effortEn = total <= 3 ? "small" : total <= 8 ? "moderate" : "large";
@@ -807,8 +824,9 @@ public class ContractReportRenderer {
                 .append(bi("Effort", "Effort")).append("</td><td style=\"padding:.1rem 0\">").append(bi(timeEn, timeFr)).append("</td></tr>");
         b.append("</table>");
         // Why a WARN still reads "Proceed": no finding breaks a running consumer — the drift is additive documentation
-        // (the code is a compatible superset of the spec), so the release is safe on its own timeline.
-        if (v.equals("WARN")) {
+        // (the code is a compatible superset of the spec), so the release is safe on its own timeline. Only assert this
+        // when there are genuinely zero breaking findings (a raised gate cap can produce a WARN that still carries some).
+        if (v.equals("WARN") && breaking == 0) {
             b.append("<div style=\"margin-top:.6rem;font-size:.82rem;color:#475069\">").append(bi(
                     "No consumer-breaking changes — all drift is additive documentation (the code returns/accepts more "
                             + "than the spec documents). Safe to release; update the spec at your own cadence.",
@@ -1105,11 +1123,9 @@ public class ContractReportRenderer {
                 + ".gate{display:inline-block;font-weight:700;font-size:.9rem;padding:.4rem .9rem;border-radius:8px;margin:.3rem 0}"
                 + ".gate-pass{background:#e6f4ea;color:#1E8E5A}.gate-fail{background:#fdecef;color:#C2122D}"
                 + ".gate-warn{background:#fff4ec;color:#C2410C}"
-                + ".gate-note{font-size:.82rem;color:#475069;margin:.15rem 0 .3rem;max-width:640px}"
                 + ".err-note{background:#fbf7ee;border:1px solid #ecdfc4;border-left:3px solid #b5852a;border-radius:0 8px 8px 0;padding:.6rem .85rem;margin:.6rem 0}"
                 + ".err-note-h{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:#8a6a1e;font-weight:700;margin-bottom:.3rem}"
                 + ".err-note-line{font-size:.85rem;color:#475069;margin:.12rem 0}"
-                + ".trend{font-size:.85rem;margin:.2rem 0}.trend-up{color:#1E8E5A}.trend-down{color:#C2122D}.trend-flat{color:#475069}"
                 + "table.actions{width:100%;border-collapse:collapse;background:#fff;border:1px solid #e3e6eb;border-radius:10px;overflow:hidden}"
                 + "table.actions th,table.actions td{text-align:left;padding:8px 12px;font-size:.86rem;border-top:1px solid #eef1f5;vertical-align:top}"
                 + "table.actions thead th{background:#f1f3f6;color:#475069;font-size:.72rem;text-transform:uppercase;border-top:0}"
@@ -1144,7 +1160,6 @@ public class ContractReportRenderer {
                 + ".disp-by{color:#9aa1ae;margin-left:.3rem}"
                 + ".count{background:#1a1a2e;color:#fff;font-size:.72rem;border-radius:999px;padding:1px 9px;margin-left:6px}"
                 + ".needs-attention .ns-intro{font-size:.88rem;color:#475069}"
-                + ".review-status{font-size:.85rem;color:#475069;margin:.5rem 0 .2rem}.review-status #rev-count{font-weight:700;color:#1a1a2e}"
                 + ".review-tracker{display:flex;gap:1.1rem;align-items:center;flex-wrap:wrap;margin:.7rem 0 .4rem;font-size:.85rem;color:#475069}"
                 + ".rt-pill{display:inline-flex;align-items:center;gap:.35rem}.rt-pill b{font-size:1.05rem;font-weight:700}"
                 + ".rt-pill.acc b{color:#1E8E5A}.rt-pill.rej b{color:#C2122D}.rt-pill.pen b{color:#475069}"
