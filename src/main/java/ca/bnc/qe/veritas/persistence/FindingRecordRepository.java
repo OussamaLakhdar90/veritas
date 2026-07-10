@@ -46,4 +46,27 @@ public interface FindingRecordRepository extends JpaRepository<FindingRecord, St
     @Modifying(clearAutomatically = true)
     @Query("delete from FindingRecord f where f.createdAt < :cutoff")
     int deleteByCreatedAtBefore(@Param("cutoff") Instant cutoff);
+
+    /**
+     * Engine-Evolution signal collector: human severity votes on still-{@code UNSPECIFIED} findings, grouped by
+     * (type, chosen severity, service). Joins finding → scan for the service dimension (there is no mapped
+     * relationship, so it's a theta-join on {@code f.scanId = s.id}). Excludes findings a human dismissed
+     * (REJECTED / FALSE_POSITIVE). Each row's {@code votes} is the DISTINCT-fingerprint count, so re-scans of the
+     * same finding never inflate the tally.
+     */
+    @Query("select f.type as type, f.userSeverity as severity, s.serviceName as service, "
+            + "count(distinct f.fingerprint) as votes "
+            + "from FindingRecord f, Scan s "
+            + "where f.scanId = s.id and f.severity = 'UNSPECIFIED' and f.userSeverity is not null "
+            + "and (f.status is null or f.status not in ('REJECTED', 'FALSE_POSITIVE')) "
+            + "group by f.type, f.userSeverity, s.serviceName")
+    List<ClassificationVoteRow> findUnspecifiedClassificationVotes();
+
+    /** Projection for {@link #findUnspecifiedClassificationVotes()} — one (type, chosen severity, service) tally. */
+    interface ClassificationVoteRow {
+        String getType();
+        String getSeverity();
+        String getService();
+        long getVotes();
+    }
 }
