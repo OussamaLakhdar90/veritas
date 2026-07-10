@@ -57,7 +57,7 @@ export function EngineEvolution() {
         <EmptyState icon={Brain} title={t('evolve.emptyTitle')} body={t('evolve.emptyBody')} />
       ) : (
         <div className="flex flex-col gap-3">
-          {rows.map((r) => <ProposalCard key={r.id} train={r} />)}
+          {rows.map((r) => <ProposalCard key={`${r.id}:${r.status}:${r.aiSuggestedSeverity}:${r.finalSeverity}`} train={r} />)}
         </div>
       )}
     </div>
@@ -70,7 +70,7 @@ function ProposalCard({ train }: { train: ClassificationTrain }) {
   const qc = useQueryClient();
   const [severity, setSeverity] = useState((train.finalSeverity || train.aiSuggestedSeverity || 'INFO').toUpperCase());
   const [comment, setComment] = useState(train.maintainerComment || '');
-  const overriding = severity !== (train.aiSuggestedSeverity || '').toUpperCase();
+  const unsaved = severity !== (train.finalSeverity || '').toUpperCase();
   const editable = train.status !== 'PR_OPEN' && train.status !== 'MERGED';
   const invalidate = () => qc.invalidateQueries({ queryKey: ['classification-proposals'] });
 
@@ -122,9 +122,9 @@ function ProposalCard({ train }: { train: ClassificationTrain }) {
                 className={cn('rounded-md px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide outline-none', severityBadge(severity))}>
                 {SEV_CHOICES.map((s) => <option key={s} value={s}>{enumLabel(t, 'severity', s)}</option>)}
               </select>
-              {overriding && <span className="text-2xs text-warning">{t('evolve.overrideHint')}</span>}
+              {unsaved && <span className="text-2xs text-warning">{t('evolve.overrideHint')}</span>}
             </div>
-            {overriding && (
+            {unsaved && (
               <div className="flex flex-col gap-1">
                 <label className="text-sm text-muted" htmlFor={`c-${train.id}`}>{t('evolve.comment')}</label>
                 <Input id={`c-${train.id}`} value={comment} onChange={(e) => setComment(e.target.value)}
@@ -132,11 +132,12 @@ function ProposalCard({ train }: { train: ClassificationTrain }) {
               </div>
             )}
             <div className="flex items-center gap-2 flex-wrap">
-              {overriding && (
+              {unsaved && (
                 <Button size="sm" variant="secondary" loading={challenge.isPending} disabled={!comment.trim()}
                   onClick={() => challenge.mutate()}>{t('evolve.saveOverride')}</Button>
               )}
-              <Button size="sm" loading={openPr.isPending} onClick={() => openPr.mutate()}>
+              <Button size="sm" loading={openPr.isPending} disabled={unsaved}
+                title={unsaved ? t('evolve.saveFirst') : undefined} onClick={() => openPr.mutate()}>
                 <GitPullRequestArrow className="h-4 w-4" /> {t('evolve.openPr')}</Button>
             </div>
           </div>

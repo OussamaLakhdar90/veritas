@@ -38,14 +38,20 @@ public class ClassificationProposalService {
     public List<ClassificationProposal> computeProposals(String owner) {
         Map<FindingType, Map<Severity, Integer>> votesByType = new EnumMap<>(FindingType.class);
         Map<FindingType, Set<String>> servicesByType = new EnumMap<>(FindingType.class);
+        Set<String> seenFingerprints = new HashSet<>();
+        // Rows arrive newest-first; keep only the LATEST override per fingerprint so a finding whose override
+        // changed across re-scans counts once (one finding = one vote), with its current severity.
         for (ClassificationVoteRow row : findingRepository.findUnspecifiedClassificationVotes()) {
+            String fp = row.getFingerprint();
+            if (fp != null && !seenFingerprints.add(fp)) {
+                continue;
+            }
             FindingType type = parse(FindingType.class, row.getType());
             Severity sev = parse(Severity.class, row.getSeverity());
             if (type == null || sev == null) {
                 continue;
             }
-            votesByType.computeIfAbsent(type, k -> new EnumMap<>(Severity.class))
-                    .merge(sev, (int) row.getVotes(), Integer::sum);
+            votesByType.computeIfAbsent(type, k -> new EnumMap<>(Severity.class)).merge(sev, 1, Integer::sum);
             servicesByType.computeIfAbsent(type, k -> new HashSet<>()).add(row.getService());
         }
 

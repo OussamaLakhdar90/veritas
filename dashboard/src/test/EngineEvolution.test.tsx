@@ -56,4 +56,15 @@ describe('Engine Evolution', () => {
     expect(await screen.findByText('Decision saved.')).toBeInTheDocument()
     expect(body).toEqual({ severity: 'CRITICAL', comment: 'It breaks a running consumer.' })
   })
+
+  it('disables Open PR while a severity change is unsaved (no stale promotion)', async () => {
+    const user = userEvent.setup()
+    renderEvolve([train])
+    await screen.findByText('STATUS_CODE_MISSING')
+    // Enabled when the dropdown matches the persisted final severity…
+    expect(screen.getByRole('button', { name: /Open PR/ })).toBeEnabled()
+    // …disabled the moment the maintainer changes it without saving, so an unsaved override can't be promoted.
+    await user.selectOptions(screen.getByLabelText('Final severity'), 'BLOCKER')
+    expect(screen.getByRole('button', { name: /Open PR/ })).toBeDisabled()
+  })
 })

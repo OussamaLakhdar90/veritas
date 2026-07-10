@@ -727,6 +727,7 @@
     "comment": "Pourquoi remplacer?",
     "commentPlaceholder": "Expliquez le remplacement (inclus dans la PR)…",
     "saveOverride": "Enregistrer le remplacement",
+    "saveFirst": "Enregistrez d’abord votre modification, puis ouvrez la PR.",
     "saved": "Décision enregistrée.",
     "openPr": "Ouvrir la PR",
     "prOpened": "PR de classification ouverte.",

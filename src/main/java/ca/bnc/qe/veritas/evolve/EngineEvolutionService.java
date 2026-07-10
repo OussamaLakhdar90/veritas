@@ -16,6 +16,7 @@ import ca.bnc.qe.veritas.finding.FindingType;
 import ca.bnc.qe.veritas.finding.Severity;
 import ca.bnc.qe.veritas.preflight.Preflight;
 import ca.bnc.qe.veritas.preflight.PreconditionException;
+import ca.bnc.qe.veritas.skill.ConflictException;
 import ca.bnc.qe.veritas.skill.GateService;
 import ca.bnc.qe.veritas.vcs.WorkspaceService;
 import lombok.extern.slf4j.Slf4j;
@@ -71,16 +72,18 @@ public class EngineEvolutionService {
             ClassificationTrain t = trains
                     .findFirstByFindingTypeAndStatusNotOrderByCreatedAtDesc(p.findingType().name(), "MERGED")
                     .orElseGet(ClassificationTrain::new);
-            boolean fresh = t.getStatus() == null;
+            boolean seedable = t.getStatus() == null || "PROPOSED".equals(t.getStatus());
             t.setFindingType(p.findingType().name());
-            t.setAiSuggestedSeverity(p.suggestedSeverity().name());
-            t.setAiSuggested(p.aiSuggested());
-            t.setAiRationale(p.rationale());
+            // Evidence always reflects the latest field votes.
             t.setVoteCount(p.voteCount());
             t.setDistinctServices(p.distinctServices());
             t.setVoteBreakdown(renderBreakdown(p.voteBreakdown()));
-            // Never clobber a maintainer's challenge on refresh — only (re)seed the default while still PROPOSED.
-            if (fresh || "PROPOSED".equals(t.getStatus())) {
+            // FREEZE the AI snapshot + the seeded decision once a maintainer has acted (CHALLENGED / PR_OPEN), so a
+            // later refresh can't rewrite the suggestion they reviewed or silently drop their override in the PR body.
+            if (seedable) {
+                t.setAiSuggestedSeverity(p.suggestedSeverity().name());
+                t.setAiSuggested(p.aiSuggested());
+                t.setAiRationale(p.rationale());
                 t.setFinalSeverity(p.suggestedSeverity().name());
                 t.setStatus("PROPOSED");
             }
@@ -95,6 +98,7 @@ public class EngineEvolutionService {
     /** A maintainer overrides the suggested severity (a required reason is captured for the PR audit trail). */
     public ClassificationTrain challenge(String trainId, String severity, String comment) {
         ClassificationTrain t = load(trainId);
+        requireStatus(t, "override", "PROPOSED", "CHALLENGED");
         String sv = severity == null ? "" : severity.toUpperCase(Locale.ROOT);
         if (!ALLOWED_SEVERITY.contains(sv)) {
             throw new IllegalArgumentException("Unknown severity '" + severity + "'. Allowed: " + ALLOWED_SEVERITY);
@@ -114,6 +118,7 @@ public class EngineEvolutionService {
      */
     public ClassificationTrain openPr(String trainId, String owner) {
         ClassificationTrain t = load(trainId);
+        requireStatus(t, "open a PR for", "PROPOSED", "CHALLENGED");
         if (!props.repoConfigured()) {
             throw new PreconditionException("engine-evolution", List.of(
                     "Set veritas.evolve.repo-app-id and veritas.evolve.repo-slug (Veritas's own repo) before opening "
@@ -123,8 +128,8 @@ public class EngineEvolutionService {
         t.setGateId(gate.gateId());
         if (!gate.approved()) {
             trains.save(t);
-            throw new IllegalStateException("Classification PR for " + t.getFindingType()
-                    + " awaiting approval (gate " + gate.gateId() + ").");
+            throw new ConflictException("Classification PR for " + t.getFindingType()
+                    + " is awaiting approval (gate " + gate.gateId() + "). Approve it, then open the PR.");
         }
         preflight.requireGitWriteScope();
 
@@ -156,6 +161,7 @@ public class EngineEvolutionService {
     /** The human merged the PR — close the loop (the learned classification is live after the next deploy). */
     public ClassificationTrain markMerged(String trainId) {
         ClassificationTrain t = load(trainId);
+        requireStatus(t, "mark merged", "PR_OPEN");
         t.setStatus("MERGED");
         t.setFinishedAt(Instant.now());
         return trains.save(t);
@@ -164,6 +170,17 @@ public class EngineEvolutionService {
     private ClassificationTrain load(String id) {
         return trains.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown classification train " + id));
+    }
+
+    /** Enforce the train lifecycle — a wrong-state transition is a 409, not a silent no-op or a duplicate PR. */
+    private static void requireStatus(ClassificationTrain t, String action, String... allowed) {
+        for (String s : allowed) {
+            if (s.equals(t.getStatus())) {
+                return;
+            }
+        }
+        throw new ConflictException("Cannot " + action + " classification " + t.getFindingType() + " — it is "
+                + t.getStatus() + " (allowed: " + String.join(" / ", allowed) + ").");
     }
 
     private static String branchName(FindingType type, Severity severity) {
@@ -188,9 +205,11 @@ public class EngineEvolutionService {
         sb.append("### Field evidence\n").append(t.getVoteCount()).append(" human classification vote(s) across ")
                 .append(t.getDistinctServices()).append(" service(s): ").append(nz(t.getVoteBreakdown())).append("\n\n");
         sb.append("### Maintainer decision\n");
-        if (!finalSev.name().equals(t.getAiSuggestedSeverity())) {
+        // Decided by whether the maintainer left an override reason (challenge), NOT by comparing severities — a
+        // refresh can move the AI suggestion onto the final severity without erasing the human override.
+        if (t.getMaintainerComment() != null && !t.getMaintainerComment().isBlank()) {
             sb.append("Overrode the AI's ").append(t.getAiSuggestedSeverity()).append(" → **").append(finalSev.name())
-                    .append("**. Reason: ").append(nz(t.getMaintainerComment())).append("\n\n");
+                    .append("**. Reason: ").append(t.getMaintainerComment()).append("\n\n");
         } else {
             sb.append("Accepted the suggestion.\n\n");
         }
