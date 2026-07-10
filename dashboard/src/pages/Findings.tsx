@@ -14,11 +14,15 @@ import { enumLabel } from '../lib/enumLabels';
 
 const SEV_ORDER = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO', 'UNSPECIFIED'];
 const sevRank = (s?: string) => { const i = SEV_ORDER.indexOf((s || 'INFO').toUpperCase()); return i < 0 ? SEV_ORDER.length : i; };
+/** The severity the UI shows + sorts/filters by: a human override (userSeverity) wins over the engine classification. */
+const effSev = (f: Finding) => (f.userSeverity || f.severity || 'INFO').toUpperCase();
+/** Severities a human may pick — NOT UNSPECIFIED (the engine's fail-safe). Matches the backend allow-list. */
+const SEV_CHOICES = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO'];
 const CONF_ORDER = ['HIGH', 'MEDIUM', 'LOW'];
 const confRank = (c?: string) => { const i = CONF_ORDER.indexOf((c || '').toUpperCase()); return i < 0 ? CONF_ORDER.length : i; };
 const HIGH_SEV = ['BLOCKER', 'CRITICAL'];
 /** A high-severity finding the engine is only LOW-confident about — verify before acting. */
-const riskyConfidence = (f: Finding) => (f.confidence || '').toUpperCase() === 'LOW' && HIGH_SEV.includes((f.severity || '').toUpperCase());
+const riskyConfidence = (f: Finding) => (f.confidence || '').toUpperCase() === 'LOW' && HIGH_SEV.includes(effSev(f));
 
 // Recorded disposition → pill styling + human label (the system of record for accept/reject).
 const DISP_TONE: Record<string, string> = {
@@ -37,7 +41,7 @@ const dispositioned = (s?: string) => !!s && s !== 'OPEN';
 
 // Stable accessor map for client-side sorting (severity sorts by blocker→info, not alphabetically).
 const SORT_ACCESSORS: Record<string, (f: Finding) => string | number> = {
-  severity: (f) => sevRank(f.severity),
+  severity: (f) => sevRank(effSev(f)),
   confidence: (f) => confRank(f.confidence),
   layer: (f) => f.layer ?? '',
   endpoint: (f) => f.endpoint ?? '',
@@ -66,12 +70,12 @@ export function Findings() {
   const findings = q.data ?? [];
   const counts = useMemo(() => {
     const m: Record<string, number> = {};
-    for (const f of findings) { const s = (f.severity || 'INFO').toUpperCase(); m[s] = (m[s] ?? 0) + 1; }
+    for (const f of findings) { const s = effSev(f); m[s] = (m[s] ?? 0) + 1; }
     return m;
   }, [findings]);
 
   const filtered = useMemo(
-    () => findings.filter((f) => filter === 'ALL' || (f.severity || 'INFO').toUpperCase() === filter),
+    () => findings.filter((f) => filter === 'ALL' || effSev(f) === filter),
     [findings, filter]);
   const sort = useSort(filtered, { key: 'severity', dir: 'asc' }, SORT_ACCESSORS);
   const shown = sort.sorted;
@@ -103,6 +107,18 @@ export function Findings() {
     onError: (e: Error) => toast.push('error', e.message),
   });
   const busy = (f: Finding, status: string) => inFlight.has(`${f.id}:${status}`);
+  // Severity override — persisted + audited server-side; the gate + report re-render from the EFFECTIVE severity.
+  const setSeverity = useMutation({
+    mutationFn: ({ f, severity }: { f: Finding; severity: string }) => api.setSeverity(f.id, severity),
+    onMutate: (v) => setInFlight((s) => new Set(s).add(`${v.f.id}:sev`)),
+    onSettled: (_d, _e, v) => setInFlight((s) => { const n = new Set(s); n.delete(`${v.f.id}:sev`); return n; }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['findings', scanId] });
+      toast.push('success', t('findings.severityUpdated'));
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+  const sevBusy = (f: Finding) => inFlight.has(`${f.id}:sev`);
 
   return (
     <div>
@@ -170,7 +186,23 @@ export function Findings() {
                           checked={selected.has(f.id)} onChange={() => toggle(f.id)} />
                       )}
                     </Td>
-                    <Td><Badge className={severityBadge(f.severity)}>{enumLabel(t, 'severity', f.severity)}</Badge></Td>
+                    <Td>
+                      <div className="inline-flex flex-col gap-0.5">
+                        <select aria-label={t('findings.setSeverity')} value={effSev(f)} disabled={sevBusy(f)}
+                          onChange={(e) => setSeverity.mutate({ f, severity: e.target.value })}
+                          className={cn('rounded-md px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide outline-none disabled:opacity-50',
+                            severityBadge(effSev(f)))}>
+                          {(SEV_CHOICES.includes(effSev(f)) ? SEV_CHOICES : [effSev(f), ...SEV_CHOICES]).map((s) => (
+                            <option key={s} value={s}>{enumLabel(t, 'severity', s)}</option>
+                          ))}
+                        </select>
+                        {f.userSeverity && f.userSeverity.toUpperCase() !== (f.severity || '').toUpperCase() && (
+                          <span className="text-2xs text-muted">
+                            {t('findings.engineSuggested', { sev: enumLabel(t, 'severity', f.severity) })}
+                          </span>
+                        )}
+                      </div>
+                    </Td>
                     <Td>
                       {f.confidence ? (
                         riskyConfidence(f) ? (

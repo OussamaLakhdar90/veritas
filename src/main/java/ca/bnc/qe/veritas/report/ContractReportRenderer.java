@@ -464,8 +464,14 @@ public class ContractReportRenderer {
         boolean multiEndpoint = f.getAffectedEndpoints() != null && f.getAffectedEndpoints().size() > 1;
         sb.append("<div class=\"finding-header\">")
                 .append("<span class=\"severity-badge\" style=\"background:").append(color).append("\">")
-                .append(esc(f.effectiveSeverity() != null ? f.effectiveSeverity().name() : "")).append("</span>")
-                .append("<span class=\"finding-title\">").append(biDyn(nz(f.getSummary()), fr)).append("</span>")
+                .append(esc(f.effectiveSeverity() != null ? f.effectiveSeverity().name() : "")).append("</span>");
+        if (f.getUserSeverity() != null && f.getUserSeverity() != f.getSeverity()) {
+            // A human overrode the engine's classification — surface the engine's original as an honest hint so the
+            // effective (gating) severity and the engine's suggestion are both visible.
+            sb.append("<span class=\"sev-override\">").append(bi("engine: ", "moteur : "))
+                    .append(esc(f.getSeverity() != null ? f.getSeverity().name() : "?")).append("</span>");
+        }
+        sb.append("<span class=\"finding-title\">").append(biDyn(nz(f.getSummary()), fr)).append("</span>")
                 .append("<span class=\"finding-meta\"><code>")
                 .append(multiEndpoint ? f.getAffectedEndpoints().size() + " " + bi("endpoints", "points de terminaison")
                         : esc(nz(f.getEndpoint())))
@@ -1144,6 +1150,7 @@ public class ContractReportRenderer {
                 + ".finding-card{background:#fff;border:1px solid #e3e6eb;border-radius:10px;padding:1rem 1.25rem;margin-top:.7rem}"
                 + ".finding-header{display:flex;align-items:center;gap:10px;flex-wrap:wrap}"
                 + ".severity-badge{color:#fff;font-size:.7rem;font-weight:700;text-transform:uppercase;padding:2px 9px;border-radius:999px}"
+                + ".sev-override{font-size:.66rem;color:#9aa1ae;margin-left:.4rem;text-transform:uppercase;letter-spacing:.03em}"
                 + ".finding-title{font-weight:600}.finding-meta{color:#888;font-size:.8rem;margin-left:auto}"
                 + ".conf-pill{display:inline-block;margin-left:.5rem;font-size:.72rem;font-weight:600;padding:2px 8px;"
                 + "border-radius:999px;vertical-align:middle;cursor:help}"

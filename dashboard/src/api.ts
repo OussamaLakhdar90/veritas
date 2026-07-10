@@ -151,6 +151,7 @@ export interface Finding {
   reviewedBy?: string
   reviewedAt?: string
   reviewNote?: string
+  userSeverity?: string   // a human's severity override; wins over `severity` (the engine's suggestion) at the gate
 }
 
 export interface Repo {
@@ -658,6 +659,10 @@ export const api = {
   // Routes through send() so a 4xx/5xx surfaces a real error (and the Copilot auth gate) instead of a false success.
   patchFinding: (id: string, status: string, note?: string) =>
     send<Finding>('PATCH', `/findings/${id}`, { status, note }),
+  // Set a human severity OVERRIDE on a finding (the engine `severity` stays as the suggestion, and breaking-ness is
+  // type-derived so an override can never hide a breaking change).
+  setSeverity: (id: string, severity: string) =>
+    send<Finding>('PATCH', `/findings/${id}`, { severity }),
 
   // Strategies / Reviews
   strategies: (service: string) => get<TestStrategy[]>(`/services/${encodeURIComponent(service)}/strategies`),
