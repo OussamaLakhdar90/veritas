@@ -355,6 +355,7 @@
           "copy": "Copy",
           "copied": "Copied to clipboard.",
           "watch": "Watch progress",
+          "liveTitle": "Live progress",
           "someFailed": "{{count}} application(s) could not start:"
         }
       }
@@ -377,6 +378,8 @@
       "start": "Start fix",
       "starting": "Starting the fix…",
       "loadFailed": "Couldn’t load the fix train.",
+      "detailTitle": "Fix in progress",
+      "detailSubtitle": "Live status of this dependency fix — clone, breaking-change check, build & test, and pull requests.",
       "confirm": "Confirm & run",
       "reviewIntro": "Review the update train before it runs. Framework repos (APP7488) merge first, then one PR per app. Edit each module’s new version or its reviewers; greyed rows can’t be auto-bumped.",
       "newVersionLabel": "New version",

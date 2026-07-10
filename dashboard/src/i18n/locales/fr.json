@@ -355,6 +355,7 @@
           "copy": "Copier",
           "copied": "Copié dans le presse-papiers.",
           "watch": "Suivre la progression",
+          "liveTitle": "Progression en direct",
           "someFailed": "{{count}} application(s) n'ont pas pu démarrer :"
         }
       }
@@ -377,6 +378,8 @@
       "start": "Lancer la correction",
       "starting": "Lancement de la correction…",
       "loadFailed": "Impossible de charger le train de correction.",
+      "detailTitle": "Correction en cours",
+      "detailSubtitle": "État en direct de cette correction de dépendance — clonage, vérification des changements incompatibles, compilation et tests, puis demandes de tirage.",
       "confirm": "Confirmer et lancer",
       "reviewIntro": "Passez en revue le train de mises à jour avant son exécution. Les dépôts du cadre (APP7488) sont fusionnés d’abord, puis une PR par application. Modifiez la nouvelle version de chaque module ou ses réviseurs ; les lignes grisées ne peuvent pas être mises à niveau automatiquement.",
       "newVersionLabel": "Nouvelle version",
