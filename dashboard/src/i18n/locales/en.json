@@ -712,7 +712,8 @@
     "subtitle": "Field-learned classifications the engine promotes into itself via a reviewed pull request.",
     "refresh": "Refresh proposals",
     "refreshed": "Proposals refreshed.",
-    "debtLabel": "open classifications — the engine's learning debt, driven toward zero",
+    "debtUnspecified": "unclassified — this loop drives it to zero",
+    "debtDisputed": "disputed — precision (Channel 2, coming)",
     "loading": "Loading proposals…",
     "loadError": "Couldn't load the classification proposals.",
     "emptyTitle": "No classifications pending",
@@ -734,10 +735,13 @@
     "viewPr": "View PR",
     "markMerged": "Mark merged",
     "merged": "Marked merged.",
+    "dismiss": "Dismiss",
+    "dismissed": "Proposal dismissed.",
     "status_PROPOSED": "Proposed",
     "status_CHALLENGED": "Challenged",
     "status_PR_OPEN": "PR open",
-    "status_MERGED": "Merged"
+    "status_MERGED": "Merged",
+    "status_DISMISSED": "Dismissed"
   },
   "gates": {
     "loadError": "Couldn't load the approval gates.",

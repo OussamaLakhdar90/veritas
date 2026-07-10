@@ -10,8 +10,8 @@ import { cn } from '../components/cn';
 import { enumLabel } from '../lib/enumLabels';
 
 const SEV_CHOICES = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO'];
-const isOpen = (s?: string) => s !== 'MERGED';
-const statusTone = (s?: string) => (s === 'MERGED' ? TONE.ok : s === 'PR_OPEN' ? TONE.info : TONE.warn);
+const statusTone = (s?: string) =>
+  s === 'MERGED' ? TONE.ok : s === 'PR_OPEN' ? TONE.info : s === 'DISMISSED' ? TONE.danger : TONE.warn;
 
 /**
  * Engine Evolution — the classification-learning loop. Each proposal is a field-learned severity for a
@@ -24,15 +24,19 @@ export function EngineEvolution() {
   const toast = useToast();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['classification-proposals'], queryFn: () => api.classificationProposals() });
+  const debt = useQuery({ queryKey: ['classification-debt'], queryFn: () => api.classificationDebt() });
 
   const refresh = useMutation({
     mutationFn: () => api.refreshProposals(),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['classification-proposals'] }); toast.push('success', t('evolve.refreshed')); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['classification-proposals'] });
+      qc.invalidateQueries({ queryKey: ['classification-debt'] });
+      toast.push('success', t('evolve.refreshed'));
+    },
     onError: (e: Error) => toast.push('error', e.message),
   });
 
   const rows = q.data ?? [];
-  const openCount = rows.filter((r) => isOpen(r.status)).length;
 
   return (
     <div>
@@ -40,12 +44,16 @@ export function EngineEvolution() {
         actions={<Button size="sm" variant="secondary" loading={refresh.isPending} onClick={() => refresh.mutate()}>
           <RefreshCw className="h-4 w-4" /> {t('evolve.refresh')}</Button>} />
 
-      {/* Learning-debt summary: open classifications the loop is driving toward zero. */}
-      <Card className="mb-4"><CardBody className="flex items-center gap-3">
+      {/* Learning debt: the engine's open classification + precision debt, driven toward zero. */}
+      <Card className="mb-4"><CardBody className="flex items-center gap-8">
         <Brain className="h-5 w-5 text-brand" />
         <div>
-          <div className="text-stat font-semibold tabular-nums text-ink-900">{openCount}</div>
-          <div className="text-sm text-muted">{t('evolve.debtLabel')}</div>
+          <div className="text-stat font-semibold tabular-nums text-ink-900">{debt.data?.unspecified ?? 0}</div>
+          <div className="text-sm text-muted">{t('evolve.debtUnspecified')}</div>
+        </div>
+        <div>
+          <div className="text-stat font-semibold tabular-nums text-ink-900">{debt.data?.disputed ?? 0}</div>
+          <div className="text-sm text-muted">{t('evolve.debtDisputed')}</div>
         </div>
       </CardBody></Card>
 
@@ -71,7 +79,7 @@ function ProposalCard({ train }: { train: ClassificationTrain }) {
   const [severity, setSeverity] = useState((train.finalSeverity || train.aiSuggestedSeverity || 'INFO').toUpperCase());
   const [comment, setComment] = useState(train.maintainerComment || '');
   const unsaved = severity !== (train.finalSeverity || '').toUpperCase();
-  const editable = train.status !== 'PR_OPEN' && train.status !== 'MERGED';
+  const editable = train.status !== 'PR_OPEN' && train.status !== 'MERGED' && train.status !== 'DISMISSED';
   const invalidate = () => qc.invalidateQueries({ queryKey: ['classification-proposals'] });
 
   const challenge = useMutation({
@@ -87,6 +95,11 @@ function ProposalCard({ train }: { train: ClassificationTrain }) {
   const markMerged = useMutation({
     mutationFn: () => api.markClassificationMerged(train.id),
     onSuccess: () => { invalidate(); toast.push('success', t('evolve.merged')); },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+  const dismiss = useMutation({
+    mutationFn: () => api.dismissProposal(train.id),
+    onSuccess: () => { invalidate(); toast.push('success', t('evolve.dismissed')); },
     onError: (e: Error) => toast.push('error', e.message),
   });
 
@@ -139,6 +152,8 @@ function ProposalCard({ train }: { train: ClassificationTrain }) {
               <Button size="sm" loading={openPr.isPending} disabled={unsaved}
                 title={unsaved ? t('evolve.saveFirst') : undefined} onClick={() => openPr.mutate()}>
                 <GitPullRequestArrow className="h-4 w-4" /> {t('evolve.openPr')}</Button>
+              <Button size="sm" variant="secondary" loading={dismiss.isPending} onClick={() => dismiss.mutate()}>
+                {t('evolve.dismiss')}</Button>
             </div>
           </div>
         ) : (

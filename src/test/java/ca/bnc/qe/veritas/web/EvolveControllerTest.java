@@ -10,6 +10,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.util.List;
 import ca.bnc.qe.veritas.evolve.ClassificationTrain;
 import ca.bnc.qe.veritas.evolve.EngineEvolutionService;
+import ca.bnc.qe.veritas.persistence.FindingRecordRepository;
 import ca.bnc.qe.veritas.settings.CurrentUser;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +24,7 @@ class EvolveControllerTest {
     @Autowired private MockMvc mvc;
     @MockBean private EngineEvolutionService service;
     @MockBean private CurrentUser currentUser;
+    @MockBean private FindingRecordRepository findingRepository;
 
     private static ClassificationTrain train() {
         ClassificationTrain t = new ClassificationTrain();
@@ -71,6 +73,24 @@ class EvolveControllerTest {
     void markMergedRoutesToTheService() throws Exception {
         when(service.markMerged("t1")).thenReturn(train());
         mvc.perform(post("/api/v1/engine-evolution/proposals/t1/mark-merged"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void debtReportsUnspecifiedAndDisputedCounts() throws Exception {
+        when(findingRepository.countDistinctUnspecified()).thenReturn(4L);
+        when(findingRepository.countDistinctDisputed()).thenReturn(2L);
+        mvc.perform(get("/api/v1/engine-evolution/debt"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.unspecified").value(4))
+                .andExpect(jsonPath("$.disputed").value(2));
+    }
+
+    @Test
+    void dismissRoutesToTheService() throws Exception {
+        when(service.dismiss(any(), any())).thenReturn(train());
+        mvc.perform(post("/api/v1/engine-evolution/proposals/t1/dismiss")
+                        .contentType("application/json").content("{\"reason\":\"too contentious\"}"))
                 .andExpect(status().isOk());
     }
 }

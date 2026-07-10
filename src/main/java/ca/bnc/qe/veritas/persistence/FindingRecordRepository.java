@@ -71,4 +71,16 @@ public interface FindingRecordRepository extends JpaRepository<FindingRecord, St
         String getSeverity();
         String getService();
     }
+
+    /** The engine's learning debt — distinct findings the engine could not classify (severity UNSPECIFIED),
+     *  minus what a human dismissed. Drives the Engine-Evolution KPI toward zero. */
+    @Query("select count(distinct f.fingerprint) from FindingRecord f where f.severity = 'UNSPECIFIED' "
+            + "and (f.status is null or f.status not in ('REJECTED', 'FALSE_POSITIVE'))")
+    long countDistinctUnspecified();
+
+    /** The precision half of the learning debt — distinct findings the reconcile LLM disputed as likely false
+     *  positives (Channel 2), minus dismissed. */
+    @Query("select count(distinct f.fingerprint) from FindingRecord f where f.aiDisputed = true "
+            + "and (f.status is null or f.status not in ('REJECTED', 'FALSE_POSITIVE'))")
+    long countDistinctDisputed();
 }

@@ -69,9 +69,12 @@ public class EngineEvolutionService {
     /** Recompute proposals from the field votes and upsert one open train per pending type. Returns all trains. */
     public List<ClassificationTrain> refresh(String owner) {
         for (ClassificationProposal p : proposalService.computeProposals(owner)) {
-            ClassificationTrain t = trains
-                    .findFirstByFindingTypeAndStatusNotOrderByCreatedAtDesc(p.findingType().name(), "MERGED")
-                    .orElseGet(ClassificationTrain::new);
+            ClassificationTrain existing = trains
+                    .findFirstByFindingTypeOrderByCreatedAtDesc(p.findingType().name()).orElse(null);
+            if (existing != null && isTerminal(existing.getStatus())) {
+                continue;   // MERGED or DISMISSED — respect the maintainer's terminal decision; don't re-propose.
+            }
+            ClassificationTrain t = existing != null ? existing : new ClassificationTrain();
             boolean seedable = t.getStatus() == null || "PROPOSED".equals(t.getStatus());
             t.setFindingType(p.findingType().name());
             // Evidence always reflects the latest field votes.
@@ -109,6 +112,21 @@ public class EngineEvolutionService {
         t.setFinalSeverity(sv);
         t.setMaintainerComment(comment);
         t.setStatus("CHALLENGED");
+        return trains.save(t);
+    }
+
+    /**
+     * A maintainer decides a type should NOT be classified via the loop (weak / contentious / not-now signal).
+     * Terminal: {@link #refresh} won't re-propose the type, so a dismissed proposal stays dismissed.
+     */
+    public ClassificationTrain dismiss(String trainId, String reason) {
+        ClassificationTrain t = load(trainId);
+        requireStatus(t, "dismiss", "PROPOSED", "CHALLENGED");
+        if (reason != null && !reason.isBlank()) {
+            t.setMaintainerComment(reason);
+        }
+        t.setStatus("DISMISSED");
+        t.setFinishedAt(Instant.now());
         return trains.save(t);
     }
 
@@ -181,6 +199,11 @@ public class EngineEvolutionService {
         }
         throw new ConflictException("Cannot " + action + " classification " + t.getFindingType() + " — it is "
                 + t.getStatus() + " (allowed: " + String.join(" / ", allowed) + ").");
+    }
+
+    /** MERGED / DISMISSED are terminal — refresh must never resurrect or re-propose such a train. */
+    private static boolean isTerminal(String status) {
+        return "MERGED".equals(status) || "DISMISSED".equals(status);
     }
 
     private static String branchName(FindingType type, Severity severity) {
