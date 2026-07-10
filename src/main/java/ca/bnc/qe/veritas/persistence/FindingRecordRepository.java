@@ -35,6 +35,18 @@ public interface FindingRecordRepository extends JpaRepository<FindingRecord, St
                                                 @Param("scanId") String scanId);
 
     /**
+     * Carry-forward lookup for a maintainer's dispute VERDICT across a scan's fingerprints: prior rows (a different
+     * scan) that carry a {@code disputeVerdict}, newest first, so the caller keeps the most recent verdict per
+     * fingerprint. Deliberately broader than {@link #findPriorDispositions} (any status), because a verdict can be
+     * recorded while the finding's lifecycle status is still OPEN — and unlike {@code aiDisputed} (re-derived every
+     * scan) the verdict must survive across re-scans or it would churn away.
+     */
+    @Query("select f from FindingRecord f where f.fingerprint in :fingerprints and f.scanId <> :scanId "
+            + "and f.disputeVerdict is not null order by f.createdAt desc")
+    List<FindingRecord> findPriorDisputeVerdicts(@Param("fingerprints") Collection<String> fingerprints,
+                                                 @Param("scanId") String scanId);
+
+    /**
      * Executive rollup: every DISTINCT breaking defect ever caught (fingerprints repeat across re-scans —
      * the carry-forward dedup), minus what a human dismissed as rejected / false positive.
      */
@@ -83,4 +95,35 @@ public interface FindingRecordRepository extends JpaRepository<FindingRecord, St
     @Query("select count(distinct f.fingerprint) from FindingRecord f where f.aiDisputed = true "
             + "and (f.status is null or f.status not in ('REJECTED', 'FALSE_POSITIVE'))")
     long countDistinctDisputed();
+
+    /**
+     * Engine-Evolution precision-triage signal: one row per disputed finding (the reconcile LLM's own likely-false-
+     * positive flags), newest first, joined finding → scan for the service dimension (theta-join on
+     * {@code f.scanId = s.id}, no mapped relationship). Excludes human-dismissed rows exactly as
+     * {@link #countDistinctDisputed()} does. Unlike {@link #findUnspecifiedClassificationVotes()} it does NOT drop
+     * service-less scans — so after fingerprint-dedup the per-type totals reconcile with the disputed KPI. Returns
+     * raw rows (a finding re-disputed across re-scans repeats its fingerprint); the caller dedupes by fingerprint,
+     * keeping the newest, which also carries the latest {@code disputeVerdict}.
+     */
+    @Query("select f.id as id, f.type as type, f.fingerprint as fingerprint, f.aiDisputeReason as reason, "
+            + "f.disputeVerdict as verdict, f.endpoint as endpoint, f.summary as summary, f.scanId as scanId, "
+            + "s.serviceName as service "
+            + "from FindingRecord f, Scan s "
+            + "where f.scanId = s.id and f.aiDisputed = true "
+            + "and (f.status is null or f.status not in ('REJECTED', 'FALSE_POSITIVE')) "
+            + "order by f.createdAt desc")
+    List<DisputeRow> findDisputedRows();
+
+    /** Projection for {@link #findDisputedRows()} — one disputed finding (dedupe by fingerprint, newest wins). */
+    interface DisputeRow {
+        String getId();
+        String getType();
+        String getFingerprint();
+        String getReason();
+        String getVerdict();
+        String getEndpoint();
+        String getSummary();
+        String getScanId();
+        String getService();
+    }
 }

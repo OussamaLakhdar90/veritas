@@ -1,13 +1,21 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Brain, GitPullRequestArrow, RefreshCw, ExternalLink, Check } from 'lucide-react';
-import { api, ClassificationTrain } from '../api';
+import { Brain, GitPullRequestArrow, RefreshCw, ExternalLink, Check, ShieldAlert, ChevronRight, ChevronDown } from 'lucide-react';
+import { api, ClassificationTrain, DisputedTypeGroup, DisputeExample } from '../api';
 import { Badge, Button, Card, CardBody, EmptyState, ErrorState, Input, PageHeader, TableSkeleton } from '../components/ui';
 import { useToast } from '../components/Toast';
 import { severityBadge, TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
 import { enumLabel } from '../lib/enumLabels';
+
+/** The maintainer verdicts on a disputed finding, in triage order (worst-for-the-engine last). */
+const VERDICTS: { key: string; tone: string }[] = [
+  { key: 'CONFIRMED_FP', tone: TONE.danger },
+  { key: 'VALID', tone: TONE.ok },
+  { key: 'NEEDS_DETECTION_FIX', tone: TONE.warn },
+];
 
 const SEV_CHOICES = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO'];
 const statusTone = (s?: string) =>
@@ -68,6 +76,121 @@ export function EngineEvolution() {
           {rows.map((r) => <ProposalCard key={`${r.id}:${r.status}:${r.aiSuggestedSeverity}:${r.finalSeverity}`} train={r} />)}
         </div>
       )}
+
+      <DisputedSection />
+    </div>
+  );
+}
+
+/**
+ * The precision half of the learning debt: the reconcile LLM's own likely-false-positive flags, rolled up by
+ * finding type. A maintainer drills in and records a verdict per finding — was the dispute right (a real false
+ * positive), wrong (a valid finding), or a systematic detection gap worth an engine fix? Read-only triage; the
+ * per-type counts reconcile with the disputed KPI above, and the verdicts are the signal Channel 2 will consume.
+ */
+function DisputedSection() {
+  const { t } = useTranslation();
+  const disputed = useQuery({ queryKey: ['ai-disputed'], queryFn: () => api.aiDisputedFindings() });
+  const groups = disputed.data ?? [];
+
+  return (
+    <div className="mt-8">
+      <div className="mb-3 flex items-center gap-2">
+        <ShieldAlert className="h-5 w-5 text-brand" />
+        <div>
+          <h2 className="text-lg font-semibold text-ink-900">{t('evolve.disputesTitle')}</h2>
+          <p className="text-sm text-muted">{t('evolve.disputesSubtitle')}</p>
+        </div>
+      </div>
+
+      {disputed.isLoading ? (
+        <Card><CardBody className="p-0"><TableSkeleton label={t('evolve.disputesLoading')} /></CardBody></Card>
+      ) : disputed.isError ? (
+        <ErrorState message={t('evolve.disputesLoadError')} detail={(disputed.error as Error).message} />
+      ) : groups.length === 0 ? (
+        <EmptyState icon={ShieldAlert} title={t('evolve.disputesEmptyTitle')} body={t('evolve.disputesEmptyBody')} />
+      ) : (
+        <div className="flex flex-col gap-3">
+          {groups.map((g) => <DisputedTypeCard key={g.findingType} group={g} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function DisputedTypeCard({ group }: { group: DisputedTypeGroup }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  return (
+    <Card>
+      <CardBody className="flex flex-col gap-3">
+        <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)}
+          className="flex items-center justify-between gap-3 flex-wrap text-left">
+          <div className="flex items-center gap-2">
+            {open ? <ChevronDown className="h-4 w-4 text-muted" /> : <ChevronRight className="h-4 w-4 text-muted" />}
+            <span className="font-mono text-sm font-semibold text-ink-900">{group.findingType}</span>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            {VERDICTS.filter((v) => group.verdictBreakdown[v.key]).map((v) => (
+              <Badge key={v.key} className={v.tone}>{t(`evolve.verdict_${v.key}`)}: {group.verdictBreakdown[v.key]}</Badge>
+            ))}
+            <span className="text-xs text-muted">
+              {t('evolve.disputesEvidence', { count: group.count, services: group.distinctServices })}</span>
+          </div>
+        </button>
+
+        {open && (
+          <div className="flex flex-col divide-y divide-border overflow-hidden rounded-lg bg-ink-50">
+            {group.examples.map((ex) => <DisputeExampleRow key={ex.id} ex={ex} />)}
+          </div>
+        )}
+      </CardBody>
+    </Card>
+  );
+}
+
+function DisputeExampleRow({ ex }: { ex: DisputeExample }) {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const qc = useQueryClient();
+  const setVerdict = useMutation({
+    mutationFn: (verdict: string) => api.setDisputeVerdict(ex.id, verdict),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-disputed'] });
+      qc.invalidateQueries({ queryKey: ['classification-debt'] });
+      toast.push('success', t('evolve.verdictSaved'));
+    },
+    onError: (e: Error) => toast.push('error', e.message),
+  });
+
+  return (
+    <div className="flex flex-col gap-2 p-3">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <p className="text-sm text-ink-900">{ex.summary || ex.endpoint || t('evolve.disputeUnlabelled')}</p>
+          <p className="mt-0.5 flex items-center gap-2 flex-wrap font-mono text-xs text-muted">
+            {ex.service && <span>{ex.service}</span>}
+            {ex.endpoint && <span>{ex.endpoint}</span>}
+          </p>
+        </div>
+        {ex.scanId && (
+          <Link to={`/findings/${ex.scanId}`}
+            className="inline-flex shrink-0 items-center gap-1 text-sm text-brand hover:underline">
+            <ExternalLink className="h-4 w-4" /> {t('evolve.viewFinding')}
+          </Link>
+        )}
+      </div>
+      {ex.reason && <p className="rounded-md bg-surface p-2 text-sm text-ink-700">{ex.reason}</p>}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs text-muted">{t('evolve.verdictPrompt')}</span>
+        {VERDICTS.map((v) => (
+          <Button key={v.key} size="sm" variant={ex.verdict === v.key ? 'primary' : 'secondary'}
+            loading={setVerdict.isPending && setVerdict.variables === v.key}
+            onClick={() => setVerdict.mutate(v.key)}>
+            {t(`evolve.verdict_${v.key}`)}
+          </Button>
+        ))}
+      </div>
     </div>
   );
 }

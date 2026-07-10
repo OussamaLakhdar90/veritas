@@ -91,4 +91,15 @@ public class FindingRecord extends AuditableEntity {
     // The engine `severity` above stays as the deterministic "suggested" default the UI shows next to the override.
     @Column(length = 20)
     private String userSeverity;
+
+    // A maintainer's VERDICT on the AI dispute (nullable): CONFIRMED_FP (the reconcile LLM was right — a real false
+    // positive), VALID (the dispute was wrong — the finding is real), or NEEDS_DETECTION_FIX (a systematic detection
+    // gap worth an engine fix). This is the precision-debt triage signal (Channel 2). Carried forward across re-scans
+    // by fingerprint INDEPENDENTLY of the lifecycle status (a verdict can ride on an OPEN finding) and of
+    // `aiDisputed`, which the reconcile LLM re-derives each scan — so a verdict never churns away. Nullable → ddl-auto
+    // can ADD it freely.
+    @Column(length = 30)
+    private String disputeVerdict;
+    @Column(length = 1000)
+    private String disputeVerdictNote;
 }

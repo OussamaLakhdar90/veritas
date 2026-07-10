@@ -12,9 +12,10 @@ const train = {
   voteCount: 5, distinctServices: 3, voteBreakdown: 'MAJOR:4, CRITICAL:1', status: 'PROPOSED',
 }
 
-function renderEvolve(trains: unknown[], debt = { unspecified: 0, disputed: 0 }) {
+function renderEvolve(trains: unknown[], debt = { unspecified: 0, disputed: 0 }, disputes: unknown[] = []) {
   server.use(http.get('*/api/v1/engine-evolution/proposals', () => HttpResponse.json(trains)))
   server.use(http.get('*/api/v1/engine-evolution/debt', () => HttpResponse.json(debt)))
+  server.use(http.get('*/api/v1/engine-evolution/disputes', () => HttpResponse.json(disputes)))
   return renderPage(<EngineEvolution />, { path: '/engine-evolution', route: '/engine-evolution' })
 }
 
@@ -80,5 +81,30 @@ describe('Engine Evolution', () => {
     await user.click(await screen.findByRole('button', { name: /Dismiss/ }))
     expect(await screen.findByText('Proposal dismissed.')).toBeInTheDocument()
     expect(dismissed).toBe(true)
+  })
+
+  it('AI-disputed section: expand a type, drill into a finding, and record a verdict (PATCHes the finding)', async () => {
+    let patched: { disputeVerdict?: string } | null = null
+    server.use(http.patch('*/api/v1/findings/find-1', async ({ request }) => {
+      patched = (await request.json()) as { disputeVerdict?: string }
+      return HttpResponse.json({ id: 'find-1', aiDisputed: true, disputeVerdict: patched.disputeVerdict })
+    }))
+    const group = {
+      findingType: 'PARAM_TYPE_MISMATCH', count: 2, distinctServices: 1, verdictBreakdown: {},
+      examples: [{ id: 'find-1', scanId: 'scan-9', service: 'svc-a', endpoint: 'GET /a', summary: 'type mismatch',
+        reason: 'int32 vs integer are equivalent' }],
+    }
+    const user = userEvent.setup()
+    renderEvolve([], { unspecified: 0, disputed: 2 }, [group])
+
+    // The disputed type shows; expanding it reveals the finding's dispute reason and a deep-link to it.
+    await user.click(await screen.findByText('PARAM_TYPE_MISMATCH'))
+    expect(await screen.findByText('int32 vs integer are equivalent')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /View finding/ })).toHaveAttribute('href', '/findings/scan-9')
+
+    // Recording "Needs a detection fix" PATCHes the finding with that verdict.
+    await user.click(screen.getByRole('button', { name: 'Needs a detection fix' }))
+    expect(await screen.findByText('Verdict recorded.')).toBeInTheDocument()
+    expect(patched).toEqual({ disputeVerdict: 'NEEDS_DETECTION_FIX' })
   })
 })

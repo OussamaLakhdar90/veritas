@@ -2,6 +2,8 @@ package ca.bnc.qe.veritas.web;
 
 import java.util.List;
 import ca.bnc.qe.veritas.evolve.ClassificationTrain;
+import ca.bnc.qe.veritas.evolve.DisputeCluster;
+import ca.bnc.qe.veritas.evolve.DisputeClusterService;
 import ca.bnc.qe.veritas.evolve.EngineEvolutionService;
 import ca.bnc.qe.veritas.persistence.FindingRecordRepository;
 import ca.bnc.qe.veritas.settings.CurrentUser;
@@ -24,12 +26,14 @@ public class EvolveController {
     private final EngineEvolutionService service;
     private final CurrentUser currentUser;
     private final FindingRecordRepository findingRepository;
+    private final DisputeClusterService disputeClusters;
 
     public EvolveController(EngineEvolutionService service, CurrentUser currentUser,
-                            FindingRecordRepository findingRepository) {
+                            FindingRecordRepository findingRepository, DisputeClusterService disputeClusters) {
         this.service = service;
         this.currentUser = currentUser;
         this.findingRepository = findingRepository;
+        this.disputeClusters = disputeClusters;
     }
 
     /** All classification trains, newest first. */
@@ -42,6 +46,16 @@ public class EvolveController {
     @GetMapping("/debt")
     public LearningDebt debt() {
         return new LearningDebt(findingRepository.countDistinctUnspecified(), findingRepository.countDistinctDisputed());
+    }
+
+    /**
+     * The disputed (precision) half of the learning debt, rolled up by finding type for triage — how often each
+     * comparison rule the reconcile LLM keeps flagging as a false positive misfires, across how many services, with
+     * a few examples to drill into. The per-type counts reconcile with {@code debt.disputed}. Read-only.
+     */
+    @GetMapping("/disputes")
+    public List<DisputeCluster> disputes() {
+        return disputeClusters.computeClusters();
     }
 
     /** Recompute proposals from the accumulated field votes (upserts one open train per pending type). */

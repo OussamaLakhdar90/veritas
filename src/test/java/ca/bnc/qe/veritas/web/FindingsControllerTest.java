@@ -120,6 +120,42 @@ class FindingsControllerTest {
     }
 
     @Test
+    void patchRecordsADisputeVerdictWithAuditOnADisputedFinding() throws Exception {
+        when(currentUser.principalId()).thenReturn("alice");
+        FindingRecord f = new FindingRecord();
+        f.setAiDisputed(true);   // a verdict answers "was the AI's false-positive call right?" — disputed findings only
+        when(findingRepository.findById("f1")).thenReturn(Optional.of(f));
+        when(findingRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        mvc.perform(patch("/api/v1/findings/f1").contentType("application/json")
+                        .content("{\"disputeVerdict\":\"needs_detection_fix\",\"verdictNote\":\"int32 vs integer normalization gap\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.disputeVerdict").value("NEEDS_DETECTION_FIX"))
+                .andExpect(jsonPath("$.disputeVerdictNote").value("int32 vs integer normalization gap"))
+                .andExpect(jsonPath("$.reviewedBy").value("alice"))
+                .andExpect(jsonPath("$.reviewedAt").exists());
+    }
+
+    @Test
+    void patchRejectsADisputeVerdictOnANonDisputedFinding() throws Exception {
+        FindingRecord f = new FindingRecord();   // not disputed → a verdict makes no sense (409, not a silent no-op)
+        when(findingRepository.findById("f1")).thenReturn(Optional.of(f));
+        mvc.perform(patch("/api/v1/findings/f1").contentType("application/json")
+                        .content("{\"disputeVerdict\":\"CONFIRMED_FP\"}"))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void patchRejectsAnUnknownDisputeVerdict() throws Exception {
+        FindingRecord f = new FindingRecord();
+        f.setAiDisputed(true);
+        when(findingRepository.findById("f1")).thenReturn(Optional.of(f));
+        mvc.perform(patch("/api/v1/findings/f1").contentType("application/json")
+                        .content("{\"disputeVerdict\":\"BOGUS\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void scanByIdExposesLiveStageForThePollingStepper() throws Exception {
         Scan s = new Scan();
         s.setServiceName("ciam-policies");
