@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { server } from './msw/server'
@@ -19,6 +19,20 @@ function awaitingManualTrain(over: Record<string, unknown> = {}) {
         diffPreview: 'bump', status: 'BRANCH_PUSHED', manual: false, reviewers: [] },
       { order: 2, moduleLabel: 'core', bitbucketProject: 'P', repoSlug: 'core', branch: 'b', pomPath: 'pom.xml',
         diffPreview: 'bump', reason: 'reactor build failed here', status: 'BRANCH_PUSHED', manual: false, reviewers: [] },
+    ],
+    ...over,
+  }
+}
+
+/** A train paused at AWAITING_CONFIRM: the cascade is planned but nothing has run — the review-&-edit step. */
+function awaitingConfirmTrain(over: Record<string, unknown> = {}) {
+  return {
+    id: 't9', coordinate: 'org.apache.commons:commons-lang3', oldVersion: '3.12.0', fixedIn: '3.18.0',
+    severity: 'high', appIds: 'APP7576', jiraKey: 'CIAM-1', status: 'AWAITING_CONFIRM',
+    breaking: false, verdict: { available: false, breaking: false, confidence: 0, reasons: [] },
+    steps: [
+      { order: 1, moduleLabel: 'BOM', bitbucketProject: 'P', repoSlug: 'bom', branch: 'b', pomPath: 'pom.xml',
+        diffPreview: '3.12.0 → 3.18.0', newModuleVersion: '3.18.0', status: 'PLANNED', manual: false, reviewers: [] },
     ],
     ...over,
   }
@@ -57,6 +71,53 @@ describe('Snyk fix deep-link (Activity row → live, actionable progress)', () =
 
     // The train advances to PR_OPEN → the closing action ("Mark all merged") is now offered — no dead-end.
     expect(await screen.findByRole('button', { name: /Mark all merged/ })).toBeInTheDocument()
+  })
+
+  it('reviews the planned cascade and confirms it with the edited version + reviewers', async () => {
+    let confirmBody: { versionOverrides?: Record<string, string>; reviewerOverrides?: Record<string, string[]> } | null = null
+    server.use(
+      http.get('*/api/v1/snyk/fixes/t9', () => HttpResponse.json(awaitingConfirmTrain())),
+      http.post('*/api/v1/snyk/fixes/t9/confirm', async ({ request }) => {
+        confirmBody = (await request.json()) as typeof confirmBody
+        return HttpResponse.json(awaitingConfirmTrain({ status: 'VERIFYING' }))
+      }),
+    )
+    const user = userEvent.setup()
+    renderDetail()
+
+    // The confirm state explains what to do and renders the editable cascade (version + reviewers).
+    expect(await screen.findByText(/Review the versions and reviewers/i)).toBeInTheDocument()
+    const version = screen.getByLabelText(/New version/i)
+    await user.clear(version)
+    await user.type(version, '3.19.0')
+    await user.type(screen.getByLabelText(/Reviewers/i), 'carol')
+    await user.click(screen.getByRole('button', { name: /Confirm & run/i }))
+
+    // The user's edits ride through to the confirm call (version keyed by module, reviewers keyed by step order).
+    await waitFor(() => expect(confirmBody).not.toBeNull())
+    expect(confirmBody!.versionOverrides).toEqual({ BOM: '3.19.0' })
+    expect(confirmBody!.reviewerOverrides).toEqual({ 1: ['carol'] })
+  })
+
+  it('records a manually-opened PR from the deep-link (awaiting-manual step)', async () => {
+    let recorded = false
+    server.use(
+      http.get('*/api/v1/snyk/fixes/t9', () =>
+        HttpResponse.json(recorded ? awaitingManualTrain({ status: 'PR_OPEN' }) : awaitingManualTrain())),
+      http.post('*/api/v1/snyk/fixes/t9/steps/:order/pr', () => {
+        recorded = true
+        return HttpResponse.json(awaitingManualTrain({ status: 'PR_OPEN' }))
+      }),
+    )
+    const user = userEvent.setup()
+    renderDetail()
+
+    // Each pushed-but-unopened step offers a "paste your PR URL → record" affordance right on the deep-link.
+    const urlInput = (await screen.findAllByPlaceholderText(/Paste the PR URL/i))[0]
+    await user.type(urlInput, 'http://host/my-pr')
+    await user.click(screen.getAllByRole('button', { name: /Record my PR/i })[0])
+
+    await waitFor(() => expect(recorded).toBe(true))
   })
 
   it('shows a retryable error (not a blank page) when the train can’t be loaded', async () => {

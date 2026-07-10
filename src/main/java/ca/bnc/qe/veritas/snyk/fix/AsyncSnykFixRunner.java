@@ -251,9 +251,7 @@ public class AsyncSnykFixRunner {
                         req.oldVersion(), req.fixedIn(), req.appIds(), failedAt, e.getMessage(), e);
                 // Never store a blank reason — several failures (NoSuchElement/NPE) carry a null message, which would
                 // leave the UI with a red badge and no explanation.
-                String reason = (e.getMessage() == null || e.getMessage().isBlank())
-                        ? e.getClass().getSimpleName() : e.getMessage();
-                markFailed(trainId, failedAt, reason);
+                markFailed(trainId, failedAt, failureReason(e));
             }
         } finally {
             clones.values().forEach(workspace::cleanup);
@@ -274,7 +272,7 @@ public class AsyncSnykFixRunner {
     }
 
     /** Clone a REQUIRED framework repo — throw (fail the train at PLANNING) if it can't be cloned. */
-    private Path cloneRequired(String project, String repoSlug, String label, Map<String, Path> clones) {
+    Path cloneRequired(String project, String repoSlug, String label, Map<String, Path> clones) {
         Path dir = clone(project, repoSlug, clones);
         if (dir == null) {
             throw new IllegalStateException("Couldn't clone the framework " + label + " repo " + project + "/"
@@ -318,8 +316,8 @@ public class AsyncSnykFixRunner {
         }
     }
 
-    private void persistSteps(String trainId, List<CascadeStep> plan, Map<String, Path> clones, String branch,
-                              List<String> reviewersOverride, Map<Integer, List<String>> reviewerOverrides) {
+    void persistSteps(String trainId, List<CascadeStep> plan, Map<String, Path> clones, String branch,
+                      List<String> reviewersOverride, Map<Integer, List<String>> reviewerOverrides) {
         steps.deleteByTrainId(trainId);   // a confirm-time re-plan replaces the preview steps rather than duplicating
         for (CascadeStep cs : plan) {
             SnykFixStep s = new SnykFixStep();
@@ -538,6 +536,12 @@ public class AsyncSnykFixRunner {
      * If another writer already finalized it (FAILED) or handed it to a human (AWAITING_MANUAL_FIX / PR_OPEN), that
      * state wins. The save itself is guarded against the very optimistic-lock race this method exists to survive.
      */
+    /** A non-blank failure reason for the UI: the exception's message, or its class name when the message is
+     *  null/blank (several failures — NoSuchElement/NPE — carry no message, which would leave a red badge unexplained). */
+    static String failureReason(Throwable e) {
+        return (e.getMessage() == null || e.getMessage().isBlank()) ? e.getClass().getSimpleName() : e.getMessage();
+    }
+
     private void markFailed(String trainId, String failedAt, String message) {
         try {
             trains.findById(trainId).ifPresent(t -> {

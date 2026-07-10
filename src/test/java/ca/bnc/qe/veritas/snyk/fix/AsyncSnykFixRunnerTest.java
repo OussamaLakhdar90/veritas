@@ -3,6 +3,7 @@ package ca.bnc.qe.veritas.snyk.fix;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -10,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -25,11 +27,12 @@ class AsyncSnykFixRunnerTest {
 
     private final SnykFixTrainRepository trains = mock(SnykFixTrainRepository.class);
     private final SnykFixStepRepository steps = mock(SnykFixStepRepository.class);
+    private final PrPublisher prPublisher = mock(PrPublisher.class);
 
     private final AsyncSnykFixRunner runner = new AsyncSnykFixRunner(
             mock(WorkspaceService.class), mock(CascadePlanner.class), mock(CascadeVerifier.class),
             mock(BreakingChangeService.class), mock(SnykFixJiraService.class), mock(SnykFixActions.class),
-            mock(ReviewerSuggester.class), mock(GeneratedFileWriter.class), mock(PrPublisher.class),
+            mock(ReviewerSuggester.class), mock(GeneratedFileWriter.class), prPublisher,
             new FrameworkProperties(), trains, steps, new ObjectMapper());
 
     private SnykFixRequest request() {
@@ -134,5 +137,58 @@ class AsyncSnykFixRunnerTest {
 
         // The module is shown RUNNING (spinner) BEFORE it flips to BRANCH_PUSHED — the live stepper advance.
         assertThat(statusSequence).containsSubsequence(SnykFixStatus.RUNNING, SnykFixStatus.BRANCH_PUSHED);
+    }
+
+    @Test
+    void pushBranchesMarksAStepFailedAndSummarisesWhenThePushIsRejected() {
+        // A push rejected for want of write scope must STOP the step at STEP_FAILED with a reason — not silently
+        // continue and later be mistaken for a shipped fix (fail-fast + the failure-summary log branch).
+        SnykFixStep bom = stepOf(1, "BOM");
+        bom.setBitbucketProject("P");
+        bom.setRepoSlug("bom-repo");
+        when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of(bom));
+        when(steps.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        doThrow(new RuntimeException("not authorized")).when(prPublisher)
+                .pushBranch(any(), any(), any(), any());
+
+        runner.pushBranches("t1", Map.of("P/bom-repo", Path.of(".")), "veritas/x", "CIAM-1");
+
+        assertThat(bom.getStatus()).isEqualTo(SnykFixStatus.STEP_FAILED);
+        assertThat(bom.getReason()).contains("push failed").contains("not authorized");
+    }
+
+    @Test
+    void cloneRequiredThrowsAClearReasonWhenAFrameworkRepoCannotBeCloned() {
+        // The workspace mock returns null (clone failed) → a REQUIRED framework repo must fail the train fast with a
+        // credentials/connectivity hint, not silently drop the module and resurface as a misleading reactor failure.
+        assertThatThrownBy(() -> runner.cloneRequired("APP7488", "lsist-bom", "BOM", new LinkedHashMap<>()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("BOM")
+                .hasMessageContaining("connectivity/credentials");
+    }
+
+    @Test
+    void persistStepsFailsFastWhenAVersionEditCannotBeApplied() {
+        // A non-manual step whose repo is not in the clones map can't have its pom edited → the step is marked
+        // STEP_FAILED and the exception is rethrown to abort the train (no change-less "fix" reaches push/PR).
+        CascadeStep unclonable = new CascadeStep(1, "P", "bom-repo", "veritas/x", "pom.xml", "BOM",
+                List.of(), "2.0", "1.0 -> 2.0", false, null);
+        List<String> savedStatuses = new ArrayList<>();
+        when(steps.save(any())).thenAnswer(inv -> {
+            savedStatuses.add(((SnykFixStep) inv.getArgument(0)).getStatus());
+            return inv.getArgument(0);
+        });
+
+        assertThatThrownBy(() -> runner.persistSteps(
+                "t1", List.of(unclonable), Map.of(), "veritas/x", List.of(), Map.of()))
+                .isInstanceOf(IllegalStateException.class);
+        assertThat(savedStatuses).contains(SnykFixStatus.STEP_FAILED);   // the step was marked before the abort
+    }
+
+    @Test
+    void failureReasonFallsBackToTheClassNameWhenTheMessageIsNullOrBlank() {
+        assertThat(AsyncSnykFixRunner.failureReason(new RuntimeException("boom"))).isEqualTo("boom");
+        assertThat(AsyncSnykFixRunner.failureReason(new NullPointerException())).isEqualTo("NullPointerException");
+        assertThat(AsyncSnykFixRunner.failureReason(new IllegalStateException("   "))).isEqualTo("IllegalStateException");
     }
 }
