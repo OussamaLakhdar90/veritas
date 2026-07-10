@@ -727,6 +727,7 @@
     "comment": "Why override?",
     "commentPlaceholder": "Explain the override (goes in the PR)…",
     "saveOverride": "Save override",
+    "saveFirst": "Save your change first, then open the PR.",
     "saved": "Decision saved.",
     "openPr": "Open PR",
     "prOpened": "Classification PR opened.",

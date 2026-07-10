@@ -19,6 +19,7 @@ import ca.bnc.qe.veritas.finding.FindingType;
 import ca.bnc.qe.veritas.finding.Severity;
 import ca.bnc.qe.veritas.preflight.Preflight;
 import ca.bnc.qe.veritas.preflight.PreconditionException;
+import ca.bnc.qe.veritas.skill.ConflictException;
 import ca.bnc.qe.veritas.skill.GateService;
 import ca.bnc.qe.veritas.vcs.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -107,7 +108,7 @@ class EngineEvolutionServiceTest {
         when(gateService.await("t1", "OPEN_CLASSIFICATION_PR", "alice"))
                 .thenReturn(new GateService.Decision(false, "gate-1", "PENDING"));
 
-        assertThatThrownBy(() -> service.openPr("t1", "alice")).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> service.openPr("t1", "alice")).isInstanceOf(ConflictException.class);
     }
 
     @Test
@@ -157,8 +158,30 @@ class EngineEvolutionServiceTest {
 
     @Test
     void markMergedClosesTheLoop() {
-        when(trains.findById("t1")).thenReturn(Optional.of(train("t1", "STATUS_CODE_MISSING", "MAJOR")));
+        ClassificationTrain t = train("t1", "STATUS_CODE_MISSING", "MAJOR");
+        t.setStatus("PR_OPEN");
+        when(trains.findById("t1")).thenReturn(Optional.of(t));
         when(trains.save(any())).thenAnswer(i -> i.getArgument(0));
         assertThat(service.markMerged("t1").getStatus()).isEqualTo("MERGED");
+    }
+
+    @Test
+    void rejectsWrongStateTransitions() {
+        // mark-merged on a train that never opened a PR, challenge on a MERGED train, and open-PR on an
+        // already-open train are all 409s (ConflictException) — not silent no-ops or duplicate PRs.
+        when(trains.findById("p")).thenReturn(Optional.of(train("p", "STATUS_CODE_MISSING", "MAJOR")));   // PROPOSED
+        assertThatThrownBy(() -> service.markMerged("p")).isInstanceOf(ConflictException.class);
+
+        ClassificationTrain merged = train("m", "STATUS_CODE_MISSING", "MAJOR");
+        merged.setStatus("MERGED");
+        when(trains.findById("m")).thenReturn(Optional.of(merged));
+        assertThatThrownBy(() -> service.challenge("m", "CRITICAL", "reason")).isInstanceOf(ConflictException.class);
+
+        props.setRepoAppId("app");
+        props.setRepoSlug("veritas");
+        ClassificationTrain open = train("o", "STATUS_CODE_MISSING", "MAJOR");
+        open.setStatus("PR_OPEN");
+        when(trains.findById("o")).thenReturn(Optional.of(open));
+        assertThatThrownBy(() -> service.openPr("o", "alice")).isInstanceOf(ConflictException.class);
     }
 }

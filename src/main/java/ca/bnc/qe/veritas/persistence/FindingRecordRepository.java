@@ -48,25 +48,27 @@ public interface FindingRecordRepository extends JpaRepository<FindingRecord, St
     int deleteByCreatedAtBefore(@Param("cutoff") Instant cutoff);
 
     /**
-     * Engine-Evolution signal collector: human severity votes on still-{@code UNSPECIFIED} findings, grouped by
-     * (type, chosen severity, service). Joins finding → scan for the service dimension (there is no mapped
-     * relationship, so it's a theta-join on {@code f.scanId = s.id}). Excludes findings a human dismissed
-     * (REJECTED / FALSE_POSITIVE). Each row's {@code votes} is the DISTINCT-fingerprint count, so re-scans of the
-     * same finding never inflate the tally.
+     * Engine-Evolution signal collector: one row per human severity override on a still-{@code UNSPECIFIED}
+     * finding, newest first. Joins finding → scan for the service dimension (there is no mapped relationship, so
+     * it's a theta-join on {@code f.scanId = s.id}). Excludes findings a human dismissed (REJECTED / FALSE_POSITIVE)
+     * and rows whose scan has no service name (they can't prove cross-project convergence). Returns raw rows — NOT a
+     * grouped tally — because the caller must dedupe by {@code fingerprint} (keeping the newest override) to honour
+     * one-finding = one-vote; grouping in SQL would count a finding whose override changed across re-scans twice.
      */
-    @Query("select f.type as type, f.userSeverity as severity, s.serviceName as service, "
-            + "count(distinct f.fingerprint) as votes "
+    @Query("select f.type as type, f.fingerprint as fingerprint, f.userSeverity as severity, "
+            + "s.serviceName as service "
             + "from FindingRecord f, Scan s "
             + "where f.scanId = s.id and f.severity = 'UNSPECIFIED' and f.userSeverity is not null "
+            + "and s.serviceName is not null and s.serviceName <> '' "
             + "and (f.status is null or f.status not in ('REJECTED', 'FALSE_POSITIVE')) "
-            + "group by f.type, f.userSeverity, s.serviceName")
+            + "order by f.createdAt desc")
     List<ClassificationVoteRow> findUnspecifiedClassificationVotes();
 
-    /** Projection for {@link #findUnspecifiedClassificationVotes()} — one (type, chosen severity, service) tally. */
+    /** Projection for {@link #findUnspecifiedClassificationVotes()} — one finding row (dedupe by fingerprint). */
     interface ClassificationVoteRow {
         String getType();
+        String getFingerprint();
         String getSeverity();
         String getService();
-        long getVotes();
     }
 }

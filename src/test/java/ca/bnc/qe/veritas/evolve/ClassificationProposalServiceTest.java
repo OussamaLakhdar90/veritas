@@ -23,22 +23,29 @@ class ClassificationProposalServiceTest {
     private final ClassificationProposalService service =
             new ClassificationProposalService(repo, advisor, new EvolveProperties());
 
-    // Fully stub the row mock and return it, so it is never stubbed inside an outer when(...).thenReturn(...).
-    private static ClassificationVoteRow row(String type, String sev, String service, long votes) {
+    // One finding row (dedupe key = fingerprint). Fully stubbed then returned, so it is never stubbed inside an
+    // outer when(...).thenReturn(...). Rows are supplied newest-first (as the repository orders by createdAt desc).
+    private static ClassificationVoteRow row(String type, String sev, String service, String fingerprint) {
         ClassificationVoteRow r = mock(ClassificationVoteRow.class);
         when(r.getType()).thenReturn(type);
         when(r.getSeverity()).thenReturn(sev);
         when(r.getService()).thenReturn(service);
-        when(r.getVotes()).thenReturn(votes);
+        when(r.getFingerprint()).thenReturn(fingerprint);
         return r;
+    }
+
+    private void stubVotes(ClassificationVoteRow... rows) {
+        when(repo.findUnspecifiedClassificationVotes()).thenReturn(List.of(rows));
     }
 
     @Test
     void proposesWithTheAiSeverityWhenTheBarIsMetAndTheAiIsAvailable() {
-        ClassificationVoteRow r1 = row("STATUS_CODE_MISSING", "MAJOR", "svc-a", 2);
-        ClassificationVoteRow r2 = row("STATUS_CODE_MISSING", "MAJOR", "svc-b", 2);
-        ClassificationVoteRow r3 = row("STATUS_CODE_MISSING", "CRITICAL", "svc-b", 1);
-        when(repo.findUnspecifiedClassificationVotes()).thenReturn(List.of(r1, r2, r3));
+        ClassificationVoteRow r1 = row("STATUS_CODE_MISSING", "MAJOR", "svc-a", "f1");
+        ClassificationVoteRow r2 = row("STATUS_CODE_MISSING", "MAJOR", "svc-a", "f2");
+        ClassificationVoteRow r3 = row("STATUS_CODE_MISSING", "MAJOR", "svc-b", "f3");
+        ClassificationVoteRow r4 = row("STATUS_CODE_MISSING", "MAJOR", "svc-b", "f4");
+        ClassificationVoteRow r5 = row("STATUS_CODE_MISSING", "CRITICAL", "svc-b", "f5");
+        stubVotes(r1, r2, r3, r4, r5);
         when(advisor.suggest(any(), any(), anyInt(), anyString()))
                 .thenReturn(new ClassificationAdvisor.Suggestion(true, Severity.MAJOR, "rubric says MAJOR"));
 
@@ -55,18 +62,39 @@ class ClassificationProposalServiceTest {
     }
 
     @Test
+    void countsAFindingOnceUsingItsLatestOverrideWhenItChangedAcrossReScans() {
+        // fX was CRITICAL then re-overridden to MINOR (the MINOR row is newer → listed first). It must count ONCE
+        // as MINOR, not twice — otherwise the stale CRITICAL both inflates the tally and can win the consensus.
+        ClassificationVoteRow newest = row("STATUS_CODE_MISSING", "MINOR", "svc-a", "fX");
+        ClassificationVoteRow stale = row("STATUS_CODE_MISSING", "CRITICAL", "svc-a", "fX");
+        ClassificationVoteRow r2 = row("STATUS_CODE_MISSING", "MINOR", "svc-b", "f2");
+        ClassificationVoteRow r3 = row("STATUS_CODE_MISSING", "MINOR", "svc-a", "f3");
+        stubVotes(newest, stale, r2, r3);
+        when(advisor.suggest(any(), any(), anyInt(), anyString()))
+                .thenReturn(ClassificationAdvisor.Suggestion.unavailable());
+
+        ClassificationProposal p = service.computeProposals("alice").get(0);
+        assertThat(p.voteCount()).isEqualTo(3);
+        assertThat(p.voteBreakdown()).containsEntry(Severity.MINOR, 3).doesNotContainKey(Severity.CRITICAL);
+        assertThat(p.suggestedSeverity()).isEqualTo(Severity.MINOR);
+    }
+
+    @Test
     void skipsTypesBelowTheEvidenceBar() {
         // 2 votes, 1 service — below both thresholds.
-        ClassificationVoteRow r = row("STATUS_CODE_MISSING", "MAJOR", "svc-a", 2);
-        when(repo.findUnspecifiedClassificationVotes()).thenReturn(List.of(r));
+        ClassificationVoteRow r1 = row("STATUS_CODE_MISSING", "MAJOR", "svc-a", "f1");
+        ClassificationVoteRow r2 = row("STATUS_CODE_MISSING", "MAJOR", "svc-a", "f2");
+        stubVotes(r1, r2);
         assertThat(service.computeProposals("alice")).isEmpty();
     }
 
     @Test
     void defaultsToTheFieldConsensusWhenTheAiIsUnavailable() {
-        ClassificationVoteRow r1 = row("STATUS_CODE_MISSING", "MINOR", "svc-a", 3);
-        ClassificationVoteRow r2 = row("STATUS_CODE_MISSING", "MAJOR", "svc-b", 1);
-        when(repo.findUnspecifiedClassificationVotes()).thenReturn(List.of(r1, r2));
+        ClassificationVoteRow r1 = row("STATUS_CODE_MISSING", "MINOR", "svc-a", "f1");
+        ClassificationVoteRow r2 = row("STATUS_CODE_MISSING", "MINOR", "svc-a", "f2");
+        ClassificationVoteRow r3 = row("STATUS_CODE_MISSING", "MINOR", "svc-b", "f3");
+        ClassificationVoteRow r4 = row("STATUS_CODE_MISSING", "MAJOR", "svc-b", "f4");
+        stubVotes(r1, r2, r3, r4);
         when(advisor.suggest(any(), any(), anyInt(), anyString()))
                 .thenReturn(ClassificationAdvisor.Suggestion.unavailable());
 
@@ -78,9 +106,9 @@ class ClassificationProposalServiceTest {
 
     @Test
     void ignoresRowsWithAnUnknownTypeOrSeverity() {
-        ClassificationVoteRow r1 = row("NOT_A_TYPE", "MAJOR", "svc-a", 5);
-        ClassificationVoteRow r2 = row("STATUS_CODE_MISSING", "BOGUS_SEV", "svc-a", 5);
-        when(repo.findUnspecifiedClassificationVotes()).thenReturn(List.of(r1, r2));
+        ClassificationVoteRow r1 = row("NOT_A_TYPE", "MAJOR", "svc-a", "f1");
+        ClassificationVoteRow r2 = row("STATUS_CODE_MISSING", "BOGUS_SEV", "svc-a", "f2");
+        stubVotes(r1, r2);
         assertThat(service.computeProposals("alice")).isEmpty();
     }
 }
