@@ -123,9 +123,15 @@ public class ScanPersistence {
         // first → keep the first row per fingerprint as the most recent disposition.
         List<String> fingerprints = findings.stream().map(Finding::getFindingId).filter(Objects::nonNull).distinct().toList();
         Map<String, FindingRecord> priorByFingerprint = new HashMap<>();
+        // A maintainer's dispute verdict rides independently of the lifecycle status (it can sit on an OPEN finding),
+        // so it needs its own broader lookup — the disposition query filters status <> 'OPEN' and would miss it.
+        Map<String, FindingRecord> priorVerdictByFingerprint = new HashMap<>();
         if (!fingerprints.isEmpty()) {
             for (FindingRecord prior : findingRepository.findPriorDispositions(fingerprints, scanId)) {
                 priorByFingerprint.putIfAbsent(prior.getFingerprint(), prior);
+            }
+            for (FindingRecord prior : findingRepository.findPriorDisputeVerdicts(fingerprints, scanId)) {
+                priorVerdictByFingerprint.putIfAbsent(prior.getFingerprint(), prior);
             }
         }
         List<FindingRecord> records = new ArrayList<>();
@@ -170,6 +176,7 @@ public class ScanPersistence {
                 // citation is set deterministically (StandardsReference) — never from the LLM.
             }
             carryForwardStatus(r, priorByFingerprint.get(r.getFingerprint()));
+            carryForwardDisputeVerdict(r, priorVerdictByFingerprint.get(r.getFingerprint()));
             records.add(r);
         }
         return records;
@@ -184,5 +191,24 @@ public class ScanPersistence {
         r.setReviewedBy(prior.getReviewedBy());
         r.setReviewedAt(prior.getReviewedAt());
         r.setReviewNote(prior.getReviewNote());
+    }
+
+    /** Carry a maintainer's dispute VERDICT forward to the same fingerprint on a re-scan. Independent of the lifecycle
+     *  status (a verdict can ride on an OPEN finding) and of {@code aiDisputed} (re-derived each scan), so the
+     *  precision-triage signal never churns away. */
+    private void carryForwardDisputeVerdict(FindingRecord r, FindingRecord prior) {
+        if (prior == null) {
+            return;
+        }
+        r.setDisputeVerdict(prior.getDisputeVerdict());
+        r.setDisputeVerdictNote(prior.getDisputeVerdictNote());
+        // Preserve the verdict's authorship/timestamp across re-scans when no disposition already carried one — a
+        // verdict can ride on an OPEN finding, which carryForwardStatus (status <> OPEN) skips. Without this the new
+        // row keeps the verdict but loses reviewedBy/reviewedAt, silently churning the executive "reviewed" tally
+        // down and destroying the who/when audit for the decision once the old row is retention-swept.
+        if (r.getReviewedAt() == null) {
+            r.setReviewedBy(prior.getReviewedBy());
+            r.setReviewedAt(prior.getReviewedAt());
+        }
     }
 }

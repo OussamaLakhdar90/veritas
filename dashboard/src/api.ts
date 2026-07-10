@@ -172,6 +172,26 @@ export interface ClassificationTrain {
   createdAt?: string
 }
 
+/** One representative disputed finding inside a {@link DisputedTypeGroup} — deep-links to /findings/{scanId}. */
+export interface DisputeExample {
+  id: string           // finding row id (the PATCH target for a verdict)
+  scanId?: string      // deep-link target
+  service?: string
+  endpoint?: string
+  summary?: string
+  reason?: string      // the reconcile LLM's reason for disputing it
+  verdict?: string     // maintainer verdict, if recorded (CONFIRMED_FP | VALID | NEEDS_DETECTION_FIX)
+}
+
+/** The reconcile LLM's disputed findings for one finding type — the precision half of the learning debt, for triage. */
+export interface DisputedTypeGroup {
+  findingType: string
+  count: number                            // distinct disputed findings of this type (matches its share of the KPI)
+  distinctServices: number
+  verdictBreakdown: Record<string, number> // maintainer verdicts recorded so far, by verdict name
+  examples: DisputeExample[]
+}
+
 export interface Repo {
   slug: string
   name: string
@@ -694,6 +714,14 @@ export const api = {
   dismissProposal: (id: string, reason?: string) =>
     send<ClassificationTrain>('POST', `/engine-evolution/proposals/${id}/dismiss`, { reason }),
   classificationDebt: () => get<{ unspecified: number; disputed: number }>('/engine-evolution/debt'),
+  // AI-disputed findings rolled up by type — the precision half of the learning debt (triage which comparison
+  // rules keep misfiring). Read-only.
+  aiDisputedFindings: () => get<DisputedTypeGroup[]>('/engine-evolution/disputes'),
+  // Record a maintainer verdict on a disputed finding (CONFIRMED_FP | VALID | NEEDS_DETECTION_FIX) — the signal
+  // Channel 2 consumes. Only allowed on a disputed finding (else the server returns 409). The optional rationale
+  // rides on its own `verdictNote` field (kept distinct from the disposition note).
+  setDisputeVerdict: (id: string, disputeVerdict: string, verdictNote?: string) =>
+    send<Finding>('PATCH', `/findings/${id}`, { disputeVerdict, verdictNote }),
 
   // Strategies / Reviews
   strategies: (service: string) => get<TestStrategy[]>(`/services/${encodeURIComponent(service)}/strategies`),

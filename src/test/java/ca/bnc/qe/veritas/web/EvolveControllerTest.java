@@ -8,8 +8,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.List;
+import java.util.Map;
 import ca.bnc.qe.veritas.evolve.ClassificationTrain;
+import ca.bnc.qe.veritas.evolve.DisputeCluster;
+import ca.bnc.qe.veritas.evolve.DisputeClusterService;
 import ca.bnc.qe.veritas.evolve.EngineEvolutionService;
+import ca.bnc.qe.veritas.finding.FindingType;
 import ca.bnc.qe.veritas.persistence.FindingRecordRepository;
 import ca.bnc.qe.veritas.settings.CurrentUser;
 import org.junit.jupiter.api.Test;
@@ -25,6 +29,7 @@ class EvolveControllerTest {
     @MockBean private EngineEvolutionService service;
     @MockBean private CurrentUser currentUser;
     @MockBean private FindingRecordRepository findingRepository;
+    @MockBean private DisputeClusterService disputeClusterService;
 
     private static ClassificationTrain train() {
         ClassificationTrain t = new ClassificationTrain();
@@ -84,6 +89,20 @@ class EvolveControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.unspecified").value(4))
                 .andExpect(jsonPath("$.disputed").value(2));
+    }
+
+    @Test
+    void disputesRollsUpTheDisputedFindingsByType() throws Exception {
+        when(disputeClusterService.computeClusters()).thenReturn(List.of(new DisputeCluster(
+                FindingType.PARAM_TYPE_MISMATCH, 3, 2, Map.of("NEEDS_DETECTION_FIX", 1),
+                List.of(new DisputeCluster.Example("f1", "s1", "svc-a", "GET /a", "type mismatch",
+                        "int32 vs integer", "NEEDS_DETECTION_FIX")))));
+        mvc.perform(get("/api/v1/engine-evolution/disputes"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].findingType").value("PARAM_TYPE_MISMATCH"))
+                .andExpect(jsonPath("$[0].count").value(3))
+                .andExpect(jsonPath("$[0].verdictBreakdown.NEEDS_DETECTION_FIX").value(1))
+                .andExpect(jsonPath("$[0].examples[0].scanId").value("s1"));
     }
 
     @Test

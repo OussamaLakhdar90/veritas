@@ -124,6 +124,11 @@ public class FindingsController {
     /** Severities a human may override a finding to — NOT UNSPECIFIED, which is the engine's fail-safe, not a choice. */
     private static final Set<String> ALLOWED_SEVERITY = Set.of("BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO");
 
+    /** A maintainer's verdict on a disputed finding: was the reconcile LLM's false-positive call right? Feeds the
+     *  Engine-Evolution precision-debt triage (Channel 2). */
+    private static final Set<String> ALLOWED_DISPUTE_VERDICT =
+            Set.of("CONFIRMED_FP", "VALID", "NEEDS_DETECTION_FIX");
+
     /** A severity override is allowed only where the engine asked for help: a reconcile-disputed finding, or an
      *  unclassified (UNSPECIFIED engine severity) type. Confident classifications are authoritative and read-only,
      *  so field overrides stay a clean, deliberate learning signal for Engine Evolution. */
@@ -170,8 +175,27 @@ public class FindingsController {
             f.setReviewedBy(currentUser.principalId());
             f.setReviewedAt(java.time.Instant.now());
         }
+        if (patch.disputeVerdict() != null) {
+            String v = patch.disputeVerdict().toUpperCase(java.util.Locale.ROOT);
+            if (!ALLOWED_DISPUTE_VERDICT.contains(v)) {
+                throw new IllegalArgumentException("Unknown dispute verdict '" + patch.disputeVerdict()
+                        + "'. Allowed: " + ALLOWED_DISPUTE_VERDICT);
+            }
+            // A verdict only makes sense for a disputed finding — it answers "was the AI's false-positive call right?".
+            if (!f.isAiDisputed()) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).build();
+            }
+            f.setDisputeVerdict(v);
+            // The verdict carries its OWN note field (not the shared `note`, which is the disposition/reviewNote),
+            // so a combined PATCH can never route one note into the wrong column.
+            if (patch.verdictNote() != null) {
+                f.setDisputeVerdictNote(patch.verdictNote());
+            }
+            f.setReviewedBy(currentUser.principalId());
+            f.setReviewedAt(java.time.Instant.now());
+        }
         return ResponseEntity.ok(findingRepository.save(f));
     }
 
-    public record FindingPatch(String status, String note, String severity) {}
+    public record FindingPatch(String status, String note, String severity, String disputeVerdict, String verdictNote) {}
 }
