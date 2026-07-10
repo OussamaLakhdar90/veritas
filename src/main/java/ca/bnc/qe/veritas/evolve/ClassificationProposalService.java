@@ -6,11 +6,11 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import ca.bnc.qe.veritas.config.EvolveProperties;
 import ca.bnc.qe.veritas.finding.FindingType;
 import ca.bnc.qe.veritas.finding.Severity;
 import ca.bnc.qe.veritas.persistence.FindingRecordRepository;
 import ca.bnc.qe.veritas.persistence.FindingRecordRepository.ClassificationVoteRow;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
@@ -25,16 +25,13 @@ public class ClassificationProposalService {
 
     private final FindingRecordRepository findingRepository;
     private final ClassificationAdvisor advisor;
-    private final int minVotes;
-    private final int minDistinctServices;
+    private final EvolveProperties props;
 
     public ClassificationProposalService(FindingRecordRepository findingRepository, ClassificationAdvisor advisor,
-                                         @Value("${veritas.evolve.min-votes:3}") int minVotes,
-                                         @Value("${veritas.evolve.min-distinct-services:2}") int minDistinctServices) {
+                                         EvolveProperties props) {
         this.findingRepository = findingRepository;
         this.advisor = advisor;
-        this.minVotes = minVotes;
-        this.minDistinctServices = minDistinctServices;
+        this.props = props;
     }
 
     /** One proposal per pending FindingType whose field evidence meets the bar. */
@@ -58,7 +55,7 @@ public class ClassificationProposalService {
             Map<Severity, Integer> breakdown = e.getValue();
             int voteCount = breakdown.values().stream().mapToInt(Integer::intValue).sum();
             int services = servicesByType.getOrDefault(type, Set.of()).size();
-            if (voteCount < minVotes || services < minDistinctServices) {
+            if (voteCount < props.getMinVotes() || services < props.getMinDistinctServices()) {
                 continue;
             }
             Severity consensus = majority(breakdown);

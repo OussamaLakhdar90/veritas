@@ -8,6 +8,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import ca.bnc.qe.veritas.config.EvolveProperties;
 import ca.bnc.qe.veritas.finding.FindingType;
 import ca.bnc.qe.veritas.finding.Severity;
 import ca.bnc.qe.veritas.persistence.FindingRecordRepository;
@@ -18,8 +19,9 @@ class ClassificationProposalServiceTest {
 
     private final FindingRecordRepository repo = mock(FindingRecordRepository.class);
     private final ClassificationAdvisor advisor = mock(ClassificationAdvisor.class);
-    // bar: >= 3 votes across >= 2 distinct services.
-    private final ClassificationProposalService service = new ClassificationProposalService(repo, advisor, 3, 2);
+    // Default bar: >= 3 votes across >= 2 distinct services.
+    private final ClassificationProposalService service =
+            new ClassificationProposalService(repo, advisor, new EvolveProperties());
 
     // Fully stub the row mock and return it, so it is never stubbed inside an outer when(...).thenReturn(...).
     private static ClassificationVoteRow row(String type, String sev, String service, long votes) {
