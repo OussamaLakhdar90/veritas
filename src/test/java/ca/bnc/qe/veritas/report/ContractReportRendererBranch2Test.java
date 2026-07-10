@@ -47,6 +47,18 @@ class ContractReportRendererBranch2Test {
                 .summary((type == null ? "no-type" : type.name()) + " on GET /x");
     }
 
+    @Test
+    void anUnclassifiedSeverityFindingSurfacesTheNeedsClassificationCalloutAndRiskRow() {
+        // An UNSPECIFIED-severity finding (a fail-safe for a not-yet-classified type) renders the §1 needs-classification
+        // callout, a §2 risk-table row with the "a human must set its severity" impact, and holds the gate at WARN.
+        Finding u = counted(FindingType.SPEC_DRIFT, Severity.UNSPECIFIED).findingId("uns").build();
+        String html = renderer.renderHtml(scan("svc"), List.of(u));
+        assertThat(html)
+                .contains("unclassified type")
+                .contains("a human must set its severity")
+                .contains("gate-warn");
+    }
+
     // ---- L75: bucket() with a null finding type falls through to the WRONG bucket --------------------------
 
     @Test

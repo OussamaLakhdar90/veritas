@@ -24,7 +24,8 @@ import org.springframework.stereotype.Component;
 public class ContractReportRenderer {
 
     private static final Map<String, String> SEVERITY_COLOR = Map.of(
-            "BLOCKER", "#6B21A8", "CRITICAL", "#C2122D", "MAJOR", "#C2410C", "MINOR", "#CA8A04", "INFO", "#3A4658");
+            "BLOCKER", "#6B21A8", "CRITICAL", "#C2122D", "MAJOR", "#C2410C", "MINOR", "#CA8A04", "INFO", "#3A4658",
+            "UNSPECIFIED", "#6B7280");
 
     /** Optional — when Spring-injected, code evidence becomes a clickable Bitbucket deep link. Null in the
      *  no-arg constructor (used by tests), where evidence renders as plain text. */
@@ -229,6 +230,14 @@ public class ContractReportRenderer {
                 : "Seuil qualité : RÉUSSI — " + (gateBreaking == 0 ? "aucun changement cassant"
                         : gateBreaking + " changement(s) cassant(s) dans la limite configurée");
         sb.append("<p class=\"gate gate-").append(gateCls).append("\">").append(bi(gateEn, gateFr)).append("</p>");
+        // Fail-safe callout: a not-yet-classified finding type holds the verdict at WARN until a human sets its severity.
+        if (verdict.unspecified() > 0) {
+            sb.append("<p class=\"gate gate-warn\">").append(bi(
+                    verdict.unspecified() + " finding(s) of an unclassified type need a human to set a severity before "
+                            + "the gate can fully judge this release.",
+                    verdict.unspecified() + " constat(s) d'un type non classé nécessitent qu'un humain définisse une "
+                            + "sévérité avant l'évaluation complète du seuil.")).append("</p>");
+        }
 
         // Surface undocumented error responses (500/406/…) that were DEMOTED to manual review (§6) as low-confidence
         // advice-origin statuses (global @ControllerAdvice or controller-local @ExceptionHandler) — so the team is
@@ -269,7 +278,7 @@ public class ContractReportRenderer {
         sb.append("<table class=\"impact\"><thead><tr><th>").append(bi("Severity", "Sévérité")).append("</th><th>")
                 .append(bi("Count", "Nombre")).append("</th><th>").append(bi("What it means", "Ce que cela implique"))
                 .append("</th></tr></thead><tbody>");
-        for (String sev : new String[] {"BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO"}) {
+        for (String sev : new String[] {"BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO", "UNSPECIFIED"}) {
             long n = counted.stream().filter(f -> f.getSeverity() != null && f.getSeverity().name().equals(sev)).count();
             if (n == 0) {
                 continue;
@@ -652,7 +661,7 @@ public class ContractReportRenderer {
             return "<div class=\"cov-ok\">" + bi("No counted findings — contract is clean.",
                     "Aucun constat compté — le contrat est conforme.") + "</div>";
         }
-        String[] order = {"BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO"};
+        String[] order = {"BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO", "UNSPECIFIED"};
         StringBuilder gradient = new StringBuilder();
         StringBuilder legend = new StringBuilder("<div class=\"pie-legend\">");
         double cum = 0;
@@ -694,7 +703,7 @@ public class ContractReportRenderer {
             return "<div class=\"cov-ok\">" + bi("No counted findings — contract is clean.",
                     "Aucun constat compté — le contrat est conforme.") + "</div>";
         }
-        String[] order = {"BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO"};
+        String[] order = {"BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO", "UNSPECIFIED"};
         StringBuilder bar = new StringBuilder("<div class=\"dist-bar\">");
         StringBuilder legend = new StringBuilder("<div class=\"dist-legend\">");
         for (String sev : order) {
@@ -928,6 +937,8 @@ public class ContractReportRenderer {
                     "Susceptible de créer de la confusion chez les clients ou des lacunes de couverture de tests."};
             case "MINOR" -> new String[] {"Low-risk drift; address opportunistically.",
                     "Dérive à faible risque; à corriger au besoin."};
+            case "UNSPECIFIED" -> new String[] {"Unclassified finding type — a human must set its severity before the gate can judge it.",
+                    "Type de constat non classé — un humain doit définir sa sévérité avant que le seuil puisse l'évaluer."};
             default -> new String[] {"Advisory / design observation.", "Indicatif / observation de conception."};
         };
     }

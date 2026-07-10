@@ -1,6 +1,6 @@
 // Static Tailwind class maps (kept whole here so Tailwind's content scan never purges them).
 
-export type Severity = 'BLOCKER' | 'CRITICAL' | 'MAJOR' | 'MINOR' | 'INFO';
+export type Severity = 'BLOCKER' | 'CRITICAL' | 'MAJOR' | 'MINOR' | 'INFO' | 'UNSPECIFIED';
 
 /** Severity pill styling — colored text + ring + subtle tint on the surface. */
 export const SEVERITY_BADGE: Record<string, string> = {
@@ -9,6 +9,8 @@ export const SEVERITY_BADGE: Record<string, string> = {
   MAJOR: 'bg-sev-major/10 text-sev-major ring-1 ring-sev-major/30',
   MINOR: 'bg-sev-minor/10 text-sev-minor ring-1 ring-sev-minor/30',
   INFO: 'bg-sev-info/10 text-sev-info ring-1 ring-sev-info/30',
+  // Fail-safe severity for a not-yet-classified finding type — neutral grey, flagged for human triage.
+  UNSPECIFIED: 'bg-ink-600/10 text-muted ring-1 ring-ink-600/20',
 };
 
 export function severityBadge(sev?: string): string {

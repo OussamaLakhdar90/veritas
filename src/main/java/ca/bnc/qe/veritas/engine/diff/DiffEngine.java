@@ -645,7 +645,8 @@ public class DiffEngine {
      *   <li>MAJOR    — request/response-shape functional risk (params, status, schema fields/types, constraints);</li>
      *   <li>MINOR    — dead-spec / additive / positional-naming drift that misleads but doesn't break a running client
      *       (a path-variable NAME is positional in the URL, so {@code {app}} vs {@code {appId}} is non-breaking);</li>
-     *   <li>INFO     — documentation/advisory only; INFO carries no score penalty.</li>
+     *   <li>INFO     — documentation/advisory only; INFO carries no score penalty;</li>
+     *   <li>UNSPECIFIED — fail-safe for a not-yet-classified type (never silently minor); prompts human triage.</li>
      * </ul>
      */
     static Severity severityOf(FindingType t) {
@@ -655,10 +656,12 @@ public class DiffEngine {
             case PARAM_MISSING, PARAM_TYPE_MISMATCH, PARAM_REQUIRED_MISMATCH, REQUEST_BODY_PRESENCE_MISMATCH,
                  REQUEST_BODY_SCHEMA_MISMATCH, STATUS_CODE_MISSING, RESPONSE_SCHEMA_MISMATCH, SCHEMA_FIELD_MISSING,
                  SCHEMA_FIELD_TYPE_MISMATCH, CONSTRAINT_GAP -> Severity.MAJOR;
+            case EXTRA_ENDPOINT, PATH_VAR_NAME_MISMATCH, SPEC_DRIFT, PARAM_EXTRA, STATUS_CODE_EXTRA,
+                 SCHEMA_FIELD_EXTRA, CONSUMES_PRODUCES_MISMATCH -> Severity.MINOR;   // dead-spec / additive / naming drift
             case MISSING_INFO_FIELD, DESIGN_QUALITY, TEST_BASIS_GAP -> Severity.INFO;
-            // EXTRA_ENDPOINT, PATH_VAR_NAME_MISMATCH, SPEC_DRIFT, PARAM_EXTRA, STATUS_CODE_EXTRA,
-            // SCHEMA_FIELD_EXTRA, CONSUMES_PRODUCES_MISMATCH — dead-spec / additive / naming drift, non-breaking
-            default -> Severity.MINOR;
+            // Fail SAFE: a NEW, unclassified FindingType surfaces as UNSPECIFIED (visible, prompts human triage) rather
+            // than silently MINOR. DiffEngineSeverityCatalogTest fails the build if any current type reaches here.
+            default -> Severity.UNSPECIFIED;
         };
     }
 

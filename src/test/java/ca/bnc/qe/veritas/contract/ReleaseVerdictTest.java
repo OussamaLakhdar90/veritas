@@ -77,6 +77,16 @@ class ReleaseVerdictTest {
     }
 
     @Test
+    void anUnclassifiedFindingHoldsTheVerdictAtWarnNotPass() {
+        // A not-yet-classified (UNSPECIFIED) finding is non-breaking so it can't FAIL, but it must NOT read as a clean
+        // PASS — it holds the verdict at WARN until a human classifies it.
+        ReleaseVerdict v = ReleaseVerdict.of(List.of(f(FindingType.SPEC_DRIFT, Severity.UNSPECIFIED)), GATE);
+        assertThat(v.unspecified()).isEqualTo(1);
+        assertThat(v.breaking()).isZero();
+        assertThat(v.releaseSafe()).isEqualTo("WARN");
+    }
+
+    @Test
     void thresholdsAreConfigurable() {
         // Raising max-breaking to 1 downgrades a single breaking finding from FAIL to WARN — the gate is a policy,
         // an auditable threshold, not a magic number.

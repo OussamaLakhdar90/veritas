@@ -570,7 +570,8 @@
     "CRITICAL": "Critique",
     "MAJOR": "Majeur",
     "MINOR": "Mineur",
-    "INFO": "Info"
+    "INFO": "Info",
+    "UNSPECIFIED": "Non spécifié"
   },
   "wizard": {
     "stepService": "Service",

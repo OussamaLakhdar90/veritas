@@ -1082,7 +1082,7 @@ public class ContractValidationService {
 
     private Map<String, Long> bySeverity(List<Finding> findings) {
         Map<String, Long> counts = new LinkedHashMap<>();
-        for (String sev : List.of("BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO")) {
+        for (String sev : List.of("BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO", "UNSPECIFIED")) {
             long n = findings.stream().filter(f -> f.getSeverity().name().equals(sev)).count();
             if (n > 0) {
                 counts.put(sev, n);
