@@ -247,3 +247,34 @@ describe('Findings — single raise-defect DefectModal', () => {
     expect(await screen.findByRole('alert')).toBeInTheDocument()
   })
 })
+
+describe('Findings — severity override', () => {
+  it('changing the severity dropdown PATCHes a userSeverity override and toasts success', async () => {
+    let body: { severity?: string } | null = null
+    let patchedId = ''
+    server.use(http.patch('*/api/v1/findings/:id', async ({ params, request }) => {
+      patchedId = params.id as string
+      body = (await request.json()) as { severity?: string }
+      return HttpResponse.json({ ...critical, userSeverity: body.severity })
+    }))
+    const user = userEvent.setup()
+    renderFindings([critical])
+    expect(await screen.findByText(critical.summary)).toBeInTheDocument()
+
+    await user.selectOptions(screen.getAllByRole('combobox', { name: 'Set severity' })[0], 'MINOR')
+
+    expect(await screen.findByText('Severity updated.')).toBeInTheDocument()
+    expect(patchedId).toBe(critical.id)
+    expect(body).toEqual({ severity: 'MINOR' })
+  })
+
+  it('shows the engine-suggested severity as a hint and buckets by the EFFECTIVE severity', async () => {
+    renderFindings([{ ...minor, userSeverity: 'CRITICAL' }])
+    expect(await screen.findByText(minor.summary)).toBeInTheDocument()
+    // The engine classified it MINOR; the human override (CRITICAL) wins, and the engine value is shown as a hint.
+    expect(screen.getByText('engine: Minor')).toBeInTheDocument()
+    // …and the effective severity moved it into the CRITICAL filter bucket (not MINOR).
+    expect(screen.getByRole('button', { name: 'Critical 1' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Minor/ })).not.toBeInTheDocument()
+  })
+})
