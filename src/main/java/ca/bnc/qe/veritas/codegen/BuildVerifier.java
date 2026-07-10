@@ -57,7 +57,10 @@ public class BuildVerifier {
             boolean done = p.waitFor(timeoutSeconds, TimeUnit.SECONDS);
             if (!done) {
                 p.destroyForcibly();
-                return new BuildResult("FAIL", "build timed out");
+                // Name the command + budget: a silent hang that ends in a generic "timed out" is undiagnosable otherwise.
+                log.warn("Build verify '{}' in {} exceeded the {}s timeout and was killed.",
+                        command, workingDir, timeoutSeconds);
+                return new BuildResult("FAIL", "build timed out after " + timeoutSeconds + "s");
             }
             return new BuildResult(p.exitValue() == 0 ? "PASS" : "FAIL", tail(out));
         } catch (Exception e) {
