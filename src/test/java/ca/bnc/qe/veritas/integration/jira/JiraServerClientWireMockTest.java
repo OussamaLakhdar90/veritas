@@ -176,10 +176,10 @@ class JiraServerClientWireMockTest {
     }
 
     @Test
-    void createMetaFallsBackToTheV9EndpointsWhenTheClassicOneIsGone() {
-        // Jira 9.x REMOVED the classic createmeta (?projectKeys&expand) — it 404s. The client must fall back to the
-        // paginated /createmeta/{project}/issuetypes[/{id}] endpoints so Epic-Link discovery keeps working.
-        wm.stubFor(get(urlPathEqualTo("/rest/api/2/issue/createmeta")).willReturn(aResponse().withStatus(404)));
+    void createMetaUsesTheV9EndpointsFirstOnModernJiraAndNeverTouchesTheDeadClassicOne() {
+        // Jira 9.x / Cloud REMOVED the classic createmeta (?projectKeys&expand) — it 404s "Issue Does Not Exist". The
+        // client must use the paginated /createmeta/{project}/issuetypes[/{id}] endpoints FIRST and never call the
+        // dead classic one on a modern instance (otherwise every Epic-Link lookup emits an alarming 404).
         wm.stubFor(get(urlPathEqualTo("/rest/api/2/issue/createmeta/CIAM/issuetypes")).willReturn(aResponse()
                 .withHeader("Content-Type", "application/json")
                 .withBody("{\"values\":[{\"id\":\"10100\",\"name\":\"Task\"},{\"id\":\"10001\",\"name\":\"Bug\"}]}")));
@@ -192,6 +192,26 @@ class JiraServerClientWireMockTest {
 
         assertThat(meta.allowedFields()).contains("summary", "customfield_10014");
         assertThat(meta.epicLinkFieldKey()).isEqualTo("customfield_10014");
+        // The dead classic endpoint is never requested on a modern instance — no noisy "Issue Does Not Exist" 404.
+        wm.verify(0, com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor(
+                com.github.tomakehurst.wiremock.client.WireMock.urlPathEqualTo("/rest/api/2/issue/createmeta")));
+    }
+
+    @Test
+    void createMetaFallsBackToClassicOnPre9Jira() {
+        // Pre-9.0 Jira has no v9 paginated endpoints (they 404) — the client must fall back to the classic createmeta
+        // so Epic-Link discovery still works on an older instance.
+        wm.stubFor(get(urlPathEqualTo("/rest/api/2/issue/createmeta/CIAM/issuetypes"))
+                .willReturn(aResponse().withStatus(404)));
+        wm.stubFor(get(urlPathEqualTo("/rest/api/2/issue/createmeta")).willReturn(aResponse()
+                .withHeader("Content-Type", "application/json")
+                .withBody("{\"projects\":[{\"issuetypes\":[{\"fields\":{"
+                        + "\"summary\":{\"name\":\"Summary\"},"
+                        + "\"customfield_10001\":{\"name\":\"Epic Link\"}}}]}]}")));
+
+        CreateMeta meta = client().createMeta("CIAM", "Bug");
+
+        assertThat(meta.epicLinkFieldKey()).isEqualTo("customfield_10001");
     }
 
     @Test
