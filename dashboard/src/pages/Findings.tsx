@@ -12,7 +12,7 @@ import { severityBadge, TONE } from '../theme/tokens';
 import { cn } from '../components/cn';
 import { enumLabel } from '../lib/enumLabels';
 
-const SEV_ORDER = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO'];
+const SEV_ORDER = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO', 'UNSPECIFIED'];
 const sevRank = (s?: string) => { const i = SEV_ORDER.indexOf((s || 'INFO').toUpperCase()); return i < 0 ? SEV_ORDER.length : i; };
 const CONF_ORDER = ['HIGH', 'MEDIUM', 'LOW'];
 const confRank = (c?: string) => { const i = CONF_ORDER.indexOf((c || '').toUpperCase()); return i < 0 ? CONF_ORDER.length : i; };
