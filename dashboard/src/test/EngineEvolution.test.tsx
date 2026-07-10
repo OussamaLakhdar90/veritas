@@ -40,6 +40,25 @@ describe('Engine Evolution', () => {
     expect(opened).toBe(true)
   })
 
+  it('previewing (dry-run) POSTs the dry-run endpoint and toasts where the edit was written', async () => {
+    let dryRan = false
+    server.use(http.post('*/api/v1/engine-evolution/proposals/tr-1/dry-run', () => {
+      dryRan = true
+      return HttpResponse.json({
+        trainId: 'tr-1', findingType: 'STATUS_CODE_MISSING', finalSeverity: 'MAJOR', aiSuggested: true,
+        editedFilePath: '/home/u/.veritas/fixPr/tr-1/DiffEngine.java',
+        manifestPath: '/home/u/.veritas/fixPr/tr-1/MANIFEST.md',
+        mockBranch: 'veritas/classify-status-code-missing-major',
+        mockPrTitle: 'Engine Evolution: classify STATUS_CODE_MISSING as MAJOR',
+      })
+    }))
+    const user = userEvent.setup()
+    renderEvolve([train])
+    await user.click(await screen.findByRole('button', { name: /Preview \(dry-run\)/ }))
+    expect(await screen.findByText(/Preview written to .*DiffEngine\.java/)).toBeInTheDocument()
+    expect(dryRan).toBe(true)
+  })
+
   it('overriding the severity reveals a required comment and challenges the proposal', async () => {
     let body: { severity?: string; comment?: string } | null = null
     server.use(http.post('*/api/v1/engine-evolution/proposals/tr-1/challenge', async ({ request }) => {

@@ -6,6 +6,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.nio.file.Files;
@@ -208,5 +209,88 @@ class EngineEvolutionServiceTest {
 
         service.refresh("alice");
         verify(trains, never()).save(any());   // a dismissed type is not re-proposed
+    }
+
+    /** A minimal DiffEngine.java shape the deterministic editor can promote against (its two anchors + allowlist). */
+    private static final String SAMPLE_DIFF_ENGINE = """
+            package ca.bnc.qe.veritas.engine.diff;
+            class DiffEngine {
+                static final Set<FindingType> PENDING_CLASSIFICATION = Set.of(FindingType.STATUS_CODE_MISSING);
+                static Severity severityOf(FindingType t) {
+                    return switch (t) {
+                        case MISSING_ENDPOINT -> Severity.CRITICAL;
+                        default -> Severity.UNSPECIFIED;
+                    };
+                }
+            }
+            """;
+
+    private void enableDryRun(Path sourceRoot, Path outputRoot) {
+        props.getDryRun().setEnabled(true);
+        props.getDryRun().setSourceDir(sourceRoot.toString());
+        props.getDryRun().setOutputDir(outputRoot.toString());
+    }
+
+    @Test
+    void dryRunIsRefusedWhenTheDebugFlagIsOff() {
+        // enabled defaults to false → refused before any repository / clone / PR interaction.
+        assertThatThrownBy(() -> service.dryRunPromote("t1")).isInstanceOf(PreconditionException.class);
+        verifyNoInteractions(trains, workspace, prPublisher, gateService);
+    }
+
+    @Test
+    void dryRunRendersTheEditAndManifestFromALocalCheckoutWithoutCloneOrPr(@TempDir Path tmp) throws Exception {
+        Path src = tmp.resolve("checkout");
+        Path diffEngine = src.resolve(EngineEvolutionService.DIFF_ENGINE_PATH);
+        Files.createDirectories(diffEngine.getParent());
+        Files.writeString(diffEngine, SAMPLE_DIFF_ENGINE);
+        Path out = tmp.resolve("out");
+        enableDryRun(src, out);
+        ClassificationTrain t = train("t1", "STATUS_CODE_MISSING", "MAJOR");
+        t.setAiSuggestedSeverity("MAJOR");
+        t.setAiSuggested(true);
+        when(trains.findById("t1")).thenReturn(Optional.of(t));
+
+        DryRunPreview preview = service.dryRunPromote("t1");
+
+        // The REAL deterministic edit was written to the review folder…
+        assertThat(Files.readString(Path.of(preview.editedFilePath())))
+                .contains("case STATUS_CODE_MISSING -> Severity.MAJOR;");
+        // …the local source checkout was NOT modified (read-only)…
+        assertThat(Files.readString(diffEngine)).doesNotContain("case STATUS_CODE_MISSING");
+        // …the manifest carries the type, severity, and the mocked PR…
+        assertThat(Files.readString(Path.of(preview.manifestPath())))
+                .contains("DRY RUN").contains("STATUS_CODE_MISSING").contains("MAJOR")
+                .contains("Would-be PR");
+        assertThat(preview.mockBranch()).isEqualTo("veritas/classify-status-code-missing-major");
+        // …and NOTHING outward ran: no clone, gate, write-scope, or PR, and the train stays PROPOSED (not opened).
+        verifyNoInteractions(workspace, prPublisher, gateService, preflight);
+        assertThat(t.getStatus()).isEqualTo("PROPOSED");
+    }
+
+    @Test
+    void dryRunRequiresASourceDir(@TempDir Path tmp) {
+        props.getDryRun().setEnabled(true);   // enabled, but source-dir left blank
+        ClassificationTrain t = train("t1", "STATUS_CODE_MISSING", "MAJOR");
+        when(trains.findById("t1")).thenReturn(Optional.of(t));
+        assertThatThrownBy(() -> service.dryRunPromote("t1")).isInstanceOf(PreconditionException.class);
+        verifyNoInteractions(workspace, prPublisher);
+    }
+
+    @Test
+    void dryRunFailsClearlyWhenDiffEngineIsMissing(@TempDir Path tmp) {
+        enableDryRun(tmp, tmp.resolve("out"));   // source dir exists but has no DiffEngine.java
+        ClassificationTrain t = train("t1", "STATUS_CODE_MISSING", "MAJOR");
+        when(trains.findById("t1")).thenReturn(Optional.of(t));
+        assertThatThrownBy(() -> service.dryRunPromote("t1")).isInstanceOf(PreconditionException.class);
+    }
+
+    @Test
+    void dryRunRejectsATerminalState(@TempDir Path tmp) {
+        enableDryRun(tmp, tmp.resolve("out"));
+        ClassificationTrain t = train("t1", "STATUS_CODE_MISSING", "MAJOR");
+        t.setStatus("MERGED");   // a merged proposal can't be dry-run
+        when(trains.findById("t1")).thenReturn(Optional.of(t));
+        assertThatThrownBy(() -> service.dryRunPromote("t1")).isInstanceOf(ConflictException.class);
     }
 }

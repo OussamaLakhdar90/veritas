@@ -176,6 +176,92 @@ public class EngineEvolutionService {
         }
     }
 
+    /**
+     * DEVELOPER dry-run: render the SAME deterministic {@code DiffEngine.java} edit this train would open a PR with,
+     * but read the source from a LOCAL checkout and write the edited file + a manifest to a review folder — with NO
+     * clone, approval gate, git write scope, target repo, or PR. Lets a maintainer verify the classifier produced
+     * the right code before any repo/app-id is wired up. Does NOT change the train's state (it is not "opened").
+     * Gated behind {@code veritas.evolve.dry-run.enabled}; refused otherwise.
+     */
+    public DryRunPreview dryRunPromote(String trainId) {
+        EvolveProperties.DryRun dr = props.getDryRun();
+        if (!dr.isEnabled()) {
+            throw new PreconditionException("engine-evolution-dry-run", List.of(
+                    "Dry-run preview is off. Set veritas.evolve.dry-run.enabled=true (a developer-only debug flag) to "
+                            + "render the DiffEngine.java edit from a local checkout without a clone, gate, or PR."));
+        }
+        ClassificationTrain t = load(trainId);
+        requireStatus(t, "dry-run", "PROPOSED", "CHALLENGED");
+        Path diffEngine = dryRunSource(dr).resolve(DIFF_ENGINE_PATH);
+        if (!Files.isRegularFile(diffEngine)) {
+            throw new PreconditionException("engine-evolution-dry-run", List.of(
+                    "DiffEngine.java not found at " + diffEngine + " — point veritas.evolve.dry-run.source-dir at a "
+                            + "local checkout whose " + DIFF_ENGINE_PATH + " exists."));
+        }
+        FindingType type = FindingType.valueOf(t.getFindingType());
+        Severity severity = Severity.valueOf(t.getFinalSeverity());
+        String title = "Engine Evolution: classify " + type.name() + " as " + severity.name();
+        String branch = branchName(type, severity);
+        try {
+            String edited = editor.promote(Files.readString(diffEngine), type, severity);   // the REAL deterministic edit
+            Path outRoot = dryRunOutput(dr).resolve(safeDirName(trainId));
+            Path editedOut = outRoot.resolve(DIFF_ENGINE_PATH);
+            Files.createDirectories(editedOut.getParent());
+            Files.writeString(editedOut, edited);
+            Path manifestOut = outRoot.resolve("MANIFEST.md");
+            Files.writeString(manifestOut, dryRunManifest(t, type, severity, title, branch, diffEngine, editedOut));
+            log.info("Engine Evolution DRY-RUN {} ({} -> {}): wrote {} and {}",
+                    trainId, type.name(), severity.name(), editedOut, manifestOut);
+            return new DryRunPreview(trainId, type.name(), severity.name(), t.isAiSuggested(),
+                    editedOut.toString(), manifestOut.toString(), branch, title);
+        } catch (IOException e) {
+            throw new IllegalStateException("Dry-run could not read/write DiffEngine.java: " + e.getMessage(), e);
+        }
+    }
+
+    private static Path dryRunSource(EvolveProperties.DryRun dr) {
+        if (dr.getSourceDir() == null || dr.getSourceDir().isBlank()) {
+            throw new PreconditionException("engine-evolution-dry-run", List.of(
+                    "Set veritas.evolve.dry-run.source-dir to a local checkout of the engine repo (the folder that "
+                            + "contains " + DIFF_ENGINE_PATH + ")."));
+        }
+        return Path.of(dr.getSourceDir());
+    }
+
+    /** The review folder — the configured dir, else {@code <user.home>/.veritas/fixPr}. */
+    private static Path dryRunOutput(EvolveProperties.DryRun dr) {
+        if (dr.getOutputDir() != null && !dr.getOutputDir().isBlank()) {
+            return Path.of(dr.getOutputDir());
+        }
+        return Path.of(System.getProperty("user.home"), ".veritas", "fixPr");
+    }
+
+    /** Defence-in-depth: ids are UUIDs, but never build a directory name from a raw string without sanitising it. */
+    private static String safeDirName(String id) {
+        return id.replaceAll("[^A-Za-z0-9_-]", "_");
+    }
+
+    private static String dryRunManifest(ClassificationTrain t, FindingType type, Severity severity, String title,
+                                         String branch, Path source, Path editedOut) {
+        StringBuilder sb = new StringBuilder("# Engine Evolution — DRY RUN preview\n\n");
+        sb.append("> No clone, gate, or PR. The edit below was rendered from your **local** checkout and written to "
+                + "disk for review only — nothing was pushed.\n\n");
+        sb.append("| | |\n|---|---|\n");
+        sb.append("| Finding type | `").append(type.name()).append("` |\n");
+        sb.append("| Final severity | **").append(severity.name()).append("** |\n");
+        sb.append("| AI suggestion | ").append(t.isAiSuggested()
+                ? nz(t.getAiSuggestedSeverity()) + " (rubric)" : "offline → field consensus").append(" |\n");
+        sb.append("| Read from | `").append(source).append("` |\n");
+        sb.append("| Edited file | `").append(editedOut).append("` |\n");
+        sb.append("| Would-be branch | `").append(branch).append("` |\n\n");
+        sb.append("## Generated change\n- `DiffEngine.severityOf`: add `case ").append(type.name())
+                .append(" -> Severity.").append(severity.name()).append(";`\n- Remove `").append(type.name())
+                .append("` from `PENDING_CLASSIFICATION`.\n\n");
+        sb.append("## Would-be PR (mocked)\n### ").append(title).append("\n\n").append(prBody(t, type, severity))
+                .append("\n");
+        return sb.toString();
+    }
+
     /** The human merged the PR — close the loop (the learned classification is live after the next deploy). */
     public ClassificationTrain markMerged(String trainId) {
         ClassificationTrain t = load(trainId);
