@@ -37,6 +37,10 @@ public class EvolveProperties {
     /** The base branch the classification PR targets. */
     private String targetBranch = "main";
 
+    /** Enable the daily background poll that recomputes proposals from the field votes. Off by default — a refresh
+     *  calls the AI advisor (LLM cost); when off, use the on-demand "Refresh" action. */
+    private boolean pollEnabled = false;
+
     /** True once the self-repo target is configured — the gate for enabling the outward "open PR" step. */
     public boolean repoConfigured() {
         return repoAppId != null && !repoAppId.isBlank() && repoSlug != null && !repoSlug.isBlank();

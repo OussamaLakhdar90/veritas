@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -55,8 +56,7 @@ class EngineEvolutionServiceTest {
         when(proposalService.computeProposals("alice")).thenReturn(List.of(new ClassificationProposal(
                 FindingType.STATUS_CODE_MISSING, Severity.MAJOR, true, "rubric says MAJOR", 5, 2,
                 Map.of(Severity.MAJOR, 4, Severity.CRITICAL, 1))));
-        when(trains.findFirstByFindingTypeAndStatusNotOrderByCreatedAtDesc("STATUS_CODE_MISSING", "MERGED"))
-                .thenReturn(Optional.empty());
+        when(trains.findFirstByFindingTypeOrderByCreatedAtDesc("STATUS_CODE_MISSING")).thenReturn(Optional.empty());
         when(trains.save(any())).thenAnswer(i -> i.getArgument(0));
         when(trains.findAllByOrderByCreatedAtDesc()).thenReturn(List.of());
 
@@ -183,5 +183,30 @@ class EngineEvolutionServiceTest {
         open.setStatus("PR_OPEN");
         when(trains.findById("o")).thenReturn(Optional.of(open));
         assertThatThrownBy(() -> service.openPr("o", "alice")).isInstanceOf(ConflictException.class);
+    }
+
+    @Test
+    void dismissIsTerminalAndRejectsAWrongState() {
+        when(trains.findById("t1")).thenReturn(Optional.of(train("t1", "STATUS_CODE_MISSING", "MAJOR")));
+        when(trains.save(any())).thenAnswer(i -> i.getArgument(0));
+        assertThat(service.dismiss("t1", "too contentious to classify yet").getStatus()).isEqualTo("DISMISSED");
+
+        ClassificationTrain merged = train("m", "STATUS_CODE_MISSING", "MAJOR");
+        merged.setStatus("MERGED");
+        when(trains.findById("m")).thenReturn(Optional.of(merged));
+        assertThatThrownBy(() -> service.dismiss("m", "x")).isInstanceOf(ConflictException.class);
+    }
+
+    @Test
+    void refreshDoesNotResurrectATerminalTrain() {
+        when(proposalService.computeProposals("alice")).thenReturn(List.of(new ClassificationProposal(
+                FindingType.STATUS_CODE_MISSING, Severity.MAJOR, true, "r", 5, 2, Map.of(Severity.MAJOR, 5))));
+        ClassificationTrain dismissed = train("d", "STATUS_CODE_MISSING", "MAJOR");
+        dismissed.setStatus("DISMISSED");
+        when(trains.findFirstByFindingTypeOrderByCreatedAtDesc("STATUS_CODE_MISSING")).thenReturn(Optional.of(dismissed));
+        when(trains.findAllByOrderByCreatedAtDesc()).thenReturn(List.of(dismissed));
+
+        service.refresh("alice");
+        verify(trains, never()).save(any());   // a dismissed type is not re-proposed
     }
 }

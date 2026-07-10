@@ -691,6 +691,9 @@ export const api = {
     send<ClassificationTrain>('POST', `/engine-evolution/proposals/${id}/open-pr`),
   markClassificationMerged: (id: string) =>
     send<ClassificationTrain>('POST', `/engine-evolution/proposals/${id}/mark-merged`),
+  dismissProposal: (id: string, reason?: string) =>
+    send<ClassificationTrain>('POST', `/engine-evolution/proposals/${id}/dismiss`, { reason }),
+  classificationDebt: () => get<{ unspecified: number; disputed: number }>('/engine-evolution/debt'),
 
   // Strategies / Reviews
   strategies: (service: string) => get<TestStrategy[]>(`/services/${encodeURIComponent(service)}/strategies`),

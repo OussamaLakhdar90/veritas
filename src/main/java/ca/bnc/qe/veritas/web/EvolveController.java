@@ -3,6 +3,7 @@ package ca.bnc.qe.veritas.web;
 import java.util.List;
 import ca.bnc.qe.veritas.evolve.ClassificationTrain;
 import ca.bnc.qe.veritas.evolve.EngineEvolutionService;
+import ca.bnc.qe.veritas.persistence.FindingRecordRepository;
 import ca.bnc.qe.veritas.settings.CurrentUser;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,16 +23,25 @@ public class EvolveController {
 
     private final EngineEvolutionService service;
     private final CurrentUser currentUser;
+    private final FindingRecordRepository findingRepository;
 
-    public EvolveController(EngineEvolutionService service, CurrentUser currentUser) {
+    public EvolveController(EngineEvolutionService service, CurrentUser currentUser,
+                            FindingRecordRepository findingRepository) {
         this.service = service;
         this.currentUser = currentUser;
+        this.findingRepository = findingRepository;
     }
 
     /** All classification trains, newest first. */
     @GetMapping("/proposals")
     public List<ClassificationTrain> proposals() {
         return service.all();
+    }
+
+    /** The engine's learning debt: unclassified (UNSPECIFIED) + disputed findings, the count the loop drives to zero. */
+    @GetMapping("/debt")
+    public LearningDebt debt() {
+        return new LearningDebt(findingRepository.countDistinctUnspecified(), findingRepository.countDistinctDisputed());
     }
 
     /** Recompute proposals from the accumulated field votes (upserts one open train per pending type). */
@@ -58,5 +68,13 @@ public class EvolveController {
         return service.markMerged(id);
     }
 
+    /** Dismiss a proposal the maintainer decides shouldn't be classified via the loop (terminal — not re-proposed). */
+    @PostMapping("/proposals/{id}/dismiss")
+    public ClassificationTrain dismiss(@PathVariable String id, @RequestBody(required = false) DismissRequest req) {
+        return service.dismiss(id, req == null ? null : req.reason());
+    }
+
     public record ChallengeRequest(String severity, String comment) {}
+    public record DismissRequest(String reason) {}
+    public record LearningDebt(long unspecified, long disputed) {}
 }

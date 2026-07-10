@@ -712,7 +712,8 @@
     "subtitle": "Classifications apprises sur le terrain que le moteur intègre à lui-même via une demande de tirage révisée.",
     "refresh": "Actualiser les propositions",
     "refreshed": "Propositions actualisées.",
-    "debtLabel": "classifications ouvertes — la dette d’apprentissage du moteur, ramenée vers zéro",
+    "debtUnspecified": "non classés — cette boucle les ramène à zéro",
+    "debtDisputed": "contestés — précision (canal 2, à venir)",
     "loading": "Chargement des propositions…",
     "loadError": "Impossible de charger les propositions de classification.",
     "emptyTitle": "Aucune classification en attente",
@@ -734,10 +735,13 @@
     "viewPr": "Voir la PR",
     "markMerged": "Marquer fusionnée",
     "merged": "Marquée fusionnée.",
+    "dismiss": "Rejeter",
+    "dismissed": "Proposition rejetée.",
     "status_PROPOSED": "Proposée",
     "status_CHALLENGED": "Contestée",
     "status_PR_OPEN": "PR ouverte",
-    "status_MERGED": "Fusionnée"
+    "status_MERGED": "Fusionnée",
+    "status_DISMISSED": "Rejetée"
   },
   "gates": {
     "loadError": "Impossible de charger les approbations.",

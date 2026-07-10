@@ -8,7 +8,7 @@ public interface ClassificationTrainRepository extends JpaRepository<Classificat
 
     List<ClassificationTrain> findAllByOrderByCreatedAtDesc();
 
-    /** The single still-open (not-yet-MERGED) train for a type, if any — enforces one active proposal per type. */
-    Optional<ClassificationTrain> findFirstByFindingTypeAndStatusNotOrderByCreatedAtDesc(String findingType,
-                                                                                         String status);
+    /** The most recent train for a type (any status): refresh updates a non-terminal one, or respects a terminal
+     *  (MERGED / DISMISSED) one by not re-proposing — enforcing one active proposal per type. */
+    Optional<ClassificationTrain> findFirstByFindingTypeOrderByCreatedAtDesc(String findingType);
 }
