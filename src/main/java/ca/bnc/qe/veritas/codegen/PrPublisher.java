@@ -1,11 +1,15 @@
 package ca.bnc.qe.veritas.codegen;
 
 import java.nio.file.Path;
+import java.util.Map;
+import ca.bnc.qe.veritas.config.ConnectionsProperties;
 import ca.bnc.qe.veritas.secret.SecretProvider;
 import ca.bnc.qe.veritas.vcs.GitHost;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.TransportCommand;
 import org.eclipse.jgit.lib.Ref;
+import org.eclipse.jgit.transport.TransportHttp;
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 import org.springframework.stereotype.Component;
 
@@ -21,10 +25,35 @@ public class PrPublisher {
 
     private final GitHost gitHost;
     private final SecretProvider secrets;
+    private final ConnectionsProperties connections;
 
-    public PrPublisher(GitHost gitHost, SecretProvider secrets) {
+    public PrPublisher(GitHost gitHost, SecretProvider secrets, ConnectionsProperties connections) {
         this.gitHost = gitHost;
         this.secrets = secrets;
+        this.connections = connections;
+    }
+
+    /**
+     * Authenticate a JGit transport (push/clone) the SAME way the clone does — otherwise a clone can succeed while
+     * the push fails "not authorized". A Bitbucket Server/DC HTTP access token (PAT, the default) authenticates as a
+     * {@code Bearer} header; Basic with an EMPTY {@code GIT_USERNAME} is exactly what Server rejects. Basic
+     * (username + token) is used for CLOUD and when auth is explicitly configured BASIC.
+     */
+    private void applyGitAuth(TransportCommand<?, ?> cmd) {
+        ConnectionsProperties.Endpoint bb = connections.getBitbucket();
+        String token = secrets.get("GIT_TOKEN").orElse("");
+        boolean bearer = "SERVER_DC".equalsIgnoreCase(bb.getEdition())
+                && !"BASIC".equalsIgnoreCase(bb.getAuthType());
+        if (bearer) {
+            cmd.setTransportConfigCallback(transport -> {
+                if (transport instanceof TransportHttp http) {
+                    http.setAdditionalHeaders(Map.of("Authorization", "Bearer " + token));
+                }
+            });
+        } else {
+            cmd.setCredentialsProvider(new UsernamePasswordCredentialsProvider(
+                    secrets.get("GIT_USERNAME").orElse(""), token));
+        }
     }
 
     /**
@@ -39,13 +68,18 @@ public class PrPublisher {
                 git.commit().setMessage(commitMessage)
                         .setAuthor("Veritas", "veritas@bnc.ca").setCommitter("Veritas", "veritas@bnc.ca").call();
             }
-            git.push().setRemote("origin")
-                    .setCredentialsProvider(new UsernamePasswordCredentialsProvider(
-                            secrets.get("GIT_USERNAME").orElse(""), secrets.get("GIT_TOKEN").orElse("")))
-                    .add(branch).setForce(true).call();
+            org.eclipse.jgit.api.PushCommand push = git.push().setRemote("origin").add(branch).setForce(true);
+            applyGitAuth(push);   // Bearer for Server/DC PAT (same as the clone) — Basic-with-empty-username is rejected
+            push.call();
             log.info("Pushed branch {} to {}", branch, repoSlug);
         } catch (Exception e) {
-            throw new IllegalStateException("Push failed for '" + repoSlug + "': " + e.getMessage(), e);
+            String msg = e.getMessage() == null ? "" : e.getMessage();
+            String low = msg.toLowerCase(java.util.Locale.ROOT);
+            String hint = (low.contains("not authorized") || low.contains("401") || low.contains("403"))
+                    ? " — the credentials were accepted for read but the push was refused; verify GIT_TOKEN has "
+                            + "repository WRITE scope (a read-only token can clone but not push)."
+                    : "";
+            throw new IllegalStateException("Push failed for '" + repoSlug + "': " + msg + hint, e);
         }
     }
 

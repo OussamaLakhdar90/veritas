@@ -92,6 +92,7 @@ class ActivityServiceTest {
         when(scans.findAll()).thenReturn(List.of(failed));
 
         SnykFixTrain failedTrain = new SnykFixTrain();
+        failedTrain.setId("tr-77");
         failedTrain.setStatus("FAILED");
         failedTrain.setCoordinate("com.x:y");
         failedTrain.setFixedIn("2.0");
@@ -106,7 +107,11 @@ class ActivityServiceTest {
         assertThat(feed).filteredOn(i -> "SCAN".equals(i.type()))
                 .singleElement().satisfies(i -> assertThat(i.detail()).contains("EOF reached while reading"));
         assertThat(feed).filteredOn(i -> "FIX_TRAIN".equals(i.type()))
-                .singleElement().satisfies(i -> assertThat(i.detail()).contains("Field 'summary' cannot be set"));
+                .singleElement().satisfies(i -> {
+                    assertThat(i.detail()).contains("Field 'summary' cannot be set");
+                    // Deep-links to this train's live progress stepper, not the bare /snyk page (the dead click).
+                    assertThat(i.link()).isEqualTo("/snyk/fix/tr-77");
+                });
     }
 
     @Test

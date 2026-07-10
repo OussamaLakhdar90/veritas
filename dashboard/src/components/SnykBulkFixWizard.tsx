@@ -9,6 +9,7 @@ import {
   type SnykBulkFixRequest, type SnykBulkFixResult, type SnykIssueView, type SnykWatchView,
 } from '../api';
 import { Modal } from './Modal';
+import { FixTrainProgress } from './FixTrainProgress';
 import { Badge, Button, EmptyState, Field, Input, Select, Spinner } from './ui';
 import { useToast } from './Toast';
 import { snykSeverityBadge, TONE } from '../theme/tokens';
@@ -313,10 +314,24 @@ export function SnykBulkFixWizard({ open, onClose, watches }:
     <Modal open={open} onClose={onClose} size="lg" title={t(`snyk.bulk.wizard.${titleKey}`)}
       footer={result ? doneFooter : stepFooter}>
       {result ? (
-        <StepDone result={result} onCopy={(text) => {
-          navigator.clipboard?.writeText(text);
-          toast.push('success', t('snyk.bulk.wizard.success.copied'));
-        }} />
+        <div className="space-y-5">
+          <StepDone result={result} onCopy={(text) => {
+            navigator.clipboard?.writeText(text);
+            toast.push('success', t('snyk.bulk.wizard.success.copied'));
+          }} />
+          {/* Live progress right here — the fix trains advance in place instead of vanishing to the Activity feed. */}
+          {result.apps.some((a) => a.trainIds.length > 0) && (
+            <div className="space-y-3">
+              <h3 className="text-sm font-semibold text-ink-900">{t('snyk.bulk.wizard.success.liveTitle')}</h3>
+              {result.apps.flatMap((a) => a.trainIds.map((id) => (
+                <div key={id} className="rounded-xl ring-1 ring-border p-3">
+                  <p className="mb-2 font-mono text-2xs uppercase tracking-wide text-muted">{a.appId}</p>
+                  <FixTrainProgress trainId={id} />
+                </div>
+              )))}
+            </div>
+          )}
+        </div>
       ) : (
         <>
           {/* Step indicator */}

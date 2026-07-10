@@ -236,7 +236,7 @@ export function SnykFixWizard({ open, onClose, issue, watchId, apps, defaultApp 
 }
 
 /** One row in the review step: a framework module (editable version) or a consumer/manual step. */
-function ReviewRow({ step, version, onVersion, reviewers, onReviewers }:
+export function ReviewRow({ step, version, onVersion, reviewers, onReviewers }:
   { step: SnykFixStepView; version: string; onVersion: (v: string) => void;
     reviewers: string; onReviewers: (v: string) => void }) {
   const { t } = useTranslation();
@@ -274,7 +274,7 @@ function ReviewRow({ step, version, onVersion, reviewers, onReviewers }:
  * Opening the pull requests) so the user always sees *which operation* is running, and — on a failure — exactly
  * which étape stopped it. The per-module cascade (BOM → core → api/web → app) renders below as the detail.
  */
-function TrainHeader({ train }: { train: SnykFixTrainView }) {
+export function TrainHeader({ train }: { train: SnykFixTrainView }) {
   const { t } = useTranslation();
   const inFlight = IN_FLIGHT.includes(train.status);
   const failed = train.status === FIX_STATUS.FAILED;
@@ -410,7 +410,7 @@ function TrainHeader({ train }: { train: SnykFixTrainView }) {
   );
 }
 
-function StepRow({ step, failedHere, awaiting, url, onUrl, onRecord }:
+export function StepRow({ step, failedHere, awaiting, url, onUrl, onRecord }:
   { step: SnykFixStepView; failedHere: boolean; awaiting: boolean; url: string;
     onUrl: (v: string) => void; onRecord: () => void }) {
   const { t } = useTranslation();

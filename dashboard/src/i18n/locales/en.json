@@ -355,6 +355,7 @@
           "copy": "Copy",
           "copied": "Copied to clipboard.",
           "watch": "Watch progress",
+          "liveTitle": "Live progress",
           "someFailed": "{{count}} application(s) could not start:"
         }
       }
@@ -377,6 +378,14 @@
       "start": "Start fix",
       "starting": "Starting the fix…",
       "loadFailed": "Couldn’t load the fix train.",
+      "detailTitle": "Fix in progress",
+      "detailSubtitle": "Live status of this dependency fix — clone, breaking-change check, build & test, and pull requests.",
+      "buildOutput": "Build output",
+      "whatToDo": {
+        "AWAITING_CONFIRM": "We planned the update train — which repos change, in what order, and to which version. Review the versions and reviewers below, then Confirm & run to start the build.",
+        "AWAITING_MANUAL_FIX": "This bump needs a human. Adapt the code/tests on the pushed branches, then let Veritas open the held PRs — or open them yourself and paste each PR URL below.",
+        "PR_OPEN": "The pull requests are open and assigned. Nothing else runs until a human merges them in Bitbucket; once every PR is merged, click Mark all merged to close this out."
+      },
       "confirm": "Confirm & run",
       "reviewIntro": "Review the update train before it runs. Framework repos (APP7488) merge first, then one PR per app. Edit each module’s new version or its reviewers; greyed rows can’t be auto-bumped.",
       "newVersionLabel": "New version",

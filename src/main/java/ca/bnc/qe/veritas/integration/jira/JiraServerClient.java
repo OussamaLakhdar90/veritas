@@ -240,17 +240,18 @@ public class JiraServerClient implements JiraClient {
 
     @Override
     public CreateMeta createMeta(String projectKey, String issueType) {
-        // Jira < 9.0 exposes the classic createmeta (one call with ?projectKeys&expand=projects.issuetypes.fields).
-        // Jira >= 9.0 REMOVED it (returns 404) in favour of the paginated /createmeta/{project}/issuetypes[/{id}]
-        // endpoints. Prefer classic (a valid 2xx — even an empty one for a non-creatable project/type — is authoritative
-        // on that Jira); only when it FAILS (the 9.x 404) fall back to the v9 endpoints, so Epic-Link discovery keeps
-        // working across Jira versions instead of 404-ing the whole create.
+        // Jira >= 9.0 and Jira Cloud REMOVED the classic aggregated createmeta (?projectKeys&expand=…): it now 404s as
+        // "Issue Does Not Exist" (the /issue/createmeta path falls through to /issue/{key}). They expose the paginated
+        // /createmeta/{project}/issuetypes[/{id}] endpoints instead. Modern Jira is the common case, so try the v9
+        // endpoints FIRST and fall back to classic only for pre-9.0 — this avoids an alarming (but harmless) 404 on
+        // every Epic-Link lookup against a modern instance. Either variant working is enough: createMeta failure is
+        // non-fatal to the caller (the issue is still created, just unlinked from its epic).
         try {
-            return createMetaClassic(projectKey, issueType);
-        } catch (RuntimeException classicUnavailable) {
-            log.debug("Jira classic createmeta unavailable for {} ({}) — trying the v9 endpoints",
-                    projectKey, classicUnavailable.getMessage());
             return createMetaV9(projectKey, issueType);
+        } catch (RuntimeException v9Unavailable) {
+            log.debug("Jira v9 createmeta unavailable for {} ({}) — trying the classic (pre-9.0) endpoint",
+                    projectKey, v9Unavailable.getMessage());
+            return createMetaClassic(projectKey, issueType);
         }
     }
 

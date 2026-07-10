@@ -43,7 +43,11 @@ public class SnykFixActions {
      * Jira → In Review. Breaking (LLM breaking OR reactor failed) → hold the PRs, await the user; Jira stays In Progress.
      */
     public void decide(SnykFixTrain train, List<SnykFixStep> trainSteps) {
-        train.setBreaking(train.isBreaking() || Boolean.FALSE.equals(train.getReactorPassed()));
+        boolean llmBreaking = train.isBreaking();
+        boolean reactorFailed = Boolean.FALSE.equals(train.getReactorPassed());
+        train.setBreaking(llmBreaking || reactorFailed);
+        log.info("Snyk fix train {}: DECIDE — llmBreaking={}, reactorFailed={} → {}", train.getId(), llmBreaking,
+                reactorFailed, train.isBreaking() ? "HOLD PRs for manual adaptation" : "open the PR train automatically");
         if (!train.isBreaking()) {
             openAll(train, trainSteps, SnykFixStatus.BY_VERITAS);
             markPrTrainOpenedOrHeld(train, trainSteps,
@@ -65,10 +69,22 @@ public class SnykFixActions {
             train.setStatus(SnykFixStatus.PR_OPEN);
             train.setStageDetail(openedDetail);
             jiraService.transitionTo(train.getJiraKey(), SnykFixJiraService.Phase.IN_REVIEW);
-        } else {
-            train.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);
+            return;
+        }
+        train.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);
+        // Distinguish "some PRs failed to open (branches are up)" from the total failure "nothing pushed at all",
+        // so the held detail is honest instead of claiming pushed branches that don't exist.
+        boolean anyBranchUp = trainSteps.stream()
+                .anyMatch(s -> !s.isManual() && !SnykFixStatus.STEP_FAILED.equals(s.getStatus()));
+        if (anyBranchUp) {
             train.setStageDetail("Some PRs could not be opened automatically — the branches are pushed; "
                     + "retry, or open the remaining PRs yourself.");
+        } else {
+            train.setStageDetail("No PR was opened — every version-bump push failed (commonly the Bitbucket "
+                    + "access token lacks write scope — check Settings), so there is no branch to open a PR against. "
+                    + "Fix access and retry.");
+            log.error("Snyk fix train {}: every branch push FAILED — holding at AWAITING_MANUAL_FIX with no PRs "
+                    + "(no branch was pushed).", train.getId());
         }
     }
 
@@ -205,9 +221,14 @@ public class SnykFixActions {
      * would block the whole train from ever completing through the record-your-own-PR / open-held-PRs flows.
      */
     private boolean allActionableOpen(List<SnykFixStep> trainSteps) {
-        return trainSteps.stream()
+        List<SnykFixStep> actionable = trainSteps.stream()
                 .filter(s -> !s.isManual() && !SnykFixStatus.STEP_FAILED.equals(s.getStatus()))
-                .allMatch(s -> SnykFixStatus.STEP_PR_OPEN.equals(s.getStatus())
+                .toList();
+        // Guard the vacuous case: if every pushable step failed (or there are none), the actionable set is empty and
+        // allMatch would return true — falsely claiming PR_OPEN with zero PRs. A train is only "open" when at least one
+        // real PR exists AND nothing pushable is still pending.
+        return !actionable.isEmpty()
+                && actionable.stream().allMatch(s -> SnykFixStatus.STEP_PR_OPEN.equals(s.getStatus())
                         || SnykFixStatus.MERGED.equals(s.getStatus()));
     }
 

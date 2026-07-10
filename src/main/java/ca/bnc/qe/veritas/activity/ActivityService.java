@@ -118,7 +118,9 @@ public class ActivityService {
         }
         out.add(new ActivityItem(t.getId(), "FIX_TRAIN", t.getCoordinate() + " → " + t.getFixedIn(), status,
                 t.getStatus(), failDetail(status, t.getErrorMessage(), t.getStageDetail()), attention,
-                t.getStartedAt(), t.getFinishedAt(), "/snyk", acked.contains(t.getId())));
+                // Deep-link straight to this train's live progress stepper, not the bare Snyk page (which showed
+                // nothing and read as a dead click). The dashboard route is /snyk/fix/{trainId}.
+                t.getStartedAt(), t.getFinishedAt(), "/snyk/fix/" + t.getId(), acked.contains(t.getId())));
     }
 
     private void addCodegen(List<ActivityItem> out, CodegenRun r, Instant cutoff, Set<String> acked) {

@@ -64,4 +64,32 @@ class CascadeVerifierTest {
         assertThat(r.failingLabel()).isEqualTo("BOM");
         verify(bv, times(1)).verify(any(), any(), anyLong());   // stopped at the first module — never reached the consumer
     }
+
+    @Test
+    void aFailureWithNoBuildOutputStillFailsCleanly() {
+        // The build tail is logged (null-output branch → "(no build output captured)"); the gate result is unaffected.
+        when(bv.verify(any(), any(), anyLong())).thenReturn(new BuildVerifier.BuildResult("FAIL", null));
+        ReactorResult r = verifier.verify(inputs());
+        assertThat(r.passed()).isFalse();
+        assertThat(r.failingLabel()).isEqualTo("BOM");
+    }
+
+    @Test
+    void aFailureWithBlankBuildOutputStillFailsCleanly() {
+        // Blank (whitespace-only) output → the same "no build output captured" log branch.
+        when(bv.verify(any(), any(), anyLong())).thenReturn(new BuildVerifier.BuildResult("FAIL", "   "));
+        ReactorResult r = verifier.verify(inputs());
+        assertThat(r.passed()).isFalse();
+    }
+
+    @Test
+    void aLongBuildOutputIsTailedInTheLogButReturnedInFull() {
+        // A >2 KB output exercises the truncation branch of the log tail; the returned outputTail keeps the full text.
+        String huge = "x".repeat(5000);
+        when(bv.verify(any(), contains("install"), anyLong())).thenReturn(new BuildVerifier.BuildResult("PASS", ""));
+        when(bv.verify(any(), contains(" test "), anyLong())).thenReturn(new BuildVerifier.BuildResult("FAIL", huge));
+        ReactorResult r = verifier.verify(inputs());
+        assertThat(r.passed()).isFalse();
+        assertThat(r.outputTail()).hasSize(5000);   // the train still gets the whole log; only the console line is tailed
+    }
 }

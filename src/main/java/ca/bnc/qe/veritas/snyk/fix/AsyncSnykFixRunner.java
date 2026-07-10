@@ -28,6 +28,7 @@ import ca.bnc.qe.veritas.vcs.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 
@@ -161,6 +162,12 @@ public class AsyncSnykFixRunner {
 
     private void run(String trainId, SnykFixRequest req, Map<String, String> versionOverrides,
                      Map<Integer, List<String>> reviewerOverrides, boolean pauseForConfirm) {
+        // Attach the train id to EVERY downstream log (clone / reactor / push / Jira) so a failure in the shared
+        // "snyk-fix" pool can be tied back to its train + coordinate — otherwise concurrent bulk trains are
+        // indistinguishable in the console. Requires [%X{trainId:-}] in the logback pattern.
+        MDC.put("trainId", trainId);
+        log.info("Snyk fix train {}: START {} {}->{} apps={} (confirm-pause={})",
+                trainId, req.coordinate(), req.oldVersion(), req.fixedIn(), req.appIds(), pauseForConfirm);
         String stage = SnykFixStatus.PLANNING;
         Map<String, Path> clones = new LinkedHashMap<>();
         try {
@@ -238,21 +245,40 @@ public class AsyncSnykFixRunner {
                 log.warn("Snyk fix train {} was finalized by another writer during {} — leaving its state as-is.",
                         trainId, failedAt);
             } else {
-                log.error("Snyk fix train {} failed at {}: {}", trainId, failedAt, e.getMessage());
-                markFailed(trainId, failedAt, e.getMessage());
+                // Pass the throwable (last arg) so the full cause chain — the JGit TransportException, the Jira 400,
+                // the reactor UncheckedIOException — prints, and add the coordinate so the line is self-explanatory.
+                log.error("Snyk fix train {} ({} {}->{}, apps={}) FAILED at {}: {}", trainId, req.coordinate(),
+                        req.oldVersion(), req.fixedIn(), req.appIds(), failedAt, e.getMessage(), e);
+                // Never store a blank reason — several failures (NoSuchElement/NPE) carry a null message, which would
+                // leave the UI with a red badge and no explanation.
+                markFailed(trainId, failedAt, failureReason(e));
             }
         } finally {
             clones.values().forEach(workspace::cleanup);
+            MDC.remove("trainId");
         }
     }
 
     private FrameworkPoms cloneFramework(Map<String, Path> clones) {
         String project = fw.getProject();
-        String bom = readPom(clone(project, fw.getBomRepo(), clones));
-        String core = readPom(clone(project, fw.getCoreRepo(), clones));
-        String api = readPom(clone(project, fw.getApiRepo(), clones));
-        String web = readPom(clone(project, fw.getWebRepo(), clones));
+        // The framework repos are REQUIRED — a failed clone here (auth/connectivity/wrong slug) must fail the train
+        // fast with a clear reason, not silently drop the module and later resurface as a misleading consumer-test
+        // failure in the reactor.
+        String bom = readPom(cloneRequired(project, fw.getBomRepo(), "BOM", clones));
+        String core = readPom(cloneRequired(project, fw.getCoreRepo(), "core", clones));
+        String api = readPom(cloneRequired(project, fw.getApiRepo(), "api", clones));
+        String web = readPom(cloneRequired(project, fw.getWebRepo(), "web", clones));
         return new FrameworkPoms(bom, core, api, web);
+    }
+
+    /** Clone a REQUIRED framework repo — throw (fail the train at PLANNING) if it can't be cloned. */
+    Path cloneRequired(String project, String repoSlug, String label, Map<String, Path> clones) {
+        Path dir = clone(project, repoSlug, clones);
+        if (dir == null) {
+            throw new IllegalStateException("Couldn't clone the framework " + label + " repo " + project + "/"
+                    + repoSlug + " — check repo connectivity/credentials (Settings → Bitbucket).");
+        }
+        return dir;
     }
 
     private List<AppInput> cloneConsumers(List<String> appIds, Map<String, Path> clones) {
@@ -290,8 +316,8 @@ public class AsyncSnykFixRunner {
         }
     }
 
-    private void persistSteps(String trainId, List<CascadeStep> plan, Map<String, Path> clones, String branch,
-                              List<String> reviewersOverride, Map<Integer, List<String>> reviewerOverrides) {
+    void persistSteps(String trainId, List<CascadeStep> plan, Map<String, Path> clones, String branch,
+                      List<String> reviewersOverride, Map<Integer, List<String>> reviewerOverrides) {
         steps.deleteByTrainId(trainId);   // a confirm-time re-plan replaces the preview steps rather than duplicating
         for (CascadeStep cs : plan) {
             SnykFixStep s = new SnykFixStep();
@@ -310,23 +336,36 @@ public class AsyncSnykFixRunner {
             s.setReviewersJson(reviewersJson(cs, clones, reviewersOverride, reviewerOverrides));
             steps.save(s);
             if (!cs.manual()) {
-                applyStepEdits(cs, clones);
+                try {
+                    applyStepEdits(cs, clones);
+                } catch (RuntimeException editFailed) {
+                    // FAIL-FAST: never let a train proceed to the reactor/push with an edit that didn't apply. A clean
+                    // build on an un-edited pom is a FALSE PASS — it would open a change-less PR and mark the vuln
+                    // fixed while the branch still carries the old version. Mark the step, then abort the train.
+                    s.setStatus(SnykFixStatus.STEP_FAILED);
+                    s.setStageDetail(null);
+                    s.setReason("Could not apply the version edit: " + editFailed.getMessage());
+                    steps.save(s);
+                    throw editFailed;
+                }
             }
         }
     }
 
-    /** Apply the planned version edits to the cloned pom (so the reactor build + push see the new versions). */
+    /** Apply the planned version edits to the cloned pom (so the reactor build + push see the new versions). Throws
+     *  on any failure — the caller aborts the train rather than shipping an unedited (no-op) "fix". */
     private void applyStepEdits(CascadeStep cs, Map<String, Path> clones) {
         Path repoDir = clones.get(cs.bitbucketProject() + "/" + cs.repoSlug());
         if (repoDir == null) {
-            return;
+            throw new IllegalStateException("Repo " + cs.repoSlug() + " was not cloned — can't apply the version edit.");
         }
         try {
             Path pomPath = repoDir.resolve(cs.pomPath());
             String edited = CascadePlanner.applyEdits(Files.readString(pomPath), cs.edits());
             fileWriter.write(pomPath, cs.repoSlug() + "/pom.xml", edited);
         } catch (Exception e) {
-            log.warn("Applying edits to {} failed: {}", cs.repoSlug(), e.getMessage());
+            throw new IllegalStateException("Could not apply the version edit to " + cs.repoSlug()
+                    + "/pom.xml: " + e.getMessage(), e);
         }
     }
 
@@ -403,6 +442,8 @@ public class AsyncSnykFixRunner {
     }
 
     void pushBranches(String trainId, Map<String, Path> clones, String branch, String jiraKey) {
+        int pushed = 0;
+        int failed = 0;
         for (SnykFixStep s : steps.findByTrainIdOrderByStepOrder(trainId)) {
             if (s.isManual()) {
                 continue;
@@ -421,13 +462,23 @@ public class AsyncSnykFixRunner {
                 s.setStatus(SnykFixStatus.BRANCH_PUSHED);
                 s.setStageDetail(null);
                 steps.save(s);
+                pushed++;
             } catch (RuntimeException e) {
-                log.warn("Pushing the fix branch for {} failed: {}", s.getRepoSlug(), e.getMessage());
+                // Context + full stack (last arg) so the console names the branch and carries the JGit/auth cause.
+                log.warn("Snyk fix: push FAILED for step {} ({}) branch {}: {}",
+                        s.getStepOrder(), s.getRepoSlug(), branch, e.getMessage(), e);
                 s.setStatus(SnykFixStatus.STEP_FAILED);
                 s.setStageDetail(null);
                 s.setReason("push failed: " + e.getMessage());
                 steps.save(s);
+                failed++;
             }
+        }
+        if (failed > 0) {
+            log.error("Snyk fix: {} of {} branch push(es) FAILED — the train will hold for manual action "
+                    + "(check the Bitbucket access token's write scope in Settings).", failed, pushed + failed);
+        } else {
+            log.info("Snyk fix: pushed {} branch(es) cleanly.", pushed);
         }
     }
 
@@ -451,6 +502,7 @@ public class AsyncSnykFixRunner {
      * concurrent writer. Reassigning keeps the in-memory version in lockstep with the DB.
      */
     private SnykFixTrain stage(SnykFixTrain train, String status, String detail) {
+        log.info("Snyk fix train {}: {} — {}", train.getId(), status, detail);
         train.setStatus(status);
         train.setStageDetail(detail);
         return trains.save(train);
@@ -484,6 +536,12 @@ public class AsyncSnykFixRunner {
      * If another writer already finalized it (FAILED) or handed it to a human (AWAITING_MANUAL_FIX / PR_OPEN), that
      * state wins. The save itself is guarded against the very optimistic-lock race this method exists to survive.
      */
+    /** A non-blank failure reason for the UI: the exception's message, or its class name when the message is
+     *  null/blank (several failures — NoSuchElement/NPE — carry no message, which would leave a red badge unexplained). */
+    static String failureReason(Throwable e) {
+        return (e.getMessage() == null || e.getMessage().isBlank()) ? e.getClass().getSimpleName() : e.getMessage();
+    }
+
     private void markFailed(String trainId, String failedAt, String message) {
         try {
             trains.findById(trainId).ifPresent(t -> {
