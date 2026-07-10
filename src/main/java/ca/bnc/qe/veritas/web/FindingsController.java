@@ -124,6 +124,13 @@ public class FindingsController {
     /** Severities a human may override a finding to — NOT UNSPECIFIED, which is the engine's fail-safe, not a choice. */
     private static final Set<String> ALLOWED_SEVERITY = Set.of("BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO");
 
+    /** A severity override is allowed only where the engine asked for help: a reconcile-disputed finding, or an
+     *  unclassified (UNSPECIFIED engine severity) type. Confident classifications are authoritative and read-only,
+     *  so field overrides stay a clean, deliberate learning signal for Engine Evolution. */
+    private static boolean isSeverityEditable(FindingRecord f) {
+        return f.isAiDisputed() || "UNSPECIFIED".equalsIgnoreCase(f.getSeverity());
+    }
+
     /**
      * Disposition a finding: set its status (ACCEPTED / REJECTED / TRIAGED / WONT_FIX / FALSE_POSITIVE …) and/or a
      * human severity OVERRIDE. This is the system of record — it captures WHO acted, WHEN, and an optional WHY for an
@@ -155,6 +162,9 @@ public class FindingsController {
             if (!ALLOWED_SEVERITY.contains(sv)) {
                 throw new IllegalArgumentException("Unknown severity '" + patch.severity()
                         + "'. Allowed: " + ALLOWED_SEVERITY);
+            }
+            if (!isSeverityEditable(f)) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).build();
             }
             f.setUserSeverity(sv);
             f.setReviewedBy(currentUser.principalId());

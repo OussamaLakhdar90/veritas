@@ -886,7 +886,6 @@
     "rejectModalBody": "Une fois rejeté, ce constat est exclu du rapport de gestion et ne sera pas converti en anomalie. Il est enregistré à votre nom et peut être modifié ultérieurement.",
     "markedDisposition": "Marqué {{label}}.",
     "setSeverity": "Définir la sévérité",
-    "engineSuggested": "moteur : {{sev}}",
     "severityUpdated": "Sévérité mise à jour.",
     "dispAccepted": "Accepté",
     "dispRejected": "Rejeté",

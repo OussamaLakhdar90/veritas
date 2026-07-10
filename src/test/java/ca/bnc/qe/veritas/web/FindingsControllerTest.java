@@ -90,6 +90,7 @@ class FindingsControllerTest {
         when(currentUser.principalId()).thenReturn("alice");
         FindingRecord f = new FindingRecord();
         f.setSeverity("MINOR");
+        f.setAiDisputed(true);   // severity is editable only where the engine asked for help (disputed / unspecified)
         when(findingRepository.findById("f1")).thenReturn(Optional.of(f));
         when(findingRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
@@ -99,6 +100,15 @@ class FindingsControllerTest {
                 .andExpect(jsonPath("$.severity").value("MINOR"))   // the engine classification is never altered
                 .andExpect(jsonPath("$.reviewedBy").value("alice"))
                 .andExpect(jsonPath("$.reviewedAt").exists());
+    }
+
+    @Test
+    void patchRejectsASeverityOverrideOnAConfidentFinding() throws Exception {
+        FindingRecord f = new FindingRecord();
+        f.setSeverity("MINOR");   // confident: not disputed, not UNSPECIFIED → the classification is read-only
+        when(findingRepository.findById("f1")).thenReturn(Optional.of(f));
+        mvc.perform(patch("/api/v1/findings/f1").contentType("application/json").content("{\"severity\":\"critical\"}"))
+                .andExpect(status().isConflict());
     }
 
     @Test

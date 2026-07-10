@@ -152,6 +152,7 @@ export interface Finding {
   reviewedAt?: string
   reviewNote?: string
   userSeverity?: string   // a human's severity override; wins over `severity` (the engine's suggestion) at the gate
+  aiDisputed?: boolean     // the reconcile LLM flagged this as a likely false positive → severity is human-editable in review
 }
 
 export interface Repo {
