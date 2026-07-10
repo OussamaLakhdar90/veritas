@@ -255,13 +255,13 @@ class ContractReportRendererBranch2Test {
     }
 
     @Test
-    void aHumanSeverityOverrideShowsTheEngineSuggestionHint() {
-        // A human override (INFO) on an engine-MAJOR finding: the report renders the effective severity + an
-        // "engine: MAJOR" hint so both the gating value and the engine's suggestion are visible.
+    void aHumanSeverityOverrideRendersTheEffectiveSeverityWithoutAnEngineHint() {
+        // A human override (INFO) on an engine-MAJOR finding: the report renders the EFFECTIVE (gating) severity
+        // and — since review now classifies unaided — deliberately shows NO "engine: X" suggestion hint.
         Finding overridden = counted(FindingType.STATUS_CODE_MISSING, Severity.MAJOR)
                 .findingId("ov").userSeverity(Severity.INFO).build();
         String html = renderer.renderHtml(scan("svc"), List.of(overridden));
-        assertThat(html).contains("sev-override").contains("engine: ").contains("MAJOR");
+        assertThat(html).doesNotContain("sev-override").doesNotContain("engine: ");
     }
 
     // ---- raised gate caps: a WARN/PASS scan can still carry breaking findings -> the copy must be honest ---

@@ -18,6 +18,9 @@ const sevRank = (s?: string) => { const i = SEV_ORDER.indexOf((s || 'INFO').toUp
 const effSev = (f: Finding) => (f.userSeverity || f.severity || 'INFO').toUpperCase();
 /** Severities a human may pick — NOT UNSPECIFIED (the engine's fail-safe). Matches the backend allow-list. */
 const SEV_CHOICES = ['BLOCKER', 'CRITICAL', 'MAJOR', 'MINOR', 'INFO'];
+/** Severity is human-editable ONLY where the engine asked for help: a reconcile-disputed finding, or an
+ *  unclassified (UNSPECIFIED engine severity) type. Confident classifications are authoritative + read-only. */
+const isSevEditable = (f: Finding) => !!f.aiDisputed || (f.severity || '').toUpperCase() === 'UNSPECIFIED';
 const CONF_ORDER = ['HIGH', 'MEDIUM', 'LOW'];
 const confRank = (c?: string) => { const i = CONF_ORDER.indexOf((c || '').toUpperCase()); return i < 0 ? CONF_ORDER.length : i; };
 const HIGH_SEV = ['BLOCKER', 'CRITICAL'];
@@ -187,7 +190,7 @@ export function Findings() {
                       )}
                     </Td>
                     <Td>
-                      <div className="inline-flex flex-col gap-0.5">
+                      {isSevEditable(f) ? (
                         <select aria-label={t('findings.setSeverity')} value={effSev(f)} disabled={sevBusy(f)}
                           onChange={(e) => setSeverity.mutate({ f, severity: e.target.value })}
                           className={cn('rounded-md px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide outline-none disabled:opacity-50',
@@ -196,12 +199,12 @@ export function Findings() {
                             <option key={s} value={s}>{enumLabel(t, 'severity', s)}</option>
                           ))}
                         </select>
-                        {f.userSeverity && f.userSeverity.toUpperCase() !== (f.severity || '').toUpperCase() && (
-                          <span className="text-2xs text-muted">
-                            {t('findings.engineSuggested', { sev: enumLabel(t, 'severity', f.severity) })}
-                          </span>
-                        )}
-                      </div>
+                      ) : (
+                        <span className={cn('inline-block rounded-md px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wide',
+                          severityBadge(effSev(f)))}>
+                          {enumLabel(t, 'severity', effSev(f))}
+                        </span>
+                      )}
                     </Td>
                     <Td>
                       {f.confidence ? (

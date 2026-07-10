@@ -886,7 +886,6 @@
     "rejectModalBody": "Once rejected, this finding is excluded from the management report and won't be raised as a defect. It's recorded under your name and can be changed later.",
     "markedDisposition": "Marked {{label}}.",
     "setSeverity": "Set severity",
-    "engineSuggested": "engine: {{sev}}",
     "severityUpdated": "Severity updated.",
     "dispAccepted": "Accepted",
     "dispRejected": "Rejected",

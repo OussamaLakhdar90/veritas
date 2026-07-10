@@ -248,17 +248,17 @@ describe('Findings — single raise-defect DefectModal', () => {
   })
 })
 
-describe('Findings — severity override', () => {
-  it('changing the severity dropdown PATCHes a userSeverity override and toasts success', async () => {
+describe('Findings — severity override (scoped to disputed / unspecified)', () => {
+  it('a disputed finding shows the severity dropdown, which PATCHes a userSeverity override and toasts success', async () => {
     let body: { severity?: string } | null = null
     let patchedId = ''
     server.use(http.patch('*/api/v1/findings/:id', async ({ params, request }) => {
       patchedId = params.id as string
       body = (await request.json()) as { severity?: string }
-      return HttpResponse.json({ ...critical, userSeverity: body.severity })
+      return HttpResponse.json({ ...critical, aiDisputed: true, userSeverity: body.severity })
     }))
     const user = userEvent.setup()
-    renderFindings([critical])
+    renderFindings([{ ...critical, aiDisputed: true }])
     expect(await screen.findByText(critical.summary)).toBeInTheDocument()
 
     await user.selectOptions(screen.getAllByRole('combobox', { name: 'Set severity' })[0], 'MINOR')
@@ -268,12 +268,20 @@ describe('Findings — severity override', () => {
     expect(body).toEqual({ severity: 'MINOR' })
   })
 
-  it('shows the engine-suggested severity as a hint and buckets by the EFFECTIVE severity', async () => {
+  it('an unclassified (UNSPECIFIED) finding is editable — the dropdown is shown', async () => {
+    renderFindings([{ ...minor, severity: 'UNSPECIFIED' }])
+    expect(await screen.findByText(minor.summary)).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Set severity' })).toBeInTheDocument()
+  })
+
+  it('a confident finding is READ-ONLY (no dropdown, no engine hint) but still buckets by the EFFECTIVE severity', async () => {
     renderFindings([{ ...minor, userSeverity: 'CRITICAL' }])
     expect(await screen.findByText(minor.summary)).toBeInTheDocument()
-    // The engine classified it MINOR; the human override (CRITICAL) wins, and the engine value is shown as a hint.
-    expect(screen.getByText('engine: Minor')).toBeInTheDocument()
-    // …and the effective severity moved it into the CRITICAL filter bucket (not MINOR).
+    // Confident (not disputed, engine severity MINOR) → the human cannot re-classify it here.
+    expect(screen.queryByRole('combobox', { name: 'Set severity' })).not.toBeInTheDocument()
+    // The dropped "engine: X" suggestion is gone.
+    expect(screen.queryByText(/engine:/i)).not.toBeInTheDocument()
+    // …but the persisted override (CRITICAL) still wins for the filter buckets.
     expect(screen.getByRole('button', { name: 'Critical 1' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^Minor/ })).not.toBeInTheDocument()
   })
