@@ -86,6 +86,30 @@ class FindingsControllerTest {
     }
 
     @Test
+    void patchSetsAUserSeverityOverrideWithAuditLeavingTheEngineSeverityIntact() throws Exception {
+        when(currentUser.principalId()).thenReturn("alice");
+        FindingRecord f = new FindingRecord();
+        f.setSeverity("MINOR");
+        when(findingRepository.findById("f1")).thenReturn(Optional.of(f));
+        when(findingRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        mvc.perform(patch("/api/v1/findings/f1").contentType("application/json").content("{\"severity\":\"critical\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userSeverity").value("CRITICAL"))
+                .andExpect(jsonPath("$.severity").value("MINOR"))   // the engine classification is never altered
+                .andExpect(jsonPath("$.reviewedBy").value("alice"))
+                .andExpect(jsonPath("$.reviewedAt").exists());
+    }
+
+    @Test
+    void patchRejectsUnknownSeverity() throws Exception {
+        FindingRecord f = new FindingRecord();
+        when(findingRepository.findById("f1")).thenReturn(Optional.of(f));
+        mvc.perform(patch("/api/v1/findings/f1").contentType("application/json").content("{\"severity\":\"BOGUS\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void scanByIdExposesLiveStageForThePollingStepper() throws Exception {
         Scan s = new Scan();
         s.setServiceName("ciam-policies");

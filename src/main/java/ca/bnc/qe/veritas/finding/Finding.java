@@ -40,4 +40,11 @@ public class Finding {
     boolean aiDisputed = false;   // the reconcile LLM flagged this DETERMINISTIC finding as a likely false positive…
     String aiDisputeReason;       // …with this code-grounded reason. Never deletes/downgrades severity — only moves the
                                   // finding out of the automatic release-blocking gate and into the review view.
+    Severity userSeverity;        // a human's severity override (nullable) — wins over the engine severity at the gate.
+                                  // The engine `severity` is the deterministic "suggested" default the UI shows.
+
+    /** The severity the gate and report must use: a human override wins over the engine's classification. */
+    public Severity effectiveSeverity() {
+        return userSeverity != null ? userSeverity : severity;
+    }
 }

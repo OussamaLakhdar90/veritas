@@ -53,4 +53,48 @@ class ScanPersistenceMappingTest {
         assertThat(records.get(0).getSpecLocus()).isEqualTo("password.complexity#excludeAttributes");
         assertThat(records.get(1).getSpecLocus()).isNull();
     }
+
+    @Test
+    void writesTheUserSeverityOverrideLeavingTheEngineSeverityIntact() {
+        ScanRepository scanRepository = mock(ScanRepository.class);
+        FindingRecordRepository findingRepository = mock(FindingRecordRepository.class);
+        PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
+        when(txManager.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+        when(findingRepository.findPriorDispositions(anyList(), any())).thenReturn(List.of());
+        ScanPersistence persistence = new ScanPersistence(scanRepository, findingRepository, txManager);
+
+        Finding overridden = Finding.builder().findingId("f1").type(FindingType.STATUS_CODE_MISSING).layer(Layer.L4)
+                .severity(Severity.MAJOR).confidence(Confidence.HIGH).origin("DETERMINISTIC")
+                .endpoint("GET /x").specSource("code-vs-spec").summary("s").userSeverity(Severity.INFO).build();
+
+        persistence.complete(new Scan(), List.of(overridden), Map.of());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<FindingRecord>> saved = ArgumentCaptor.forClass((Class) List.class);
+        verify(findingRepository).saveAll(saved.capture());
+        assertThat(saved.getValue().get(0).getUserSeverity()).isEqualTo("INFO");
+        assertThat(saved.getValue().get(0).getSeverity()).isEqualTo("MAJOR");
+    }
+
+    @Test
+    void applyPriorUserSeverityGraftsACarriedForwardOverrideByFingerprint() {
+        ScanRepository scanRepository = mock(ScanRepository.class);
+        FindingRecordRepository findingRepository = mock(FindingRecordRepository.class);
+        PlatformTransactionManager txManager = mock(PlatformTransactionManager.class);
+        ScanPersistence persistence = new ScanPersistence(scanRepository, findingRepository, txManager);
+
+        FindingRecord prior = new FindingRecord();
+        prior.setFingerprint("f1");
+        prior.setUserSeverity("INFO");
+        when(findingRepository.findPriorUserSeverities(anyList(), any())).thenReturn(List.of(prior));
+
+        Finding fresh = Finding.builder().findingId("f1").type(FindingType.MISSING_ENDPOINT).layer(Layer.L4)
+                .severity(Severity.CRITICAL).confidence(Confidence.HIGH).origin("DETERMINISTIC")
+                .endpoint("GET /x").specSource("code-vs-spec").summary("s").build();
+
+        List<Finding> grafted = persistence.applyPriorUserSeverity(List.of(fresh), "scan-2");
+        assertThat(grafted.get(0).getUserSeverity()).isEqualTo(Severity.INFO);
+        assertThat(grafted.get(0).effectiveSeverity()).isEqualTo(Severity.INFO);   // override wins
+        assertThat(grafted.get(0).getSeverity()).isEqualTo(Severity.CRITICAL);     // engine severity preserved
+    }
 }

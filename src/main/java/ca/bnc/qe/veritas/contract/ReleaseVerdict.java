@@ -39,7 +39,10 @@ public record ReleaseVerdict(int counted, long blocker, long critical, long brea
     }
 
     private static long sev(List<Finding> counted, String name) {
-        return counted.stream().filter(f -> f.getSeverity() != null && name.equals(f.getSeverity().name())).count();
+        // Count by EFFECTIVE severity so a human's override moves the gate (a downgraded CRITICAL no longer trips the
+        // critical cap). Breaking-ness is type-derived (isBreaking), so an override can never hide a breaking change.
+        return counted.stream()
+                .filter(f -> f.effectiveSeverity() != null && name.equals(f.effectiveSeverity().name())).count();
     }
 
     /**

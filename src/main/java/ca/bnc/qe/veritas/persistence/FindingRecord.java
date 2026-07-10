@@ -85,4 +85,10 @@ public class FindingRecord extends AuditableEntity {
     private boolean aiDisputed;
     @Column(length = 1000)
     private String aiDisputeReason;
+
+    // A human's severity override (nullable) — wins over the engine `severity` at the gate and is carried forward
+    // across re-scans by fingerprint (with the reviewedBy/At audit above). Nullable, so ddl-auto can ADD it freely.
+    // The engine `severity` above stays as the deterministic "suggested" default the UI shows next to the override.
+    @Column(length = 20)
+    private String userSeverity;
 }

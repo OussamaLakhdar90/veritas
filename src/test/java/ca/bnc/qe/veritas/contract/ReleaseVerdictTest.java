@@ -87,6 +87,27 @@ class ReleaseVerdictTest {
     }
 
     @Test
+    void aUserSeverityOverrideMovesTheGate() {
+        // The gate reads EFFECTIVE severity: downgrading a non-breaking MAJOR to INFO drops it out of the WARN tally.
+        Finding overridden = f(FindingType.STATUS_CODE_MISSING, Severity.MAJOR).toBuilder()
+                .userSeverity(Severity.INFO).build();
+        ReleaseVerdict v = ReleaseVerdict.of(List.of(overridden), GATE);
+        assertThat(v.major()).isZero();
+        assertThat(v.releaseSafe()).isEqualTo("PASS");
+    }
+
+    @Test
+    void aSeverityOverrideCannotHideABreakingChange() {
+        // Even downgraded to INFO, a consumer-breaking MISSING_ENDPOINT still FAILs — breaking-ness is type-derived,
+        // not severity-derived, so an override can never green-light a real break.
+        Finding overridden = f(FindingType.MISSING_ENDPOINT, Severity.CRITICAL).toBuilder()
+                .userSeverity(Severity.INFO).build();
+        ReleaseVerdict v = ReleaseVerdict.of(List.of(overridden), GATE);
+        assertThat(v.breaking()).isEqualTo(1);
+        assertThat(v.releaseSafe()).isEqualTo("FAIL");
+    }
+
+    @Test
     void thresholdsAreConfigurable() {
         // Raising max-breaking to 1 downgrades a single breaking finding from FAIL to WARN — the gate is a policy,
         // an auditable threshold, not a magic number.
