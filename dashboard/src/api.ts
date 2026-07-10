@@ -155,6 +155,23 @@ export interface Finding {
   aiDisputed?: boolean     // the reconcile LLM flagged this as a likely false positive → severity is human-editable in review
 }
 
+/** An Engine-Evolution classification proposal (a "train") moving toward a merged engine change. */
+export interface ClassificationTrain {
+  id: string
+  findingType: string
+  aiSuggestedSeverity?: string
+  aiSuggested?: boolean
+  aiRationale?: string
+  finalSeverity?: string
+  maintainerComment?: string
+  voteCount?: number
+  distinctServices?: number
+  voteBreakdown?: string
+  status?: string
+  prUrl?: string
+  createdAt?: string
+}
+
 export interface Repo {
   slug: string
   name: string
@@ -664,6 +681,16 @@ export const api = {
   // type-derived so an override can never hide a breaking change).
   setSeverity: (id: string, severity: string) =>
     send<Finding>('PATCH', `/findings/${id}`, { severity }),
+
+  // Engine Evolution — classification proposals: promote a field-learned severity into the engine via a reviewed PR.
+  classificationProposals: () => get<ClassificationTrain[]>('/engine-evolution/proposals'),
+  refreshProposals: () => send<ClassificationTrain[]>('POST', '/engine-evolution/refresh'),
+  challengeProposal: (id: string, severity: string, comment: string) =>
+    send<ClassificationTrain>('POST', `/engine-evolution/proposals/${id}/challenge`, { severity, comment }),
+  openClassificationPr: (id: string) =>
+    send<ClassificationTrain>('POST', `/engine-evolution/proposals/${id}/open-pr`),
+  markClassificationMerged: (id: string) =>
+    send<ClassificationTrain>('POST', `/engine-evolution/proposals/${id}/mark-merged`),
 
   // Strategies / Reviews
   strategies: (service: string) => get<TestStrategy[]>(`/services/${encodeURIComponent(service)}/strategies`),

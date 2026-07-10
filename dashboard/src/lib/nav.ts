@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, ShieldCheck, Bug, ClipboardList, ListChecks, Code2, GitPullRequestArrow,
-  Coins, Settings, Target, ClipboardCheck, Rocket, BookOpen, Layers, Sparkles, Activity,
+  Coins, Settings, Target, ClipboardCheck, Rocket, BookOpen, Layers, Sparkles, Activity, Brain,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { SnykNavIcon } from '../components/SnykLogo';
@@ -33,6 +33,7 @@ export const NAV_GROUPS: NavGroup[] = [
   ] },
   { section: 'secGovern', items: [
     { to: '/gates', key: 'gates', icon: GitPullRequestArrow },
+    { to: '/engine-evolution', key: 'engineEvolution', icon: Brain },
     { to: '/costs', key: 'cost', icon: Coins },
   ] },
   { section: 'secAdmin', items: [
