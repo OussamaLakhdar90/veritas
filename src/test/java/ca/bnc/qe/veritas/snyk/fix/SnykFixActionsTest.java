@@ -234,6 +234,24 @@ class SnykFixActionsTest {
     }
 
     @Test
+    void decideHoldsAsManualWhenEveryPushFailedRatherThanClaimingPrOpenWithZeroPrs() {
+        SnykFixTrain t = train();
+        t.setReactorPassed(true);
+        t.setBreaking(false);
+        // Both steps failed to push earlier (no branch exists) → openAll skips them, so the actionable set is EMPTY.
+        // Guards the vacuous allMatch: an empty stream is trivially "all open" → this used to falsely claim PR_OPEN.
+        SnykFixStep a = step(1, false, SnykFixStatus.STEP_FAILED);
+        SnykFixStep b = step(2, false, SnykFixStatus.STEP_FAILED);
+
+        actions.decide(t, List.of(a, b));
+
+        assertThat(t.getStatus()).isEqualTo(SnykFixStatus.AWAITING_MANUAL_FIX);
+        assertThat(t.getStageDetail()).contains("No PR was opened");   // honest: nothing was pushed, so nothing opened
+        verify(gitHost, never()).openPullRequest(any(GitHost.PullRequestSpec.class));
+        verify(jira, never()).transitionTo(any(), eq(SnykFixJiraService.Phase.IN_REVIEW));
+    }
+
+    @Test
     void markMergedMergesOnlyTheStepsWhosePrsWereActuallyOpen() {
         SnykFixTrain t = train();
         t.setStatus(SnykFixStatus.PR_OPEN);

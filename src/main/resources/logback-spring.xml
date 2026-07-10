@@ -10,9 +10,10 @@
     <conversionRule conversionWord="maskedMsg"
                     converterClass="ca.bnc.qe.veritas.secret.MaskingMessageConverter"/>
 
-    <!-- %X{correlationId} (set by CorrelationIdFilter) ties every line of one request/scan together for post-mortem. -->
+    <!-- %X{correlationId} (set by CorrelationIdFilter) ties every line of one request/scan together for post-mortem;
+         %X{trainId} (set by AsyncSnykFixRunner) does the same for every line of one Snyk fix train. -->
     <property name="VERITAS_LOG_PATTERN"
-              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %5level [%thread] [%X{correlationId:-}] %logger{36} - %maskedMsg%n"/>
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %5level [%thread] [%X{correlationId:-}] [%X{trainId:-}] %logger{36} - %maskedMsg%n"/>
     <property name="LOG_DIR" value="${LOG_DIR:-logs}"/>
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">

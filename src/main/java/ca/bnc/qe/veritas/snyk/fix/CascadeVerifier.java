@@ -37,23 +37,40 @@ public class CascadeVerifier {
             return ReactorResult.fail("reactor",
                     "Nothing was cloned or built, so the fix could not be verified — check connectivity to the repos.");
         }
+        log.info("Snyk reactor: START — installing {} framework module(s) then testing {} consumer app(s) "
+                + "(timeout {}s/command).", in.framework().size(), in.consumers().size(), timeoutSeconds);
         String repoArg = "-Dmaven.repo.local=" + in.localRepo().toAbsolutePath();
         for (ModuleBuild m : in.framework()) {
             BuildVerifier.BuildResult r = buildVerifier.verify(m.dir(),
                     "mvn -q -B -DskipTests install " + repoArg, timeoutSeconds);
             if (!"PASS".equals(r.status())) {
-                log.info("Snyk reactor: framework module {} failed to install", m.label());
+                // WARN + the build tail so the console shows the actual mvn failure, not just the module name.
+                log.warn("Snyk reactor: framework module {} FAILED to install ({}). Build output tail:\n{}",
+                        m.label(), r.status(), tail(r.output()));
                 return ReactorResult.fail(m.label(), r.output());
             }
+            log.info("Snyk reactor: framework module {} installed OK.", m.label());
         }
         for (ConsumerBuild c : in.consumers()) {
             BuildVerifier.BuildResult r = buildVerifier.verify(c.dir(), "mvn -q -B test " + repoArg, timeoutSeconds);
             if (!"PASS".equals(r.status())) {
-                log.info("Snyk reactor: consumer {} tests failed", c.appId());
+                log.warn("Snyk reactor: consumer {} tests FAILED ({}). Build output tail:\n{}",
+                        c.appId(), r.status(), tail(r.output()));
                 return ReactorResult.fail("consumer:" + c.appId(), r.output());
             }
+            log.info("Snyk reactor: consumer {} tests passed.", c.appId());
         }
+        log.info("Snyk reactor: all modules installed and all consumer tests passed — clean.");
         return ReactorResult.pass();
+    }
+
+    /** The last ~2 KB of build output — enough to carry the Maven "BUILD FAILURE" reason into the log without flooding it. */
+    private static String tail(String output) {
+        if (output == null || output.isBlank()) {
+            return "(no build output captured)";
+        }
+        int max = 2000;
+        return output.length() <= max ? output : "…" + output.substring(output.length() - max);
     }
 
     /** A framework module to install: its label (BOM/core/api/web) and cloned directory. */
