@@ -380,6 +380,12 @@
       "loadFailed": "Impossible de charger le train de correction.",
       "detailTitle": "Correction en cours",
       "detailSubtitle": "État en direct de cette correction de dépendance — clonage, vérification des changements incompatibles, compilation et tests, puis demandes de tirage.",
+      "buildOutput": "Sortie du build",
+      "whatToDo": {
+        "AWAITING_CONFIRM": "Nous avons planifié le train de mises à jour — quels dépôts changent, dans quel ordre et vers quelle version. Révisez les versions et les réviseurs ci-dessous, puis Confirmer et lancer pour démarrer le build.",
+        "AWAITING_MANUAL_FIX": "Cette mise à niveau demande une intervention humaine. Adaptez le code/les tests sur les branches poussées, puis laissez Veritas ouvrir les PR en attente — ou ouvrez-les vous-même et collez chaque URL de PR ci-dessous.",
+        "PR_OPEN": "Les demandes de tirage sont ouvertes et assignées. Rien d’autre ne s’exécute tant qu’une personne ne les a pas fusionnées dans Bitbucket ; une fois toutes les PR fusionnées, cliquez sur Marquer fusionnée pour clôturer."
+      },
       "confirm": "Confirmer et lancer",
       "reviewIntro": "Passez en revue le train de mises à jour avant son exécution. Les dépôts du cadre (APP7488) sont fusionnés d’abord, puis une PR par application. Modifiez la nouvelle version de chaque module ou ses réviseurs ; les lignes grisées ne peuvent pas être mises à niveau automatiquement.",
       "newVersionLabel": "Nouvelle version",

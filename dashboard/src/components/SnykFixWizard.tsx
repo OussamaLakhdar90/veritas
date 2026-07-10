@@ -236,7 +236,7 @@ export function SnykFixWizard({ open, onClose, issue, watchId, apps, defaultApp 
 }
 
 /** One row in the review step: a framework module (editable version) or a consumer/manual step. */
-function ReviewRow({ step, version, onVersion, reviewers, onReviewers }:
+export function ReviewRow({ step, version, onVersion, reviewers, onReviewers }:
   { step: SnykFixStepView; version: string; onVersion: (v: string) => void;
     reviewers: string; onReviewers: (v: string) => void }) {
   const { t } = useTranslation();
