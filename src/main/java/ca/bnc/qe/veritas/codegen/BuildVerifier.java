@@ -3,7 +3,12 @@ package ca.bnc.qe.veritas.codegen;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -23,7 +28,7 @@ public class BuildVerifier {
      * to known build tools (no shells: a {@code bash -c …} would re-open arbitrary execution). Args are literal
      * (no shell), so this gates WHAT runs. Refused → SKIPPED (verification not run), never the attacker's program.
      */
-    private static final java.util.Set<String> ALLOWED_TOOLS = java.util.Set.of(
+    private static final Set<String> ALLOWED_TOOLS = Set.of(
             "mvn", "mvnw", "gradle", "gradlew", "npm", "npx", "node", "yarn", "pnpm",
             "make", "dotnet", "python", "python3", "go", "cargo", "ant", "ng", "tsc", "java");
 
@@ -101,8 +106,8 @@ public class BuildVerifier {
     }
 
     /** Testable core: OS + env are injected so both the Windows and non-Windows branches are exercised on any host. */
-    static String resolveProgram(String tool, Path workingDir, String osName, java.util.Map<String, String> env) {
-        boolean windows = osName.toLowerCase(java.util.Locale.ROOT).contains("win");
+    static String resolveProgram(String tool, Path workingDir, String osName, Map<String, String> env) {
+        boolean windows = osName.toLowerCase(Locale.ROOT).contains("win");
         if (!windows) {
             return tool;
         }
@@ -116,13 +121,13 @@ public class BuildVerifier {
         }
         if ("mvnw".equals(tool) || "gradlew".equals(tool)) {
             Path wrapper = workingDir.resolve(script);   // the wrapper lives in the project, not on PATH
-            return java.nio.file.Files.isRegularFile(wrapper) ? wrapper.toString() : script;
+            return Files.isRegularFile(wrapper) ? wrapper.toString() : script;
         }
         for (String home : homeVars(tool)) {
             String v = env.get(home);
             if (v != null && !v.isBlank()) {
                 Path exe = Path.of(v, "bin", script);
-                if (java.nio.file.Files.isRegularFile(exe)) {
+                if (Files.isRegularFile(exe)) {
                     return exe.toString();   // absolute → works regardless of the app's PATH
                 }
             }
@@ -130,11 +135,11 @@ public class BuildVerifier {
         return script;   // fall back to the bare .cmd/.bat on PATH
     }
 
-    private static java.util.List<String> homeVars(String tool) {
+    private static List<String> homeVars(String tool) {
         return switch (tool) {
-            case "mvn" -> java.util.List.of("M2_HOME", "MAVEN_HOME");
-            case "gradle" -> java.util.List.of("GRADLE_HOME");
-            default -> java.util.List.of();
+            case "mvn" -> List.of("M2_HOME", "MAVEN_HOME");
+            case "gradle" -> List.of("GRADLE_HOME");
+            default -> List.of();
         };
     }
 

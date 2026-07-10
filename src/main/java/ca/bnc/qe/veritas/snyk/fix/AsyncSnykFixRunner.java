@@ -531,17 +531,17 @@ public class AsyncSnykFixRunner {
         return k.matches("[A-Z][A-Z0-9]*-[0-9]+") ? k : null;
     }
 
-    /**
-     * Mark a train FAILED after a real error — but only while this worker still owns it (a MACHINE_DRIVEN state).
-     * If another writer already finalized it (FAILED) or handed it to a human (AWAITING_MANUAL_FIX / PR_OPEN), that
-     * state wins. The save itself is guarded against the very optimistic-lock race this method exists to survive.
-     */
     /** A non-blank failure reason for the UI: the exception's message, or its class name when the message is
      *  null/blank (several failures — NoSuchElement/NPE — carry no message, which would leave a red badge unexplained). */
     static String failureReason(Throwable e) {
         return (e.getMessage() == null || e.getMessage().isBlank()) ? e.getClass().getSimpleName() : e.getMessage();
     }
 
+    /**
+     * Mark a train FAILED after a real error — but only while this worker still owns it (a MACHINE_DRIVEN state).
+     * If another writer already finalized it (FAILED) or handed it to a human (AWAITING_MANUAL_FIX / PR_OPEN), that
+     * state wins. The save itself is guarded against the very optimistic-lock race this method exists to survive.
+     */
     private void markFailed(String trainId, String failedAt, String message) {
         try {
             trains.findById(trainId).ifPresent(t -> {
