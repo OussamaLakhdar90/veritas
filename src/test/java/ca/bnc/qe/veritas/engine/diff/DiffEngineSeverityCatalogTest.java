@@ -16,14 +16,30 @@ import org.junit.jupiter.api.Test;
 class DiffEngineSeverityCatalogTest {
 
     @Test
-    void everyFindingTypeHasAnExplicitSeverityNoneFallsThroughToUnspecified() {
+    void everyFindingTypeHasAnExplicitSeverityExceptTheDeferredAllowlist() {
         var unclassified = Arrays.stream(FindingType.values())
                 .filter(t -> DiffEngine.severityOf(t) == Severity.UNSPECIFIED)
+                .filter(t -> !DiffEngine.PENDING_CLASSIFICATION.contains(t))
                 .map(Enum::name)
                 .toList();
         assertThat(unclassified)
-                .as("These FindingType(s) have no explicit severity in DiffEngine.severityOf and would fail SAFE to "
-                        + "UNSPECIFIED at runtime — classify each into a BLOCKER/CRITICAL/MAJOR/MINOR/INFO case.")
+                .as("These FindingType(s) have no explicit severity in DiffEngine.severityOf and are NOT on the "
+                        + "PENDING_CLASSIFICATION allowlist — classify each into a BLOCKER/CRITICAL/MAJOR/MINOR/INFO "
+                        + "case, or (for a new type awaiting field classification) add it to PENDING_CLASSIFICATION.")
+                .isEmpty();
+    }
+
+    @Test
+    void noAllowlistedTypeIsAlreadyClassified() {
+        // A promotion PR must REMOVE a type from PENDING_CLASSIFICATION as it adds its severityOf case; a stale entry
+        // (allowlisted yet already classified) means the promotion left the allowlist inconsistent.
+        var stale = DiffEngine.PENDING_CLASSIFICATION.stream()
+                .filter(t -> DiffEngine.severityOf(t) != Severity.UNSPECIFIED)
+                .map(Enum::name)
+                .toList();
+        assertThat(stale)
+                .as("These FindingType(s) are on PENDING_CLASSIFICATION but already have an explicit severity — "
+                        + "remove them from the allowlist.")
                 .isEmpty();
     }
 }

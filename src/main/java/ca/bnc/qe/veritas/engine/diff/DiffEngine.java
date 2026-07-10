@@ -637,6 +637,14 @@ public class DiffEngine {
     }
 
     /**
+     * FindingTypes deliberately shipped {@code UNSPECIFIED} — detection present, severity DEFERRED to the field via
+     * Engine Evolution (a human classifies it; the winning classification is promoted into {@link #severityOf} by a
+     * reviewed PR). {@link DiffEngineSeverityCatalogTest} exempts ONLY these from the completeness gate; a promotion
+     * PR removes the type here as it adds its {@code severityOf} case. Empty until a new type is added on the allowlist.
+     */
+    static final Set<FindingType> PENDING_CLASSIFICATION = Set.of();
+
+    /**
      * Severity by CONSUMER IMPACT, calibrated against API-governance linting (Spectral/Redocly error/warn/info),
      * OpenAPI breaking-change classification (oasdiff / openapi-diff), and OWASP API Security + ISTQB risk:
      * <ul>
