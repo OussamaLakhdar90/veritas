@@ -102,6 +102,7 @@ class ContractValidationServiceBranchTest {
         findingRepo = mock(FindingRecordRepository.class);
         preflight = mock(Preflight.class);
         scanPersistence = mock(ScanPersistence.class);
+        when(scanPersistence.applyPriorUserSeverity(any(), any())).thenAnswer(inv -> inv.getArgument(0));
         translationService = mock(TranslationService.class);
         callContext = new LlmCallContext();
 

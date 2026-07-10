@@ -366,6 +366,11 @@ public class ContractValidationService {
 
             scan.setTotalFindings(findings.size());
 
+            // Graft any carried-forward human severity OVERRIDE (set on a prior scan, keyed by fingerprint) onto the
+            // findings before the verdict, so the persisted verdict matches what the dashboard/report recompute after
+            // re-reading it. Breaking-ness stays type-derived, so an override never hides a consumer-breaking change.
+            findings = scanPersistence.applyPriorUserSeverity(findings, scan.getId());
+
             // Release quality gate (deterministic, severity-count based) — the SAME ReleaseVerdict the report +
             // executive dashboard compute, persisted per-scan so a scan row / live reveal shows the same verdict.
             ReleaseVerdict verdict = ReleaseVerdict.of(findings, gate);

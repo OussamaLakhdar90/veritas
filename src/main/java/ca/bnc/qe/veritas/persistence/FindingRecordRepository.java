@@ -24,6 +24,17 @@ public interface FindingRecordRepository extends JpaRepository<FindingRecord, St
                                               @Param("scanId") String scanId);
 
     /**
+     * Carry-forward lookup for a human's per-finding severity OVERRIDE across a scan's fingerprints: prior rows (a
+     * different scan) that carry a {@code userSeverity}, newest first, so the caller keeps the most recent override
+     * per fingerprint. Broader than {@link #findPriorDispositions} (any status), since a user may override severity
+     * without accepting/rejecting the finding.
+     */
+    @Query("select f from FindingRecord f where f.fingerprint in :fingerprints and f.scanId <> :scanId "
+            + "and f.userSeverity is not null order by f.createdAt desc")
+    List<FindingRecord> findPriorUserSeverities(@Param("fingerprints") Collection<String> fingerprints,
+                                                @Param("scanId") String scanId);
+
+    /**
      * Executive rollup: every DISTINCT breaking defect ever caught (fingerprints repeat across re-scans —
      * the carry-forward dedup), minus what a human dismissed as rejected / false positive.
      */

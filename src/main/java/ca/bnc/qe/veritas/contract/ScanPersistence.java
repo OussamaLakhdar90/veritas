@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Objects;
 import ca.bnc.qe.veritas.engine.model.SourceRef;
 import ca.bnc.qe.veritas.finding.Finding;
+import ca.bnc.qe.veritas.finding.Severity;
 import ca.bnc.qe.veritas.persistence.FindingRecord;
 import ca.bnc.qe.veritas.persistence.FindingRecordRepository;
 import ca.bnc.qe.veritas.persistence.Scan;
@@ -67,6 +68,45 @@ public class ScanPersistence {
         }
     }
 
+    /**
+     * Graft each finding's carried-forward user severity OVERRIDE (a human's per-finding severity set on a prior scan,
+     * keyed by fingerprint) onto the in-memory findings BEFORE the release verdict is computed — so the persisted
+     * verdict reflects the override exactly as the dashboard/report re-render (which reads it back) does. One batch
+     * query; a finding that already carries an override, or has none prior, is returned unchanged.
+     */
+    public List<Finding> applyPriorUserSeverity(List<Finding> findings, String scanId) {
+        List<String> fingerprints = findings.stream()
+                .map(Finding::getFindingId).filter(Objects::nonNull).distinct().toList();
+        if (fingerprints.isEmpty()) {
+            return findings;
+        }
+        Map<String, String> overrideByFingerprint = new HashMap<>();
+        for (FindingRecord prior : findingRepository.findPriorUserSeverities(fingerprints, scanId)) {
+            overrideByFingerprint.putIfAbsent(prior.getFingerprint(), prior.getUserSeverity());
+        }
+        if (overrideByFingerprint.isEmpty()) {
+            return findings;
+        }
+        return findings.stream().map(f -> {
+            if (f.getUserSeverity() != null) {
+                return f;
+            }
+            Severity override = parseSeverity(overrideByFingerprint.get(f.getFindingId()));
+            return override == null ? f : f.toBuilder().userSeverity(override).build();
+        }).toList();
+    }
+
+    private static Severity parseSeverity(String name) {
+        if (name == null) {
+            return null;
+        }
+        try {
+            return Severity.valueOf(name);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
     /** SQLITE_BUSY surfaces as "database is locked" / "SQLITE_BUSY" somewhere in the cause chain. */
     static boolean isSqliteBusy(Throwable e) {
         for (Throwable t = e; t != null; t = t.getCause() == t ? null : t.getCause()) {
@@ -111,6 +151,7 @@ public class ScanPersistence {
             r.setStatus(f.getStatus());
             r.setAiDisputed(f.isAiDisputed());
             r.setAiDisputeReason(f.getAiDisputeReason());
+            r.setUserSeverity(f.getUserSeverity() != null ? f.getUserSeverity().name() : null);
             SourceRef ref = f.getCodeEvidence();
             if (ref != null) {
                 r.setCodeFile(ref.location());

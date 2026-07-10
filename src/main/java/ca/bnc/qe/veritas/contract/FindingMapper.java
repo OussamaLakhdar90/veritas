@@ -49,6 +49,7 @@ public final class FindingMapper {
                 .reviewedAt(r.getReviewedAt())
                 .aiDisputed(r.isAiDisputed())
                 .aiDisputeReason(r.getAiDisputeReason())
+                .userSeverity(parse(Severity.class, r.getUserSeverity()))
                 .build();
     }
 

@@ -279,7 +279,7 @@ public class ContractReportRenderer {
                 .append(bi("Count", "Nombre")).append("</th><th>").append(bi("What it means", "Ce que cela implique"))
                 .append("</th></tr></thead><tbody>");
         for (String sev : new String[] {"BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO", "UNSPECIFIED"}) {
-            long n = counted.stream().filter(f -> f.getSeverity() != null && f.getSeverity().name().equals(sev)).count();
+            long n = counted.stream().filter(f -> f.effectiveSeverity() != null && f.effectiveSeverity().name().equals(sev)).count();
             if (n == 0) {
                 continue;
             }
@@ -452,7 +452,7 @@ public class ContractReportRenderer {
     }
 
     private String findingCard(Scan scan, Finding f, Map<String, String> fr, boolean reviewable, boolean manualReview) {
-        String color = SEVERITY_COLOR.getOrDefault(f.getSeverity() != null ? f.getSeverity().name() : "", "#6B7280");
+        String color = SEVERITY_COLOR.getOrDefault(f.effectiveSeverity() != null ? f.effectiveSeverity().name() : "", "#6B7280");
         // Seed the card's accept/reject state from the persisted disposition so the live tracker is correct on load.
         String stateClass = "";
         if (reviewable && isAccepted(f.getStatus())) {
@@ -464,7 +464,7 @@ public class ContractReportRenderer {
         boolean multiEndpoint = f.getAffectedEndpoints() != null && f.getAffectedEndpoints().size() > 1;
         sb.append("<div class=\"finding-header\">")
                 .append("<span class=\"severity-badge\" style=\"background:").append(color).append("\">")
-                .append(esc(f.getSeverity() != null ? f.getSeverity().name() : "")).append("</span>")
+                .append(esc(f.effectiveSeverity() != null ? f.effectiveSeverity().name() : "")).append("</span>")
                 .append("<span class=\"finding-title\">").append(biDyn(nz(f.getSummary()), fr)).append("</span>")
                 .append("<span class=\"finding-meta\"><code>")
                 .append(multiEndpoint ? f.getAffectedEndpoints().size() + " " + bi("endpoints", "points de terminaison")
@@ -656,7 +656,7 @@ public class ContractReportRenderer {
     private String severityDonut(List<Finding> items, String centerEn, String centerFr) {
         // Count only items with a real severity so the donut total reconciles with the gradient stops below — a
         // null/unknown severity (e.g. a corrupt persisted row on a live re-render) can't yield an empty conic-gradient().
-        int total = (int) items.stream().filter(f -> f.getSeverity() != null).count();
+        int total = (int) items.stream().filter(f -> f.effectiveSeverity() != null).count();
         if (total == 0) {
             return "<div class=\"cov-ok\">" + bi("No counted findings — contract is clean.",
                     "Aucun constat compté — le contrat est conforme.") + "</div>";
@@ -666,7 +666,7 @@ public class ContractReportRenderer {
         StringBuilder legend = new StringBuilder("<div class=\"pie-legend\">");
         double cum = 0;
         for (String sev : order) {
-            long n = items.stream().filter(f -> f.getSeverity() != null && f.getSeverity().name().equals(sev)).count();
+            long n = items.stream().filter(f -> f.effectiveSeverity() != null && f.effectiveSeverity().name().equals(sev)).count();
             if (n == 0) {
                 continue;
             }
@@ -707,7 +707,7 @@ public class ContractReportRenderer {
         StringBuilder bar = new StringBuilder("<div class=\"dist-bar\">");
         StringBuilder legend = new StringBuilder("<div class=\"dist-legend\">");
         for (String sev : order) {
-            long n = all.stream().filter(f -> f.getSeverity() != null && f.getSeverity().name().equals(sev)).count();
+            long n = all.stream().filter(f -> f.effectiveSeverity() != null && f.effectiveSeverity().name().equals(sev)).count();
             if (n == 0) {
                 continue;
             }

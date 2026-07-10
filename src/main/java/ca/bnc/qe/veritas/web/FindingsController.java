@@ -121,10 +121,15 @@ public class FindingsController {
     private static final Set<String> ALLOWED_STATUS =
             Set.of("OPEN", "TRIAGED", "ACCEPTED", "REJECTED", "JIRA_CREATED", "FIXED", "WONT_FIX", "FALSE_POSITIVE");
 
+    /** Severities a human may override a finding to — NOT UNSPECIFIED, which is the engine's fail-safe, not a choice. */
+    private static final Set<String> ALLOWED_SEVERITY = Set.of("BLOCKER", "CRITICAL", "MAJOR", "MINOR", "INFO");
+
     /**
-     * Disposition a finding: set its status (ACCEPTED / REJECTED / TRIAGED / WONT_FIX / FALSE_POSITIVE …). This is the
-     * system of record — it captures WHO dispositioned it, WHEN, and an optional WHY for an audit trail, and the
-     * disposition is carried forward to the same finding on the next scan.
+     * Disposition a finding: set its status (ACCEPTED / REJECTED / TRIAGED / WONT_FIX / FALSE_POSITIVE …) and/or a
+     * human severity OVERRIDE. This is the system of record — it captures WHO acted, WHEN, and an optional WHY for an
+     * audit trail; both the disposition and the severity override are carried forward to the same finding on the next
+     * scan. The override wins over the engine severity at the release gate (breaking-ness stays type-derived, so an
+     * override can never hide a consumer-breaking change).
      */
     @PatchMapping("/findings/{id}")
     public ResponseEntity<FindingRecord> patch(@PathVariable String id, @RequestBody FindingPatch patch) {
@@ -145,8 +150,18 @@ public class FindingsController {
                 f.setReviewNote(patch.note());
             }
         }
+        if (patch.severity() != null) {
+            String sv = patch.severity().toUpperCase(java.util.Locale.ROOT);
+            if (!ALLOWED_SEVERITY.contains(sv)) {
+                throw new IllegalArgumentException("Unknown severity '" + patch.severity()
+                        + "'. Allowed: " + ALLOWED_SEVERITY);
+            }
+            f.setUserSeverity(sv);
+            f.setReviewedBy(currentUser.principalId());
+            f.setReviewedAt(java.time.Instant.now());
+        }
         return ResponseEntity.ok(findingRepository.save(f));
     }
 
-    public record FindingPatch(String status, String note) {}
+    public record FindingPatch(String status, String note, String severity) {}
 }
