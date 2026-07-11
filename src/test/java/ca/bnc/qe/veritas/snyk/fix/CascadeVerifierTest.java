@@ -144,6 +144,16 @@ class CascadeVerifierTest {
     }
 
     @Test
+    void fallsBackToTheDefaultCommandWhenTheStoredCommandIsBlank() {
+        ArgumentCaptor<String> cmd = ArgumentCaptor.forClass(String.class);
+        when(bv.verify(any(), cmd.capture(), anyLong())).thenReturn(new BuildVerifier.BuildResult("PASS", ""));
+        // A blank (non-null) stored command must also fall back to the bare default.
+        verifier.verify(new ReactorInputs(Path.of("localrepo"), List.of(),
+                List.of(new ConsumerBuild("app7576", Path.of("app"), "   "))));
+        assertThat(cmd.getAllValues()).anyMatch(c -> c.startsWith(CascadeVerifier.DEFAULT_CONSUMER_COMMAND));
+    }
+
+    @Test
     void aLongBuildOutputIsTailedInTheLogButReturnedInFull() {
         // A >2 KB output exercises the truncation branch of the log tail; the returned outputTail keeps the full text.
         String huge = "x".repeat(5000);

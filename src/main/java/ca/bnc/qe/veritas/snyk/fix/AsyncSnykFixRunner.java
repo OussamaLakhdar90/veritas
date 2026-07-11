@@ -401,8 +401,8 @@ public class AsyncSnykFixRunner {
      * live tracker (per the "every AI action is visible" principle). Returns appId → the guard-safe {@code mvn}
      * command. Loads + advances its own train copy for the stageDetail; the caller re-syncs afterwards.
      */
-    private Map<String, String> resolveConsumerBuildCommands(String trainId, List<AppInput> apps,
-                                                             Map<String, Path> clones, String owner) {
+    Map<String, String> resolveConsumerBuildCommands(String trainId, List<AppInput> apps,
+                                                     Map<String, Path> clones, String owner) {
         Map<String, String> commands = new LinkedHashMap<>();
         if (apps.isEmpty()) {
             return commands;

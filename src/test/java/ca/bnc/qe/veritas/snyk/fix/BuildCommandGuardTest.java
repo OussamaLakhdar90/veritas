@@ -114,4 +114,18 @@ class BuildCommandGuardTest {
         assertThatThrownBy(() -> BuildCommandGuard.sanitize("   ", repo))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void rejectsAPathValuedPropertyWhenNoRepoContextIsGiven() {
+        assertThatThrownBy(() -> BuildCommandGuard.sanitize("mvn -DsuiteXmlFile=suites/it.xml test", null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("without a repo context");
+    }
+
+    @Test
+    void acceptsANonPathValuedPropertyEvenWithoutRepoContext() {
+        // -Dgroups=fast has no separator/parent-ref, so it never needs the repo check.
+        assertThatCode(() -> BuildCommandGuard.sanitize("mvn -q -Dgroups=fast test", null))
+                .doesNotThrowAnyException();
+    }
 }

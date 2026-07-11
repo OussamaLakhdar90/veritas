@@ -145,6 +145,37 @@ class BuildCommandAdvisorTest {
     }
 
     @Test
+    void cachingIsBestEffortSoASaveFailureDoesNotFailTheFix() {
+        when(llm.complete(anyString(), anyString())).thenReturn(
+                "```json\n{\"command\":\"mvn -q -B test\",\"rationale\":\"x\"}\n```");
+        when(cache.save(any())).thenThrow(new RuntimeException("db down"));   // persist is best-effort
+        assertThat(advisor.resolve("APP7576", "app-tests", repo, "alice", "t1")).isEqualTo("mvn -q -B test");
+    }
+
+    @Test
+    void handlesAnAppWithNoPomAndNoSuitesWithoutFailing() throws Exception {
+        Files.delete(repo.resolve("pom.xml"));   // exercise the no-pom + empty-suites + no-subdirs input paths
+        when(llm.complete(anyString(), anyString())).thenReturn(
+                "```json\n{\"command\":\"mvn -q -B test\",\"rationale\":\"no pom\"}\n```");
+        assertThat(advisor.resolve("APP7576", "app-tests", repo, "alice", "t1")).isEqualTo("mvn -q -B test");
+    }
+
+    @Test
+    void discoversAResourcesSuiteByContentAndIgnoresBuildDirsAndTruncatesLargeFiles() throws Exception {
+        when(llm.complete(anyString(), anyString())).thenReturn(
+                "```json\n{\"command\":\"mvn -q -B verify\",\"rationale\":\"suite\"}\n```");
+        // A resources XML whose NAME doesn't match but whose CONTENT is a suite (content-match branch).
+        Files.createDirectories(repo.resolve("src/test/resources"));
+        Files.writeString(repo.resolve("src/test/resources/it-config.xml"),
+                "<!-- big -->" + "x".repeat(9000) + "\n<suite name=\"it\"><test><classes/></test></suite>");
+        // A build dir that must be ignored by the directory listing.
+        Files.createDirectories(repo.resolve("target/classes"));
+
+        assertThat(advisor.resolve("APP7576", "app-tests", repo, "alice", "t1")).isEqualTo("mvn -q -B verify");
+        assertThat(stored.get().getCommand()).isEqualTo("mvn -q -B verify");
+    }
+
+    @Test
     void reDerivesWhenTheBuildConfigChanged() throws Exception {
         when(llm.complete(anyString(), anyString())).thenReturn(
                 "```json\n{\"command\":\"mvn -q -B verify\",\"rationale\":\"unit\"}\n```");
