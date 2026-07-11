@@ -638,8 +638,8 @@ public class AsyncSnykFixRunner {
      * and best-effort: a judge failure is swallowed so it can never stop a fix — the deterministic gate is what
      * validated it. Reassigns the saved train (the {@code @Version} discipline).
      */
-    private SnykFixTrain recordFixDiffVerdict(SnykFixTrain train, String oldBomPom, Map<String, Path> clones,
-                                              SnykFixRequest req) {
+    SnykFixTrain recordFixDiffVerdict(SnykFixTrain train, String oldBomPom, Map<String, Path> clones,
+                                      SnykFixRequest req) {
         try {
             String newBomPom = readPom(clones.get(fw.getProject() + "/" + fw.getBomRepo()));
             FixDiffVerdict verdict = fixDiffValidator.explain(req.coordinate(), req.oldVersion(), req.fixedIn(),

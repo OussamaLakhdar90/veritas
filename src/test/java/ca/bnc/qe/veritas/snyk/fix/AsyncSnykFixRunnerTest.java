@@ -30,11 +30,12 @@ class AsyncSnykFixRunnerTest {
     private final SnykFixStepRepository steps = mock(SnykFixStepRepository.class);
     private final PrPublisher prPublisher = mock(PrPublisher.class);
     private final BuildCommandAdvisor buildCommandAdvisor = mock(BuildCommandAdvisor.class);
+    private final FixDiffValidator fixDiffValidator = mock(FixDiffValidator.class);
     private final FrameworkProperties fw = new FrameworkProperties();
 
     private final AsyncSnykFixRunner runner = new AsyncSnykFixRunner(
             mock(WorkspaceService.class), mock(CascadePlanner.class), mock(CascadeVerifier.class),
-            mock(BreakingChangeService.class), buildCommandAdvisor, mock(FixDiffValidator.class),
+            mock(BreakingChangeService.class), buildCommandAdvisor, fixDiffValidator,
             mock(SnykFixJiraService.class), mock(SnykFixActions.class), mock(ReviewerSuggester.class),
             mock(GeneratedFileWriter.class), prPublisher, fw, trains, steps, new ObjectMapper());
 
@@ -327,6 +328,24 @@ class AsyncSnykFixRunnerTest {
         AsyncSnykFixRunner.assertVulnPinned("BOM", fixed, "com.fasterxml.jackson.core", "jackson-databind", "2.15.0");
         // A non-BOM step never pins the coordinate → the gate is a no-op even on a pom that doesn't manage it.
         AsyncSnykFixRunner.assertVulnPinned("core", "<project/>", "com.fasterxml.jackson.core", "jackson-databind", "2.15.0");
+    }
+
+    @Test
+    void recordFixDiffVerdictPersistsTheAdvisoryVerdictAndSwallowsAJudgeFailure() {
+        when(trains.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        SnykFixRequest req = request();
+        // Success path: the advisory verdict is persisted as JSON on the train.
+        when(fixDiffValidator.explain(any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new FixDiffVerdict(true, true, "Raised jackson 3.1.1 -> 3.1.4", "reaches fixedIn"));
+        SnykFixTrain t = train("t1", SnykFixStatus.VERIFYING);
+        runner.recordFixDiffVerdict(t, "<old/>", Map.of(), req);
+        assertThat(t.getFixDiffJson()).contains("fixesTheVuln").contains("Raised jackson");
+
+        // Failure path: a judge failure is swallowed (advisory only) — never throws, the train is still returned.
+        when(fixDiffValidator.explain(any(), any(), any(), any(), any(), any(), any()))
+                .thenThrow(new RuntimeException("judge blew up"));
+        SnykFixTrain t2 = train("t2", SnykFixStatus.VERIFYING);
+        assertThat(runner.recordFixDiffVerdict(t2, "<old/>", Map.of(), req)).isNotNull();
     }
 
     @Test
