@@ -73,7 +73,7 @@ export function FixTrainProgress({ trainId }: { trainId: string }) {
 
       {/* Per-state "what you need to do" — the explanation the waiting states were missing, on the deep-link too. */}
       {(reviewing || awaitingManual || prOpen) && (
-        <p className="rounded-lg bg-brand/5 px-3 py-2 text-sm text-ink-700 ring-1 ring-brand/15">
+        <p className="rounded-lg bg-gold/5 px-3 py-2 text-sm text-ink-700 ring-1 ring-gold/15">
           {t(`snyk.fix.whatToDo.${train.status}`)}
         </p>
       )}
