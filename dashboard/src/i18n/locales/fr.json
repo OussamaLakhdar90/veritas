@@ -391,6 +391,8 @@
       "newVersionLabel": "Nouvelle version",
       "openPrs": "Ouvrir les PR",
       "markMerged": "Marquer tout comme fusionné",
+      "cancel": "Abandonner",
+      "cancelConfirm": "Cliquez encore pour abandonner",
       "viewPr": "Voir la PR",
       "viewBranch": "Voir la branche",
       "commit": "commit",
@@ -418,7 +420,8 @@
         "AWAITING_MANUAL_FIX": "Nécessite vos modifications",
         "DONE": "Terminé",
         "NEEDS_ATTENTION": "Nécessite une attention",
-        "FAILED": "Échec"
+        "FAILED": "Échec",
+        "CANCELLED": "Annulé — le ticket Jira et toute branche poussée ont été laissés tels quels; relancez pour les réutiliser."
       },
       "step": {
         "PLANNED": "Planifié",

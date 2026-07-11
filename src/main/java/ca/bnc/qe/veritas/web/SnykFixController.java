@@ -135,6 +135,15 @@ public class SnykFixController {
         return toView(actions.markMerged(id));
     }
 
+    /**
+     * Abandon a train that is waiting on the user (a build-failed / breaking / reviewed one) → terminal CANCELLED, so
+     * it's no longer a dead-end forcing a PR or a DB delete, and the dedup guard frees up for an immediate relaunch.
+     */
+    @PostMapping("/snyk/fixes/{id}/cancel")
+    public SnykFixTrainView cancel(@PathVariable String id) {
+        return toView(actions.cancel(id));
+    }
+
     private SnykFixTrainView toView(SnykFixTrain t) {
         List<SnykFixStepView> stepViews = new ArrayList<>();
         for (SnykFixStep s : steps.findByTrainIdOrderByStepOrder(t.getId())) {

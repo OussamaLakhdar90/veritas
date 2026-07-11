@@ -69,6 +69,43 @@ class AsyncSnykFixRunnerTest {
     }
 
     @Test
+    void submitStartsAFreshTrainAfterThePriorOneWasCancelled() {
+        // A CANCELLED prior train is TERMINAL (not in NON_TERMINAL), so the dedup guard must NOT reuse it — the exact
+        // "Snyk fix already in flight" unblock: after a cancel, the same fix can be relaunched.
+        when(trains.findByWatchIdAndCoordinate("w1", "com.x:y"))
+                .thenReturn(List.of(train("cancelled-1", SnykFixStatus.CANCELLED)));
+        when(trains.save(any())).thenAnswer(inv -> {
+            SnykFixTrain t = inv.getArgument(0);
+            t.setId("new-1");
+            return t;
+        });
+
+        String id = runner.submit(request());
+
+        assertThat(id).isEqualTo("new-1");   // a fresh train, NOT the cancelled one
+    }
+
+    @Test
+    void submitCarriesForwardThePriorCancelledTrainsJiraKeyOnRelaunch() {
+        // Relaunch with no key supplied + a prior CANCELLED train that had a key → the new train reuses that key, so it
+        // resolves to the SAME branch (branchName(key, project)) and accumulates instead of duplicating.
+        SnykFixTrain prior = train("cancelled-1", SnykFixStatus.CANCELLED);
+        prior.setJiraKey("CIAM-9");
+        prior.setStartedAt(java.time.Instant.now());
+        when(trains.findByWatchIdAndCoordinate("w1", "com.x:y")).thenReturn(List.of(prior));
+        org.mockito.ArgumentCaptor<SnykFixTrain> saved = org.mockito.ArgumentCaptor.forClass(SnykFixTrain.class);
+        when(trains.save(saved.capture())).thenAnswer(inv -> {
+            SnykFixTrain t = inv.getArgument(0);
+            t.setId("new-1");
+            return t;
+        });
+
+        runner.submit(request());   // request() supplies jiraKey=null
+
+        assertThat(saved.getValue().getJiraKey()).isEqualTo("CIAM-9");   // carried forward → same ticket + branch
+    }
+
+    @Test
     void confirmRejectsATrainThatIsNotAwaitingConfirmation() {
         when(trains.findById("t1")).thenReturn(Optional.of(train("t1", SnykFixStatus.PLANNING)));
         assertThatThrownBy(() -> runner.confirm("t1", Map.of(), Map.of()))

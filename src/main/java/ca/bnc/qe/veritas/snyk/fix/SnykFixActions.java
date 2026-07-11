@@ -168,6 +168,24 @@ public class SnykFixActions {
         return trains.save(train);
     }
 
+    /**
+     * The user abandons a train that is waiting on them — a third choice besides "open the PRs" / "record my PR", so a
+     * build-failed (or breaking, or reviewed) fix isn't a dead-end that forces a PR or a DB delete. Allowed ONLY from
+     * the human-wait states; moves the train to the terminal CANCELLED (honest, muted — never the red FAILED). The
+     * Jira ticket and any pushed branch(es) are left AS-IS on purpose, so a relaunch reuses them (the branch is
+     * deterministic from the carried-forward Jira key). A machine-driven hang is handled by the reconciler, not here.
+     */
+    public SnykFixTrain cancel(String trainId) {
+        SnykFixTrain train = trains.findById(trainId).orElseThrow(
+                () -> new NotFoundException("Fix train not found: " + trainId));
+        requireStatus(train, SnykFixStatus.AWAITING_CONFIRM, SnykFixStatus.AWAITING_MANUAL_FIX, SnykFixStatus.PR_OPEN);
+        train.setStatus(SnykFixStatus.CANCELLED);
+        train.setFinishedAt(Instant.now());   // terminal → the retention sweeper may eventually prune it
+        train.setStageDetail("Fix abandoned. The Jira ticket and any pushed branch(es) were left as-is — relaunch to "
+                + "reuse them, or open the PRs later.");
+        return trains.save(train);
+    }
+
     /** Persist the live Jira status the transition landed on (null when nothing moved — keep the last known status). */
     private static void recordJiraStatus(SnykFixTrain train, String status) {
         if (status != null && !status.isBlank()) {

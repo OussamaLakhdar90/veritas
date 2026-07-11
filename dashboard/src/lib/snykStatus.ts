@@ -11,6 +11,7 @@ export const FIX_STATUS = {
   AWAITING_MANUAL_FIX: 'AWAITING_MANUAL_FIX',
   DONE: 'DONE',
   FAILED: 'FAILED',
+  CANCELLED: 'CANCELLED',
 } as const;
 
 /** The machine-driven stages the wizard polls on (mirrors the backend MACHINE_DRIVEN set). */

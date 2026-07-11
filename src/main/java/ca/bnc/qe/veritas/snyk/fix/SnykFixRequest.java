@@ -22,4 +22,11 @@ public record SnykFixRequest(
         List<String> reviewersOverride,
         String owner,
         boolean autoConfirm) {
+
+    /** A copy with the Jira key set — used to carry a prior incomplete train's ticket (and thus its branch) forward
+     *  when relaunching after a cancel/fail with no key supplied. */
+    public SnykFixRequest withJiraKey(String key) {
+        return new SnykFixRequest(watchId, issueId, coordinate, oldVersion, fixedIn, severity, appIds, key,
+                jiraProject, jiraIssueType, reviewersOverride, owner, autoConfirm);
+    }
 }

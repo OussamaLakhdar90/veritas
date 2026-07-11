@@ -160,4 +160,13 @@ class SnykFixControllerTest {
                         .content("{\"prUrl\":\"http://host/pr/1\"}"))
                 .andExpect(status().isOk());
     }
+
+    @Test
+    void cancelInvokesTheAction() throws Exception {
+        when(actions.cancel("t1")).thenReturn(train());
+        when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of(step()));
+        mvc.perform(post("/api/v1/snyk/fixes/t1/cancel"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("t1"));
+    }
 }

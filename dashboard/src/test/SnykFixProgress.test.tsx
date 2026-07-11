@@ -171,6 +171,29 @@ describe('Snyk fix deep-link (Activity row → live, actionable progress)', () =
     expect(branchLink.getAttribute('href')).toContain('refs/heads/feature/CIAM-1-snyk-fix-app-7488')
   })
 
+  it('cancels a waiting train from the deep-link — no more forced PR or DB delete', async () => {
+    let cancelled = false
+    server.use(
+      http.get('*/api/v1/snyk/fixes/t9', () => HttpResponse.json(
+        cancelled ? awaitingManualTrain({ status: 'CANCELLED', stageDetail: 'Fix abandoned.' }) : awaitingManualTrain())),
+      http.post('*/api/v1/snyk/fixes/t9/cancel', () => {
+        cancelled = true
+        return HttpResponse.json(awaitingManualTrain({ status: 'CANCELLED', stageDetail: 'Fix abandoned.' }))
+      }),
+    )
+    const user = userEvent.setup()
+    renderDetail()
+
+    // Two-click inline confirm: first click arms it, the second abandons the fix.
+    await user.click(await screen.findByRole('button', { name: /Cancel fix/i }))
+    await user.click(await screen.findByRole('button', { name: /Click again to abandon/i }))
+
+    // The train goes to the muted Cancelled state; the Open-PRs action is gone — a real third choice, no dead-end.
+    await waitFor(() => expect(cancelled).toBe(true))
+    expect(await screen.findByText(/Cancelled/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Open the PRs/ })).not.toBeInTheDocument()
+  })
+
   it('shows the exact edit, the branch name, and the commit sha on a pushed step (no longer blind)', async () => {
     server.use(http.get('*/api/v1/snyk/fixes/t9', () => HttpResponse.json(awaitingManualTrain({
       steps: [

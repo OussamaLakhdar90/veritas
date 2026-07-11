@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { ExternalLink, CheckCircle2, AlertTriangle, GitBranch, Loader2, Check, Clock } from 'lucide-react';
+import { ExternalLink, CheckCircle2, AlertTriangle, GitBranch, Loader2, Check, Clock, Ban } from 'lucide-react';
 import { api, type SnykIssueView, type SnykFixTrainView, type SnykFixStepView } from '../api';
 import { Modal } from './Modal';
 import { Badge, Button, ErrorState, Field, Input, Spinner } from './ui';
@@ -35,6 +35,28 @@ function stepVisual(step: SnykFixStepView, failedHere: boolean): StepVisual {
   if (step.status === 'RUNNING') return 'active';
   if (step.status === 'BRANCH_PUSHED') return 'pushed';
   return 'pending';   // PLANNED — not yet reached
+}
+
+/**
+ * A muted "Cancel fix" button with a TWO-CLICK inline confirm — abandoning pushed work shouldn't be a one-tap
+ * accident. First click arms it ("Click again to abandon"), which disarms after ~3s; the second click cancels.
+ * Ghost/muted styling, never brand-red — cancelling is not an error ([[veritas-color-convention]]).
+ */
+export function CancelFixButton({ onCancel, pending }: { onCancel: () => void; pending: boolean }) {
+  const { t } = useTranslation();
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const id = setTimeout(() => setArmed(false), 3000);
+    return () => clearTimeout(id);
+  }, [armed]);
+  return (
+    <Button variant="ghost" loading={pending} className={armed ? 'text-warning' : 'text-muted'}
+      onClick={() => { if (armed) { setArmed(false); onCancel(); } else { setArmed(true); } }}>
+      <Ban className="h-3.5 w-3.5" />
+      {armed ? t('snyk.fix.cancelConfirm') : t('snyk.fix.cancel')}
+    </Button>
+  );
 }
 
 /** The guided fix flow: pick app-ids + a Jira ticket → review the cascade (edit versions/reviewers) → watch the train. */
@@ -105,6 +127,8 @@ export function SnykFixWizard({ open, onClose, issue, watchId, apps, defaultApp 
   const openPrs = useMutation({ mutationFn: () => api.openSnykFixPrs(trainId as string),
     onSuccess: invalidate, onError: (e: Error) => toast.push('error', e.message) });
   const markMerged = useMutation({ mutationFn: () => api.markSnykFixMerged(trainId as string),
+    onSuccess: invalidate, onError: (e: Error) => toast.push('error', e.message) });
+  const cancel = useMutation({ mutationFn: () => api.cancelSnykFix(trainId as string),
     onSuccess: invalidate, onError: (e: Error) => toast.push('error', e.message) });
   const recordPr = useMutation({
     mutationFn: (v: { order: number; url: string }) => api.recordSnykFixPr(trainId as string, v.order, v.url),
@@ -226,6 +250,10 @@ export function SnykFixWizard({ open, onClose, issue, watchId, apps, defaultApp 
                   <Button variant="secondary" loading={markMerged.isPending} onClick={() => markMerged.mutate()}>
                     {t('snyk.fix.markMerged')}</Button>
                 )}
+                {/* Third choice besides open/record — abandon a waiting train so it isn't a PR-or-DB-delete dead-end. */}
+                {(train.status === FIX_STATUS.AWAITING_MANUAL_FIX || train.status === FIX_STATUS.PR_OPEN) && (
+                  <CancelFixButton onCancel={() => cancel.mutate()} pending={cancel.isPending} />
+                )}
               </div>
             </>
           )}
@@ -286,6 +314,7 @@ export function TrainHeader({ train }: { train: SnykFixTrainView }) {
   const { t } = useTranslation();
   const inFlight = IN_FLIGHT.includes(train.status);
   const failed = train.status === FIX_STATUS.FAILED;
+  const cancelled = train.status === FIX_STATUS.CANCELLED;
   const actionNeeded = train.status === FIX_STATUS.AWAITING_MANUAL_FIX;
   const succeeded = train.status === FIX_STATUS.DONE || train.status === FIX_STATUS.PR_OPEN;
 
@@ -299,19 +328,21 @@ export function TrainHeader({ train }: { train: SnykFixTrainView }) {
   const elapsed = useElapsed(createdMs, inFlight);
   const stageElapsed = useStageElapsed(train.status, inFlight);   // the current phase's own timer
 
-  const headline = failed ? t(`snyk.fix.status.${FIX_STATUS.FAILED}`, 'Stopped')
+  const headline = cancelled ? t(`snyk.fix.status.${FIX_STATUS.CANCELLED}`, 'Cancelled')
+    : failed ? t(`snyk.fix.status.${FIX_STATUS.FAILED}`, 'Stopped')
     : activePhase ? t(`snyk.fix.phase.${activePhase.key}.label`)
     : t(`snyk.fix.status.${train.status}`, train.status);
   const eyebrow = failed ? t('repos.statusStopped')
     : stepNo === 0 ? t('repos.statusStarting')
     : t('repos.statusStep', { stepNo, total: FIX_PHASES.length });
   // Literal class strings (Tailwind can't see dynamically-built names) keyed off the header tone.
-  // Colour convention: GOLD = in-progress (calm), amber = action-needed, green = done, RED = failure ONLY —
-  // the brand red reads as "error", so a normal build must never be red.
-  const boxCls = failed ? 'bg-danger/5 ring-danger/20' : actionNeeded ? 'bg-warning/5 ring-warning/20'
-    : succeeded ? 'bg-success/5 ring-success/20' : 'bg-gold/5 ring-gold/20';
+  // Colour convention: GOLD = in-progress (calm), amber = action-needed, green = done, RED = failure ONLY, and a
+  // neutral/muted grey for CANCELLED — abandoning is not an error, so it must never be red.
+  const boxCls = cancelled ? 'bg-ink-50 ring-border' : failed ? 'bg-danger/5 ring-danger/20'
+    : actionNeeded ? 'bg-warning/5 ring-warning/20' : succeeded ? 'bg-success/5 ring-success/20' : 'bg-gold/5 ring-gold/20';
   const eyebrowCls = failed ? 'text-danger' : actionNeeded ? 'text-warning' : succeeded ? 'text-success' : 'text-gold';
-  const barCls = failed ? 'bg-danger' : actionNeeded ? 'bg-warning' : succeeded ? 'bg-success' : 'bg-gold';
+  const barCls = cancelled ? 'bg-ink-300' : failed ? 'bg-danger' : actionNeeded ? 'bg-warning'
+    : succeeded ? 'bg-success' : 'bg-gold';
 
   return (
     <div>
@@ -327,6 +358,7 @@ export function TrainHeader({ train }: { train: SnykFixTrainView }) {
                 : actionNeeded ? <AlertTriangle className="h-4 w-4 text-warning" />
                 : train.status === FIX_STATUS.DONE ? <SuccessCheck className="h-5 w-5" />
                 : failed ? <AlertTriangle className="h-4 w-4 text-danger" />
+                : cancelled ? <Ban className="h-4 w-4 text-muted" />
                 : <CheckCircle2 className="h-4 w-4 text-success" />}
               {headline}
             </p>
@@ -442,6 +474,13 @@ export function TrainHeader({ train }: { train: SnykFixTrainView }) {
           {train.failedStage
             ? `${t('snyk.fix.failedAt', { stage: t(`snyk.fix.phase.${train.failedStage}.label`, train.failedStage) })} `
             : ''}{train.errorMessage}
+        </p>
+      )}
+      {/* Cancelled: a calm, muted note (never red) — the Jira ticket + branches were left as-is for a relaunch. */}
+      {cancelled && (
+        <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-ink-50 px-3 py-2 text-xs text-muted ring-1 ring-border">
+          <Ban className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{train.stageDetail || t('snyk.fix.status.CANCELLED')}</span>
         </p>
       )}
     </div>
