@@ -3,6 +3,7 @@ package ca.bnc.qe.veritas.codegen;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import ca.bnc.qe.veritas.config.ConnectionsProperties;
 import ca.bnc.qe.veritas.secret.SecretProvider;
 import ca.bnc.qe.veritas.vcs.GitHost;
@@ -38,6 +39,11 @@ public class PrPublisher {
     private final SecretProvider secrets;
     private final ConnectionsProperties connections;
 
+    /** Per-(repoSlug/branch) monitors so concurrent bulk pushes to the SAME shared branch serialize instead of racing
+     *  the fetch→merge→push into a lost-commit clobber. Keyed by "{repoSlug}/{branch}"; the set of distinct fix
+     *  branches over a server's life is small, so the map is effectively bounded. */
+    private final ConcurrentHashMap<String, Object> branchLocks = new ConcurrentHashMap<>();
+
     public PrPublisher(GitHost gitHost, SecretProvider secrets, ConnectionsProperties connections) {
         this.gitHost = gitHost;
         this.secrets = secrets;
@@ -72,6 +78,16 @@ public class PrPublisher {
      * version-bump branch even when a breaking change is flagged (the PR is then opened later, by the user or Veritas).
      */
     public void pushBranch(Path workingCopy, String repoSlug, String branch, String commitMessage) {
+        // Bulk safety: several bulk trains (running on the fix pool) resolve to the SAME (repoSlug, branch) and push
+        // concurrently. Serialize the whole fetch→merge→push per branch so two threads can't both see the branch as
+        // new, both force-push, and clobber each other's commit (a TOCTOU race). Serialized, each push sees the prior's
+        // remote commit and ACCUMULATES onto it (see incorporateExistingRemoteBranch).
+        synchronized (branchLocks.computeIfAbsent(repoSlug + "/" + branch, k -> new Object())) {
+            pushBranchLocked(workingCopy, repoSlug, branch, commitMessage);
+        }
+    }
+
+    private void pushBranchLocked(Path workingCopy, String repoSlug, String branch, String commitMessage) {
         try (Git git = Git.open(workingCopy.toFile())) {
             configureCommitIdentity(git);   // deterministic author/committer for the fix commit AND any merge commit
             git.checkout().setCreateBranch(!branchExists(git, branch)).setName(branch).call();
@@ -80,10 +96,9 @@ public class PrPublisher {
                 git.commit().setMessage(commitMessage)
                         .setAuthor("Veritas", "veritas@bnc.ca").setCommitter("Veritas", "veritas@bnc.ca").call();
             }
-            // Bulk safety: the branch is per-(Jira key, Bitbucket project), so a SECOND fix train for the same
-            // ticket+project resolves to the SAME branch. Each train clones fresh from develop, so a blind force-push
-            // would ERASE the earlier train's commit. Pull the existing remote branch in first (merge) and only
-            // force-push when the branch is genuinely new — so a second fix ACCUMULATES onto the first.
+            // The branch is per-(Jira key, Bitbucket project); each train clones fresh from develop, so a blind
+            // force-push would ERASE the earlier train's commit. Pull the existing remote branch in first (merge) and
+            // only force-push when the branch is genuinely new — so a second fix ACCUMULATES onto the first.
             boolean accumulated = incorporateExistingRemoteBranch(git, branch, repoSlug);
             PushCommand push = git.push().setRemote("origin").add(branch).setForce(!accumulated);
             applyGitAuth(push);   // Bearer for Server/DC PAT (same as the clone) — Basic-with-empty-username is rejected
