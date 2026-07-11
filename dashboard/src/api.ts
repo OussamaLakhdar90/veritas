@@ -554,6 +554,7 @@ export interface BreakingVerdict {
 export interface SnykFixStepView {
   order: number; moduleLabel: string; bitbucketProject: string; repoSlug: string; branch: string;
   pomPath: string; diffPreview: string; newModuleVersion?: string; prUrl?: string; prOpenedBy?: string;
+  branchUrl?: string;   // browse link to a pushed-but-no-PR branch, so a held step is verifiable
   status: string; stageDetail?: string; manual: boolean; reason?: string; reviewers: string[];
 }
 /**
@@ -586,7 +587,7 @@ export interface SnykBulkFixResult {
 /** A release-cascade fix train: the issue, the Jira + verdict, the reactor result, and every PR. */
 export interface SnykFixTrainView {
   id: string; coordinate: string; oldVersion: string; fixedIn: string; severity: string; appIds: string;
-  jiraKey?: string; status: string; stageDetail?: string; errorMessage?: string; failedStage?: string;
+  jiraKey?: string; jiraStatus?: string; status: string; stageDetail?: string; errorMessage?: string; failedStage?: string;
   failedStepOrder?: number | null; breaking: boolean; reactorPassed?: boolean;
   reactorFailingLabel?: string; reactorOutputTail?: string; verdict?: BreakingVerdict; startedAt?: string;
   createdAt?: string; finishedAt?: string; watchId?: string;

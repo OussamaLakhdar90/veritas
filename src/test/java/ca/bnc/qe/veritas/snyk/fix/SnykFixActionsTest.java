@@ -72,6 +72,19 @@ class SnykFixActionsTest {
     }
 
     @Test
+    void cleanDecisionRecordsTheLiveJiraStatusForTheChip() {
+        when(gitHost.openPullRequest(any(GitHost.PullRequestSpec.class))).thenReturn("http://host/pr/1");
+        when(jira.transitionTo(eq("CIAM-1"), eq(SnykFixJiraService.Phase.IN_REVIEW))).thenReturn("In Review");
+        SnykFixTrain t = train();
+        t.setReactorPassed(true);
+        t.setBreaking(false);
+
+        actions.decide(t, List.of(step(1, false, SnykFixStatus.BRANCH_PUSHED)));
+
+        assertThat(t.getJiraStatus()).isEqualTo("In Review");   // the destination status is stored for the UI chip
+    }
+
+    @Test
     void inconclusiveVerificationHoldsWithAnHonestReasonNotAsBreaking() {
         // The reactor couldn't verify the app because ITS OWN build/test config failed (not the upgrade). The train
         // must HOLD (never auto-open an unverified fix) with an "inconclusive" reason — never mislabeled breaking.

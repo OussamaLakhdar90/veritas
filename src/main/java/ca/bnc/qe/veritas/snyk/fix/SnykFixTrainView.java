@@ -12,6 +12,8 @@ public record SnykFixTrainView(
         String severity,
         String appIds,
         String jiraKey,
+        /** The ticket's live workflow status (In Progress → In Review → Done), for the dashboard chip. */
+        String jiraStatus,
         String status,
         String stageDetail,
         /** Why a FAILED train failed + the stage it failed at — surfaced so a failure isn't a bare red badge. */

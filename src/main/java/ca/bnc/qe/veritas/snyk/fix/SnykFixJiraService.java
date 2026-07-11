@@ -95,10 +95,14 @@ public class SnykFixJiraService {
         }
     }
 
-    /** Move the ticket to a lifecycle phase, matching the project's real transitions; never throws. */
-    public void transitionTo(String jiraKey, Phase phase) {
+    /**
+     * Move the ticket to a lifecycle phase, matching the project's real transitions; never throws. Returns the
+     * ticket's <b>destination status</b> (e.g. "In Review") so the caller can surface the live Jira status, or
+     * {@code null} when nothing moved (no key, no matching transition, or a Jira error — status is then unknown).
+     */
+    public String transitionTo(String jiraKey, Phase phase) {
         if (jiraKey == null || jiraKey.isBlank()) {
-            return;
+            return null;
         }
         try {
             // Prefer the transition whose DESTINATION status matches the phase; skip declines/back-outs; pick the
@@ -118,11 +122,13 @@ public class SnykFixJiraService {
             if (best != null) {
                 jira.transition(jiraKey, best.id());
                 log.info("Jira {} → {} (transition '{}' → {})", jiraKey, phase, best.name(), best.toStatus());
-            } else {
-                log.info("Jira {} has no '{}' transition available; leaving status unchanged.", jiraKey, phase);
+                return best.toStatus();
             }
+            log.info("Jira {} has no '{}' transition available; leaving status unchanged.", jiraKey, phase);
+            return null;
         } catch (RuntimeException e) {
             log.warn("Jira transition to {} failed for {} (non-fatal): {}", phase, jiraKey, e.getMessage());
+            return null;
         }
     }
 

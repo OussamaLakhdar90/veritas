@@ -47,6 +47,20 @@ class SnykFixJiraServiceTest {
     }
 
     @Test
+    void transitionToReturnsTheDestinationStatusForTheUiChip() {
+        when(jira.listTransitions("CIAM-1")).thenReturn(List.of(
+                new JiraTransition("31", "Move to review", "In Review")));
+        assertThat(service.transitionTo("CIAM-1", SnykFixJiraService.Phase.IN_REVIEW)).isEqualTo("In Review");
+    }
+
+    @Test
+    void transitionToReturnsNullWhenNothingMoved() {
+        when(jira.listTransitions("CIAM-1")).thenReturn(List.of(new JiraTransition("21", "Start work")));
+        assertThat(service.transitionTo("CIAM-1", SnykFixJiraService.Phase.DONE)).isNull();   // no match
+        assertThat(service.transitionTo(null, SnykFixJiraService.Phase.DONE)).isNull();       // no key
+    }
+
+    @Test
     void transitionNeverThrowsOnAJiraError() {
         when(jira.listTransitions("CIAM-1")).thenThrow(new IllegalStateException("Jira down"));
         service.transitionTo("CIAM-1", SnykFixJiraService.Phase.DONE);   // must not propagate

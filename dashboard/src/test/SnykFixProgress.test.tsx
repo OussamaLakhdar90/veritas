@@ -147,6 +147,30 @@ describe('Snyk fix deep-link (Activity row → live, actionable progress)', () =
     await waitFor(() => expect(recorded).toBe(true))
   })
 
+  it('surfaces the AI reasoning, the live Jira status chip, and a view-branch link on held steps', async () => {
+    server.use(http.get('*/api/v1/snyk/fixes/t9', () => HttpResponse.json(awaitingManualTrain({
+      jiraStatus: 'In Review',
+      verdict: { available: true, breaking: true, confidence: 80,
+        reasons: ['commons-lang3 3.x removed StringUtils.foo used in AppX'], migrationNotes: 'Replace foo() with bar().' },
+      steps: [
+        { order: 1, moduleLabel: 'BOM', bitbucketProject: 'APP7488', repoSlug: 'bom',
+          branch: 'feature/CIAM-1-snyk-fix-app-7488', pomPath: 'pom.xml', diffPreview: 'bump',
+          status: 'BRANCH_PUSHED', manual: false, reviewers: [],
+          branchUrl: 'https://bb/projects/APP7488/repos/bom/browse?at=refs/heads/feature/CIAM-1-snyk-fix-app-7488' },
+      ],
+    }))))
+    renderDetail()
+
+    // The AI's REASONING renders — not just "80% confidence".
+    expect(await screen.findByText(/removed StringUtils.foo/)).toBeInTheDocument()
+    expect(screen.getByText(/Replace foo\(\) with bar\(\)/)).toBeInTheDocument()
+    // The live Jira status chip shows the key + workflow status.
+    expect(screen.getByText('Jira CIAM-1 · In Review')).toBeInTheDocument()
+    // A pushed-but-no-PR step offers a "View branch" link to Bitbucket (the "we said pushed but I can't find it" fix).
+    const branchLink = screen.getByRole('link', { name: /View branch/i })
+    expect(branchLink.getAttribute('href')).toContain('refs/heads/feature/CIAM-1-snyk-fix-app-7488')
+  })
+
   it('shows a retryable error (not a blank page) when the train can’t be loaded', async () => {
     let failNext = true
     server.use(http.get('*/api/v1/snyk/fixes/t9', () =>

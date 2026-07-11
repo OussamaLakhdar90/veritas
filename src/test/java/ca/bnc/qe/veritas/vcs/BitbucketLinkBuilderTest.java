@@ -58,4 +58,27 @@ class BitbucketLinkBuilderTest {
         BitbucketLinkBuilder b = builderWith("CLOUD", "https://bitbucket.org", null);
         assertThat(b.fileLink("APP", "repo", "main", "A.java", 1)).isEmpty();
     }
+
+    @Test
+    void serverDcBranchLinkBrowsesTheRefWithNoFilePath() {
+        BitbucketLinkBuilder b = builderWith("SERVER_DC", "https://git.bnc.ca/", null);
+        assertThat(b.branchLink("APP7488", "lsist-bom", "feature/LSIST-439-snyk-fix-app-7488")).contains(
+                "https://git.bnc.ca/projects/APP7488/repos/lsist-bom/browse"
+                        + "?at=refs%2Fheads%2Ffeature%2FLSIST-439-snyk-fix-app-7488");
+    }
+
+    @Test
+    void cloudBranchLinkUsesTheWorkspaceBranchShape() {
+        BitbucketLinkBuilder b = builderWith("CLOUD", "https://bitbucket.org", "nbc");
+        assertThat(b.branchLink("ignored", "repo", "feature/x")).contains(
+                "https://bitbucket.org/nbc/repo/branch/feature%2Fx");
+    }
+
+    @Test
+    void branchLinkEmptyWhenCoordinatesOrBaseMissing() {
+        assertThat(builderWith("SERVER_DC", null, null).branchLink("APP", "repo", "b")).isEmpty();   // no base
+        assertThat(builderWith("SERVER_DC", "https://git.bnc.ca", "P").branchLink("APP", "repo", " ")).isEmpty(); // blank branch
+        assertThat(builderWith("SERVER_DC", "https://git.bnc.ca", null).branchLink(null, "repo", "b")).isEmpty(); // no project
+        assertThat(builderWith("CLOUD", "https://bitbucket.org", null).branchLink("A", "repo", "b")).isEmpty();   // no workspace
+    }
 }
