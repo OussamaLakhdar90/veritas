@@ -230,7 +230,8 @@ class AsyncSnykFixRunnerTest {
     void resolveConsumerBuildCommandsAsksTheAdvisorPerAppAndSurfacesTheCommand() {
         when(trains.findById("t1")).thenReturn(Optional.of(train("t1", SnykFixStatus.VERIFYING)));
         when(trains.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(buildCommandAdvisor.resolve(any(), any(), any(), any(), any())).thenReturn("mvn -q -B verify");
+        when(buildCommandAdvisor.resolve(any(), any(), any(), any(), any()))
+                .thenReturn(new BuildCommandAdvisor.BuildCommand("mvn -q -B verify", true, null));
         Map<String, Path> clones = Map.of("APP7576/" + fw.getConsumerRepo(), Path.of("."));
         List<CascadePlanner.AppInput> apps = List.of(new CascadePlanner.AppInput("APP7576", "APP7576", "<pom/>"));
 
@@ -238,6 +239,24 @@ class AsyncSnykFixRunnerTest {
 
         assertThat(cmds).containsEntry("APP7576", "mvn -q -B verify");
         verify(buildCommandAdvisor).resolve(eq("APP7576"), eq(fw.getConsumerRepo()), any(), eq("alice"), eq("t1"));
+    }
+
+    @Test
+    void resolveConsumerBuildCommandsShowsAnHonestStageDetailWhenTheAiDegrades() {
+        // A degraded advisor result (the model_not_supported case) must be surfaced honestly — "using the default" —
+        // not presented as a normal AI decision. The reactor still gets the default command to run.
+        SnykFixTrain t = train("t1", SnykFixStatus.VERIFYING);
+        when(trains.findById("t1")).thenReturn(Optional.of(t));
+        when(trains.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(buildCommandAdvisor.resolve(any(), any(), any(), any(), any())).thenReturn(
+                new BuildCommandAdvisor.BuildCommand("mvn -q -B test", false, "AI model unavailable (not supported)."));
+        Map<String, Path> clones = Map.of("APP7576/" + fw.getConsumerRepo(), Path.of("."));
+        List<CascadePlanner.AppInput> apps = List.of(new CascadePlanner.AppInput("APP7576", "APP7576", "<pom/>"));
+
+        Map<String, String> cmds = runner.resolveConsumerBuildCommands("t1", apps, clones, "alice");
+
+        assertThat(cmds).containsEntry("APP7576", "mvn -q -B test");   // the reactor still runs the default
+        assertThat(t.getStageDetail()).contains("using the default").contains("not supported");
     }
 
     @Test

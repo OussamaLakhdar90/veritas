@@ -448,9 +448,17 @@ public class AsyncSnykFixRunner {
                 continue;
             }
             train = stage(train, SnykFixStatus.VERIFYING, "Working out how to build & test " + app.appId() + "…");
-            String command = buildCommandAdvisor.resolve(app.appId(), fw.getConsumerRepo(), dir, owner, trainId);
-            commands.put(app.appId(), command);
-            train = stage(train, SnykFixStatus.VERIFYING, "Will test " + app.appId() + " with: " + command);
+            BuildCommandAdvisor.BuildCommand advised =
+                    buildCommandAdvisor.resolve(app.appId(), fw.getConsumerRepo(), dir, owner, trainId);
+            commands.put(app.appId(), advised.command());
+            // Say honestly whether the AI chose the command or it fell back to the default (and why) — never present a
+            // silent degrade as an AI decision.
+            String detail = advised.aiDerived()
+                    ? "Will test " + app.appId() + " with: " + advised.command()
+                    : "AI couldn't choose a build command for " + app.appId()
+                            + (advised.note() == null || advised.note().isBlank() ? "" : " (" + advised.note() + ")")
+                            + " — using the default: " + advised.command();
+            train = stage(train, SnykFixStatus.VERIFYING, detail);
         }
         return commands;
     }

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -16,6 +17,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import ca.bnc.qe.veritas.cost.CostRecorder;
 import ca.bnc.qe.veritas.cost.ModelSelector;
+import ca.bnc.qe.veritas.cost.ModelTier;
 import ca.bnc.qe.veritas.llm.JsonBlockExtractor;
 import ca.bnc.qe.veritas.llm.LlmGateway;
 import ca.bnc.qe.veritas.llm.PromptComposer;
@@ -69,7 +71,7 @@ class BuildCommandAdvisorTest {
         when(llm.complete(anyString(), anyString())).thenReturn(
                 "```json\n{\"command\":\"mvn -q -B -Psystem-test verify\",\"rationale\":\"failsafe ITs under a profile\"}\n```");
 
-        String cmd = advisor.resolve("APP7576", "app-tests", repo, "alice", "t1");
+        String cmd = advisor.resolve("APP7576", "app-tests", repo, "alice", "t1").command();
 
         assertThat(cmd).isEqualTo("mvn -q -B -Psystem-test verify");
         assertThat(stored.get().getCommand()).isEqualTo("mvn -q -B -Psystem-test verify");
@@ -79,7 +81,7 @@ class BuildCommandAdvisorTest {
     @Test
     void degradesToTheDefaultWhenCopilotIsOffline() {
         when(llm.isAvailable()).thenReturn(false);
-        assertThat(advisor.resolve("APP7576", "app-tests", repo, "alice", "t1"))
+        assertThat(advisor.resolve("APP7576", "app-tests", repo, "alice", "t1").command())
                 .isEqualTo(BuildCommandAdvisor.DEFAULT_COMMAND);
         verify(llm, never()).complete(anyString(), anyString());
     }
@@ -87,7 +89,7 @@ class BuildCommandAdvisorTest {
     @Test
     void degradesToTheDefaultOnAMalformedReply() {
         when(llm.complete(anyString(), anyString())).thenReturn("not json at all");
-        assertThat(advisor.resolve("APP7576", "app-tests", repo, "alice", "t1"))
+        assertThat(advisor.resolve("APP7576", "app-tests", repo, "alice", "t1").command())
                 .isEqualTo(BuildCommandAdvisor.DEFAULT_COMMAND);
     }
 
@@ -96,7 +98,7 @@ class BuildCommandAdvisorTest {
         // A syntactically valid but DANGEROUS command (plugin goal + exec property) must never reach the reactor.
         when(llm.complete(anyString(), anyString())).thenReturn(
                 "```json\n{\"command\":\"mvn exec:exec -Dexec.executable=/bin/sh verify\",\"rationale\":\"x\"}\n```");
-        assertThat(advisor.resolve("APP7576", "app-tests", repo, "alice", "t1"))
+        assertThat(advisor.resolve("APP7576", "app-tests", repo, "alice", "t1").command())
                 .isEqualTo(BuildCommandAdvisor.DEFAULT_COMMAND);
     }
 
@@ -105,12 +107,81 @@ class BuildCommandAdvisorTest {
         when(llm.complete(anyString(), anyString())).thenReturn(
                 "```json\n{\"command\":\"mvn -q -B verify\",\"rationale\":\"unit\"}\n```");
 
-        String first = advisor.resolve("APP7576", "app-tests", repo, "alice", "t1");
-        String second = advisor.resolve("APP7576", "app-tests", repo, "alice", "t1");   // same pom → cache hit
+        String first = advisor.resolve("APP7576", "app-tests", repo, "alice", "t1").command();
+        String second = advisor.resolve("APP7576", "app-tests", repo, "alice", "t1").command();   // same pom → cache hit
 
         assertThat(first).isEqualTo("mvn -q -B verify");
         assertThat(second).isEqualTo("mvn -q -B verify");
         verify(llm, times(1)).complete(anyString(), anyString());   // the second resolve did NOT re-derive
+    }
+
+    @Test
+    void retriesAtALowerTierWhenTheDeepModelIsRejected() {
+        // The exact bug: DEEP resolves to a model this Copilot account rejects (model_not_supported 4xx). Instead of
+        // silently degrading, the advisor must RETRY at STANDARD (which the account supports) and succeed.
+        when(modelSelector.resolveTier(ModelTier.DEEP)).thenReturn("gemini-3.1-pro");
+        when(modelSelector.resolveTier(ModelTier.STANDARD)).thenReturn("claude-sonnet-4.6");
+        when(llm.complete(anyString(), eq("gemini-3.1-pro")))
+                .thenThrow(new IllegalStateException("HTTP 400: {\"error\":{\"code\":\"model_not_supported\"}}"));
+        when(llm.complete(anyString(), eq("claude-sonnet-4.6"))).thenReturn(
+                "```json\n{\"command\":\"mvn -q -B verify\",\"rationale\":\"ok on standard\"}\n```");
+
+        BuildCommandAdvisor.BuildCommand cmd = advisor.resolve("APP7576", "app-tests", repo, "alice", "t1");
+
+        assertThat(cmd.aiDerived()).isTrue();
+        assertThat(cmd.command()).isEqualTo("mvn -q -B verify");
+        verify(llm).complete(anyString(), eq("gemini-3.1-pro"));      // DEEP was tried…
+        verify(llm).complete(anyString(), eq("claude-sonnet-4.6"));   // …then it retried STANDARD and won
+        assertThat(stored.get().getCommand()).isEqualTo("mvn -q -B verify");   // a real AI command IS cached
+    }
+
+    @Test
+    void degradesVisiblyWhenEveryTierIsRejected() {
+        when(modelSelector.resolveTier(ModelTier.DEEP)).thenReturn("gemini-3.1-pro");
+        when(modelSelector.resolveTier(ModelTier.STANDARD)).thenReturn("claude-sonnet-4.6");
+        when(llm.complete(anyString(), anyString()))
+                .thenThrow(new IllegalStateException("The requested model is not supported."));
+
+        BuildCommandAdvisor.BuildCommand cmd = advisor.resolve("APP7576", "app-tests", repo, "alice", "t1");
+
+        assertThat(cmd.aiDerived()).isFalse();
+        assertThat(cmd.command()).isEqualTo(BuildCommandAdvisor.DEFAULT_COMMAND);
+        assertThat(cmd.note()).containsIgnoringCase("not supported");   // the reason is surfaced, not swallowed
+        assertThat(stored.get()).isNull();                              // a degraded default is NEVER cached
+    }
+
+    @Test
+    void doesNotRetryALowerTierOnAContentOrGuardFailure() {
+        when(modelSelector.resolveTier(ModelTier.DEEP)).thenReturn("gemini-3.1-pro");
+        when(modelSelector.resolveTier(ModelTier.STANDARD)).thenReturn("claude-sonnet-4.6");
+        // DEEP replies with a dangerous plugin-goal command → the guard rejects it. A cheaper model won't fix a bad
+        // command, so we degrade IMMEDIATELY and never call STANDARD.
+        when(llm.complete(anyString(), eq("gemini-3.1-pro"))).thenReturn(
+                "```json\n{\"command\":\"mvn exec:exec -Dexec.executable=/bin/sh verify\",\"rationale\":\"x\"}\n```");
+
+        BuildCommandAdvisor.BuildCommand cmd = advisor.resolve("APP7576", "app-tests", repo, "alice", "t1");
+
+        assertThat(cmd.aiDerived()).isFalse();
+        assertThat(cmd.command()).isEqualTo(BuildCommandAdvisor.DEFAULT_COMMAND);
+        verify(llm, never()).complete(anyString(), eq("claude-sonnet-4.6"));   // no wasted retry on a content failure
+    }
+
+    @Test
+    void doesNotCacheADegradedDefaultSoItRetriesTheAiNextRun() {
+        when(modelSelector.resolveTier(ModelTier.DEEP)).thenReturn("gemini-3.1-pro");
+        when(modelSelector.resolveTier(ModelTier.STANDARD)).thenReturn("claude-sonnet-4.6");
+        // First run: every tier is rejected → degraded default, NOT cached (the latent cache-poisoning bug).
+        when(llm.complete(anyString(), anyString())).thenThrow(new IllegalStateException("model_not_supported"));
+        assertThat(advisor.resolve("APP7576", "app-tests", repo, "alice", "t1").aiDerived()).isFalse();
+        assertThat(stored.get()).isNull();
+
+        // Second run (outage cleared on STANDARD): the AI is re-tried — no poisoned cache — and now succeeds.
+        when(llm.complete(anyString(), eq("claude-sonnet-4.6"))).thenReturn(
+                "```json\n{\"command\":\"mvn -q -B verify\",\"rationale\":\"ok now\"}\n```");
+        BuildCommandAdvisor.BuildCommand second = advisor.resolve("APP7576", "app-tests", repo, "alice", "t1");
+
+        assertThat(second.aiDerived()).isTrue();
+        assertThat(second.command()).isEqualTo("mvn -q -B verify");
     }
 
     @Test
@@ -138,7 +209,7 @@ class BuildCommandAdvisorTest {
         advisor.resolve("APP7576", "app-tests", repo, "alice", "t1");   // stores a valid command at the current hash
         stored.get().setCommand("mvn exec:exec verify");                // simulate a stored command the guard now rejects
 
-        String cmd = advisor.resolve("APP7576", "app-tests", repo, "alice", "t1");   // cache hit → re-guard fails
+        String cmd = advisor.resolve("APP7576", "app-tests", repo, "alice", "t1").command();   // cache hit → re-guard fails
 
         assertThat(cmd).isEqualTo(BuildCommandAdvisor.DEFAULT_COMMAND);
         verify(llm, times(1)).complete(anyString(), anyString());   // it was a cache hit, not a re-derivation
@@ -149,7 +220,7 @@ class BuildCommandAdvisorTest {
         when(llm.complete(anyString(), anyString())).thenReturn(
                 "```json\n{\"command\":\"mvn -q -B test\",\"rationale\":\"x\"}\n```");
         when(cache.save(any())).thenThrow(new RuntimeException("db down"));   // persist is best-effort
-        assertThat(advisor.resolve("APP7576", "app-tests", repo, "alice", "t1")).isEqualTo("mvn -q -B test");
+        assertThat(advisor.resolve("APP7576", "app-tests", repo, "alice", "t1").command()).isEqualTo("mvn -q -B test");
     }
 
     @Test
@@ -157,7 +228,7 @@ class BuildCommandAdvisorTest {
         Files.delete(repo.resolve("pom.xml"));   // exercise the no-pom + empty-suites + no-subdirs input paths
         when(llm.complete(anyString(), anyString())).thenReturn(
                 "```json\n{\"command\":\"mvn -q -B test\",\"rationale\":\"no pom\"}\n```");
-        assertThat(advisor.resolve("APP7576", "app-tests", repo, "alice", "t1")).isEqualTo("mvn -q -B test");
+        assertThat(advisor.resolve("APP7576", "app-tests", repo, "alice", "t1").command()).isEqualTo("mvn -q -B test");
     }
 
     @Test
@@ -171,7 +242,7 @@ class BuildCommandAdvisorTest {
         // A build dir that must be ignored by the directory listing.
         Files.createDirectories(repo.resolve("target/classes"));
 
-        assertThat(advisor.resolve("APP7576", "app-tests", repo, "alice", "t1")).isEqualTo("mvn -q -B verify");
+        assertThat(advisor.resolve("APP7576", "app-tests", repo, "alice", "t1").command()).isEqualTo("mvn -q -B verify");
         assertThat(stored.get().getCommand()).isEqualTo("mvn -q -B verify");
     }
 
