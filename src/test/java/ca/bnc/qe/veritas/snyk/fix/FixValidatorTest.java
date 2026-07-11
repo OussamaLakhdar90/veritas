@@ -44,4 +44,28 @@ class FixValidatorTest {
         assertThat(FixValidator.managesAtVersion("<project/>", "com.x", "y", "1.0")).isFalse();
         assertThat(FixValidator.managesAtVersion("<project/>", "com.x", "y", null)).isFalse();
     }
+
+    @Test
+    void aMalformedPropertyTokenIsReturnedVerbatimNotResolved() {
+        // A ${prop token WITHOUT a closing brace isn't a property reference — return it as-is (don't try to resolve),
+        // so a broken pom never masquerades as fixed.
+        String pom = """
+                <project><dependencyManagement><dependencies>
+                    <dependency><groupId>com.x</groupId><artifactId>y</artifactId><version>${broken</version></dependency>
+                </dependencies></dependencyManagement></project>
+                """;
+        assertThat(FixValidator.effectiveVersion(pom, "com.x", "y")).isEqualTo("${broken");
+        assertThat(FixValidator.managesAtVersion(pom, "com.x", "y", "1.0")).isFalse();
+    }
+
+    @Test
+    void aPropertyReferenceToAnUndeclaredPropertyResolvesToNull() {
+        // ${jackson.version} used but never declared → the effective version is unknown (null), NOT "fixed".
+        String pom = """
+                <project><dependencyManagement><dependencies>
+                    <dependency><groupId>com.x</groupId><artifactId>y</artifactId><version>${undeclared.version}</version></dependency>
+                </dependencies></dependencyManagement></project>
+                """;
+        assertThat(FixValidator.effectiveVersion(pom, "com.x", "y")).isNull();
+    }
 }

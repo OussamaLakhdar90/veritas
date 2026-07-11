@@ -56,6 +56,9 @@ public class SnykFixTrain extends AuditableEntity {
     @Lob
     @Column(columnDefinition = "TEXT")
     private String verdictJson;     // the advisory BreakingVerdict
+    @Lob
+    @Column(columnDefinition = "TEXT")
+    private String fixDiffJson;     // the advisory FixDiffVerdict — the AI's plain-language read of what the fix changed
 
     private Boolean reactorPassed;
     /** The reactor couldn't verify the app because ITS OWN build config/infra failed (not the upgrade) — held for

@@ -26,6 +26,8 @@ public record SnykFixTrainView(
         String reactorFailingLabel,
         String reactorOutputTail,
         BreakingVerdict verdict,
+        /** The advisory AI read of what the fix actually changed (null when never run / offline). */
+        FixDiffVerdict fixDiff,
         Instant startedAt,
         /** MTTR anchors: createdAt = detection→remediation start (the honest clock — startedAt is a machine-phase
          *  clock the reconciler resets mid-flight); finishedAt set on DONE. */

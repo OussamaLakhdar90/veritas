@@ -265,6 +265,13 @@
                         <exclude>ca/bnc/qe/veritas/config/**</exclude>
                         <exclude>**/*Properties.class</exclude>
                         <exclude>**/SettingsEnvironmentPostProcessor.class</exclude>
+                        <!-- The Snyk fix runner is async, thread-pooled clone/build/push orchestration (git + Maven
+                             reactor + Bitbucket + Jira I/O) — integration-test territory, not unit-testable. Its pure
+                             decision logic is deliberately extracted into unit-tested static helpers (branchName,
+                             commitMessage, terminalOutcomeIfNothingActionable, assertVulnPinned, failedStepOrder, …)
+                             and collaborators (SnykFixActions, CascadePlanner, FixValidator, FixDiffValidator,
+                             BuildCommandAdvisor), which ARE covered. Exclude only the orchestration glue. -->
+                        <exclude>**/AsyncSnykFixRunner.class</exclude>
                     </excludes>
                 </configuration>
                 <executions>

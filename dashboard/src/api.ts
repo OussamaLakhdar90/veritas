@@ -590,9 +590,17 @@ export interface SnykFixTrainView {
   id: string; coordinate: string; oldVersion: string; fixedIn: string; severity: string; appIds: string;
   jiraKey?: string; jiraStatus?: string; status: string; stageDetail?: string; errorMessage?: string; failedStage?: string;
   failedStepOrder?: number | null; breaking: boolean; reactorPassed?: boolean;
-  reactorFailingLabel?: string; reactorOutputTail?: string; verdict?: BreakingVerdict; startedAt?: string;
+  reactorFailingLabel?: string; reactorOutputTail?: string; verdict?: BreakingVerdict;
+  fixDiff?: FixDiffVerdict; startedAt?: string;
   createdAt?: string; finishedAt?: string; watchId?: string;
   steps: SnykFixStepView[];
+}
+/** The advisory AI read of what the fix actually changed (an explanation, not the gate). */
+export interface FixDiffVerdict {
+  available: boolean;
+  fixesTheVuln: boolean;
+  whatChanged: string;
+  reason: string;
 }
 
 // ── Activity Center ───────────────────────────────────────────────────────────

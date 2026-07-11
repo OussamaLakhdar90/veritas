@@ -400,6 +400,7 @@
       "prUrlPlaceholder": "Collez l’URL de la PR",
       "breakingHelp": "Changement cassant signalé — adaptez le code sur les branches poussées et testez, puis ouvrez les PR (vous-même ou via Veritas).",
       "aiReasons": "Pourquoi l’IA le pense",
+      "aiChange": "Ce que l’IA a vérifié dans ce correctif",
       "migrationNotes": "Migration",
       "jiraChip": "Jira {{key}}",
       "failedAt": "Échec à {{stage}} :",

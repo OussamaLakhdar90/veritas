@@ -131,6 +131,25 @@ class SnykFixControllerTest {
     }
 
     @Test
+    void getFixExposesTheAdvisoryFixDiffVerdictAndToleratesBadJson() throws Exception {
+        SnykFixTrain t = train();
+        t.setFixDiffJson("{\"available\":true,\"fixesTheVuln\":true,"
+                + "\"whatChanged\":\"Raised jackson 3.1.1 to 3.1.4\",\"reason\":\"reaches fixedIn\"}");
+        when(trains.findById("t1")).thenReturn(Optional.of(t));
+        when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of(step()));
+        mvc.perform(get("/api/v1/snyk/fixes/t1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fixDiff.fixesTheVuln").value(true))
+                .andExpect(jsonPath("$.fixDiff.whatChanged").value(org.hamcrest.Matchers.containsString("3.1.4")));
+
+        // Malformed fixDiffJson must not break the view — it parses to null (the catch branch).
+        t.setFixDiffJson("{not valid json");
+        mvc.perform(get("/api/v1/snyk/fixes/t1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.fixDiff").doesNotExist());
+    }
+
+    @Test
     void confirmInvokesTheRunnerAndReturns202WithTheTrain() throws Exception {
         when(trains.findById("t1")).thenReturn(Optional.of(train()));
         when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of(step()));

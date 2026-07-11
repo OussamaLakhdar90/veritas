@@ -49,6 +49,7 @@ public class AsyncSnykFixRunner {
     private final CascadeVerifier verifier;
     private final BreakingChangeService breakingChange;
     private final BuildCommandAdvisor buildCommandAdvisor;
+    private final FixDiffValidator fixDiffValidator;
     private final SnykFixJiraService jiraService;
     private final SnykFixActions actions;
     private final ReviewerSuggester reviewerSuggester;
@@ -67,14 +68,16 @@ public class AsyncSnykFixRunner {
 
     public AsyncSnykFixRunner(WorkspaceService workspace, CascadePlanner planner, CascadeVerifier verifier,
                               BreakingChangeService breakingChange, BuildCommandAdvisor buildCommandAdvisor,
-                              SnykFixJiraService jiraService, SnykFixActions actions, ReviewerSuggester reviewerSuggester,
-                              GeneratedFileWriter fileWriter, PrPublisher prPublisher, FrameworkProperties fw,
-                              SnykFixTrainRepository trains, SnykFixStepRepository steps, ObjectMapper mapper) {
+                              FixDiffValidator fixDiffValidator, SnykFixJiraService jiraService, SnykFixActions actions,
+                              ReviewerSuggester reviewerSuggester, GeneratedFileWriter fileWriter,
+                              PrPublisher prPublisher, FrameworkProperties fw, SnykFixTrainRepository trains,
+                              SnykFixStepRepository steps, ObjectMapper mapper) {
         this.workspace = workspace;
         this.planner = planner;
         this.verifier = verifier;
         this.breakingChange = breakingChange;
         this.buildCommandAdvisor = buildCommandAdvisor;
+        this.fixDiffValidator = fixDiffValidator;
         this.jiraService = jiraService;
         this.actions = actions;
         this.reviewerSuggester = reviewerSuggester;
@@ -287,6 +290,11 @@ public class AsyncSnykFixRunner {
                         failedStepOrder(steps.findByTrainIdOrderByStepOrder(trainId), reactor.failingLabel()));
             }
             train = trains.save(train);
+
+            // 4b) AI cross-check (advisory, NON-blocking): a plain-language read of what the BOM diff actually changed
+            // and whether it fixes the vuln. The deterministic effective-version gate already validated the fix — this
+            // is the explainable "here's what the AI sees" the user asked for, surfaced on the card. Never gates.
+            train = recordFixDiffVerdict(train, poms.bom(), clones, req);
 
             // 5) PUSH — always push the version-bump branches (even on a breaking change).
             stage = SnykFixStatus.OPENING_PRS;
@@ -623,6 +631,24 @@ public class AsyncSnykFixRunner {
         } else {
             log.info("Snyk fix: pushed {} branch(es) cleanly.", pushed);
         }
+    }
+
+    /**
+     * Record the advisory AI read of what the fix changed (old BOM pom vs the edited BOM pom on the clone). NON-blocking
+     * and best-effort: a judge failure is swallowed so it can never stop a fix — the deterministic gate is what
+     * validated it. Reassigns the saved train (the {@code @Version} discipline).
+     */
+    SnykFixTrain recordFixDiffVerdict(SnykFixTrain train, String oldBomPom, Map<String, Path> clones,
+                                      SnykFixRequest req) {
+        try {
+            String newBomPom = readPom(clones.get(fw.getProject() + "/" + fw.getBomRepo()));
+            FixDiffVerdict verdict = fixDiffValidator.explain(req.coordinate(), req.oldVersion(), req.fixedIn(),
+                    oldBomPom, newBomPom, req.owner(), train.getId());
+            train.setFixDiffJson(mapper.writeValueAsString(verdict));
+        } catch (Exception e) {
+            log.debug("Fix-diff verdict not recorded for train {}: {}", train.getId(), e.getMessage());
+        }
+        return trains.save(train);
     }
 
     /** A light usage-site hint for the LLM: which cloned poms reference the vulnerable artifact by name. */
