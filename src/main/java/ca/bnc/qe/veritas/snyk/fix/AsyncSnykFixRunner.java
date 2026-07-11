@@ -206,8 +206,11 @@ public class AsyncSnykFixRunner {
             train.setJiraKey(jiraKey);
             train.setJiraProject(req.jiraProject());
             train.setJiraSummary(jiraService.summary(jiraKey));   // the ticket's name, surfaced in each PR body
+            String jiraStatus = jiraService.transitionTo(jiraKey, SnykFixJiraService.Phase.IN_PROGRESS);
+            if (jiraStatus != null) {
+                train.setJiraStatus(jiraStatus);   // surface the live ticket status (In Progress) on the card
+            }
             train = trains.save(train);
-            jiraService.transitionTo(jiraKey, SnykFixJiraService.Phase.IN_PROGRESS);
 
             // 4) VERIFYING — apply the edits to the clones, then the local reactor build (the real gate).
             // Reset the runtime clock here: the reactor (4x mvn install + N x mvn test) is by far the longest phase,

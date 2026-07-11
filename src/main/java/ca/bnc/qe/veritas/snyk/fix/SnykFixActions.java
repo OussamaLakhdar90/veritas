@@ -78,7 +78,7 @@ public class SnykFixActions {
         if (allActionableOpen(trainSteps)) {
             train.setStatus(SnykFixStatus.PR_OPEN);
             train.setStageDetail(openedDetail);
-            jiraService.transitionTo(train.getJiraKey(), SnykFixJiraService.Phase.IN_REVIEW);
+            recordJiraStatus(train, jiraService.transitionTo(train.getJiraKey(), SnykFixJiraService.Phase.IN_REVIEW));
             return;
         }
         train.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);
@@ -142,7 +142,7 @@ public class SnykFixActions {
         }
         if (allActionableOpen(trainSteps)) {
             train.setStatus(SnykFixStatus.PR_OPEN);
-            jiraService.transitionTo(train.getJiraKey(), SnykFixJiraService.Phase.IN_REVIEW);
+            recordJiraStatus(train, jiraService.transitionTo(train.getJiraKey(), SnykFixJiraService.Phase.IN_REVIEW));
             trains.save(train);
         }
         return train;
@@ -164,8 +164,15 @@ public class SnykFixActions {
         }
         train.setStatus(SnykFixStatus.DONE);
         train.setFinishedAt(Instant.now());
-        jiraService.transitionTo(train.getJiraKey(), SnykFixJiraService.Phase.DONE);
+        recordJiraStatus(train, jiraService.transitionTo(train.getJiraKey(), SnykFixJiraService.Phase.DONE));
         return trains.save(train);
+    }
+
+    /** Persist the live Jira status the transition landed on (null when nothing moved — keep the last known status). */
+    private static void recordJiraStatus(SnykFixTrain train, String status) {
+        if (status != null && !status.isBlank()) {
+            train.setJiraStatus(status);
+        }
     }
 
     private void openAll(SnykFixTrain train, List<SnykFixStep> trainSteps, String openedBy) {

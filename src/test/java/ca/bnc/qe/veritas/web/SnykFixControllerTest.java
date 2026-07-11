@@ -19,6 +19,7 @@ import ca.bnc.qe.veritas.snyk.fix.SnykFixStep;
 import ca.bnc.qe.veritas.snyk.fix.SnykFixStepRepository;
 import ca.bnc.qe.veritas.snyk.fix.SnykFixTrain;
 import ca.bnc.qe.veritas.snyk.fix.SnykFixTrainRepository;
+import ca.bnc.qe.veritas.vcs.BitbucketLinkBuilder;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -41,6 +42,8 @@ class SnykFixControllerTest {
     private SnykFixTrainRepository trains;
     @MockBean
     private SnykFixStepRepository steps;
+    @MockBean
+    private BitbucketLinkBuilder links;
 
     private SnykFixTrain train() {
         SnykFixTrain t = new SnykFixTrain();
@@ -58,6 +61,8 @@ class SnykFixControllerTest {
         s.setStepOrder(1);
         s.setModuleLabel("BOM");
         s.setRepoSlug("lsist-test-framework-bom");
+        s.setBitbucketProject("APP7488");
+        s.setBranch("feature/CIAM-1-snyk-fix-app-7488");
         s.setStatus(SnykFixStatus.BRANCH_PUSHED);
         s.setReviewersJson("[\"alice\"]");
         return s;
@@ -106,14 +111,23 @@ class SnykFixControllerTest {
     }
 
     @Test
-    void getFixReturnsTheTrainWithSteps() throws Exception {
-        when(trains.findById("t1")).thenReturn(Optional.of(train()));
+    void getFixReturnsTheTrainWithStepsAndAViewBranchLink() throws Exception {
+        SnykFixTrain t = train();
+        t.setJiraKey("CIAM-1");
+        t.setJiraStatus("In Review");
+        when(trains.findById("t1")).thenReturn(Optional.of(t));
         when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of(step()));
+        // A pushed-but-no-PR step gets a browse link (the "we said pushed but I can't find it" trust fix).
+        when(links.branchLink("APP7488", "lsist-test-framework-bom", "feature/CIAM-1-snyk-fix-app-7488"))
+                .thenReturn(Optional.of("https://git.bnc.ca/projects/APP7488/repos/lsist-test-framework-bom/browse?at=refs/heads/feature/CIAM-1-snyk-fix-app-7488"));
         mvc.perform(get("/api/v1/snyk/fixes/t1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("AWAITING_MANUAL_FIX"))
+                .andExpect(jsonPath("$.jiraStatus").value("In Review"))              // the live Jira status is exposed
                 .andExpect(jsonPath("$.steps[0].moduleLabel").value("BOM"))
-                .andExpect(jsonPath("$.steps[0].reviewers[0]").value("alice"));
+                .andExpect(jsonPath("$.steps[0].reviewers[0]").value("alice"))
+                .andExpect(jsonPath("$.steps[0].branchUrl").value(org.hamcrest.Matchers.containsString(
+                        "refs/heads/feature/CIAM-1-snyk-fix-app-7488")));
     }
 
     @Test

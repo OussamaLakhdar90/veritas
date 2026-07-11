@@ -14,6 +14,8 @@ public record SnykFixStepView(
         String newModuleVersion,
         String prUrl,
         String prOpenedBy,
+        /** A browsable Bitbucket link to the pushed branch, so a held (pushed-but-no-PR) step is verifiable. */
+        String branchUrl,
         String status,
         /** The live line while this module is active (e.g. "Pushing core…"); null once the step is terminal. */
         String stageDetail,

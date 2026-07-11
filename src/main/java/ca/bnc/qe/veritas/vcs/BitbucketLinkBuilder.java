@@ -64,6 +64,30 @@ public class BitbucketLinkBuilder {
         return Optional.of(line != null ? url + "#" + line : url);
     }
 
+    /**
+     * A browsable link to a whole BRANCH (no file), so a pushed-but-PR-less Snyk fix branch is one click away.
+     * Server/DC: {@code {base}/projects/{PROJECT}/repos/{repo}/browse?at=refs/heads/{branch}};
+     * Cloud: {@code {base}/{workspace}/{repo}/branch/{branch}}. {@link Optional#empty()} when the coordinates or
+     * base URL aren't enough to form a real link.
+     */
+    public Optional<String> branchLink(String appId, String repoSlug, String branch) {
+        String base = base();
+        if (base.isEmpty() || isBlank(repoSlug) || isBlank(branch)) {
+            return Optional.empty();
+        }
+        if ("CLOUD".equalsIgnoreCase(edition())) {
+            String ws = workspace();
+            return isBlank(ws) ? Optional.empty()
+                    : Optional.of(base + "/" + ws + "/" + repoSlug + "/branch/" + enc(branch));
+        }
+        String project = !isBlank(appId) ? appId : workspace();
+        if (isBlank(project)) {
+            return Optional.empty();
+        }
+        return Optional.of(base + "/projects/" + project + "/repos/" + repoSlug
+                + "/browse?at=" + enc("refs/heads/" + branch));
+    }
+
     private String base() {
         String b = connections.getBitbucket().getBaseUrl();
         if (b == null) {

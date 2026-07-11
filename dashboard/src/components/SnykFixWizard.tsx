@@ -274,6 +274,14 @@ export function ReviewRow({ step, version, onVersion, reviewers, onReviewers }:
  * Opening the pull requests) so the user always sees *which operation* is running, and — on a failure — exactly
  * which étape stopped it. The per-module cascade (BOM → core → api/web → app) renders below as the detail.
  */
+// Jira status → a calm chip tone. Done/closed → green; everything else (in progress / in review) → gold.
+// Colour convention: never brand-red for a normal in-flight state — red reads as "error".
+function jiraChipTone(status?: string) {
+  const v = (status ?? '').toLowerCase();
+  if (/done|closed|resolved|complete|fixed/.test(v)) return 'bg-success/5 text-success ring-success/30';
+  return 'bg-gold/5 text-gold ring-gold/30';
+}
+
 export function TrainHeader({ train }: { train: SnykFixTrainView }) {
   const { t } = useTranslation();
   const inFlight = IN_FLIGHT.includes(train.status);
@@ -394,6 +402,34 @@ export function TrainHeader({ train }: { train: SnykFixTrainView }) {
         {train.reactorPassed === true && ' · ' + t('snyk.fix.reactorPass')}
         {train.reactorPassed === false && ' · ' + t('snyk.fix.reactorFail', { where: train.reactorFailingLabel ?? '' })}
       </p>
+      {/* The AI's REASONING, not just the confidence % — so the verdict is explainable. Calm styling (never brand-red). */}
+      {train.verdict?.available && (train.verdict.reasons?.length || train.verdict.migrationNotes) && (
+        <div className="mt-2 rounded-lg bg-ink-50 px-3 py-2 ring-1 ring-border">
+          <p className="text-2xs font-semibold uppercase tracking-wide text-muted">{t('snyk.fix.aiReasons')}</p>
+          {train.verdict.reasons?.length ? (
+            <ul className="mt-1 space-y-0.5">
+              {train.verdict.reasons.map((r, i) => (
+                <li key={i} className="flex items-start gap-1.5 text-xs text-ink-700">
+                  <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-muted/50" />
+                  <span>{r}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {train.verdict.migrationNotes && (
+            <p className="mt-1.5 text-xs text-muted">
+              <span className="font-medium text-ink-700">{t('snyk.fix.migrationNotes')}:</span> {train.verdict.migrationNotes}
+            </p>
+          )}
+        </div>
+      )}
+      {/* Live Jira status chip — In Progress → In Review → Done, updated on the 2s poll. */}
+      {train.jiraKey && (
+        <span className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-2xs font-medium ring-1 ${jiraChipTone(train.jiraStatus)}`}>
+          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+          {t('snyk.fix.jiraChip', { key: train.jiraKey }) + (train.jiraStatus ? ` · ${train.jiraStatus}` : '')}
+        </span>
+      )}
       {/* Prominent "action needed" banner — carries the backend's "the local build failed at <module>…" detail. */}
       {actionNeeded && (
         <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-warning/10 px-3 py-2 text-xs font-medium text-warning ring-1 ring-warning/20">
@@ -449,6 +485,14 @@ export function StepRow({ step, failedHere, awaiting, url, onUrl, onRecord }:
           <a href={step.prUrl} target="_blank" rel="noreferrer"
             className="mt-1 inline-flex items-center gap-1 text-xs text-gold hover:underline">
             {t('snyk.fix.viewPr')} {step.prOpenedBy ? `(${step.prOpenedBy.toLowerCase()})` : ''} <ExternalLink className="h-3 w-3" />
+          </a>
+        )}
+        {/* No PR yet but the branch is pushed → let the user verify it in Bitbucket (fixes the "we said pushed but
+            I can't find it" trust gap). */}
+        {!step.prUrl && step.branchUrl && isHttpUrl(step.branchUrl) && (
+          <a href={step.branchUrl} target="_blank" rel="noreferrer"
+            className="mt-1 inline-flex items-center gap-1 text-xs text-gold hover:underline">
+            {t('snyk.fix.viewBranch')} <ExternalLink className="h-3 w-3" />
           </a>
         )}
         {awaiting && !step.manual && !step.prUrl && (

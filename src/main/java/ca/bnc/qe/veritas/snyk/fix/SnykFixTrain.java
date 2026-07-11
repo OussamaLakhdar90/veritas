@@ -38,6 +38,8 @@ public class SnykFixTrain extends AuditableEntity {
     private String jiraKey;
     @Column(length = 500)
     private String jiraSummary;     // the ticket's summary/title, surfaced in each PR body for reviewer context
+    @Column(length = 100)
+    private String jiraStatus;      // the ticket's live workflow status (In Progress → In Review → Done), for the UI chip
     private String jiraProject;
     private String jiraIssueType;   // kept so a paused (AWAITING_CONFIRM) train can rebuild its request on confirm
 

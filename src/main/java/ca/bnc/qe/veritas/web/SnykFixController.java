@@ -12,8 +12,10 @@ import ca.bnc.qe.veritas.snyk.fix.SnykFixStep;
 import ca.bnc.qe.veritas.snyk.fix.SnykFixStepRepository;
 import ca.bnc.qe.veritas.snyk.fix.SnykFixStepView;
 import ca.bnc.qe.veritas.snyk.fix.SnykFixTrain;
+import ca.bnc.qe.veritas.snyk.fix.SnykFixStatus;
 import ca.bnc.qe.veritas.snyk.fix.SnykFixTrainRepository;
 import ca.bnc.qe.veritas.snyk.fix.SnykFixTrainView;
+import ca.bnc.qe.veritas.vcs.BitbucketLinkBuilder;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
@@ -39,14 +41,16 @@ public class SnykFixController {
     private final SnykFixTrainRepository trains;
     private final SnykFixStepRepository steps;
     private final ObjectMapper mapper;
+    private final BitbucketLinkBuilder links;
 
     public SnykFixController(AsyncSnykFixRunner runner, SnykFixActions actions, SnykFixTrainRepository trains,
-                            SnykFixStepRepository steps, ObjectMapper mapper) {
+                            SnykFixStepRepository steps, ObjectMapper mapper, BitbucketLinkBuilder links) {
         this.runner = runner;
         this.actions = actions;
         this.trains = trains;
         this.steps = steps;
         this.mapper = mapper;
+        this.links = links;
     }
 
     /**
@@ -136,15 +140,26 @@ public class SnykFixController {
         for (SnykFixStep s : steps.findByTrainIdOrderByStepOrder(t.getId())) {
             stepViews.add(new SnykFixStepView(s.getStepOrder(), s.getModuleLabel(), s.getBitbucketProject(),
                     s.getRepoSlug(), s.getBranch(), s.getPomPath(), s.getDiffPreview(), s.getNewModuleVersion(),
-                    s.getPrUrl(), s.getPrOpenedBy(), s.getStatus(), s.getStageDetail(), s.isManual(), s.getReason(),
-                    parseList(s.getReviewersJson())));
+                    s.getPrUrl(), s.getPrOpenedBy(), branchUrl(s), s.getStatus(), s.getStageDetail(), s.isManual(),
+                    s.getReason(), parseList(s.getReviewersJson())));
         }
         return new SnykFixTrainView(t.getId(), t.getCoordinate(), t.getOldVersion(), t.getFixedIn(), t.getSeverity(),
-                t.getAppIds(), t.getJiraKey(), t.getStatus(), t.getStageDetail(),
+                t.getAppIds(), t.getJiraKey(), t.getJiraStatus(), t.getStatus(), t.getStageDetail(),
                 t.getErrorMessage(), t.getFailedStage(), t.getFailedStepOrder(), t.isBreaking(),
                 t.getReactorPassed(), t.getReactorFailingLabel(), t.getReactorOutputTail(),
                 parseVerdict(t.getVerdictJson()), t.getStartedAt(), t.getCreatedAt(), t.getFinishedAt(),
                 t.getWatchId(), stepViews);
+    }
+
+    /** A browse link for a step that has a PUSHED branch but no PR yet — so a held branch is verifiable. Null when
+     *  the step has no branch, already has a PR, or the Bitbucket base URL isn't configured. */
+    private String branchUrl(SnykFixStep s) {
+        if (s.getBranch() == null || s.getBranch().isBlank()
+                || (s.getPrUrl() != null && !s.getPrUrl().isBlank())
+                || !SnykFixStatus.BRANCH_PUSHED.equals(s.getStatus())) {
+            return null;
+        }
+        return links.branchLink(s.getBitbucketProject(), s.getRepoSlug(), s.getBranch()).orElse(null);
     }
 
     private BreakingVerdict parseVerdict(String json) {
