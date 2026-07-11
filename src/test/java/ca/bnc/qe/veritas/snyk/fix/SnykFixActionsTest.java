@@ -208,11 +208,30 @@ class SnykFixActionsTest {
         planning.setStatus(SnykFixStatus.PLANNING);
         when(trains.findById("t1")).thenReturn(Optional.of(planning));
         when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of());
-        // markMerged needs PR_OPEN; openHeldPrs needs AWAITING_MANUAL_FIX — both reject a PLANNING train (409).
+        // markMerged needs PR_OPEN; openHeldPrs + cancel need a human-wait state — all reject a machine-driven
+        // PLANNING train (409), so a hung machine phase is the reconciler's job, never a user cancel.
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> actions.markMerged("t1"))
                 .isInstanceOf(ca.bnc.qe.veritas.skill.ConflictException.class);
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> actions.openHeldPrs("t1"))
                 .isInstanceOf(ca.bnc.qe.veritas.skill.ConflictException.class);
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> actions.cancel("t1"))
+                .isInstanceOf(ca.bnc.qe.veritas.skill.ConflictException.class);
+    }
+
+    @Test
+    void cancelAbandonsAWaitingTrainToCancelledLeavingJiraAndBranchesAlone() {
+        SnykFixTrain t = train();
+        t.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);   // a build-failed train waiting on the user
+        when(trains.findById("t1")).thenReturn(Optional.of(t));
+
+        actions.cancel("t1");
+
+        // Terminal CANCELLED (not the red FAILED) with a finishedAt so the sweeper can prune it, and an honest note.
+        assertThat(t.getStatus()).isEqualTo(SnykFixStatus.CANCELLED);
+        assertThat(t.getFinishedAt()).isNotNull();
+        assertThat(t.getStageDetail()).contains("abandoned");
+        // Deliberately leaves Jira + the pushed branches AS-IS (no transition) so a relaunch reuses them.
+        verify(jira, never()).transitionTo(any(), any());
     }
 
     @Test

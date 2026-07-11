@@ -15,6 +15,7 @@ public final class SnykFixStatus {
     public static final String AWAITING_MANUAL_FIX = "AWAITING_MANUAL_FIX";  // breaking → branch pushed, PR held
     public static final String DONE = "DONE";                         // all PRs merged
     public static final String FAILED = "FAILED";
+    public static final String CANCELLED = "CANCELLED";               // user abandoned a human-wait train — terminal, NOT an error
 
     // Step status
     public static final String PLANNED = "PLANNED";
@@ -30,9 +31,10 @@ public final class SnykFixStatus {
     public static final String BY_USER = "USER";
 
     /**
-     * The non-terminal train states — a train in any of these is still "in flight": neither DONE nor FAILED.
-     * Used both by the submit dedup guard (don't start a second train while one is live) and by the managerial
-     * summary's "in progress" bucket. The single source of truth for "not finished".
+     * The non-terminal train states — a train in any of these is still "in flight": neither DONE, FAILED, nor
+     * CANCELLED. Used both by the submit dedup guard (don't start a second train while one is live) and by the
+     * managerial summary's "in progress" bucket. The single source of truth for "not finished". CANCELLED is
+     * deliberately absent so an abandoned train frees the dedup guard and can be relaunched immediately.
      */
     public static final List<String> NON_TERMINAL = List.of(
             PLANNING, AWAITING_CONFIRM, CHECKING, VERIFYING, OPENING_PRS, PR_OPEN, AWAITING_MANUAL_FIX);

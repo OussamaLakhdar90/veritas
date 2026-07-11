@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { api } from '../api';
 import { useToast } from './Toast';
 import { IN_FLIGHT, FIX_STATUS } from '../lib/snykStatus';
-import { TrainHeader, StepRow, ReviewRow } from './SnykFixWizard';
+import { TrainHeader, StepRow, ReviewRow, CancelFixButton } from './SnykFixWizard';
 import { Button, ErrorState, Spinner } from './ui';
 
 /**
@@ -45,6 +45,8 @@ export function FixTrainProgress({ trainId }: { trainId: string }) {
   const openPrs = useMutation({ mutationFn: () => api.openSnykFixPrs(trainId),
     onSuccess: invalidate, onError: (e: Error) => toast.push('error', e.message) });
   const markMerged = useMutation({ mutationFn: () => api.markSnykFixMerged(trainId),
+    onSuccess: invalidate, onError: (e: Error) => toast.push('error', e.message) });
+  const cancel = useMutation({ mutationFn: () => api.cancelSnykFix(trainId),
     onSuccess: invalidate, onError: (e: Error) => toast.push('error', e.message) });
   const recordPr = useMutation({
     mutationFn: (v: { order: number; url: string }) => api.recordSnykFixPr(trainId, v.order, v.url),
@@ -124,6 +126,10 @@ export function FixTrainProgress({ trainId }: { trainId: string }) {
           {prOpen && (
             <Button variant="secondary" loading={markMerged.isPending} onClick={() => markMerged.mutate()}>
               {t('snyk.fix.markMerged')}</Button>
+          )}
+          {/* Abandon a waiting train (any human-wait state) — no more forced PR or DB delete to relaunch. */}
+          {(reviewing || awaitingManual || prOpen) && (
+            <CancelFixButton onCancel={() => cancel.mutate()} pending={cancel.isPending} />
           )}
         </div>
       )}

@@ -67,6 +67,20 @@ class SnykRetentionSweeperTest {
     }
 
     @Test
+    void prunesOldCancelledFixTrainsTooSinceAnAbandonedTrainIsNoise() {
+        when(watches.findAll()).thenReturn(List.of());
+        SnykFixTrain t = new SnykFixTrain();
+        t.setId("t-cancel");
+        t.setStatus(SnykFixStatus.CANCELLED);   // the user abandoned it — prune it like a FAILED one
+        when(trains.findByFinishedAtBefore(any())).thenReturn(List.of(t));
+
+        sweeper.sweep();
+
+        verify(steps).deleteByTrainId("t-cancel");
+        verify(trains).delete(t);
+    }
+
+    @Test
     void keepsDoneFixTrainsSoTheExecCardFixCountsDoNotShrink() {
         when(watches.findAll()).thenReturn(List.of());
         SnykFixTrain done = new SnykFixTrain();

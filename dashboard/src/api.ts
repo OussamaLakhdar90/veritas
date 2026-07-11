@@ -852,6 +852,9 @@ export const api = {
     send<SnykFixTrainView>('POST', `/snyk/fixes/${encodeURIComponent(id)}/steps/${order}/pr`, { prUrl }),
   markSnykFixMerged: (id: string) =>
     send<SnykFixTrainView>('POST', `/snyk/fixes/${encodeURIComponent(id)}/mark-merged`),
+  // Abandon a train waiting on the user → terminal CANCELLED; frees the dedup guard so the same fix can relaunch.
+  cancelSnykFix: (id: string) =>
+    send<SnykFixTrainView>('POST', `/snyk/fixes/${encodeURIComponent(id)}/cancel`),
 
   // ── Activity Center ──
   activity: () => get<ActivityItem[]>('/activity'),

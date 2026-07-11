@@ -101,36 +101,67 @@ public class AsyncSnykFixRunner {
 
     /** Create the train row + kick off the cascade on a background thread; returns the train id immediately. */
     public String submit(SnykFixRequest req) {
+        SnykFixRequest effective = req;
         // Idempotency: if a fix is already in flight for this watch + coordinate, reuse it rather than starting a
         // duplicate train that would clone/push the same branches (a poll re-alert or a double click can trigger this).
         if (req.watchId() != null && req.coordinate() != null) {
-            for (SnykFixTrain existing : trains.findByWatchIdAndCoordinate(req.watchId(), req.coordinate())) {
+            List<SnykFixTrain> priors = trains.findByWatchIdAndCoordinate(req.watchId(), req.coordinate());
+            for (SnykFixTrain existing : priors) {
                 if (SnykFixStatus.NON_TERMINAL.contains(existing.getStatus())) {
                     log.info("Snyk fix already in flight for {} on watch {} — reusing train {}",
                             req.coordinate(), req.watchId(), existing.getId());
                     return existing.getId();
                 }
             }
+            // Relaunch continuity: if the caller supplied no key, carry forward the most-recent CANCELLED/FAILED prior
+            // train's Jira key — the branch is deterministic from it (branchName(key, project)), so the relaunch reuses
+            // the SAME ticket + branch (accumulating, not duplicating) instead of filing a fresh one. Never from a DONE
+            // train — that ticket is closed, so a regressed vuln gets a new one.
+            if (isBlank(req.jiraKey())) {
+                String carried = carryForwardJiraKey(priors);
+                if (carried != null) {
+                    effective = req.withJiraKey(carried);
+                    log.info("Snyk fix relaunch for {} on watch {}: reusing prior Jira key {} (and its branch).",
+                            req.coordinate(), req.watchId(), carried);
+                }
+            }
         }
         SnykFixTrain train = new SnykFixTrain();
-        train.setWatchId(req.watchId());
-        train.setIssueId(req.issueId());
-        train.setCoordinate(req.coordinate());
-        train.setOldVersion(req.oldVersion());
-        train.setFixedIn(req.fixedIn());
-        train.setSeverity(req.severity());
-        train.setAppIds(req.appIds() == null ? "" : String.join(",", req.appIds()));
-        train.setJiraKey(req.jiraKey());            // requested key (may be null) — kept so confirm can rebuild
-        train.setJiraProject(req.jiraProject());
-        train.setJiraIssueType(req.jiraIssueType());
-        train.setOwner(req.owner());
+        train.setWatchId(effective.watchId());
+        train.setIssueId(effective.issueId());
+        train.setCoordinate(effective.coordinate());
+        train.setOldVersion(effective.oldVersion());
+        train.setFixedIn(effective.fixedIn());
+        train.setSeverity(effective.severity());
+        train.setAppIds(effective.appIds() == null ? "" : String.join(",", effective.appIds()));
+        train.setJiraKey(effective.jiraKey());      // requested-or-carried key (may be null) — kept so confirm can rebuild
+        train.setJiraProject(effective.jiraProject());
+        train.setJiraIssueType(effective.jiraIssueType());
+        train.setOwner(effective.owner());
         train.setStatus(SnykFixStatus.PLANNING);
         train.setStartedAt(Instant.now());
         SnykFixTrain saved = trains.save(train);
         final String id = saved.getId();
+        final SnykFixRequest toRun = effective;
         // autoConfirm=false (the wizard default) pauses at AWAITING_CONFIRM for the review step; true runs straight through.
-        pool.submit(() -> run(id, req, Map.of(), Map.of(), !req.autoConfirm()));
+        pool.submit(() -> run(id, toRun, Map.of(), Map.of(), !toRun.autoConfirm()));
         return id;
+    }
+
+    /** The Jira key to carry into a relaunch: the most-recent incomplete (CANCELLED/FAILED) prior train that has one,
+     *  so cancel → relaunch reuses the same ticket + branch. Never a DONE train (its ticket is already closed). */
+    private static String carryForwardJiraKey(List<SnykFixTrain> priors) {
+        return priors.stream()
+                .filter(t -> SnykFixStatus.CANCELLED.equals(t.getStatus()) || SnykFixStatus.FAILED.equals(t.getStatus()))
+                .filter(t -> t.getJiraKey() != null && !t.getJiraKey().isBlank())
+                .max(Comparator.comparing(SnykFixTrain::getStartedAt,
+                        Comparator.nullsFirst(Comparator.naturalOrder())))
+                .map(SnykFixTrain::getJiraKey)
+                .orElse(null);
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.isBlank();
     }
 
     /**
