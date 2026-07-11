@@ -421,7 +421,8 @@
         "DONE": "Done",
         "NEEDS_ATTENTION": "Needs attention",
         "FAILED": "Failed",
-        "CANCELLED": "Cancelled — the Jira ticket and any pushed branch were left as-is; relaunch to reuse them."
+        "CANCELLED": "Cancelled — the Jira ticket and any pushed branch were left as-is; relaunch to reuse them.",
+        "ALREADY_FIXED": "Already on the safe version — nothing to release, no PR opened."
       },
       "step": {
         "PLANNED": "Planned",

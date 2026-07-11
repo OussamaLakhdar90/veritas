@@ -421,7 +421,8 @@
         "DONE": "Terminé",
         "NEEDS_ATTENTION": "Nécessite une attention",
         "FAILED": "Échec",
-        "CANCELLED": "Annulé — le ticket Jira et toute branche poussée ont été laissés tels quels; relancez pour les réutiliser."
+        "CANCELLED": "Annulé — le ticket Jira et toute branche poussée ont été laissés tels quels; relancez pour les réutiliser.",
+        "ALREADY_FIXED": "Déjà à la version sécuritaire — rien à publier, aucune PR ouverte."
       },
       "step": {
         "PLANNED": "Planifié",

@@ -12,6 +12,7 @@ export const FIX_STATUS = {
   DONE: 'DONE',
   FAILED: 'FAILED',
   CANCELLED: 'CANCELLED',
+  ALREADY_FIXED: 'ALREADY_FIXED',
 } as const;
 
 /** The machine-driven stages the wizard polls on (mirrors the backend MACHINE_DRIVEN set). */

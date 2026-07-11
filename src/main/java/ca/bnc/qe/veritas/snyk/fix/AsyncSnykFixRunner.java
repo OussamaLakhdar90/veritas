@@ -214,7 +214,30 @@ public class AsyncSnykFixRunner {
             FrameworkPoms poms = cloneFramework(clones);
             List<AppInput> apps = cloneConsumers(req.appIds(), clones);
             List<CascadeStep> plan = planner.plan(groupId, artifactId, req.fixedIn(), poms, apps, versionOverrides);
-            persistSteps(trainId, plan, clones, req.jiraKey(), req.reviewersOverride(), reviewerOverrides);
+            persistSteps(trainId, plan, clones, req.jiraKey(), req.reviewersOverride(), reviewerOverrides,
+                    groupId, artifactId, req.fixedIn());
+
+            // 1a) Nothing to push? Every step is manual (the framework already ships the safe version and no selected
+            // app needs a bump). Decide HONESTLY instead of dead-ending at AWAITING_MANUAL_FIX or opening a change-less
+            // PR: ALREADY_FIXED (benign terminal) when the BOM genuinely pins the coordinate at fixedIn; FAILED when
+            // the fix couldn't be applied at all (nothing pins it here and no app has a local version to bump).
+            String terminal = terminalOutcomeIfNothingActionable(steps.findByTrainIdOrderByStepOrder(trainId),
+                    FixValidator.managesAtVersion(poms.bom(), groupId, artifactId, req.fixedIn()));
+            if (terminal != null) {
+                train.setStatus(terminal);
+                train.setFinishedAt(Instant.now());
+                if (SnykFixStatus.ALREADY_FIXED.equals(terminal)) {
+                    train.setStageDetail("The framework already ships the safe version of " + req.coordinate() + " ("
+                            + req.fixedIn() + ") and no selected app needs a bump — nothing to release; no PR opened.");
+                } else {
+                    train.setFailedStage(SnykFixStatus.PLANNING);
+                    train.setErrorMessage("No automated fix could be applied for " + req.coordinate() + " → "
+                            + req.fixedIn() + " — the BOM doesn't pin it here and no selected app has a local version "
+                            + "to bump. Fix by hand (see the manual steps).");
+                }
+                trains.save(train);
+                return;   // terminal — the finally cleans the clones
+            }
 
             // 1b) Pause for the user to review the cascade (edit versions/reviewers) before anything runs.
             if (pauseForConfirm) {
@@ -358,7 +381,8 @@ public class AsyncSnykFixRunner {
     }
 
     void persistSteps(String trainId, List<CascadeStep> plan, Map<String, Path> clones, String jiraKey,
-                      List<String> reviewersOverride, Map<Integer, List<String>> reviewerOverrides) {
+                      List<String> reviewersOverride, Map<Integer, List<String>> reviewerOverrides,
+                      String groupId, String artifactId, String fixedIn) {
         steps.deleteByTrainId(trainId);   // a confirm-time re-plan replaces the preview steps rather than duplicating
         for (CascadeStep cs : plan) {
             SnykFixStep s = new SnykFixStep();
@@ -378,7 +402,7 @@ public class AsyncSnykFixRunner {
             steps.save(s);
             if (!cs.manual()) {
                 try {
-                    applyStepEdits(cs, clones);
+                    applyStepEdits(cs, clones, groupId, artifactId, fixedIn);
                 } catch (RuntimeException editFailed) {
                     // FAIL-FAST: never let a train proceed to the reactor/push with an edit that didn't apply. A clean
                     // build on an un-edited pom is a FALSE PASS — it would open a change-less PR and mark the vuln
@@ -395,19 +419,56 @@ public class AsyncSnykFixRunner {
 
     /** Apply the planned version edits to the cloned pom (so the reactor build + push see the new versions). Throws
      *  on any failure — the caller aborts the train rather than shipping an unedited (no-op) "fix". */
-    private void applyStepEdits(CascadeStep cs, Map<String, Path> clones) {
+    private void applyStepEdits(CascadeStep cs, Map<String, Path> clones, String groupId, String artifactId,
+                               String fixedIn) {
         Path repoDir = clones.get(cs.bitbucketProject() + "/" + cs.repoSlug());
         if (repoDir == null) {
             throw new IllegalStateException("Repo " + cs.repoSlug() + " was not cloned — can't apply the version edit.");
         }
+        String edited;
+        Path pomPath;
         try {
-            Path pomPath = repoDir.resolve(cs.pomPath());
-            String edited = CascadePlanner.applyEdits(Files.readString(pomPath), cs.edits());
-            fileWriter.write(pomPath, cs.repoSlug() + "/pom.xml", edited);
+            pomPath = repoDir.resolve(cs.pomPath());
+            edited = CascadePlanner.applyEdits(Files.readString(pomPath), cs.edits());
         } catch (Exception e) {
             throw new IllegalStateException("Could not apply the version edit to " + cs.repoSlug()
                     + "/pom.xml: " + e.getMessage(), e);
         }
+        assertVulnPinned(cs.moduleLabel(), edited, groupId, artifactId, fixedIn);   // throws → train FAILED, no push
+        try {
+            fileWriter.write(pomPath, cs.repoSlug() + "/pom.xml", edited);
+        } catch (Exception e) {
+            throw new IllegalStateException("Could not write the edited " + cs.repoSlug() + "/pom.xml: "
+                    + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * AUTHORITATIVE FIX GATE (BOM only): the BOM is the one place the cascade pins the vulnerable coordinate. After its
+     * edits, the pom's EFFECTIVE managed version for the coordinate MUST equal {@code fixedIn} — otherwise the edit was
+     * a no-op or hit the wrong target and only the release {@code <version>} moved (the change-less-"fix" bug). Throw so
+     * the train fails rather than push + PR a "fix" that fixed nothing. No-op for non-BOM steps (they never pin the
+     * coordinate; consumer effectiveness needs the resolved tree and is validated separately).
+     */
+    static void assertVulnPinned(String moduleLabel, String editedPom, String groupId, String artifactId, String fixedIn) {
+        if ("BOM".equals(moduleLabel) && !FixValidator.managesAtVersion(editedPom, groupId, artifactId, fixedIn)) {
+            String effective = FixValidator.effectiveVersion(editedPom, groupId, artifactId);
+            throw new IllegalStateException("The fix did not raise " + groupId + ":" + artifactId + " to " + fixedIn
+                    + " (effective version " + (effective == null ? "not managed here" : effective) + ") — the edit was "
+                    + "a no-op or hit the wrong target; refusing to push a change-less fix.");
+        }
+    }
+
+    /**
+     * When NOTHING in the plan is actionable (every step is manual → nothing to push), the terminal outcome: {@code
+     * ALREADY_FIXED} (benign — the framework already ships the safe version) when {@code bomAlreadyAtFixedIn}, else
+     * {@code FAILED} (the fix genuinely couldn't be applied). {@code null} when there IS an actionable step (proceed).
+     */
+    static String terminalOutcomeIfNothingActionable(List<SnykFixStep> trainSteps, boolean bomAlreadyAtFixedIn) {
+        if (trainSteps.stream().anyMatch(s -> !s.isManual())) {
+            return null;
+        }
+        return bomAlreadyAtFixedIn ? SnykFixStatus.ALREADY_FIXED : SnykFixStatus.FAILED;
     }
 
     /** Reviewers for a step: the user's per-step edit wins, then a global override, then git-history suggestion. */

@@ -294,9 +294,54 @@ class AsyncSnykFixRunnerTest {
         });
 
         assertThatThrownBy(() -> runner.persistSteps(
-                "t1", List.of(unclonable), Map.of(), "veritas/x", List.of(), Map.of()))
+                "t1", List.of(unclonable), Map.of(), "veritas/x", List.of(), Map.of(), "com.x", "y", "2.0"))
                 .isInstanceOf(IllegalStateException.class);
         assertThat(savedStatuses).contains(SnykFixStatus.STEP_FAILED);   // the step was marked before the abort
+    }
+
+    @Test
+    void assertVulnPinnedHardFailsWhenTheBomEditDidNotReachTheFixedVersion() {
+        // The change-less-"fix" catch: the BOM step's edited pom still resolves the vuln coordinate BELOW fixedIn
+        // (a no-op / wrong-target edit that only bumped the release version) → throw so the train FAILS, no push.
+        String stillVulnerable = """
+                <project><dependencyManagement><dependencies>
+                    <dependency><groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-databind</artifactId><version>2.14.0</version></dependency>
+                </dependencies></dependencyManagement></project>
+                """;
+        assertThatThrownBy(() -> AsyncSnykFixRunner.assertVulnPinned("BOM", stillVulnerable,
+                "com.fasterxml.jackson.core", "jackson-databind", "2.15.0"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("did not raise").hasMessageContaining("2.14.0");
+    }
+
+    @Test
+    void assertVulnPinnedPassesForAFixedBomAndIsANoOpForNonBomSteps() {
+        String fixed = """
+                <project><dependencyManagement><dependencies>
+                    <dependency><groupId>com.fasterxml.jackson.core</groupId>
+                    <artifactId>jackson-databind</artifactId><version>2.15.0</version></dependency>
+                </dependencies></dependencyManagement></project>
+                """;
+        // BOM edited pom now resolves the coordinate to fixedIn → no throw.
+        AsyncSnykFixRunner.assertVulnPinned("BOM", fixed, "com.fasterxml.jackson.core", "jackson-databind", "2.15.0");
+        // A non-BOM step never pins the coordinate → the gate is a no-op even on a pom that doesn't manage it.
+        AsyncSnykFixRunner.assertVulnPinned("core", "<project/>", "com.fasterxml.jackson.core", "jackson-databind", "2.15.0");
+    }
+
+    @Test
+    void terminalOutcomeIsAlreadyFixedOrFailedOnlyWhenNothingIsActionable() {
+        SnykFixStep manual = stepOf(1, "BOM");
+        manual.setManual(true);
+        SnykFixStep actionable = stepOf(2, "core");   // manual defaults to false
+        // An actionable (non-manual) step present → proceed (null).
+        assertThat(AsyncSnykFixRunner.terminalOutcomeIfNothingActionable(List.of(manual, actionable), true)).isNull();
+        // Nothing actionable + the BOM already ships the safe version → benign ALREADY_FIXED.
+        assertThat(AsyncSnykFixRunner.terminalOutcomeIfNothingActionable(List.of(manual), true))
+                .isEqualTo(SnykFixStatus.ALREADY_FIXED);
+        // Nothing actionable + the BOM does NOT pin it → the fix genuinely couldn't be applied → FAILED.
+        assertThat(AsyncSnykFixRunner.terminalOutcomeIfNothingActionable(List.of(manual), false))
+                .isEqualTo(SnykFixStatus.FAILED);
     }
 
     @Test
