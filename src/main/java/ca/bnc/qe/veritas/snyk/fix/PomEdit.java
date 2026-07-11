@@ -24,12 +24,17 @@ public record PomEdit(FixEditKind kind, String groupId, String artifactId, Strin
         return new PomEdit(FixEditKind.VERSION_BUMP, null, null, null, oldVersion, newVersion);
     }
 
-    /** A short human label of what this edit does (for the plan preview + PR body). */
+    /**
+     * A short human label of what this edit does (for the plan preview + PR body). An {@code ADD_OVERRIDE} is called
+     * out distinctly from a {@code MANAGED_BUMP} so a reviewer never mistakes an <em>added</em> managed pin (used when
+     * the dependency isn't already managed here — verify it takes effect) for a confirmed in-place version bump.
+     */
     public String describe() {
         return switch (kind) {
             case PROPERTY_BUMP -> "<" + property + "> " + oldVersion + " → " + newVersion;
-            case MANAGED_BUMP -> groupId + ":" + artifactId + " " + oldVersion + " → " + newVersion;
-            case ADD_OVERRIDE -> "pin " + groupId + ":" + artifactId + " = " + newVersion;
+            case MANAGED_BUMP -> "Bump " + artifactId + " " + oldVersion + " → " + newVersion;
+            case ADD_OVERRIDE -> "Add managed override: " + artifactId + " → " + newVersion
+                    + " (not previously managed here — verify it applies)";
             case VERSION_BUMP -> "release version " + oldVersion + " → " + newVersion;
         };
     }

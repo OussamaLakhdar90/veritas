@@ -12,6 +12,11 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 import ca.bnc.qe.veritas.config.ConnectionsProperties;
 import ca.bnc.qe.veritas.secret.SecretProvider;
@@ -206,6 +211,49 @@ class PrPublisherTest {
                 .setDirectory(check.toFile()).call().close();
         assertThat(Files.exists(check.resolve("bump-A.txt"))).as("first fix preserved").isTrue();
         assertThat(Files.exists(check.resolve("bump-B.txt"))).as("second fix added").isTrue();
+    }
+
+    @Test
+    void concurrentPushesToTheSameBranchBothSurviveInsteadOfClobbering() throws Exception {
+        // Bulk: several trains resolve to the SAME (repoSlug, branch) and push at the same time. Without the per-branch
+        // lock, both could see the branch as new, both force-push, and the later clobbers the earlier. With it, they
+        // serialize and the second ACCUMULATES — both fixes survive.
+        Path bare = tmp.resolve("origin.git");
+        Git.init().setBare(true).setDirectory(bare.toFile()).call().close();
+        seedRemote(bare, tmp.resolve("seed"));
+        PrPublisher publisher = new PrPublisher(noopHost(), key -> Optional.empty(), conns("SERVER_DC"));
+        String branch = "feature/LSIST-1-snyk-fix-app-7488";
+
+        Path w1 = tmp.resolve("w1");
+        Git.cloneRepository().setURI(bare.toUri().toString()).setDirectory(w1.toFile()).call().close();
+        Files.writeString(w1.resolve("fix-A.txt"), "bump A");
+        Path w2 = tmp.resolve("w2");
+        Git.cloneRepository().setURI(bare.toUri().toString()).setDirectory(w2.toFile()).call().close();
+        Files.writeString(w2.resolve("fix-B.txt"), "bump B");
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);   // release both at once to force the race
+        Future<?> f1 = pool.submit(() -> push(publisher, start, w1, branch, "LSIST-1: A"));
+        Future<?> f2 = pool.submit(() -> push(publisher, start, w2, branch, "LSIST-1: B"));
+        start.countDown();
+        f1.get(60, TimeUnit.SECONDS);
+        f2.get(60, TimeUnit.SECONDS);
+        pool.shutdownNow();
+
+        Path check = tmp.resolve("check");
+        Git.cloneRepository().setURI(bare.toUri().toString()).setBranch(branch).setDirectory(check.toFile()).call().close();
+        assertThat(Files.exists(check.resolve("fix-A.txt"))).as("first fix survived the race").isTrue();
+        assertThat(Files.exists(check.resolve("fix-B.txt"))).as("second fix survived the race").isTrue();
+    }
+
+    private static Object push(PrPublisher publisher, CountDownLatch start, Path work, String branch, String msg) {
+        try {
+            start.await();
+            publisher.pushBranch(work, "lsist-bom", branch, msg);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return null;
     }
 
     /** Best-effort recursive delete that swallows a locked pack file (Windows keeps a JGit pack handle briefly past

@@ -119,6 +119,48 @@ class CascadePlannerTest {
     }
 
     @Test
+    void bomStepActuallyBumpsAJackson3LiteralVersionForTheRenamedGroup() {
+        // The exact reported coordinate: tools.jackson.core (Jackson 3's renamed group), managed with a LITERAL
+        // version. The vulnerable version must be genuinely rewritten — this proves the fix fixes for the renamed group
+        // (the group-agnostic exact match handles tools.jackson.core just like com.fasterxml.jackson.core).
+        String bomPom = """
+                <project>
+                    <modelVersion>4.0.0</modelVersion>
+                    <groupId>ca.bnc.lsist</groupId>
+                    <artifactId>lsist-test-framework-bom</artifactId>
+                    <version>1.0.9</version>
+                    <packaging>pom</packaging>
+                    <dependencyManagement>
+                        <dependencies>
+                            <dependency>
+                                <groupId>tools.jackson.core</groupId>
+                                <artifactId>jackson-databind</artifactId>
+                                <version>3.1.1</version>
+                            </dependency>
+                        </dependencies>
+                    </dependencyManagement>
+                </project>
+                """;
+        CascadeStep bom = planner.plan("tools.jackson.core", "jackson-databind", "3.1.4",
+                new FrameworkPoms(bomPom, null, null, null), List.of()).get(0);
+        assertThat(bom.manual()).isFalse();
+        assertThat(bom.edits()).anySatisfy(e -> assertThat(e.kind()).isEqualTo(FixEditKind.MANAGED_BUMP));
+        String edited = CascadePlanner.applyEdits(bomPom, bom.edits());
+        assertThat(edited).contains("<groupId>tools.jackson.core</groupId>")
+                .contains("<version>3.1.4</version>")          // the vulnerable version is really changed
+                .doesNotContain("<version>3.1.1</version>");   // not left behind
+    }
+
+    @Test
+    void anAddedOverrideIsLabelledHonestlyNotAsAConfirmedBump() {
+        // A genuine transitive gets an ADD_OVERRIDE — the diff must say so ("Add managed override … verify it
+        // applies"), so a reviewer never mistakes an added pin for an in-place bump of an existing managed version.
+        CascadeStep bom = planner.plan("org.yaml", "snakeyaml", "2.2", new FrameworkPoms(BOM, null, null, null),
+                List.of()).get(0);
+        assertThat(bom.diffPreview()).contains("Add managed override").contains("snakeyaml").contains("verify it applies");
+    }
+
+    @Test
     void consumerThatImportsTheBomWithAnInlineVersionGetsThatVersionBumped() {
         // Very common: the app imports the framework BOM with an explicit <version> (no <lsist-bom.version> property).
         String app = """

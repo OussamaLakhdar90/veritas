@@ -15,14 +15,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 /**
- * Orchestrates a "Fix vulnerabilities" batch into the shape the user chose: one epic, one Jira ticket per affected
- * application (filed under that epic), and one fix train per selected vulnerability — each train linked to its
- * application's ticket so a batch of dozens of fixes produces a handful of app tickets, not dozens.
+ * Orchestrates a "Fix vulnerabilities" batch into the shape the user chose: one epic, one <em>shared story</em> under
+ * that epic for the whole batch, and one fix train per selected vulnerability — every train reuses the single shared
+ * story key, so a batch of dozens of fixes produces one epic + one story, not dozens of tickets.
  *
  * <p>It composes existing pieces only: {@link JiraClient#createIssue} (with an epic parent, added for this flow) for
- * the epic + app tickets, and {@link AsyncSnykFixRunner#submit} for each train. A train started with a Jira key
- * reuses that ticket rather than creating its own, which is how every fix under one app lands on one ticket.
- * Validation is fail-fast (before any Jira write); one app failing to launch is isolated, never fatal to the batch.
+ * the epic + shared story, and {@link AsyncSnykFixRunner#submit} for each train. A train started with a Jira key
+ * reuses that ticket rather than creating its own — which is also why every train for one application resolves to the
+ * <em>same</em> fix branch ({@code branchName(storyKey, bitbucketProject)}); those same-branch pushes accumulate
+ * rather than clobber (see {@code PrPublisher.pushBranch}'s per-branch serialization). Validation is fail-fast (before
+ * any Jira write); one app failing to launch is isolated, never fatal to the batch.
  */
 @Service
 @Slf4j
