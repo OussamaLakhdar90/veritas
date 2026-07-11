@@ -74,21 +74,50 @@ public class CascadePlanner {
     private CascadeStep bomStep(int order, String pom, String groupId, String artifactId, String fixedIn,
                                 String newBom, Map<String, String> newVersions) {
         List<PomEdit> edits = new ArrayList<>();
-        // 1) Pin the safe version of the vulnerable dependency.
+        // 1) Pin the safe version of the vulnerable dependency (only when it isn't ALREADY at the safe version).
+        addVulnPin(pom, edits, groupId, artifactId, fixedIn);
+        // 2) Bump any framework module versions the BOM itself pins.
+        addPresentPropertyBumps(pom, edits, newVersions);
+        // 3) Release a new BOM version — ONLY when the BOM actually changed something. A release bump on top of a
+        //    no-op vuln pin (the dependency already at fixedIn) would push a commit that moves only the BOM's own
+        //    <version> and fixes nothing, yet opens a PR + advances Jira as "fixed" — the exact change-less-"fix" bug.
+        if (!edits.isEmpty()) {
+            addOwnVersionBump(pom, edits, newBom);
+        } else {
+            // Honest terminal-for-this-step: the BOM already ships the safe version, so there is nothing to release.
+            return CascadeStep.manual(order, fw.getProject(), fw.getBomRepo(), "pom.xml", "BOM",
+                    "The BOM already pins " + groupId + ":" + artifactId + " at the safe version " + fixedIn
+                            + " — nothing to release (no PR opened).");
+        }
+        return build(order, fw.getProject(), fw.getBomRepo(), "pom.xml", "BOM", edits, newBom, pom);
+    }
+
+    /**
+     * Pin the safe version of the vulnerable dependency in the BOM — but only when it is a SUBSTANTIVE change. If the
+     * BOM already manages the coordinate at {@code fixedIn} (a stale Snyk re-alert, or an idempotent relaunch after a
+     * prior bump), adding a no-op {@code old==new} edit here is what let a release-only commit ship as a "fix". Mirrors
+     * the {@code old != new} guard every other bump already has. Returns {@code true} when a real pin was added.
+     */
+    private boolean addVulnPin(String pom, List<PomEdit> edits, String groupId, String artifactId, String fixedIn) {
         String token = PomVersionEditor.dependencyVersionToken(pom, groupId, artifactId);
         if (token != null && token.startsWith("${")) {
             String prop = token.substring(2, token.length() - 1);
-            edits.add(PomEdit.property(prop, PomVersionEditor.propertyValue(pom, prop), fixedIn));
-        } else if (token != null) {
-            edits.add(PomEdit.managed(groupId, artifactId, token, fixedIn));
-        } else {
-            edits.add(PomEdit.override(groupId, artifactId, fixedIn));
+            String cur = PomVersionEditor.propertyValue(pom, prop);
+            if (cur != null && !cur.equals(fixedIn)) {
+                edits.add(PomEdit.property(prop, cur, fixedIn));
+                return true;
+            }
+            return false;   // the property is already at fixedIn (or unresolved) — no substantive pin
         }
-        // 2) Bump any framework module versions the BOM itself pins.
-        addPresentPropertyBumps(pom, edits, newVersions);
-        // 3) Release a new BOM version.
-        addOwnVersionBump(pom, edits, newBom);
-        return build(order, fw.getProject(), fw.getBomRepo(), "pom.xml", "BOM", edits, newBom, pom);
+        if (token != null) {
+            if (!token.equals(fixedIn)) {
+                edits.add(PomEdit.managed(groupId, artifactId, token, fixedIn));
+                return true;
+            }
+            return false;   // the managed literal is already at fixedIn
+        }
+        edits.add(PomEdit.override(groupId, artifactId, fixedIn));   // not managed here → a new override is substantive
+        return true;
     }
 
     private CascadeStep moduleStep(int order, String repo, String label, String pom, String newOwn,
