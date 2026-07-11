@@ -56,6 +56,9 @@ public class SnykFixTrain extends AuditableEntity {
     private String verdictJson;     // the advisory BreakingVerdict
 
     private Boolean reactorPassed;
+    /** The reactor couldn't verify the app because ITS OWN build config/infra failed (not the upgrade) — held for
+     *  manual review rather than reported as a breaking change. Distinct from a genuine reactor failure. */
+    private Boolean reactorInconclusive;
     private String reactorFailingLabel;
     @Lob
     @Column(columnDefinition = "TEXT")

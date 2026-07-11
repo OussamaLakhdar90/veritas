@@ -72,6 +72,25 @@ class SnykFixActionsTest {
     }
 
     @Test
+    void inconclusiveVerificationHoldsWithAnHonestReasonNotAsBreaking() {
+        // The reactor couldn't verify the app because ITS OWN build/test config failed (not the upgrade). The train
+        // must HOLD (never auto-open an unverified fix) with an "inconclusive" reason — never mislabeled breaking.
+        SnykFixTrain t = train();
+        t.setReactorPassed(false);
+        t.setReactorInconclusive(true);
+        t.setBreaking(false);                       // the LLM did NOT flag the upgrade breaking
+        t.setReactorFailingLabel("consumer:APP7576");
+
+        actions.decide(t, List.of(step(1, false, SnykFixStatus.BRANCH_PUSHED)));
+
+        assertThat(t.getStatus()).isEqualTo(SnykFixStatus.AWAITING_MANUAL_FIX);
+        assertThat(t.getStageDetail()).contains("inconclusive");
+        assertThat(t.isBreaking()).isFalse();       // NOT re-marked as a breaking change
+        verify(gitHost, never()).openPullRequest(any(GitHost.PullRequestSpec.class));  // held, not auto-opened
+        verify(jira, never()).transitionTo(any(), any());                              // Jira not moved to In Review
+    }
+
+    @Test
     void prTitleAndBodyCarryTheJiraKeyAndSummaryForLinkage() {
         ArgumentCaptor<GitHost.PullRequestSpec> cap = ArgumentCaptor.forClass(GitHost.PullRequestSpec.class);
         when(gitHost.openPullRequest(cap.capture())).thenReturn("http://host/pr/1");

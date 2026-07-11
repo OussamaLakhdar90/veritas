@@ -31,8 +31,8 @@ class AsyncSnykFixRunnerTest {
 
     private final AsyncSnykFixRunner runner = new AsyncSnykFixRunner(
             mock(WorkspaceService.class), mock(CascadePlanner.class), mock(CascadeVerifier.class),
-            mock(BreakingChangeService.class), mock(SnykFixJiraService.class), mock(SnykFixActions.class),
-            mock(ReviewerSuggester.class), mock(GeneratedFileWriter.class), prPublisher,
+            mock(BreakingChangeService.class), mock(BuildCommandAdvisor.class), mock(SnykFixJiraService.class),
+            mock(SnykFixActions.class), mock(ReviewerSuggester.class), mock(GeneratedFileWriter.class), prPublisher,
             new FrameworkProperties(), trains, steps, new ObjectMapper());
 
     private SnykFixRequest request() {
