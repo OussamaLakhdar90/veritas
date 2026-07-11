@@ -342,7 +342,7 @@ export function SnykBulkFixWizard({ open, onClose, watches }:
             <div className="flex flex-1 items-center gap-1.5" aria-hidden="true">
               {[1, 2, 3, 4].map((n) => (
                 <span key={n}
-                  className={`h-1.5 flex-1 rounded-full ${n <= step ? 'bg-brand' : 'bg-ink-100'}`} />
+                  className={`h-1.5 flex-1 rounded-full ${n <= step ? 'bg-gold' : 'bg-ink-100'}`} />
               ))}
             </div>
           </div>

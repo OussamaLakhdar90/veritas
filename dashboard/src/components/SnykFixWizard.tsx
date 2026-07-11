@@ -298,10 +298,12 @@ export function TrainHeader({ train }: { train: SnykFixTrainView }) {
     : stepNo === 0 ? t('repos.statusStarting')
     : t('repos.statusStep', { stepNo, total: FIX_PHASES.length });
   // Literal class strings (Tailwind can't see dynamically-built names) keyed off the header tone.
+  // Colour convention: GOLD = in-progress (calm), amber = action-needed, green = done, RED = failure ONLY —
+  // the brand red reads as "error", so a normal build must never be red.
   const boxCls = failed ? 'bg-danger/5 ring-danger/20' : actionNeeded ? 'bg-warning/5 ring-warning/20'
-    : succeeded ? 'bg-success/5 ring-success/20' : 'bg-brand/5 ring-brand/20';
-  const eyebrowCls = failed ? 'text-danger' : actionNeeded ? 'text-warning' : succeeded ? 'text-success' : 'text-brand';
-  const barCls = failed ? 'bg-danger' : actionNeeded ? 'bg-warning' : succeeded ? 'bg-success' : 'bg-brand';
+    : succeeded ? 'bg-success/5 ring-success/20' : 'bg-gold/5 ring-gold/20';
+  const eyebrowCls = failed ? 'text-danger' : actionNeeded ? 'text-warning' : succeeded ? 'text-success' : 'text-gold';
+  const barCls = failed ? 'bg-danger' : actionNeeded ? 'bg-warning' : succeeded ? 'bg-success' : 'bg-gold';
 
   return (
     <div>
@@ -313,7 +315,7 @@ export function TrainHeader({ train }: { train: SnykFixTrainView }) {
               <p className={`text-2xs font-semibold uppercase tracking-wide ${eyebrowCls}`}>{eyebrow}</p>
             )}
             <p className="mt-0.5 flex items-center gap-1.5 truncate text-sm font-semibold text-ink-900">
-              {inFlight ? <Loader2 className="h-4 w-4 animate-spin text-brand" />
+              {inFlight ? <Loader2 className="h-4 w-4 animate-spin text-gold" />
                 : actionNeeded ? <AlertTriangle className="h-4 w-4 text-warning" />
                 : train.status === FIX_STATUS.DONE ? <SuccessCheck className="h-5 w-5" />
                 : failed ? <AlertTriangle className="h-4 w-4 text-danger" />
@@ -346,10 +348,10 @@ export function TrainHeader({ train }: { train: SnykFixTrainView }) {
             : staticDetail;
           return (
             <li key={phase.key} className={`flex items-start gap-3 rounded-lg px-2 py-2 ${visual === 'active'
-              ? 'bg-brand/5' : visual === 'error' ? 'bg-danger/5' : ''}`}>
+              ? 'bg-gold/5' : visual === 'error' ? 'bg-danger/5' : ''}`}>
               <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full ring-1 ${
                 visual === 'done' ? 'bg-success/10 text-success ring-success/30'
-                : visual === 'active' ? 'bg-brand/10 text-brand ring-brand/30'
+                : visual === 'active' ? 'bg-gold/10 text-gold ring-gold/30'
                 : visual === 'error' ? 'bg-danger/10 text-danger ring-danger/30'
                 : visual === 'manual' ? 'bg-warning/10 text-warning ring-warning/30'
                 : 'bg-ink-50 text-muted/60 ring-border'}`}>
@@ -364,14 +366,14 @@ export function TrainHeader({ train }: { train: SnykFixTrainView }) {
                     {t(`snyk.fix.phase.${phase.key}.label`)}
                   </p>
                   {visual === 'active' && (
-                    <span className="shrink-0 text-2xs font-medium tabular-nums text-brand">{formatElapsed(stageElapsed)}</span>
+                    <span className="shrink-0 text-2xs font-medium tabular-nums text-gold">{formatElapsed(stageElapsed)}</span>
                   )}
                   {visual === 'done' && <span className="shrink-0 text-2xs font-medium text-success">{t('repos.done')}</span>}
                 </div>
                 <p className={`text-xs ${visual === 'error' ? 'text-danger' : 'text-muted'}`}>{detail}</p>
                 {/* The two slow phases (AI check, local build) reassure the user they aren't stuck. */}
                 {visual === 'active' && phase.long && (
-                  <p className="mt-1.5 inline-flex items-center gap-1.5 rounded-md bg-brand/10 px-2 py-1 text-2xs text-brand ring-1 ring-brand/20">
+                  <p className="mt-1.5 inline-flex items-center gap-1.5 rounded-md bg-gold/10 px-2 py-1 text-2xs text-gold ring-1 ring-gold/20">
                     <Clock className="h-3 w-3 shrink-0" />
                     {stageElapsed < 90_000 ? t('snyk.fix.slowHint')
                       : t('snyk.fix.slowHintLong', { elapsed: formatElapsed(stageElapsed) })}
@@ -420,13 +422,13 @@ export function StepRow({ step, failedHere, awaiting, url, onUrl, onRecord }:
     : (visual === 'error' && step.reason) ? step.reason
     : step.manual ? step.reason : step.diffPreview;
   const circle = visual === 'done' ? 'bg-success/10 text-success ring-success/30'
-    : visual === 'active' ? 'bg-brand/10 text-brand ring-brand/30'
+    : visual === 'active' ? 'bg-gold/10 text-gold ring-gold/30'
     : visual === 'error' ? 'bg-danger/10 text-danger ring-danger/30'
     : visual === 'manual' ? 'bg-warning/10 text-warning ring-warning/30'
     : visual === 'pushed' ? 'bg-ink-100 text-ink-700 ring-border'
     : 'bg-ink-50 text-muted/60 ring-border';
   return (
-    <li className={`flex items-start gap-3 rounded-lg px-2.5 py-2 ${visual === 'active' ? 'bg-brand/5'
+    <li className={`flex items-start gap-3 rounded-lg px-2.5 py-2 ${visual === 'active' ? 'bg-gold/5'
       : visual === 'error' ? 'bg-danger/5' : ''}`}>
       <span className={`mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full ring-1 ${circle}`}>
         {visual === 'done' ? <Check className="h-4 w-4" />
