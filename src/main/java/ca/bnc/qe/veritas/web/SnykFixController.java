@@ -156,8 +156,8 @@ public class SnykFixController {
                 t.getAppIds(), t.getJiraKey(), t.getJiraStatus(), t.getStatus(), t.getStageDetail(),
                 t.getErrorMessage(), t.getFailedStage(), t.getFailedStepOrder(), t.isBreaking(),
                 t.getReactorPassed(), t.getReactorFailingLabel(), t.getReactorOutputTail(),
-                parseVerdict(t.getVerdictJson()), t.getStartedAt(), t.getCreatedAt(), t.getFinishedAt(),
-                t.getWatchId(), stepViews);
+                parseVerdict(t.getVerdictJson()), parseFixDiff(t.getFixDiffJson()), t.getStartedAt(), t.getCreatedAt(),
+                t.getFinishedAt(), t.getWatchId(), stepViews);
     }
 
     /** A browse link for a step that has a PUSHED branch but no PR yet — so a held branch is verifiable. Null when
@@ -177,6 +177,17 @@ public class SnykFixController {
         }
         try {
             return mapper.readValue(json, BreakingVerdict.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private ca.bnc.qe.veritas.snyk.fix.FixDiffVerdict parseFixDiff(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return mapper.readValue(json, ca.bnc.qe.veritas.snyk.fix.FixDiffVerdict.class);
         } catch (Exception e) {
             return null;
         }

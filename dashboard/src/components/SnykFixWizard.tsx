@@ -458,6 +458,18 @@ export function TrainHeader({ train }: { train: SnykFixTrainView }) {
           )}
         </div>
       )}
+      {/* The AI's plain-language read of WHAT THE FIX CHANGED (the "validate before commit" the user asked for) — an
+          EXPLANATION, not the gate (the deterministic effective-version check already validated it). fixesTheVuln →
+          calm success tint; the rare disagreement (AI unsure while the deterministic check passed) → amber, never red. */}
+      {train.fixDiff?.available && (
+        <div className={`mt-2 rounded-lg px-3 py-2 ring-1 ${train.fixDiff.fixesTheVuln
+          ? 'bg-success/5 ring-success/20' : 'bg-warning/5 ring-warning/20'}`}>
+          <p className={`text-2xs font-semibold uppercase tracking-wide ${train.fixDiff.fixesTheVuln
+            ? 'text-success' : 'text-warning'}`}>{t('snyk.fix.aiChange')}</p>
+          <p className="mt-1 text-xs text-ink-700">{train.fixDiff.whatChanged}</p>
+          {train.fixDiff.reason && <p className="mt-0.5 text-2xs text-muted">{train.fixDiff.reason}</p>}
+        </div>
+      )}
       {/* Live Jira status chip — In Progress → In Review → Done, updated on the 2s poll. */}
       {train.jiraKey && (
         <span className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-2xs font-medium ring-1 ${jiraChipTone(train.jiraStatus)}`}>

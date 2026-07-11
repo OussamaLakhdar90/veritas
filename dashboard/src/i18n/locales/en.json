@@ -400,6 +400,7 @@
       "prUrlPlaceholder": "Paste the PR URL",
       "breakingHelp": "Breaking change flagged — adapt the code on the pushed branches and test, then open the PRs (yourself, or via Veritas).",
       "aiReasons": "Why the AI thinks so",
+      "aiChange": "What the AI verified in this fix",
       "migrationNotes": "Migration",
       "jiraChip": "Jira {{key}}",
       "failedAt": "Failed at {{stage}}:",
