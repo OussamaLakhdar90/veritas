@@ -92,7 +92,7 @@ public class BuildCommandAdvisor {
      * change) and always {@link BuildCommandGuard}-safe. Returns the derived command, or the safe default if the
      * advisor is unavailable/fails. Deterministic for a given app config (so the reactor is reproducible).
      */
-    public String resolve(String appId, String repoSlug, Path repoDir, String owner, String refId) {
+    public BuildCommand resolve(String appId, String repoSlug, Path repoDir, String owner, String refId) {
         String pom = readPom(repoDir);
         List<SuiteFile> suites = discoverSuiteFiles(repoDir);
         String hash = configHash(pom, suites);
@@ -101,48 +101,92 @@ public class BuildCommandAdvisor {
             return safeOrDefault(existing.get().getCommand(), repoDir);   // cache hit — reuse (re-guarded)
         }
         AdvisedCommand advised = deriveCommand(appId, pom, suites, repoDir, owner, refId);
-        persist(existing.orElseGet(AppBuildCommand::new), appId, repoSlug, hash, advised);
-        return advised.command();
+        // Only cache a genuine AI-derived command. A degraded default must NEVER be cached, or a transient model
+        // outage would poison the per-app cache with the bare default until the pom changes.
+        if (advised.aiDerived()) {
+            persist(existing.orElseGet(AppBuildCommand::new), appId, repoSlug, hash, advised);
+        }
+        return new BuildCommand(advised.command(), advised.aiDerived(), advised.note());
     }
 
+    /**
+     * Derive the command, retrying across model tiers so one tier's model being rejected by the account (e.g. a
+     * {@code model_not_supported} 4xx on the cost-first DEEP model) doesn't silently degrade to the bare default:
+     * a rejected {@code complete(...)} moves to the NEXT tier (STANDARD usually works), while a content/security
+     * failure (bad JSON / schema miss / guard reject) degrades IMMEDIATELY — a cheaper model won't fix a bad command.
+     * If every tier's completion fails, return the safe default with an honest note.
+     */
     private AdvisedCommand deriveCommand(String appId, String pom, List<SuiteFile> suites, Path repoDir,
                                          String owner, String refId) {
         if (llm == null || !llm.isAvailable()) {
             log.info("Build-command advisor: Copilot offline — {} will use the default reactor command.", appId);
-            return new AdvisedCommand(DEFAULT_COMMAND, "Copilot offline — default reactor command.");
+            return AdvisedCommand.degraded(DEFAULT_COMMAND, "Copilot offline — default reactor command.");
         }
-        try {
-            String inputs = composer.data("POM", pom == null ? "(no pom.xml found)" : pom)
-                    + composer.data("SUITE_FILES", renderSuites(suites))
-                    + composer.data("PROJECT_LAYOUT", directoryListing(repoDir));
-            String model = modelSelector.resolveTier(ModelTier.DEEP);
-            String prompt = composer.compose("[BUILD-COMMAND-ADVISOR]", "build-command-advisor.prompt.md",
-                    Set.of(), inputs, OUTPUT_CONTRACT, modelSelector.promptTokenCap(model));
-            String raw = llm.complete(prompt, model);
-            costRecorder.record("snyk-fix", "build-command-advisor", model, prompt, raw, owner, refId);
-            JsonNode node = mapper.readTree(jsonExtractor.extract(raw));
-            schemaValidator.validate(node, "build-command-advisor.schema.json");
-            String candidate = node.path("command").asText("");
-            String rationale = node.path("rationale").asText("");
-            String safe = BuildCommandGuard.sanitize(candidate, repoDir);   // throws if not allow-listed → caught below
-            log.info("Build-command advisor: {} will be tested with '{}' ({})", appId, safe, rationale);
-            return new AdvisedCommand(safe, rationale);
-        } catch (Exception e) {
-            // A malformed reply, a schema miss, OR a command that fails the security allow-list must NEVER block or
-            // subvert the reactor — degrade to the safe default and let the build run normally.
-            log.warn("Build-command advisor failed for {} — using the default reactor command: {}", appId, e.getMessage());
-            return new AdvisedCommand(DEFAULT_COMMAND, "Advisor unavailable/failed — default reactor command.");
+        String inputs = composer.data("POM", pom == null ? "(no pom.xml found)" : pom)
+                + composer.data("SUITE_FILES", renderSuites(suites))
+                + composer.data("PROJECT_LAYOUT", directoryListing(repoDir));
+        List<String> tried = new ArrayList<>();
+        String lastAvailabilityError = null;
+        for (ModelTier tier : List.of(ModelTier.DEEP, ModelTier.STANDARD)) {
+            String model = modelSelector.resolveTier(tier);
+            if (model == null || model.isBlank() || tried.contains(model)) {
+                continue;   // skip a tier that resolves to nothing, or to a model already attempted
+            }
+            tried.add(model);
+            String prompt = null;
+            String raw = null;
+            try {
+                prompt = composer.compose("[BUILD-COMMAND-ADVISOR]", "build-command-advisor.prompt.md",
+                        Set.of(), inputs, OUTPUT_CONTRACT, modelSelector.promptTokenCap(model));
+                raw = llm.complete(prompt, model);
+            } catch (Exception e) {
+                // Availability/transport (the model_not_supported 4xx, a timeout, a disabled model) — retry the next
+                // tier rather than giving up on the AI entirely.
+                lastAvailabilityError = rootMessage(e);
+                log.warn("Build-command advisor: model '{}' unavailable for {} ({}) — trying a lower tier.",
+                        model, appId, lastAvailabilityError);
+                continue;
+            }
+            try {
+                costRecorder.record("snyk-fix", "build-command-advisor", model, prompt, raw, owner, refId);
+                JsonNode node = mapper.readTree(jsonExtractor.extract(raw));
+                schemaValidator.validate(node, "build-command-advisor.schema.json");
+                String rationale = node.path("rationale").asText("");
+                String safe = BuildCommandGuard.sanitize(node.path("command").asText(""), repoDir);   // throws if unsafe
+                log.info("Build-command advisor: {} will be tested with '{}' ({})", appId, safe, rationale);
+                return AdvisedCommand.ai(safe, rationale);
+            } catch (Exception e) {
+                // A content/security failure (malformed reply, schema miss, or a command the guard rejects). A cheaper
+                // model won't fix a bad/dangerous command — degrade NOW, don't waste a retry.
+                log.warn("Build-command advisor: {} produced an unusable command ({}) — using the default.",
+                        appId, e.getMessage());
+                return AdvisedCommand.degraded(DEFAULT_COMMAND,
+                        "AI produced an unusable/unsafe command — default reactor command.");
+            }
         }
+        log.warn("Build-command advisor: no model could be reached for {} — using the default reactor command.", appId);
+        return AdvisedCommand.degraded(DEFAULT_COMMAND, "AI model unavailable"
+                + (lastAvailabilityError == null ? "" : " (" + lastAvailabilityError + ")") + " — using the default.");
+    }
+
+    /** The most specific message in a throwable's cause chain — the model-rejection reason (e.g. "not supported"). */
+    private static String rootMessage(Throwable e) {
+        Throwable t = e;
+        while (t.getCause() != null && t.getCause() != t) {
+            t = t.getCause();
+        }
+        String msg = t.getMessage();
+        return msg == null || msg.isBlank() ? t.getClass().getSimpleName() : msg;
     }
 
     /** Re-guard a cached command (guard rules may have tightened since it was stored) — default if it no longer passes. */
-    private String safeOrDefault(String command, Path repoDir) {
+    private BuildCommand safeOrDefault(String command, Path repoDir) {
         try {
-            return BuildCommandGuard.sanitize(command, repoDir);
+            return new BuildCommand(BuildCommandGuard.sanitize(command, repoDir), true, null);
         } catch (RuntimeException e) {
             log.warn("Cached build command '{}' no longer passes the guard ({}) — using the default.",
                     command, e.getMessage());
-            return DEFAULT_COMMAND;
+            return new BuildCommand(DEFAULT_COMMAND, false, "Cached command no longer passes the guard — using the default.");
         }
     }
 
@@ -280,6 +324,24 @@ public class BuildCommandAdvisor {
     /** A discovered suite file: its repo-relative path and (capped) content. */
     private record SuiteFile(String path, String content) {}
 
-    /** The advisor's answer: the guard-safe command and a short rationale. */
-    private record AdvisedCommand(String command, String rationale) {}
+    /**
+     * The advisor's internal answer: the command, a rationale, whether it was genuinely AI-derived (vs a degraded
+     * default), and a human {@code note} explaining a degrade (null when AI-derived).
+     */
+    private record AdvisedCommand(String command, String rationale, boolean aiDerived, String note) {
+        static AdvisedCommand ai(String command, String rationale) {
+            return new AdvisedCommand(command, rationale, true, null);
+        }
+
+        static AdvisedCommand degraded(String command, String note) {
+            return new AdvisedCommand(command, "", false, note);
+        }
+    }
+
+    /**
+     * The reactor build command for an app: the guard-safe {@code command}, whether it was genuinely {@code aiDerived}
+     * (vs the degraded default), and a human {@code note} on degrade (null when AI-derived) — so the tracker can say
+     * honestly whether the AI chose the command or it fell back to the default.
+     */
+    public record BuildCommand(String command, boolean aiDerived, String note) {}
 }
