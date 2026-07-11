@@ -81,21 +81,30 @@ class AsyncSnykFixRunnerTest {
     }
 
     @Test
-    void branchAndCommitEmbedTheJiraKeyWhenKnown() {
-        // The Jira key rides in the branch AND the commit so Bitbucket links both to the ticket's dev panel.
-        assertThat(AsyncSnykFixRunner.branchName("abcdef123456", "CIAM-50"))
-                .isEqualTo("veritas/CIAM-50/snyk-fix-abcdef12");
-        assertThat(AsyncSnykFixRunner.commitMessage("CIAM-50", "BOM", "bump x 1->2"))
-                .isEqualTo("CIAM-50 Snyk fix: BOM — bump x 1->2");
+    void branchIsAFeatureBranchPerProjectAndTheCommitCarriesTheKeyAndDependency() {
+        // BNC "feature" type, off develop, per Bitbucket project (APP7488 -> app-7488) with the Jira key.
+        assertThat(AsyncSnykFixRunner.branchName("LSIST-439", "APP7488"))
+                .isEqualTo("feature/LSIST-439-snyk-fix-app-7488");
+        assertThat(AsyncSnykFixRunner.branchName("LSIST-439", "APP7571"))
+                .isEqualTo("feature/LSIST-439-snyk-fix-app-7571");
+        // Commit: <KEY>: Bump <artifactId> to <fixedIn> (artifactId only, not the full coordinate).
+        assertThat(AsyncSnykFixRunner.commitMessage("LSIST-439", "org.apache.commons:commons-lang3", "3.18.0"))
+                .isEqualTo("LSIST-439: Bump commons-lang3 to 3.18.0");
     }
 
     @Test
     void branchAndCommitFallBackCleanlyWithoutAValidJiraKey() {
-        // No key → the trainId-only branch + the un-prefixed commit (the pre-change behaviour).
-        assertThat(AsyncSnykFixRunner.branchName("abcdef123456", null)).isEqualTo("veritas/snyk-fix-abcdef12");
-        assertThat(AsyncSnykFixRunner.commitMessage(null, "core", "bump y")).isEqualTo("Snyk fix: core — bump y");
-        // A malformed value must never land in a git ref (it would break the branch) → fall back.
-        assertThat(AsyncSnykFixRunner.branchName("abcdef123456", "not a key")).isEqualTo("veritas/snyk-fix-abcdef12");
+        // No key → key-less feature branch + un-prefixed commit; a malformed key never lands in a git ref.
+        assertThat(AsyncSnykFixRunner.branchName(null, "APP7488")).isEqualTo("feature/snyk-fix-app-7488");
+        assertThat(AsyncSnykFixRunner.branchName("not a key", "APP7571")).isEqualTo("feature/snyk-fix-app-7571");
+        assertThat(AsyncSnykFixRunner.commitMessage(null, "com.x:y", "2.0")).isEqualTo("Bump y to 2.0");
+    }
+
+    @Test
+    void commitSubjectIsTruncatedToStayUnderTheHookLimit() {
+        String longArtifact = "a".repeat(90);
+        String msg = AsyncSnykFixRunner.commitMessage("LSIST-439", "g:" + longArtifact, "1.0");
+        assertThat(msg).hasSizeLessThanOrEqualTo(72).startsWith("LSIST-439: Bump ").endsWith("...");
     }
 
     @Test
@@ -133,7 +142,7 @@ class AsyncSnykFixRunnerTest {
             return inv.getArgument(0);
         });
 
-        runner.pushBranches("t1", Map.of("P/bom-repo", Path.of(".")), "veritas/x", "CIAM-1");
+        runner.pushBranches("t1", Map.of("P/bom-repo", Path.of(".")), "CIAM-1", "com.x:y", "2.0");
 
         // The module is shown RUNNING (spinner) BEFORE it flips to BRANCH_PUSHED — the live stepper advance.
         assertThat(statusSequence).containsSubsequence(SnykFixStatus.RUNNING, SnykFixStatus.BRANCH_PUSHED);
@@ -151,7 +160,7 @@ class AsyncSnykFixRunnerTest {
         doThrow(new RuntimeException("not authorized")).when(prPublisher)
                 .pushBranch(any(), any(), any(), any());
 
-        runner.pushBranches("t1", Map.of("P/bom-repo", Path.of(".")), "veritas/x", "CIAM-1");
+        runner.pushBranches("t1", Map.of("P/bom-repo", Path.of(".")), "CIAM-1", "com.x:y", "2.0");
 
         assertThat(bom.getStatus()).isEqualTo(SnykFixStatus.STEP_FAILED);
         assertThat(bom.getReason()).contains("push failed").contains("not authorized");
