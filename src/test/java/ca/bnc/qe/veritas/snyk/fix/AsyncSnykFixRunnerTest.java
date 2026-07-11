@@ -152,6 +152,26 @@ class AsyncSnykFixRunnerTest {
     }
 
     @Test
+    void pushBranchesRecordsTheCommitShaAndAPersistentSuccessDetail() {
+        // Part D visibility: on a successful push the step keeps the commit sha (for the chip) AND a persistent,
+        // non-null success line naming the branch — so the stepper says exactly what was done, not a blank.
+        SnykFixStep bom = stepOf(1, "BOM");
+        bom.setBitbucketProject("P");
+        bom.setRepoSlug("bom-repo");
+        when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of(bom));
+        when(steps.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(prPublisher.pushBranch(any(), any(), any(), any()))
+                .thenReturn(new PrPublisher.PushOutcome("feature/CIAM-1-snyk-fix-p", "abc1234def5678901234", true));
+
+        runner.pushBranches("t1", Map.of("P/bom-repo", Path.of(".")), "CIAM-1", "com.x:y", "2.0");
+
+        assertThat(bom.getStatus()).isEqualTo(SnykFixStatus.BRANCH_PUSHED);
+        assertThat(bom.getCommitSha()).isEqualTo("abc1234def5678901234");
+        assertThat(bom.getStageDetail()).as("a persistent success line, not null")
+                .contains("abc1234").contains("new branch");
+    }
+
+    @Test
     void pushBranchesMarksAStepFailedAndSummarisesWhenThePushIsRejected() {
         // A push rejected for want of write scope must STOP the step at STEP_FAILED with a reason — not silently
         // continue and later be mistaken for a shipped fix (fail-fast + the failure-summary log branch).

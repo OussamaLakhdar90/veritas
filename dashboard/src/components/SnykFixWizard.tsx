@@ -481,6 +481,23 @@ export function StepRow({ step, failedHere, awaiting, url, onUrl, onRecord }:
           </Badge>
         </div>
         {detail && <p className={`mt-0.5 text-xs ${visual === 'error' ? 'text-danger' : 'text-muted'}`}>{detail}</p>}
+        {/* The concrete git actions — which branch, and the commit sha once pushed — so the stepper isn't "blind"
+            about what was actually done (the exact gap the user hit). Branch always shown; sha appears after the push. */}
+        {!step.manual && step.branch && (
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <span title={step.branch}
+              className="inline-flex items-center gap-1 rounded bg-ink-100 px-1.5 py-0.5 font-mono text-2xs text-ink-700 ring-1 ring-border">
+              <GitBranch className="h-3 w-3 shrink-0" />
+              <span className="max-w-[16rem] truncate">{step.branch}</span>
+            </span>
+            {step.commitSha && (
+              <span title={step.commitSha}
+                className="inline-flex items-center gap-1 rounded bg-ink-100 px-1.5 py-0.5 font-mono text-2xs text-ink-700 ring-1 ring-border">
+                {t('snyk.fix.commit')} {step.commitSha.slice(0, 7)}
+              </span>
+            )}
+          </div>
+        )}
         {step.prUrl && isHttpUrl(step.prUrl) && (
           <a href={step.prUrl} target="_blank" rel="noreferrer"
             className="mt-1 inline-flex items-center gap-1 text-xs text-gold hover:underline">

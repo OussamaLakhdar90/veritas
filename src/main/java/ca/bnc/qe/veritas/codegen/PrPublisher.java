@@ -77,24 +77,31 @@ public class PrPublisher {
      * Branch + commit + push a working copy WITHOUT opening a PR. Used by the Snyk fix cascade, which must push the
      * version-bump branch even when a breaking change is flagged (the PR is then opened later, by the user or Veritas).
      */
-    public void pushBranch(Path workingCopy, String repoSlug, String branch, String commitMessage) {
+    public PushOutcome pushBranch(Path workingCopy, String repoSlug, String branch, String commitMessage) {
         // Bulk safety: several bulk trains (running on the fix pool) resolve to the SAME (repoSlug, branch) and push
         // concurrently. Serialize the whole fetch→merge→push per branch so two threads can't both see the branch as
         // new, both force-push, and clobber each other's commit (a TOCTOU race). Serialized, each push sees the prior's
         // remote commit and ACCUMULATES onto it (see incorporateExistingRemoteBranch).
         synchronized (branchLocks.computeIfAbsent(repoSlug + "/" + branch, k -> new Object())) {
-            pushBranchLocked(workingCopy, repoSlug, branch, commitMessage);
+            return pushBranchLocked(workingCopy, repoSlug, branch, commitMessage);
         }
     }
 
-    private void pushBranchLocked(Path workingCopy, String repoSlug, String branch, String commitMessage) {
+    private PushOutcome pushBranchLocked(Path workingCopy, String repoSlug, String branch, String commitMessage) {
         try (Git git = Git.open(workingCopy.toFile())) {
             configureCommitIdentity(git);   // deterministic author/committer for the fix commit AND any merge commit
             git.checkout().setCreateBranch(!branchExists(git, branch)).setName(branch).call();
             git.add().addFilepattern(".").call();
+            // Capture the sha of the commit that carries THIS fix so the tracker can show it ("Committed abc1234…").
+            // If the edit produced no diff (already applied), fall back to the branch tip so a sha is always available.
+            String commitSha;
             if (!git.status().call().isClean()) {
-                git.commit().setMessage(commitMessage)
-                        .setAuthor("Veritas", "veritas@bnc.ca").setCommitter("Veritas", "veritas@bnc.ca").call();
+                commitSha = git.commit().setMessage(commitMessage)
+                        .setAuthor("Veritas", "veritas@bnc.ca").setCommitter("Veritas", "veritas@bnc.ca")
+                        .call().getName();
+            } else {
+                ObjectId head = git.getRepository().resolve("HEAD");
+                commitSha = head == null ? null : head.getName();
             }
             // The branch is per-(Jira key, Bitbucket project); each train clones fresh from develop, so a blind
             // force-push would ERASE the earlier train's commit. Pull the existing remote branch in first (merge) and
@@ -103,7 +110,9 @@ public class PrPublisher {
             PushCommand push = git.push().setRemote("origin").add(branch).setForce(!accumulated);
             applyGitAuth(push);   // Bearer for Server/DC PAT (same as the clone) — Basic-with-empty-username is rejected
             verifyPushAccepted(push.call(), branch, repoSlug);   // JGit doesn't THROW on a rejected ref — inspect the result
-            log.info("Pushed branch {} to {}", branch, repoSlug);
+            log.info("Pushed branch {} to {} (commit {}, {})", branch, repoSlug, shortSha(commitSha),
+                    accumulated ? "accumulated onto existing" : "new branch");
+            return new PushOutcome(branch, commitSha, !accumulated);
         } catch (Exception e) {
             String msg = e.getMessage() == null ? "" : e.getMessage();
             String low = msg.toLowerCase(Locale.ROOT);
@@ -202,10 +211,22 @@ public class PrPublisher {
         return false;
     }
 
+    /** The first 7 chars of a git sha for a compact log/UI line; "(none)" when there is no sha. */
+    private static String shortSha(String sha) {
+        return sha == null || sha.isBlank() ? "(none)" : sha.substring(0, Math.min(7, sha.length()));
+    }
+
     /** Where to publish from and what PR to open. */
     public record PrRequest(Path workingCopy, String repoSlug, String branch, String targetBranch,
                             String title, String description, String commitMessage) {}
 
     /** Result of a publish: the pushed branch and the PR's web URL. */
     public record PrResult(String branch, String prUrl) {}
+
+    /**
+     * Outcome of a {@link #pushBranch} — the branch, the sha of the commit that carries the change (so the tracker can
+     * show exactly what was committed), and whether the branch was newly created ({@code true}) vs accumulated onto an
+     * existing shared branch ({@code false}).
+     */
+    public record PushOutcome(String branch, String commitSha, boolean created) {}
 }

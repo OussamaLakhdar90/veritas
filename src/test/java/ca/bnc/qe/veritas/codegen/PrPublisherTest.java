@@ -214,6 +214,33 @@ class PrPublisherTest {
     }
 
     @Test
+    void pushBranchReturnsTheCommitShaAndTheCreatedFlag() throws Exception {
+        // Part D visibility: the push reports the sha of the commit it made and whether the branch was newly created,
+        // so the stepper can show "Committed abc1234… (new branch)" instead of being blind about what happened.
+        Path bare = tmp.resolve("origin.git");
+        Git.init().setBare(true).setDirectory(bare.toFile()).call().close();
+        seedRemote(bare, tmp.resolve("seed"));
+        PrPublisher publisher = new PrPublisher(noopHost(), key -> Optional.empty(), conns("SERVER_DC"));
+        String branch = "feature/LSIST-9-snyk-fix-app-1";
+
+        Path w1 = tmp.resolve("w1");
+        Git.cloneRepository().setURI(bare.toUri().toString()).setDirectory(w1.toFile()).call().close();
+        Files.writeString(w1.resolve("fix.txt"), "bump");
+        PrPublisher.PushOutcome first = publisher.pushBranch(w1, "lsist-bom", branch, "LSIST-9: bump");
+        assertThat(first.branch()).isEqualTo(branch);
+        assertThat(first.commitSha()).as("a real 40-char git sha").hasSize(40);
+        assertThat(first.created()).as("a brand-new branch").isTrue();
+
+        // A second push to the SAME branch accumulates onto the existing remote branch → created=false, own sha.
+        Path w2 = tmp.resolve("w2");
+        Git.cloneRepository().setURI(bare.toUri().toString()).setDirectory(w2.toFile()).call().close();
+        Files.writeString(w2.resolve("fix2.txt"), "bump2");
+        PrPublisher.PushOutcome second = publisher.pushBranch(w2, "lsist-bom", branch, "LSIST-9: bump2");
+        assertThat(second.created()).as("accumulated onto an existing branch, not created").isFalse();
+        assertThat(second.commitSha()).hasSize(40);
+    }
+
+    @Test
     void concurrentPushesToTheSameBranchBothSurviveInsteadOfClobbering() throws Exception {
         // Bulk: several trains resolve to the SAME (repoSlug, branch) and push at the same time. Without the per-branch
         // lock, both could see the branch as new, both force-push, and the later clobbers the earlier. With it, they

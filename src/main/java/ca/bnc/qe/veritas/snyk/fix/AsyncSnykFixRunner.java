@@ -497,9 +497,13 @@ public class AsyncSnykFixRunner {
             s.setStageDetail("Pushing " + s.getModuleLabel() + "…");
             steps.save(s);
             try {
-                prPublisher.pushBranch(repoDir, s.getRepoSlug(), branch, commit);
+                PrPublisher.PushOutcome outcome = prPublisher.pushBranch(repoDir, s.getRepoSlug(), branch, commit);
                 s.setStatus(SnykFixStatus.BRANCH_PUSHED);
-                s.setStageDetail(null);
+                // Record the concrete outcome so the stepper isn't blind: the commit sha (shown as a chip) and a
+                // persistent, non-null success line naming the branch — on success, not just a reverted planned diff.
+                s.setCommitSha(outcome == null ? null : outcome.commitSha());
+                s.setStageDetail(pushedDetail(outcome, branch));
+                s.setReason(null);   // clear any stale reason from a prior failed attempt on this step
                 steps.save(s);
                 pushed++;
             } catch (RuntimeException e) {
@@ -584,6 +588,21 @@ public class AsyncSnykFixRunner {
         String key = safeKey(jiraKey);
         String msg = key == null ? body : key + ": " + body;
         return msg.length() <= COMMIT_SUBJECT_MAX ? msg : msg.substring(0, COMMIT_SUBJECT_MAX - 3) + "...";
+    }
+
+    /**
+     * A persistent, human success line for a pushed step — names the commit sha and the branch, and whether the branch
+     * was created or updated (accumulated onto). Never null, so the stepper always SAYS what was done on success rather
+     * than reverting to a blank/planned line. Defensive against a null outcome (never returned by the real publisher).
+     */
+    static String pushedDetail(PrPublisher.PushOutcome outcome, String branch) {
+        if (outcome == null) {
+            return "Branch " + branch + " pushed.";
+        }
+        String sha = outcome.commitSha();
+        String shortSha = sha == null || sha.isBlank() ? "(no commit)" : sha.substring(0, Math.min(7, sha.length()));
+        return "Committed " + shortSha + " to " + outcome.branch()
+                + (outcome.created() ? " (new branch)." : " (updated existing branch).");
     }
 
     /** A Jira key only when it looks like one (PROJ-123); a blank/malformed value never lands in a git ref. */
