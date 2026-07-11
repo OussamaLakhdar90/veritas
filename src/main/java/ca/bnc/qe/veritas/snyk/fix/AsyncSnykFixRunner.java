@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -175,13 +176,12 @@ public class AsyncSnykFixRunner {
             String[] coord = req.coordinate().split(":", 2);
             String groupId = coord[0];
             String artifactId = coord.length > 1 ? coord[1] : coord[0];
-            String branch = branchName(trainId, req.jiraKey());
 
             // 1) PLANNING — clone framework + consumers, read poms, plan the cascade, persist the steps.
             FrameworkPoms poms = cloneFramework(clones);
             List<AppInput> apps = cloneConsumers(req.appIds(), clones);
             List<CascadeStep> plan = planner.plan(groupId, artifactId, req.fixedIn(), poms, apps, versionOverrides);
-            persistSteps(trainId, plan, clones, branch, req.reviewersOverride(), reviewerOverrides);
+            persistSteps(trainId, plan, clones, req.jiraKey(), req.reviewersOverride(), reviewerOverrides);
 
             // 1b) Pause for the user to review the cascade (edit versions/reviewers) before anything runs.
             if (pauseForConfirm) {
@@ -227,7 +227,7 @@ public class AsyncSnykFixRunner {
             // 5) PUSH — always push the version-bump branches (even on a breaking change).
             stage = SnykFixStatus.OPENING_PRS;
             train = stage(train, stage, "Pushing the version-bump branches…");
-            pushBranches(trainId, clones, branch, train.getJiraKey());
+            pushBranches(trainId, clones, train.getJiraKey(), req.coordinate(), req.fixedIn());
 
             // 6) DECIDE — clean opens the PR train (+ Jira In Review); breaking holds the PRs and awaits the user.
             // Both outcomes (PR_OPEN / AWAITING_MANUAL_FIX) are NON-terminal human-wait states, so we do NOT stamp
@@ -316,7 +316,7 @@ public class AsyncSnykFixRunner {
         }
     }
 
-    void persistSteps(String trainId, List<CascadeStep> plan, Map<String, Path> clones, String branch,
+    void persistSteps(String trainId, List<CascadeStep> plan, Map<String, Path> clones, String jiraKey,
                       List<String> reviewersOverride, Map<Integer, List<String>> reviewerOverrides) {
         steps.deleteByTrainId(trainId);   // a confirm-time re-plan replaces the preview steps rather than duplicating
         for (CascadeStep cs : plan) {
@@ -325,7 +325,7 @@ public class AsyncSnykFixRunner {
             s.setStepOrder(cs.order());
             s.setBitbucketProject(cs.bitbucketProject());
             s.setRepoSlug(cs.repoSlug());
-            s.setBranch(branch);
+            s.setBranch(branchName(jiraKey, cs.bitbucketProject()));   // per-project feature branch (preview; re-set at push)
             s.setPomPath(cs.pomPath());
             s.setModuleLabel(cs.moduleLabel());
             s.setDiffPreview(cs.diffPreview());
@@ -441,9 +441,10 @@ public class AsyncSnykFixRunner {
         }
     }
 
-    void pushBranches(String trainId, Map<String, Path> clones, String branch, String jiraKey) {
+    void pushBranches(String trainId, Map<String, Path> clones, String jiraKey, String coordinate, String fixedIn) {
         int pushed = 0;
         int failed = 0;
+        String commit = commitMessage(jiraKey, coordinate, fixedIn);   // same subject on every repo of this fix
         for (SnykFixStep s : steps.findByTrainIdOrderByStepOrder(trainId)) {
             if (s.isManual()) {
                 continue;
@@ -452,13 +453,16 @@ public class AsyncSnykFixRunner {
             if (repoDir == null) {
                 continue;
             }
+            // Authoritative branch from the FINAL Jira key (the ticket may have been created during the JIRA step, after
+            // persistSteps set the preview) — per Bitbucket project so all its repos share one feature branch.
+            String branch = branchName(jiraKey, s.getBitbucketProject());
+            s.setBranch(branch);
             // Mark this module active BEFORE the push so a poll mid-loop shows the stepper advancing module by module.
             s.setStatus(SnykFixStatus.RUNNING);
             s.setStageDetail("Pushing " + s.getModuleLabel() + "…");
             steps.save(s);
             try {
-                prPublisher.pushBranch(repoDir, s.getRepoSlug(), branch,
-                        commitMessage(jiraKey, s.getModuleLabel(), s.getDiffPreview()));
+                prPublisher.pushBranch(repoDir, s.getRepoSlug(), branch, commit);
                 s.setStatus(SnykFixStatus.BRANCH_PUSHED);
                 s.setStageDetail(null);
                 steps.save(s);
@@ -508,18 +512,43 @@ public class AsyncSnykFixRunner {
         return trains.save(train);
     }
 
-    /** The fix branch, embedding the Jira key when it's a real key so the branch links to the ticket's dev panel. */
-    static String branchName(String trainId, String jiraKey) {
-        String suffix = "snyk-fix-" + trainId.substring(0, Math.min(8, trainId.length()));
+    /** Max commit-subject length — BNC's commit hook keeps subjects short; an overlong message is truncated to fit. */
+    private static final int COMMIT_SUBJECT_MAX = 72;
+
+    /**
+     * The fix branch — BNC's "feature" type, off {@code develop}, named PER Bitbucket project with the Jira key:
+     * {@code feature/<KEY>-snyk-fix-app-<n>} (e.g. {@code feature/LSIST-439-snyk-fix-app-7488}). Per-project (not per
+     * repo), so every repo in one project shares a branch and each project gets its own. Matches the branching model so
+     * the push is accepted; the key links it to the ticket dev panel.
+     */
+    static String branchName(String jiraKey, String bitbucketProject) {
+        String proj = projectSlug(bitbucketProject);
         String key = safeKey(jiraKey);
-        return key == null ? "veritas/" + suffix : "veritas/" + key + "/" + suffix;
+        return key == null ? "feature/snyk-fix-" + proj : "feature/" + key + "-snyk-fix-" + proj;
     }
 
-    /** The per-module commit, prefixed with the Jira key when known so Bitbucket links the commit to the ticket. */
-    static String commitMessage(String jiraKey, String moduleLabel, String diffPreview) {
-        String base = "Snyk fix: " + moduleLabel + " — " + diffPreview;
+    /** A Bitbucket project key normalised for a branch name: {@code APP7488 -> app-7488}; anything else lowercased. */
+    static String projectSlug(String project) {
+        String p = project == null ? "" : project.trim().toLowerCase(Locale.ROOT);
+        if (p.startsWith("app") && p.length() > 3 && p.substring(3).chars().allMatch(Character::isDigit)) {
+            return "app-" + p.substring(3);
+        }
+        String cleaned = p.replaceAll("[^a-z0-9]+", "-").replaceAll("^-|-$", "");
+        return cleaned.isEmpty() ? "app" : cleaned;
+    }
+
+    /**
+     * The commit subject — {@code <KEY>: <short>}, key-prefixed so Bitbucket links the commit to the ticket, kept short
+     * for the BNC commit-length limit. Names the single fixed dependency by its artifactId, e.g.
+     * {@code LSIST-439: Bump commons-lang3 to 3.18.0}.
+     */
+    static String commitMessage(String jiraKey, String coordinate, String fixedIn) {
+        String artifact = coordinate == null || coordinate.isBlank()
+                ? "the dependency" : coordinate.substring(coordinate.indexOf(':') + 1);
+        String body = "Bump " + artifact + " to " + (fixedIn == null || fixedIn.isBlank() ? "the safe version" : fixedIn);
         String key = safeKey(jiraKey);
-        return key == null ? base : key + " " + base;
+        String msg = key == null ? body : key + ": " + body;
+        return msg.length() <= COMMIT_SUBJECT_MAX ? msg : msg.substring(0, COMMIT_SUBJECT_MAX - 3) + "...";
     }
 
     /** A Jira key only when it looks like one (PROJ-123); a blank/malformed value never lands in a git ref. */

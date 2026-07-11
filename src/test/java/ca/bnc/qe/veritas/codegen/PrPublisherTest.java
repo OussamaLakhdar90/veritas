@@ -1,18 +1,30 @@
 package ca.bnc.qe.veritas.codegen;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Stream;
 import ca.bnc.qe.veritas.config.ConnectionsProperties;
 import ca.bnc.qe.veritas.secret.SecretProvider;
 import ca.bnc.qe.veritas.vcs.GitHost;
 import ca.bnc.qe.veritas.vcs.RepoInfo;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.storage.file.WindowCacheConfig;
+import org.eclipse.jgit.transport.PushResult;
+import org.eclipse.jgit.transport.RemoteRefUpdate;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
 
 /**
  * Exercises the full JGit publish path (branch → commit → push) against a local bare remote — no network,
@@ -20,8 +32,32 @@ import org.junit.jupiter.api.io.TempDir;
  */
 class PrPublisherTest {
 
+    // These tests clone/fetch real git repos. On Windows a JGit pack-file handle can linger past close, which makes
+    // JUnit's built-in @TempDir cleanup fail the test on a filesystem quirk. We self-manage the temp dir instead and
+    // clean it best-effort (deleteQuietly), so a lingering pack never turns a passing test red. No-op cost on Linux.
+    private Path tmp;
+
+    @BeforeAll
+    static void disablePackMemoryMapping() {
+        // A memory-mapped pack can't be deleted on Windows until GC unmaps it (non-deterministic). Reading packs
+        // WITHOUT mmap keeps handles promptly closeable so the cleanup below deletes almost everything each run.
+        WindowCacheConfig cfg = new WindowCacheConfig();
+        cfg.setPackedGitMMAP(false);
+        cfg.install();
+    }
+
+    @BeforeEach
+    void makeTempDir() throws IOException {
+        tmp = Files.createTempDirectory("veritas-prpublisher-");
+    }
+
+    @AfterEach
+    void cleanTempDir() throws IOException {
+        deleteQuietly(tmp);
+    }
+
     @Test
-    void pushesBranchToRemoteAndOpensPr(@TempDir Path tmp) throws Exception {
+    void pushesBranchToRemoteAndOpensPr() throws Exception {
         Path bare = tmp.resolve("origin.git");
         Git.init().setBare(true).setDirectory(bare.toFile()).call().close();
 
@@ -74,7 +110,7 @@ class PrPublisherTest {
     }
 
     @Test
-    void returnsThePushedBranchAsABreadcrumbWhenOpeningThePrFails(@TempDir Path tmp) throws Exception {
+    void returnsThePushedBranchAsABreadcrumbWhenOpeningThePrFails() throws Exception {
         Path bare = tmp.resolve("origin.git");
         Git.init().setBare(true).setDirectory(bare.toFile()).call().close();
         Path work = tmp.resolve("work");
@@ -108,7 +144,7 @@ class PrPublisherTest {
     }
 
     @Test
-    void pushesWithBasicAuthOnCloudEdition(@TempDir Path tmp) throws Exception {
+    void pushesWithBasicAuthOnCloudEdition() throws Exception {
         // Cloud (and explicit BASIC) uses username + token — the Bearer path is Server/DC-only. Proves the auth
         // choice is edition-aware (the bug was: push always Basic, so a Server/DC PAT push 401'd while clone worked).
         Path bare = tmp.resolve("origin.git");
@@ -138,6 +174,111 @@ class PrPublisherTest {
             assertThat(origin.branchList().call().stream()
                     .anyMatch(r -> r.getName().equals("refs/heads/veritas/gen-cloud"))).isTrue();
         }
+    }
+
+    @Test
+    void aSecondFixForTheSameBranchAccumulatesInsteadOfClobberingTheFirst() throws Exception {
+        // The per-(Jira key, project) branch means two fix trains for the same ticket+project push the SAME branch.
+        // Each train clones fresh from develop, so a blind force-push by the second would ERASE the first's commit.
+        // The publisher must fetch+merge the existing branch so BOTH fixes survive on it.
+        Path bare = tmp.resolve("origin.git");
+        Git.init().setBare(true).setDirectory(bare.toFile()).call().close();
+        seedRemote(bare, tmp.resolve("seed"));
+
+        PrPublisher publisher = new PrPublisher(noopHost(), key -> Optional.empty(), conns("SERVER_DC"));
+        String branch = "feature/LSIST-439-snyk-fix-app-7488";
+
+        // First fix train: a fresh clone that bumps dependency A.
+        Path w1 = tmp.resolve("w1");
+        Git.cloneRepository().setURI(bare.toUri().toString()).setDirectory(w1.toFile()).call().close();
+        Files.writeString(w1.resolve("bump-A.txt"), "commons-lang3 -> 3.18.0");
+        publisher.pushBranch(w1, "lsist-bom", branch, "LSIST-439: Bump commons-lang3 to 3.18.0");
+
+        // Second fix train for the SAME ticket+project: a DIFFERENT fresh clone off develop (no bump-A) bumps B.
+        Path w2 = tmp.resolve("w2");
+        Git.cloneRepository().setURI(bare.toUri().toString()).setDirectory(w2.toFile()).call().close();
+        Files.writeString(w2.resolve("bump-B.txt"), "jackson -> 2.17.0");
+        publisher.pushBranch(w2, "lsist-bom", branch, "LSIST-439: Bump jackson to 2.17.0");
+
+        // The shared branch on the remote must carry BOTH bumps — the second push accumulated onto the first.
+        Path check = tmp.resolve("check");
+        Git.cloneRepository().setURI(bare.toUri().toString()).setBranch(branch)
+                .setDirectory(check.toFile()).call().close();
+        assertThat(Files.exists(check.resolve("bump-A.txt"))).as("first fix preserved").isTrue();
+        assertThat(Files.exists(check.resolve("bump-B.txt"))).as("second fix added").isTrue();
+    }
+
+    /** Best-effort recursive delete that swallows a locked pack file (Windows keeps a JGit pack handle briefly past
+     *  close); the OS temp cleaner reaps any remnant. Never fails a test on a filesystem quirk. */
+    private static void deleteQuietly(Path root) throws IOException {
+        if (!Files.exists(root)) {
+            return;
+        }
+        try (Stream<Path> walk = Files.walk(root)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException ignored) {
+                    // a pack file still mapped/held on Windows — leave it for the OS temp cleaner
+                }
+            });
+        }
+    }
+
+    @Test
+    void aRejectedRefTurnsIntoAThrownErrorCarryingTheRemoteReason() {
+        // The root bug: JGit does NOT throw when Bitbucket rejects the ref (branching-model / branch-permission hook).
+        // verifyPushAccepted must surface that as a real failure with the remote's own message, so "pushed" is never
+        // logged for a branch Bitbucket never created.
+        RemoteRefUpdate rejected = mock(RemoteRefUpdate.class);
+        when(rejected.getStatus()).thenReturn(RemoteRefUpdate.Status.REJECTED_OTHER_REASON);
+        when(rejected.getMessage()).thenReturn("branch name does not match the branching model");
+        PushResult result = mock(PushResult.class);
+        when(result.getRemoteUpdates()).thenReturn(List.of(rejected));
+
+        assertThatThrownBy(() -> PrPublisher.verifyPushAccepted(
+                List.of(result), "feature/LSIST-439-snyk-fix-app-7488", "lsist-bom"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("feature/LSIST-439-snyk-fix-app-7488")
+                .hasMessageContaining("lsist-bom")
+                .hasMessageContaining("REJECTED_OTHER_REASON")
+                .hasMessageContaining("branching model")               // the remote's own reason is carried through
+                .hasMessageContaining("branch permissions");
+    }
+
+    @Test
+    void anAcceptedOrUpToDatePushIsNotFlaggedAsAFailure() {
+        // OK (created/updated) and UP_TO_DATE (nothing to push, e.g. an idempotent re-run) are BOTH success — the
+        // check must not turn a clean no-op push into a spurious error.
+        RemoteRefUpdate ok = mock(RemoteRefUpdate.class);
+        when(ok.getStatus()).thenReturn(RemoteRefUpdate.Status.OK);
+        RemoteRefUpdate upToDate = mock(RemoteRefUpdate.class);
+        when(upToDate.getStatus()).thenReturn(RemoteRefUpdate.Status.UP_TO_DATE);
+        PushResult result = mock(PushResult.class);
+        when(result.getRemoteUpdates()).thenReturn(List.of(ok, upToDate));
+
+        assertThatCode(() -> PrPublisher.verifyPushAccepted(List.of(result), "feature/x", "repo"))
+                .doesNotThrowAnyException();
+    }
+
+    /** Give the bare remote an initial commit on its default branch (the base the fix branches fork from). */
+    private static void seedRemote(Path bare, Path seedWork) throws Exception {
+        try (Git git = Git.cloneRepository().setURI(bare.toUri().toString()).setDirectory(seedWork.toFile()).call()) {
+            Files.writeString(seedWork.resolve("README.md"), "seed");
+            git.add().addFilepattern(".").call();
+            git.commit().setMessage("seed").setAuthor("t", "t@t").setCommitter("t", "t@t").call();
+            git.push().setRemote("origin").call();
+        }
+    }
+
+    /** A GitHost whose methods are never exercised — {@code pushBranch} doesn't touch the host. */
+    private static GitHost noopHost() {
+        return new GitHost() {
+            public List<RepoInfo> discoverRepos(String appId) { return List.of(); }
+            public List<String> listBranches(String appId, String repoSlug) { return List.of(); }
+            public Path clone(RepoInfo repo, String branch, Path destinationParent) { return null; }
+            public String openPullRequest(String r, String s, String t, String ti, String d) { return null; }
+        };
     }
 
     private static ConnectionsProperties conns(String edition) {
