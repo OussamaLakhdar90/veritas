@@ -125,6 +125,15 @@ veritas:
       fix-train-days: 90
     fix:
       reactor-timeout-seconds: 900   # per-command timeout for the local reactor build (cold repo + multi-module + N app tests)
+  # Engine Evolution (classification-learning loop). repo-app-id/repo-slug stay blank until Veritas's own deploy repo
+  # is known — proposals are collected + shown, but "open PR" is disabled until they're set.
+  evolve:
+    # Developer-only dry-run: render the generated DiffEngine.java edit from a LOCAL checkout to a review folder,
+    # with NO clone, gate, or PR — to verify the classifier produces the right code before a repo/app-id is wired up.
+    dry-run:
+      enabled: false               # the debug flag; the /dry-run endpoint is refused unless this is true
+      source-dir: ""               # a local checkout containing src/main/java/ca/bnc/qe/veritas/engine/diff/DiffEngine.java
+      output-dir: ""               # where to write the edited file + MANIFEST.md; blank → <user.home>/.veritas/fixPr
 
 logging:
   level:

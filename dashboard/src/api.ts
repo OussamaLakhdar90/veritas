@@ -172,6 +172,18 @@ export interface ClassificationTrain {
   createdAt?: string
 }
 
+/** Where a dry-run wrote the previewed DiffEngine.java edit + its manifest (no clone/gate/PR happened). */
+export interface DryRunPreview {
+  trainId: string
+  findingType: string
+  finalSeverity: string
+  aiSuggested: boolean
+  editedFilePath: string
+  manifestPath: string
+  mockBranch: string
+  mockPrTitle: string
+}
+
 /** One representative disputed finding inside a {@link DisputedTypeGroup} — deep-links to /findings/{scanId}. */
 export interface DisputeExample {
   id: string           // finding row id (the PATCH target for a verdict)
@@ -709,6 +721,10 @@ export const api = {
     send<ClassificationTrain>('POST', `/engine-evolution/proposals/${id}/challenge`, { severity, comment }),
   openClassificationPr: (id: string) =>
     send<ClassificationTrain>('POST', `/engine-evolution/proposals/${id}/open-pr`),
+  // Developer dry-run: render the DiffEngine.java edit from a local checkout to a review folder (no clone/gate/PR).
+  // Refused unless veritas.evolve.dry-run.enabled is set — the error explains how to turn it on.
+  dryRunClassification: (id: string) =>
+    send<DryRunPreview>('POST', `/engine-evolution/proposals/${id}/dry-run`),
   markClassificationMerged: (id: string) =>
     send<ClassificationTrain>('POST', `/engine-evolution/proposals/${id}/mark-merged`),
   dismissProposal: (id: string, reason?: string) =>

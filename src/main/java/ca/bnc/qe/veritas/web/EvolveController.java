@@ -4,6 +4,7 @@ import java.util.List;
 import ca.bnc.qe.veritas.evolve.ClassificationTrain;
 import ca.bnc.qe.veritas.evolve.DisputeCluster;
 import ca.bnc.qe.veritas.evolve.DisputeClusterService;
+import ca.bnc.qe.veritas.evolve.DryRunPreview;
 import ca.bnc.qe.veritas.evolve.EngineEvolutionService;
 import ca.bnc.qe.veritas.persistence.FindingRecordRepository;
 import ca.bnc.qe.veritas.settings.CurrentUser;
@@ -74,6 +75,16 @@ public class EvolveController {
     @PostMapping("/proposals/{id}/open-pr")
     public ClassificationTrain openPr(@PathVariable String id) {
         return service.openPr(id, currentUser.principalId());
+    }
+
+    /**
+     * DEBUG dry-run: render the DiffEngine.java edit this proposal would open a PR with, from a LOCAL checkout, to a
+     * review folder — no clone, gate, or PR. Refused unless {@code veritas.evolve.dry-run.enabled} is set. Lets a
+     * maintainer verify the classifier's generated code before a target repo/app-id is configured.
+     */
+    @PostMapping("/proposals/{id}/dry-run")
+    public DryRunPreview dryRun(@PathVariable String id) {
+        return service.dryRunPromote(id);
     }
 
     /** Record that the human merged the promotion PR (the learned classification is live after the next deploy). */

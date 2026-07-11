@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Brain, GitPullRequestArrow, RefreshCw, ExternalLink, Check, ShieldAlert, ChevronRight, ChevronDown } from 'lucide-react';
+import { Brain, GitPullRequestArrow, RefreshCw, ExternalLink, Check, ShieldAlert, ChevronRight, ChevronDown, FlaskConical } from 'lucide-react';
 import { api, ClassificationTrain, DisputedTypeGroup, DisputeExample } from '../api';
 import { Badge, Button, Card, CardBody, EmptyState, ErrorState, Input, PageHeader, TableSkeleton } from '../components/ui';
 import { useToast } from '../components/Toast';
@@ -225,6 +225,13 @@ function ProposalCard({ train }: { train: ClassificationTrain }) {
     onSuccess: () => { invalidate(); toast.push('success', t('evolve.dismissed')); },
     onError: (e: Error) => toast.push('error', e.message),
   });
+  // Developer dry-run: writes the generated DiffEngine.java edit to a local review folder — no clone/gate/PR.
+  // On success the toast names the folder to open; on error (e.g. the flag is off) it surfaces the reason.
+  const dryRun = useMutation({
+    mutationFn: () => api.dryRunClassification(train.id),
+    onSuccess: (p) => toast.push('success', t('evolve.dryRunDone', { path: p.editedFilePath })),
+    onError: (e: Error) => toast.push('error', e.message),
+  });
 
   return (
     <Card>
@@ -275,6 +282,9 @@ function ProposalCard({ train }: { train: ClassificationTrain }) {
               <Button size="sm" loading={openPr.isPending} disabled={unsaved}
                 title={unsaved ? t('evolve.saveFirst') : undefined} onClick={() => openPr.mutate()}>
                 <GitPullRequestArrow className="h-4 w-4" /> {t('evolve.openPr')}</Button>
+              <Button size="sm" variant="ghost" loading={dryRun.isPending} disabled={unsaved}
+                title={t('evolve.dryRunHint')} onClick={() => dryRun.mutate()}>
+                <FlaskConical className="h-4 w-4" /> {t('evolve.dryRun')}</Button>
               <Button size="sm" variant="secondary" loading={dismiss.isPending} onClick={() => dismiss.mutate()}>
                 {t('evolve.dismiss')}</Button>
             </div>

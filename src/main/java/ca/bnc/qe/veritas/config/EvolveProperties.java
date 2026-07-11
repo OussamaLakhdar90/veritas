@@ -41,8 +41,31 @@ public class EvolveProperties {
      *  calls the AI advisor (LLM cost); when off, use the on-demand "Refresh" action. */
     private boolean pollEnabled = false;
 
+    /** Developer-only dry-run: preview the generated DiffEngine.java edit from a LOCAL checkout, written to a review
+     *  folder — no clone, gate, or PR. For verifying the classifier produces the right code before a repo is wired up. */
+    private final DryRun dryRun = new DryRun();
+
     /** True once the self-repo target is configured — the gate for enabling the outward "open PR" step. */
     public boolean repoConfigured() {
         return repoAppId != null && !repoAppId.isBlank() && repoSlug != null && !repoSlug.isBlank();
+    }
+
+    /**
+     * {@code veritas.evolve.dry-run.*} — a debug switch that renders the deterministic {@code DiffEngine.java} edit
+     * from a local checkout to a review folder, so the classifier's output can be inspected without a real repo,
+     * Bitbucket access, approval gate, or PR. Off by default; the endpoint is refused unless {@code enabled} is true.
+     */
+    @Getter
+    @Setter
+    public static class DryRun {
+
+        /** The master switch (the "debug" flag). When false the dry-run endpoint is refused. */
+        private boolean enabled = false;
+
+        /** Local checkout of a repo containing {@code DiffEngine.java} — read-only; the edit is never written back here. */
+        private String sourceDir = "";
+
+        /** Where to write the edited file + manifest. Blank → {@code <user.home>/.veritas/fixPr}. */
+        private String outputDir = "";
     }
 }

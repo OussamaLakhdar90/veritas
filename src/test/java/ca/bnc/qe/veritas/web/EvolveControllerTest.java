@@ -82,6 +82,19 @@ class EvolveControllerTest {
     }
 
     @Test
+    void dryRunReturnsTheReviewFilePaths() throws Exception {
+        when(service.dryRunPromote("t1")).thenReturn(new ca.bnc.qe.veritas.evolve.DryRunPreview(
+                "t1", "STATUS_CODE_MISSING", "MAJOR", true,
+                "/home/u/.veritas/fixPr/t1/DiffEngine.java", "/home/u/.veritas/fixPr/t1/MANIFEST.md",
+                "veritas/classify-status-code-missing-major", "Engine Evolution: classify STATUS_CODE_MISSING as MAJOR"));
+        mvc.perform(post("/api/v1/engine-evolution/proposals/t1/dry-run"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.findingType").value("STATUS_CODE_MISSING"))
+                .andExpect(jsonPath("$.editedFilePath").value("/home/u/.veritas/fixPr/t1/DiffEngine.java"))
+                .andExpect(jsonPath("$.manifestPath").value("/home/u/.veritas/fixPr/t1/MANIFEST.md"));
+    }
+
+    @Test
     void debtReportsUnspecifiedAndDisputedCounts() throws Exception {
         when(findingRepository.countDistinctUnspecified()).thenReturn(4L);
         when(findingRepository.countDistinctDisputed()).thenReturn(2L);
