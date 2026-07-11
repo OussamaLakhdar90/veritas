@@ -83,14 +83,16 @@ public class SnykRetentionSweeper {
     }
 
     /**
-     * Prune only old <b>FAILED</b> or <b>CANCELLED</b> trains (both are noise — a failed run or one the user abandoned).
-     * DONE trains are the cumulative "fixes merged / PRs opened" record the executive dashboard reports, so deleting
-     * them would make those counters silently shrink over time — keep them as the historical remediation trail.
+     * Prune only old <b>FAILED</b>, <b>CANCELLED</b> or <b>ALREADY_FIXED</b> trains (all noise — a failed run, one the
+     * user abandoned, or a no-op where the framework already shipped the safe version). DONE trains are the cumulative
+     * "fixes merged / PRs opened" record the executive dashboard reports, so deleting them would make those counters
+     * silently shrink over time — keep them as the historical remediation trail.
      */
     private int pruneFixTrains(Instant cutoff) {
         int pruned = 0;
         for (SnykFixTrain t : trains.findByFinishedAtBefore(cutoff)) {
-            if (!SnykFixStatus.FAILED.equals(t.getStatus()) && !SnykFixStatus.CANCELLED.equals(t.getStatus())) {
+            if (!SnykFixStatus.FAILED.equals(t.getStatus()) && !SnykFixStatus.CANCELLED.equals(t.getStatus())
+                    && !SnykFixStatus.ALREADY_FIXED.equals(t.getStatus())) {
                 continue;
             }
             steps.deleteByTrainId(t.getId());

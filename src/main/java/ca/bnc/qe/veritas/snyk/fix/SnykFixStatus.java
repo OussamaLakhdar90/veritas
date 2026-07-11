@@ -16,6 +16,7 @@ public final class SnykFixStatus {
     public static final String DONE = "DONE";                         // all PRs merged
     public static final String FAILED = "FAILED";
     public static final String CANCELLED = "CANCELLED";               // user abandoned a human-wait train — terminal, NOT an error
+    public static final String ALREADY_FIXED = "ALREADY_FIXED";       // framework already ships the safe version — nothing to release, terminal, NOT an error
 
     // Step status
     public static final String PLANNED = "PLANNED";

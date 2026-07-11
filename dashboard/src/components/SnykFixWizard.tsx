@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { ExternalLink, CheckCircle2, AlertTriangle, GitBranch, Loader2, Check, Clock, Ban } from 'lucide-react';
+import { ExternalLink, CheckCircle2, AlertTriangle, GitBranch, Loader2, Check, Clock, Ban, ShieldCheck } from 'lucide-react';
 import { api, type SnykIssueView, type SnykFixTrainView, type SnykFixStepView } from '../api';
 import { Modal } from './Modal';
 import { Badge, Button, ErrorState, Field, Input, Spinner } from './ui';
@@ -315,6 +315,7 @@ export function TrainHeader({ train }: { train: SnykFixTrainView }) {
   const inFlight = IN_FLIGHT.includes(train.status);
   const failed = train.status === FIX_STATUS.FAILED;
   const cancelled = train.status === FIX_STATUS.CANCELLED;
+  const alreadyFixed = train.status === FIX_STATUS.ALREADY_FIXED;
   const actionNeeded = train.status === FIX_STATUS.AWAITING_MANUAL_FIX;
   const succeeded = train.status === FIX_STATUS.DONE || train.status === FIX_STATUS.PR_OPEN;
 
@@ -329,6 +330,7 @@ export function TrainHeader({ train }: { train: SnykFixTrainView }) {
   const stageElapsed = useStageElapsed(train.status, inFlight);   // the current phase's own timer
 
   const headline = cancelled ? t(`snyk.fix.status.${FIX_STATUS.CANCELLED}`, 'Cancelled')
+    : alreadyFixed ? t(`snyk.fix.status.${FIX_STATUS.ALREADY_FIXED}`, 'Already on the safe version')
     : failed ? t(`snyk.fix.status.${FIX_STATUS.FAILED}`, 'Stopped')
     : activePhase ? t(`snyk.fix.phase.${activePhase.key}.label`)
     : t(`snyk.fix.status.${train.status}`, train.status);
@@ -337,11 +339,11 @@ export function TrainHeader({ train }: { train: SnykFixTrainView }) {
     : t('repos.statusStep', { stepNo, total: FIX_PHASES.length });
   // Literal class strings (Tailwind can't see dynamically-built names) keyed off the header tone.
   // Colour convention: GOLD = in-progress (calm), amber = action-needed, green = done, RED = failure ONLY, and a
-  // neutral/muted grey for CANCELLED — abandoning is not an error, so it must never be red.
-  const boxCls = cancelled ? 'bg-ink-50 ring-border' : failed ? 'bg-danger/5 ring-danger/20'
+  // neutral/muted grey for CANCELLED and ALREADY_FIXED — neither is an error, so neither is ever red.
+  const boxCls = (cancelled || alreadyFixed) ? 'bg-ink-50 ring-border' : failed ? 'bg-danger/5 ring-danger/20'
     : actionNeeded ? 'bg-warning/5 ring-warning/20' : succeeded ? 'bg-success/5 ring-success/20' : 'bg-gold/5 ring-gold/20';
   const eyebrowCls = failed ? 'text-danger' : actionNeeded ? 'text-warning' : succeeded ? 'text-success' : 'text-gold';
-  const barCls = cancelled ? 'bg-ink-300' : failed ? 'bg-danger' : actionNeeded ? 'bg-warning'
+  const barCls = (cancelled || alreadyFixed) ? 'bg-ink-300' : failed ? 'bg-danger' : actionNeeded ? 'bg-warning'
     : succeeded ? 'bg-success' : 'bg-gold';
 
   return (
@@ -359,6 +361,7 @@ export function TrainHeader({ train }: { train: SnykFixTrainView }) {
                 : train.status === FIX_STATUS.DONE ? <SuccessCheck className="h-5 w-5" />
                 : failed ? <AlertTriangle className="h-4 w-4 text-danger" />
                 : cancelled ? <Ban className="h-4 w-4 text-muted" />
+                : alreadyFixed ? <ShieldCheck className="h-4 w-4 text-muted" />
                 : <CheckCircle2 className="h-4 w-4 text-success" />}
               {headline}
             </p>
@@ -481,6 +484,14 @@ export function TrainHeader({ train }: { train: SnykFixTrainView }) {
         <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-ink-50 px-3 py-2 text-xs text-muted ring-1 ring-border">
           <Ban className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>{train.stageDetail || t('snyk.fix.status.CANCELLED')}</span>
+        </p>
+      )}
+      {/* Already fixed: a muted, honest "nothing to release" note — NOT a false success (no PR), NOT an error (no red).
+          Directly answers the "it fixed nothing" complaint by making the no-op case visible instead of a phantom PR. */}
+      {alreadyFixed && (
+        <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-ink-50 px-3 py-2 text-xs text-muted ring-1 ring-border">
+          <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{train.stageDetail || t('snyk.fix.status.ALREADY_FIXED')}</span>
         </p>
       )}
     </div>
