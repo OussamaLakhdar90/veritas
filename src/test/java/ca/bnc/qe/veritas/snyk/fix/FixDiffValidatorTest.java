@@ -66,6 +66,15 @@ class FixDiffValidatorTest {
     }
 
     @Test
+    void capsAHugePomAndToleratesANullPomWithoutFailing() {
+        // The diff fed to the model is capped (a huge pom can't blow the prompt budget) and a null new-pom is handled.
+        when(llm.complete(anyString(), anyString())).thenReturn(
+                "```json\n{\"fixesTheVuln\":true,\"whatChanged\":\"x\",\"reason\":\"y\"}\n```");
+        String hugePom = "<project>" + "x".repeat(20000) + "</project>";   // > MAX_POM_CHARS → truncation branch
+        assertThat(validator.explain("a:b", "1", "2", hugePom, null, "alice", "t1").available()).isTrue();
+    }
+
+    @Test
     void degradesToUnavailableWhenCopilotOfflineOrTheJudgeFails() {
         when(llm.isAvailable()).thenReturn(false);
         assertThat(validator.explain("a:b", "1", "2", "<o/>", "<n/>", "alice", "t1").available()).isFalse();
