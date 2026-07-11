@@ -152,6 +152,57 @@ class CascadePlannerTest {
     }
 
     @Test
+    void bomStepIsManualNotAReleaseWhenTheDependencyIsAlreadyAtTheFixedVersion() {
+        // The BOM already manages jackson at 2.14.0 (via ${jackson.version}). A "fix" TO 2.14.0 changes nothing about
+        // the dependency — it must NOT bump the BOM's own <version> and open a change-less PR. It becomes an honest
+        // manual "already safe" step instead. (The exact change-less-"fix" bug from the screenshot.)
+        CascadeStep bom = planner.plan("com.fasterxml.jackson.core", "jackson-databind", "2.14.0",
+                new FrameworkPoms(BOM, null, null, null), List.of()).get(0);
+        assertThat(bom.manual()).isTrue();
+        assertThat(bom.edits()).isEmpty();                                   // no VERSION_BUMP, no property edit
+        assertThat(bom.reason()).contains("already pins").contains("2.14.0").contains("nothing to release");
+    }
+
+    @Test
+    void bomStepIsManualWhenAManagedLiteralIsAlreadyAtTheFixedVersion() {
+        // Same guard for a LITERAL managed version already at fixedIn (the renamed Jackson-3 group).
+        String bomPom = """
+                <project>
+                    <modelVersion>4.0.0</modelVersion>
+                    <groupId>ca.bnc.lsist</groupId>
+                    <artifactId>lsist-test-framework-bom</artifactId>
+                    <version>1.0.9</version>
+                    <packaging>pom</packaging>
+                    <dependencyManagement>
+                        <dependencies>
+                            <dependency>
+                                <groupId>tools.jackson.core</groupId>
+                                <artifactId>jackson-databind</artifactId>
+                                <version>3.1.4</version>
+                            </dependency>
+                        </dependencies>
+                    </dependencyManagement>
+                </project>
+                """;
+        CascadeStep bom = planner.plan("tools.jackson.core", "jackson-databind", "3.1.4",
+                new FrameworkPoms(bomPom, null, null, null), List.of()).get(0);
+        assertThat(bom.manual()).isTrue();
+        assertThat(bom.edits()).isEmpty();
+        assertThat(bom.reason()).contains("nothing to release");
+    }
+
+    @Test
+    void bomStepStillReleasesWhenTheVulnPinActuallyMoves() {
+        // Control: a real move (2.14.0 → 2.15.0) DOES pin the property AND release a new BOM version — the guard
+        // must not over-fire and suppress a genuine fix.
+        CascadeStep bom = planner.plan("com.fasterxml.jackson.core", "jackson-databind", "2.15.0",
+                new FrameworkPoms(BOM, null, null, null), List.of()).get(0);
+        assertThat(bom.manual()).isFalse();
+        assertThat(bom.edits()).anySatisfy(e -> assertThat(e.kind()).isEqualTo(FixEditKind.PROPERTY_BUMP))
+                .anySatisfy(e -> assertThat(e.kind()).isEqualTo(FixEditKind.VERSION_BUMP));   // the release bump rides along
+    }
+
+    @Test
     void anAddedOverrideIsLabelledHonestlyNotAsAConfirmedBump() {
         // A genuine transitive gets an ADD_OVERRIDE — the diff must say so ("Add managed override … verify it
         // applies"), so a reviewer never mistakes an added pin for an in-place bump of an existing managed version.
