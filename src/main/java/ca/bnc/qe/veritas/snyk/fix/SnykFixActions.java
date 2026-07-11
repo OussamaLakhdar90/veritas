@@ -230,7 +230,8 @@ public class SnykFixActions {
             step.setPrUrl(url);
             step.setPrOpenedBy(openedBy);
             step.setStatus(SnykFixStatus.STEP_PR_OPEN);
-            step.setStageDetail(null);
+            step.setStageDetail(null);   // the "View PR" link is now the persistent indication for this step
+            step.setReason(null);        // clear any stale "PR open failed…" reason from an earlier retry
             steps.save(step);
         } catch (RuntimeException e) {
             log.warn("Opening PR for step {} ({}) failed: {}", step.getModuleLabel(), step.getRepoSlug(), e.getMessage());

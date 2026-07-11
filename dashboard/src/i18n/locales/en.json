@@ -393,6 +393,7 @@
       "markMerged": "Mark all merged",
       "viewPr": "View PR",
       "viewBranch": "View branch",
+      "commit": "commit",
       "recordPr": "Record my PR",
       "prUrlPlaceholder": "Paste the PR URL",
       "breakingHelp": "Breaking change flagged — adapt the code on the pushed branches and test, then open the PRs (yourself, or via Veritas).",

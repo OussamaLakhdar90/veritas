@@ -553,6 +553,7 @@ export interface BreakingVerdict {
 /** One repo's PR in a fix train. */
 export interface SnykFixStepView {
   order: number; moduleLabel: string; bitbucketProject: string; repoSlug: string; branch: string;
+  commitSha?: string;   // sha of the commit that carries this step's change, once pushed
   pomPath: string; diffPreview: string; newModuleVersion?: string; prUrl?: string; prOpenedBy?: string;
   branchUrl?: string;   // browse link to a pushed-but-no-PR branch, so a held step is verifiable
   status: string; stageDetail?: string; manual: boolean; reason?: string; reviewers: string[];

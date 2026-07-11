@@ -34,6 +34,9 @@ public class SnykFixStep extends AuditableEntity {
     @Column(length = 1000)
     private String reviewersJson;
 
+    @Column(length = 40)
+    private String commitSha;       // the sha of the commit that carries this step's change (set once pushed)
+
     private String prUrl;
     @Column(length = 20)
     private String prOpenedBy;      // VERITAS | USER

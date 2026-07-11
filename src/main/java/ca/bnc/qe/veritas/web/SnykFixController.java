@@ -139,9 +139,9 @@ public class SnykFixController {
         List<SnykFixStepView> stepViews = new ArrayList<>();
         for (SnykFixStep s : steps.findByTrainIdOrderByStepOrder(t.getId())) {
             stepViews.add(new SnykFixStepView(s.getStepOrder(), s.getModuleLabel(), s.getBitbucketProject(),
-                    s.getRepoSlug(), s.getBranch(), s.getPomPath(), s.getDiffPreview(), s.getNewModuleVersion(),
-                    s.getPrUrl(), s.getPrOpenedBy(), branchUrl(s), s.getStatus(), s.getStageDetail(), s.isManual(),
-                    s.getReason(), parseList(s.getReviewersJson())));
+                    s.getRepoSlug(), s.getBranch(), s.getCommitSha(), s.getPomPath(), s.getDiffPreview(),
+                    s.getNewModuleVersion(), s.getPrUrl(), s.getPrOpenedBy(), branchUrl(s), s.getStatus(),
+                    s.getStageDetail(), s.isManual(), s.getReason(), parseList(s.getReviewersJson())));
         }
         return new SnykFixTrainView(t.getId(), t.getCoordinate(), t.getOldVersion(), t.getFixedIn(), t.getSeverity(),
                 t.getAppIds(), t.getJiraKey(), t.getJiraStatus(), t.getStatus(), t.getStageDetail(),

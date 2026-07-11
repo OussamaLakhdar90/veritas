@@ -171,6 +171,22 @@ describe('Snyk fix deep-link (Activity row → live, actionable progress)', () =
     expect(branchLink.getAttribute('href')).toContain('refs/heads/feature/CIAM-1-snyk-fix-app-7488')
   })
 
+  it('shows the exact edit, the branch name, and the commit sha on a pushed step (no longer blind)', async () => {
+    server.use(http.get('*/api/v1/snyk/fixes/t9', () => HttpResponse.json(awaitingManualTrain({
+      steps: [
+        { order: 1, moduleLabel: 'BOM', bitbucketProject: 'APP7488', repoSlug: 'bom',
+          branch: 'feature/CIAM-1-snyk-fix-app-7488', commitSha: 'abc1234def5678901234', pomPath: 'pom.xml',
+          diffPreview: 'Bump jackson-databind 3.1.1 → 3.1.4', status: 'BRANCH_PUSHED', manual: false, reviewers: [] },
+      ],
+    }))))
+    renderDetail()
+
+    // The exact edit (the WHAT), the branch NAME as text, and the commit sha are all visible — the "blind stepper" fix.
+    expect(await screen.findByText('Bump jackson-databind 3.1.1 → 3.1.4')).toBeInTheDocument()
+    expect(screen.getByText('feature/CIAM-1-snyk-fix-app-7488')).toBeInTheDocument()
+    expect(screen.getByText(/abc1234/)).toBeInTheDocument()
+  })
+
   it('shows a retryable error (not a blank page) when the train can’t be loaded', async () => {
     let failNext = true
     server.use(http.get('*/api/v1/snyk/fixes/t9', () =>

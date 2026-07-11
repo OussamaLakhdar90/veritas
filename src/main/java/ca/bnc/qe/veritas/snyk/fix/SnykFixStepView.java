@@ -9,6 +9,8 @@ public record SnykFixStepView(
         String bitbucketProject,
         String repoSlug,
         String branch,
+        /** The sha of the commit that carries this step's change, once pushed — shown as a short chip. */
+        String commitSha,
         String pomPath,
         String diffPreview,
         String newModuleVersion,
