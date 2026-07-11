@@ -24,6 +24,21 @@ function awaitingManualTrain(over: Record<string, unknown> = {}) {
   }
 }
 
+/** A machine-driven, in-flight train (VERIFYING) — the state the live progress bar + phase stepper renders for. */
+function inFlightTrain(over: Record<string, unknown> = {}) {
+  return {
+    id: 't9', coordinate: 'org.apache.commons:commons-lang3', oldVersion: '3.12.0', fixedIn: '3.18.0',
+    severity: 'high', appIds: 'APP7576', jiraKey: 'CIAM-1', status: 'VERIFYING',
+    createdAt: '2026-07-10T20:00:00Z', breaking: false, reactorPassed: null,
+    verdict: { available: false, breaking: false, confidence: 0, reasons: [] },
+    steps: [
+      { order: 1, moduleLabel: 'BOM', bitbucketProject: 'P', repoSlug: 'bom', branch: 'b', pomPath: 'pom.xml',
+        diffPreview: 'bump', status: 'RUNNING', manual: false, reviewers: [] },
+    ],
+    ...over,
+  }
+}
+
 /** A train paused at AWAITING_CONFIRM: the cascade is planned but nothing has run — the review-&-edit step. */
 function awaitingConfirmTrain(over: Record<string, unknown> = {}) {
   return {
@@ -71,6 +86,18 @@ describe('Snyk fix deep-link (Activity row → live, actionable progress)', () =
 
     // The train advances to PR_OPEN → the closing action ("Mark all merged") is now offered — no dead-end.
     expect(await screen.findByRole('button', { name: /Mark all merged/ })).toBeInTheDocument()
+  })
+
+  it('renders the live progress bar + 4-phase stepper for an in-flight train (not a dump to Activity)', async () => {
+    server.use(http.get('*/api/v1/snyk/fixes/t9', () => HttpResponse.json(inFlightTrain())))
+    renderDetail()
+
+    // The lifecycle stepper (the progress bar the user asked for) renders all four phases in place.
+    expect(await screen.findByText('Getting the code')).toBeInTheDocument()
+    expect(screen.getByText('Checking for breaking changes')).toBeInTheDocument()
+    expect(screen.getByText('Opening the pull requests')).toBeInTheDocument()
+    // "Building & testing locally" is both the active headline and its stepper row → present at least twice.
+    expect(screen.getAllByText('Building & testing locally').length).toBeGreaterThanOrEqual(2)
   })
 
   it('reviews the planned cascade and confirms it with the edited version + reviewers', async () => {

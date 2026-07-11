@@ -1,12 +1,14 @@
 package ca.bnc.qe.veritas.codegen;
 
 import java.nio.file.Path;
+import java.util.Locale;
 import java.util.Map;
 import ca.bnc.qe.veritas.config.ConnectionsProperties;
 import ca.bnc.qe.veritas.secret.SecretProvider;
 import ca.bnc.qe.veritas.vcs.GitHost;
 import lombok.extern.slf4j.Slf4j;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.PushCommand;
 import org.eclipse.jgit.api.TransportCommand;
 import org.eclipse.jgit.lib.Ref;
 import org.eclipse.jgit.transport.TransportHttp;
@@ -68,13 +70,13 @@ public class PrPublisher {
                 git.commit().setMessage(commitMessage)
                         .setAuthor("Veritas", "veritas@bnc.ca").setCommitter("Veritas", "veritas@bnc.ca").call();
             }
-            org.eclipse.jgit.api.PushCommand push = git.push().setRemote("origin").add(branch).setForce(true);
+            PushCommand push = git.push().setRemote("origin").add(branch).setForce(true);
             applyGitAuth(push);   // Bearer for Server/DC PAT (same as the clone) — Basic-with-empty-username is rejected
             push.call();
             log.info("Pushed branch {} to {}", branch, repoSlug);
         } catch (Exception e) {
             String msg = e.getMessage() == null ? "" : e.getMessage();
-            String low = msg.toLowerCase(java.util.Locale.ROOT);
+            String low = msg.toLowerCase(Locale.ROOT);
             String hint = (low.contains("not authorized") || low.contains("401") || low.contains("403"))
                     ? " — the credentials were accepted for read but the push was refused; verify GIT_TOKEN has "
                             + "repository WRITE scope (a read-only token can clone but not push)."
