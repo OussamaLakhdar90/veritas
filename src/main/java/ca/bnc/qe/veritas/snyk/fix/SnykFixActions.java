@@ -44,17 +44,27 @@ public class SnykFixActions {
      */
     public void decide(SnykFixTrain train, List<SnykFixStep> trainSteps) {
         boolean llmBreaking = train.isBreaking();
-        boolean reactorFailed = Boolean.FALSE.equals(train.getReactorPassed());
-        train.setBreaking(llmBreaking || reactorFailed);
-        log.info("Snyk fix train {}: DECIDE — llmBreaking={}, reactorFailed={} → {}", train.getId(), llmBreaking,
-                reactorFailed, train.isBreaking() ? "HOLD PRs for manual adaptation" : "open the PR train automatically");
-        if (!train.isBreaking()) {
+        boolean inconclusive = Boolean.TRUE.equals(train.getReactorInconclusive());
+        // A genuine reactor break is a non-pass that is NOT the app's own config/infra failing (that's inconclusive).
+        boolean reactorFailed = Boolean.FALSE.equals(train.getReactorPassed()) && !inconclusive;
+        boolean breaking = llmBreaking || reactorFailed;
+        train.setBreaking(breaking);
+        log.info("Snyk fix train {}: DECIDE — llmBreaking={}, reactorFailed={}, inconclusive={} → {}", train.getId(),
+                llmBreaking, reactorFailed, inconclusive, breaking ? "HOLD PRs (breaking)"
+                        : inconclusive ? "HOLD PRs (verification inconclusive)" : "open the PR train automatically");
+        if (breaking) {
+            train.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);
+            train.setStageDetail(breakingDetail(train));
+        } else if (inconclusive) {
+            // The upgrade itself isn't flagged breaking, but we couldn't verify it (the app's own build/test setup
+            // failed). Hold for manual review with an HONEST reason — never auto-open an unverified fix, and never
+            // mislabel a config error as a breaking change.
+            train.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);
+            train.setStageDetail(inconclusiveDetail(train));
+        } else {
             openAll(train, trainSteps, SnykFixStatus.BY_VERITAS);
             markPrTrainOpenedOrHeld(train, trainSteps,
                     "Clean — PR train opened; reviewers assigned; awaiting human merge.");
-        } else {
-            train.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);
-            train.setStageDetail(breakingDetail(train));
         }
         trains.save(train);
     }
@@ -178,6 +188,15 @@ public class SnykFixActions {
         }
         throw new ConflictException("Fix train " + train.getId() + " is " + train.getStatus()
                 + "; this action requires " + String.join(" or ", allowed) + ".");
+    }
+
+    /** The action-needed line for a held (inconclusive) train — the app's own build/test setup failed, not the upgrade. */
+    private static String inconclusiveDetail(SnykFixTrain train) {
+        String where = train.getReactorFailingLabel() != null && !train.getReactorFailingLabel().isBlank()
+                ? " (" + train.getReactorFailingLabel() + ")" : "";
+        return "Verification inconclusive — the app's own build/test setup failed" + where + ", not the dependency "
+                + "change. The version-bump branches are pushed; review the build, then open the PRs (yourself or via "
+                + "Veritas).";
     }
 
     /** The action-needed line for a held (breaking) train — names the module that broke the build when one did. */

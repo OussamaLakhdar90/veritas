@@ -48,6 +48,7 @@ public class AsyncSnykFixRunner {
     private final CascadePlanner planner;
     private final CascadeVerifier verifier;
     private final BreakingChangeService breakingChange;
+    private final BuildCommandAdvisor buildCommandAdvisor;
     private final SnykFixJiraService jiraService;
     private final SnykFixActions actions;
     private final ReviewerSuggester reviewerSuggester;
@@ -65,14 +66,15 @@ public class AsyncSnykFixRunner {
     });
 
     public AsyncSnykFixRunner(WorkspaceService workspace, CascadePlanner planner, CascadeVerifier verifier,
-                              BreakingChangeService breakingChange, SnykFixJiraService jiraService,
-                              SnykFixActions actions, ReviewerSuggester reviewerSuggester,
+                              BreakingChangeService breakingChange, BuildCommandAdvisor buildCommandAdvisor,
+                              SnykFixJiraService jiraService, SnykFixActions actions, ReviewerSuggester reviewerSuggester,
                               GeneratedFileWriter fileWriter, PrPublisher prPublisher, FrameworkProperties fw,
                               SnykFixTrainRepository trains, SnykFixStepRepository steps, ObjectMapper mapper) {
         this.workspace = workspace;
         this.planner = planner;
         this.verifier = verifier;
         this.breakingChange = breakingChange;
+        this.buildCommandAdvisor = buildCommandAdvisor;
         this.jiraService = jiraService;
         this.actions = actions;
         this.reviewerSuggester = reviewerSuggester;
@@ -213,8 +215,13 @@ public class AsyncSnykFixRunner {
             stage = SnykFixStatus.VERIFYING;
             train.setStartedAt(Instant.now());
             train = stage(train, stage, "Building the upgraded framework + running each app's tests locally…");
-            ReactorResult reactor = runReactor(clones, apps);
+            // Ask the AI advisor how to build & test each app (visible in the tracker), then run the reactor with the
+            // per-app command so a consumer's own test-config quirk isn't mistaken for a breaking change.
+            Map<String, String> appCommands = resolveConsumerBuildCommands(trainId, apps, clones, req.owner());
+            train = trains.findById(trainId).orElseThrow();   // the advisor advanced stageDetail; resync the detached train
+            ReactorResult reactor = runReactor(clones, apps, appCommands);
             train.setReactorPassed(reactor.passed());
+            train.setReactorInconclusive(reactor.inconclusive());
             train.setReactorFailingLabel(reactor.failingLabel());
             train.setReactorOutputTail(reactor.outputTail());
             if (!reactor.passed()) {
@@ -389,7 +396,32 @@ public class AsyncSnykFixRunner {
         }
     }
 
-    private ReactorResult runReactor(Map<String, Path> clones, List<AppInput> apps) {
+    /**
+     * Ask the AI advisor how to build &amp; test each consumer app, surfacing the work AND the chosen command in the
+     * live tracker (per the "every AI action is visible" principle). Returns appId → the guard-safe {@code mvn}
+     * command. Loads + advances its own train copy for the stageDetail; the caller re-syncs afterwards.
+     */
+    Map<String, String> resolveConsumerBuildCommands(String trainId, List<AppInput> apps,
+                                                     Map<String, Path> clones, String owner) {
+        Map<String, String> commands = new LinkedHashMap<>();
+        if (apps.isEmpty()) {
+            return commands;
+        }
+        SnykFixTrain train = trains.findById(trainId).orElseThrow();
+        for (AppInput app : apps) {
+            Path dir = clones.get(app.appId() + "/" + fw.getConsumerRepo());
+            if (dir == null) {
+                continue;
+            }
+            train = stage(train, SnykFixStatus.VERIFYING, "Working out how to build & test " + app.appId() + "…");
+            String command = buildCommandAdvisor.resolve(app.appId(), fw.getConsumerRepo(), dir, owner, trainId);
+            commands.put(app.appId(), command);
+            train = stage(train, SnykFixStatus.VERIFYING, "Will test " + app.appId() + " with: " + command);
+        }
+        return commands;
+    }
+
+    private ReactorResult runReactor(Map<String, Path> clones, List<AppInput> apps, Map<String, String> appCommands) {
         Path localRepo;
         try {
             localRepo = Files.createTempDirectory("veritas-snyk-m2-");
@@ -408,7 +440,7 @@ public class AsyncSnykFixRunner {
             for (AppInput app : apps) {
                 Path dir = clones.get(app.appId() + "/" + fw.getConsumerRepo());
                 if (dir != null) {
-                    consumers.add(new ConsumerBuild(app.appId(), dir));
+                    consumers.add(new ConsumerBuild(app.appId(), dir, appCommands.get(app.appId())));
                 }
             }
             return verifier.verify(new ReactorInputs(localRepo, framework, consumers));
