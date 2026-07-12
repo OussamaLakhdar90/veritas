@@ -360,6 +360,19 @@
         }
       }
     },
+    "batch": {
+      "title": "Lot de correctifs · {{story}}",
+      "subtitle": "Le correctif de chaque application sous cette story — dépliez une ligne pour voir ce que l’IA a décidé.",
+      "empty": "Aucun correctif trouvé pour ce lot.",
+      "bucket": {
+        "fixed": "corrigé",
+        "building": "en cours",
+        "waiting": "en attente de vous",
+        "failed": "échec",
+        "alreadySafe": "déjà sécuritaire",
+        "cancelled": "annulé"
+      }
+    },
     "fix": {
       "button": "Corriger…",
       "title": "Corriger {{pkg}} → {{version}}",

@@ -79,7 +79,7 @@ public class SnykFixController {
         }
         String id = runner.submit(new SnykFixRequest(req.watchId(), req.issueId(), req.coordinate(),
                 req.oldVersion(), req.fixedIn(), req.severity(), req.appIds(), req.jiraKey(), req.jiraProject(),
-                req.jiraIssueType(), req.reviewers(), req.owner(), req.autoConfirm()));
+                req.jiraIssueType(), req.reviewers(), req.owner(), req.autoConfirm(), null));   // single fix — no batch story
         return Map.of("trainId", id);
     }
 
@@ -102,6 +102,13 @@ public class SnykFixController {
     @GetMapping("/snyk/fixes")
     public List<SnykFixTrainView> fixes() {
         return trains.findAllByOrderByStartedAtDesc().stream().map(this::toView).toList();
+    }
+
+    /** Every fix train launched under one bulk story — drives the batch (aggregate) view so a manager who closed the
+     *  launch modal can re-enter and see, per app, exactly what the AI did (no more scattered, un-findable trains). */
+    @GetMapping("/snyk/fixes/batches/{storyKey}")
+    public List<SnykFixTrainView> batch(@PathVariable String storyKey) {
+        return trains.findByStoryKeyOrderByStartedAtDesc(storyKey).stream().map(this::toView).toList();
     }
 
     @GetMapping("/snyk/fixes/{id}")
@@ -153,7 +160,7 @@ public class SnykFixController {
                     s.getStageDetail(), s.isManual(), s.getReason(), parseList(s.getReviewersJson())));
         }
         return new SnykFixTrainView(t.getId(), t.getCoordinate(), t.getOldVersion(), t.getFixedIn(), t.getSeverity(),
-                t.getAppIds(), t.getJiraKey(), t.getJiraStatus(), t.getStatus(), t.getStageDetail(),
+                t.getAppIds(), t.getJiraKey(), t.getStoryKey(), t.getJiraStatus(), t.getStatus(), t.getStageDetail(),
                 t.getErrorMessage(), t.getFailedStage(), t.getFailedStepOrder(), t.isBreaking(),
                 t.getReactorPassed(), t.getReactorFailingLabel(), t.getReactorOutputTail(),
                 parseVerdict(t.getVerdictJson()), parseFixDiff(t.getFixDiffJson()), t.getStartedAt(), t.getCreatedAt(),

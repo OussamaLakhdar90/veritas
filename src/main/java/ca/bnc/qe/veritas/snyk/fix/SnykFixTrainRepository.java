@@ -15,6 +15,9 @@ public interface SnykFixTrainRepository extends JpaRepository<SnykFixTrain, Stri
     /** Existing trains for a watch + coordinate — the submit dedup guard checks these for an in-flight one. */
     List<SnykFixTrain> findByWatchIdAndCoordinate(String watchId, String coordinate);
 
+    /** All trains launched under one bulk story, newest first — drives the batch (aggregate) view. */
+    List<SnykFixTrain> findByStoryKeyOrderByStartedAtDesc(String storyKey);
+
     /** All trains for a watch — used to cascade-delete them (and their steps) when the watch is removed. */
     List<SnykFixTrain> findByWatchId(String watchId);
 

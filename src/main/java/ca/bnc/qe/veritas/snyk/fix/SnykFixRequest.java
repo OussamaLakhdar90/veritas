@@ -21,12 +21,13 @@ public record SnykFixRequest(
         String jiraIssueType,
         List<String> reviewersOverride,
         String owner,
-        boolean autoConfirm) {
+        boolean autoConfirm,
+        String storyKey) {       // the shared bulk story this fix belongs to (null for a single-issue fix) — groups a batch
 
     /** A copy with the Jira key set — used to carry a prior incomplete train's ticket (and thus its branch) forward
      *  when relaunching after a cancel/fail with no key supplied. */
     public SnykFixRequest withJiraKey(String key) {
         return new SnykFixRequest(watchId, issueId, coordinate, oldVersion, fixedIn, severity, appIds, key,
-                jiraProject, jiraIssueType, reviewersOverride, owner, autoConfirm);
+                jiraProject, jiraIssueType, reviewersOverride, owner, autoConfirm, storyKey);
     }
 }

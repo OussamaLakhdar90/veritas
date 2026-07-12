@@ -181,6 +181,18 @@ class SnykFixControllerTest {
     }
 
     @Test
+    void batchReturnsEveryTrainUnderTheStoryWithItsStoryKey() throws Exception {
+        SnykFixTrain t = train();
+        t.setStoryKey("CIAM-100");
+        when(trains.findByStoryKeyOrderByStartedAtDesc("CIAM-100")).thenReturn(List.of(t));
+        when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of(step()));
+        mvc.perform(get("/api/v1/snyk/fixes/batches/CIAM-100"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value("t1"))
+                .andExpect(jsonPath("$[0].storyKey").value("CIAM-100"));
+    }
+
+    @Test
     void cancelInvokesTheAction() throws Exception {
         when(actions.cancel("t1")).thenReturn(train());
         when(steps.findByTrainIdOrderByStepOrder("t1")).thenReturn(List.of(step()));

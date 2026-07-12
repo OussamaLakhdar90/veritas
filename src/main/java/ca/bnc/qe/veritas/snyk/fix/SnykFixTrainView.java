@@ -12,6 +12,8 @@ public record SnykFixTrainView(
         String severity,
         String appIds,
         String jiraKey,
+        /** The shared bulk story this train belongs to (null for a single fix) — the frontend groups a batch by it. */
+        String storyKey,
         /** The ticket's live workflow status (In Progress → In Review → Done), for the dashboard chip. */
         String jiraStatus,
         String status,

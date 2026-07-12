@@ -588,7 +588,8 @@ export interface SnykBulkFixResult {
 /** A release-cascade fix train: the issue, the Jira + verdict, the reactor result, and every PR. */
 export interface SnykFixTrainView {
   id: string; coordinate: string; oldVersion: string; fixedIn: string; severity: string; appIds: string;
-  jiraKey?: string; jiraStatus?: string; status: string; stageDetail?: string; errorMessage?: string; failedStage?: string;
+  jiraKey?: string; storyKey?: string;   // storyKey groups a bulk batch
+  jiraStatus?: string; status: string; stageDetail?: string; errorMessage?: string; failedStage?: string;
   failedStepOrder?: number | null; breaking: boolean; reactorPassed?: boolean;
   reactorFailingLabel?: string; reactorOutputTail?: string; verdict?: BreakingVerdict;
   fixDiff?: FixDiffVerdict; startedAt?: string;
@@ -850,6 +851,8 @@ export const api = {
   bulkSnykFix: (body: SnykBulkFixRequest) => post<SnykBulkFixResult>('/snyk/fixes/bulk', body),
   snykFixes: () => get<SnykFixTrainView[]>('/snyk/fixes'),
   snykFix: (id: string) => get<SnykFixTrainView>(`/snyk/fixes/${encodeURIComponent(id)}`),
+  // Every fix train launched under one bulk story — the batch (aggregate) view.
+  snykBatch: (storyKey: string) => get<SnykFixTrainView[]>(`/snyk/fixes/batches/${encodeURIComponent(storyKey)}`),
   // Confirm a paused (AWAITING_CONFIRM) train with per-module version + per-step-order reviewer edits.
   confirmSnykFix: (id: string, versionOverrides: Record<string, string>,
     reviewerOverrides: Record<number, string[]>) =>
