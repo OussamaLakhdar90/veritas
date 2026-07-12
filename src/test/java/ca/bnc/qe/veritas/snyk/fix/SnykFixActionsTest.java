@@ -304,16 +304,16 @@ class SnykFixActionsTest {
     }
 
     @Test
-    void decidePhrasesAnAiOnlyConcernAsAdvisoryWhenTheBuildActuallyPassed() {
+    void decidePhrasesAnAiOnlyConcernAsAdvisoryWhenTheCompileActuallyPassed() {
         SnykFixTrain t = train();
-        t.setReactorPassed(true);       // the real gate passed
+        t.setReactorPassed(true);       // the real gate (the compile) passed
         t.setReactorInconclusive(false);
         t.setBreaking(true);            // only the advisory AI flagged a concern
 
         actions.decide(t, List.of(step(1, false, SnykFixStatus.BRANCH_PUSHED)));
 
         assertThat(t.getStatus()).isEqualTo(SnykFixStatus.AWAITING_MANUAL_FIX);
-        assertThat(t.getStageDetail()).contains("build passed").contains("advisory");
+        assertThat(t.getStageDetail()).contains("compiled").contains("advisory");
         verify(gitHost, never()).openPullRequest(any(GitHost.PullRequestSpec.class));
     }
 

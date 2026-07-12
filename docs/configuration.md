@@ -97,20 +97,17 @@ veritas:
       branch: develop                    # integration branch the cascade branches off + opens PRs against
       consumer-repo: application-tests   # repo (under each watched app-id) holding the consumer poms Veritas bumps
       default-reviewers: []              # Bitbucket usernames added when git history yields no reviewer
-    fix:                                 # fix-flow settings (prefix veritas.snyk.fix)
-      build-commands:                    # OPTIONAL per-app reactor build-command overrides (see below)
-        APP7571: mvn -q -B -DsuiteXmlFile=src/test/resources/suites/regression.xml test
 ```
 
-**Per-app build-command overrides (`veritas.snyk.fix.build-commands.<APP-ID>`).** Before it runs the local
-reactor, Veritas asks an AI advisor how to build & test each consumer app (so an app that needs a TestNG suite
-file or a profile isn't tested with a bare `mvn test`, which would fail for the wrong reason and look like a
-breaking change). When the advisor can't work it out — a Copilot outage, or a test setup too unusual to infer —
-you can pin the exact command per app id here. An override **wins over the AI and the cache** (so it's immune to
-model availability), but is still run through the same security allow-list (`mvn` only; verbosity flags,
-`-P<profiles>`, safe in-repo `-D<key>=<value>`, and the `test`/`verify`/`install`/`clean` phases) — a
-misconfigured/unsafe override is ignored, not executed. Typical use: an app whose pom reads its suite from an
-undefined property, e.g. `veritas.snyk.fix.build-commands.APP7571=mvn -q -B -DsuiteXmlFile=<path> test`.
+**How the fix is verified (the local reactor).** After editing the poms, Veritas installs the upgraded framework
+chain (BOM → core → api → web) into a throwaway local repository, then **compile-checks each consumer app** against
+it with a fixed `mvn clean install -DskipTests`. It deliberately does **not** run the apps' own tests: an
+application-tests repo *is* the automated test suite, and executing it locally needs suite files, a target
+environment, and credentials — fragile setup that fails for reasons unrelated to the upgrade. A dependency bump
+only needs to prove the consumers still **compile** (their test sources are compiled too, so an API break in the
+framework is caught); the tests themselves run in CI/Jenkins after the PR is opened. All compile → the PR train
+opens; a genuine compile failure → the app that broke is named and the fix is held for the user; an infrastructure
+failure (a dependency can't be fetched) → held as *inconclusive*, never mislabelled a breaking change.
 
 **Required secret:** `SNYK_API_TOKEN` (from *app.snyk.io → Account settings*). **Per-deployment overrides you
 should review:** `framework.project` (the Bitbucket project key holding the framework repos), `framework.branch`

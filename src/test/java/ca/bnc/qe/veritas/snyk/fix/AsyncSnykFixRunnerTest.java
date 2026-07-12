@@ -3,7 +3,6 @@ package ca.bnc.qe.veritas.snyk.fix;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -29,13 +28,12 @@ class AsyncSnykFixRunnerTest {
     private final SnykFixTrainRepository trains = mock(SnykFixTrainRepository.class);
     private final SnykFixStepRepository steps = mock(SnykFixStepRepository.class);
     private final PrPublisher prPublisher = mock(PrPublisher.class);
-    private final BuildCommandAdvisor buildCommandAdvisor = mock(BuildCommandAdvisor.class);
     private final FixDiffValidator fixDiffValidator = mock(FixDiffValidator.class);
     private final FrameworkProperties fw = new FrameworkProperties();
 
     private final AsyncSnykFixRunner runner = new AsyncSnykFixRunner(
             mock(WorkspaceService.class), mock(CascadePlanner.class), mock(CascadeVerifier.class),
-            mock(BreakingChangeService.class), buildCommandAdvisor, fixDiffValidator,
+            mock(BreakingChangeService.class), fixDiffValidator,
             mock(SnykFixJiraService.class), mock(SnykFixActions.class), mock(ReviewerSuggester.class),
             mock(GeneratedFileWriter.class), prPublisher, fw, trains, steps, new ObjectMapper());
 
@@ -225,51 +223,6 @@ class AsyncSnykFixRunnerTest {
 
         assertThat(bom.getStatus()).isEqualTo(SnykFixStatus.STEP_FAILED);
         assertThat(bom.getReason()).contains("push failed").contains("not authorized");
-    }
-
-    @Test
-    void resolveConsumerBuildCommandsAsksTheAdvisorPerAppAndSurfacesTheCommand() {
-        when(trains.findById("t1")).thenReturn(Optional.of(train("t1", SnykFixStatus.VERIFYING)));
-        when(trains.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(buildCommandAdvisor.resolve(any(), any(), any(), any(), any()))
-                .thenReturn(new BuildCommandAdvisor.BuildCommand("mvn -q -B verify", true, null));
-        Map<String, Path> clones = Map.of("APP7576/" + fw.getConsumerRepo(), Path.of("."));
-        List<CascadePlanner.AppInput> apps = List.of(new CascadePlanner.AppInput("APP7576", "APP7576", "<pom/>"));
-
-        Map<String, String> cmds = runner.resolveConsumerBuildCommands("t1", apps, clones, "alice");
-
-        assertThat(cmds).containsEntry("APP7576", "mvn -q -B verify");
-        verify(buildCommandAdvisor).resolve(eq("APP7576"), eq(fw.getConsumerRepo()), any(), eq("alice"), eq("t1"));
-    }
-
-    @Test
-    void resolveConsumerBuildCommandsShowsAnHonestStageDetailWhenTheAiDegrades() {
-        // A degraded advisor result (the model_not_supported case) must be surfaced honestly — "using the default" —
-        // not presented as a normal AI decision. The reactor still gets the default command to run.
-        SnykFixTrain t = train("t1", SnykFixStatus.VERIFYING);
-        when(trains.findById("t1")).thenReturn(Optional.of(t));
-        when(trains.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        when(buildCommandAdvisor.resolve(any(), any(), any(), any(), any())).thenReturn(
-                new BuildCommandAdvisor.BuildCommand("mvn -q -B test", false, "AI model unavailable (not supported)."));
-        Map<String, Path> clones = Map.of("APP7576/" + fw.getConsumerRepo(), Path.of("."));
-        List<CascadePlanner.AppInput> apps = List.of(new CascadePlanner.AppInput("APP7576", "APP7576", "<pom/>"));
-
-        Map<String, String> cmds = runner.resolveConsumerBuildCommands("t1", apps, clones, "alice");
-
-        assertThat(cmds).containsEntry("APP7576", "mvn -q -B test");   // the reactor still runs the default
-        assertThat(t.getStageDetail()).contains("using the default").contains("not supported");
-    }
-
-    @Test
-    void resolveConsumerBuildCommandsIsANoOpWithNoAppsAndSkipsAppsThatDidNotClone() {
-        // No apps → empty map (no advisor call). An app whose clone is missing is skipped (no NPE, no advisor call).
-        assertThat(runner.resolveConsumerBuildCommands("t1", List.of(), Map.of(), "alice")).isEmpty();
-        when(trains.findById("t1")).thenReturn(Optional.of(train("t1", SnykFixStatus.VERIFYING)));
-        when(trains.save(any())).thenAnswer(inv -> inv.getArgument(0));
-        Map<String, String> cmds = runner.resolveConsumerBuildCommands("t1",
-                List.of(new CascadePlanner.AppInput("APPX", "APPX", "<pom/>")), Map.of(), "alice");
-        assertThat(cmds).isEmpty();
-        verify(buildCommandAdvisor, never()).resolve(any(), any(), any(), any(), any());
     }
 
     @Test

@@ -164,7 +164,7 @@ describe('Snyk fix wizard', () => {
     // All four lifecycle phases render by name — the "which operation" view the user asked for…
     expect(await screen.findByText('Getting the code')).toBeInTheDocument()
     expect(screen.getByText('Checking for breaking changes')).toBeInTheDocument()
-    expect(screen.getByText('Building & testing locally')).toBeInTheDocument()
+    expect(screen.getByText('Building & compiling locally')).toBeInTheDocument()
     expect(screen.getByText('Opening the pull requests')).toBeInTheDocument()
     // …and the failure is explained (surfaced on the failed phase + the failure box), not left as a red badge.
     expect(screen.getAllByText(/The breaking-change check could not complete/).length).toBeGreaterThan(0)
@@ -200,7 +200,7 @@ describe('Snyk fix wizard', () => {
     expect(await screen.findByText(/Action needed — the local build failed at core/)).toBeInTheDocument()
     // …and the failed module's step (failedStepOrder = 2) surfaces its reason, pinpointing the étape.
     expect(screen.getByText('reactor build failed here')).toBeInTheDocument()
-    // The "Building & testing locally" phase is flagged as the error étape (reactorPassed=false), NOT a green
+    // The "Building & compiling locally" phase is flagged as the error étape (reactorPassed=false), NOT a green
     // "done" — only "Getting the code" + "Checking for breaking changes" completed, so exactly two done badges.
     expect(screen.getAllByText('done')).toHaveLength(2)
   })

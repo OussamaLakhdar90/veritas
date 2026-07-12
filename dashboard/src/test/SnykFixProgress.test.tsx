@@ -96,8 +96,8 @@ describe('Snyk fix deep-link (Activity row → live, actionable progress)', () =
     expect(await screen.findByText('Getting the code')).toBeInTheDocument()
     expect(screen.getByText('Checking for breaking changes')).toBeInTheDocument()
     expect(screen.getByText('Opening the pull requests')).toBeInTheDocument()
-    // "Building & testing locally" is both the active headline and its stepper row → present at least twice.
-    expect(screen.getAllByText('Building & testing locally').length).toBeGreaterThanOrEqual(2)
+    // "Building & compiling locally" is both the active headline and its stepper row → present at least twice.
+    expect(screen.getAllByText('Building & compiling locally').length).toBeGreaterThanOrEqual(2)
   })
 
   it('reviews the planned cascade and confirms it with the edited version + reviewers', async () => {

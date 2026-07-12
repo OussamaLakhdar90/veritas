@@ -48,7 +48,6 @@ public class AsyncSnykFixRunner {
     private final CascadePlanner planner;
     private final CascadeVerifier verifier;
     private final BreakingChangeService breakingChange;
-    private final BuildCommandAdvisor buildCommandAdvisor;
     private final FixDiffValidator fixDiffValidator;
     private final SnykFixJiraService jiraService;
     private final SnykFixActions actions;
@@ -67,7 +66,7 @@ public class AsyncSnykFixRunner {
     });
 
     public AsyncSnykFixRunner(WorkspaceService workspace, CascadePlanner planner, CascadeVerifier verifier,
-                              BreakingChangeService breakingChange, BuildCommandAdvisor buildCommandAdvisor,
+                              BreakingChangeService breakingChange,
                               FixDiffValidator fixDiffValidator, SnykFixJiraService jiraService, SnykFixActions actions,
                               ReviewerSuggester reviewerSuggester, GeneratedFileWriter fileWriter,
                               PrPublisher prPublisher, FrameworkProperties fw, SnykFixTrainRepository trains,
@@ -76,7 +75,6 @@ public class AsyncSnykFixRunner {
         this.planner = planner;
         this.verifier = verifier;
         this.breakingChange = breakingChange;
-        this.buildCommandAdvisor = buildCommandAdvisor;
         this.fixDiffValidator = fixDiffValidator;
         this.jiraService = jiraService;
         this.actions = actions;
@@ -273,16 +271,13 @@ public class AsyncSnykFixRunner {
             train = trains.save(train);
 
             // 4) VERIFYING — apply the edits to the clones, then the local reactor build (the real gate).
-            // Reset the runtime clock here: the reactor (4x mvn install + N x mvn test) is by far the longest phase,
-            // so the staleness reconciler should measure from its start, not from submit/clone/LLM time.
+            // Reset the runtime clock here: the reactor (install the framework chain + compile-check each consumer) is
+            // by far the longest phase, so the staleness reconciler should measure from its start, not from submit time.
             stage = SnykFixStatus.VERIFYING;
             train.setStartedAt(Instant.now());
-            train = stage(train, stage, "Building the upgraded framework + running each app's tests locally…");
-            // Ask the AI advisor how to build & test each app (visible in the tracker), then run the reactor with the
-            // per-app command so a consumer's own test-config quirk isn't mistaken for a breaking change.
-            Map<String, String> appCommands = resolveConsumerBuildCommands(trainId, apps, clones, req.owner());
-            train = trains.findById(trainId).orElseThrow();   // the advisor advanced stageDetail; resync the detached train
-            ReactorResult reactor = runReactor(clones, apps, appCommands);
+            train = stage(train, stage, "Building the upgraded framework + compile-checking each app against it "
+                    + "(the apps' own tests run in CI/Jenkins after the PR is opened)…");
+            ReactorResult reactor = runReactor(clones, apps);
             train.setReactorPassed(reactor.passed());
             train.setReactorInconclusive(reactor.inconclusive());
             train.setReactorFailingLabel(reactor.failingLabel());
@@ -502,49 +497,7 @@ public class AsyncSnykFixRunner {
         }
     }
 
-    /**
-     * Ask the AI advisor how to build &amp; test each consumer app, surfacing the work AND the chosen command in the
-     * live tracker (per the "every AI action is visible" principle). Returns appId → the guard-safe {@code mvn}
-     * command. Loads + advances its own train copy for the stageDetail; the caller re-syncs afterwards.
-     */
-    Map<String, String> resolveConsumerBuildCommands(String trainId, List<AppInput> apps,
-                                                     Map<String, Path> clones, String owner) {
-        Map<String, String> commands = new LinkedHashMap<>();
-        if (apps.isEmpty()) {
-            return commands;
-        }
-        SnykFixTrain train = trains.findById(trainId).orElseThrow();
-        for (AppInput app : apps) {
-            Path dir = clones.get(app.appId() + "/" + fw.getConsumerRepo());
-            if (dir == null) {
-                continue;
-            }
-            train = stage(train, SnykFixStatus.VERIFYING, "Working out how to build & test " + app.appId() + "…");
-            BuildCommandAdvisor.BuildCommand advised =
-                    buildCommandAdvisor.resolve(app.appId(), fw.getConsumerRepo(), dir, owner, trainId);
-            commands.put(app.appId(), advised.command());
-            train = stage(train, SnykFixStatus.VERIFYING, buildCommandDetail(app.appId(), advised));
-        }
-        return commands;
-    }
-
-    /**
-     * The honest live-tracker line for a resolved build command: a configured override (AI-derived with a note) reads
-     * as an operator override; a genuine AI choice reads as "Will test …"; a degraded fallback reads as "AI couldn't
-     * choose … using the default" with the reason — never presenting a silent degrade as an AI decision.
-     */
-    private static String buildCommandDetail(String appId, BuildCommandAdvisor.BuildCommand advised) {
-        boolean hasNote = advised.note() != null && !advised.note().isBlank();
-        if (advised.aiDerived()) {
-            return "Will test " + appId + " with: " + advised.command()
-                    + (hasNote ? " (" + advised.note() + ")" : "");
-        }
-        return "AI couldn't choose a build command for " + appId
-                + (hasNote ? " (" + advised.note() + ")" : "")
-                + " — using the default: " + advised.command();
-    }
-
-    private ReactorResult runReactor(Map<String, Path> clones, List<AppInput> apps, Map<String, String> appCommands) {
+    private ReactorResult runReactor(Map<String, Path> clones, List<AppInput> apps) {
         Path localRepo;
         try {
             localRepo = Files.createTempDirectory("veritas-snyk-m2-");
@@ -563,7 +516,7 @@ public class AsyncSnykFixRunner {
             for (AppInput app : apps) {
                 Path dir = clones.get(app.appId() + "/" + fw.getConsumerRepo());
                 if (dir != null) {
-                    consumers.add(new ConsumerBuild(app.appId(), dir, appCommands.get(app.appId())));
+                    consumers.add(new ConsumerBuild(app.appId(), dir));
                 }
             }
             return verifier.verify(new ReactorInputs(localRepo, framework, consumers));

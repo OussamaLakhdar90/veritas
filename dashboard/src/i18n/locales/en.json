@@ -419,16 +419,16 @@
       "failedAt": "Failed at {{stage}}:",
       "verdictBreaking": "AI check: breaking change likely ({{c}}% confidence)",
       "verdictClean": "AI check: no breaking change expected ({{c}}% confidence)",
-      "verdictNone": "AI check: not available — the test build is the gate",
-      "reactorPass": "test build passed",
-      "reactorFail": "test build failed at {{where}}",
+      "verdictNone": "AI check: not available — the local compile is the gate",
+      "reactorPass": "compile check passed",
+      "reactorFail": "compile check failed at {{where}}",
       "slowHint": "This step can take a few minutes — still working, not stuck.",
       "slowHintLong": "Still working ({{elapsed}}) — long AI checks and full builds are normal.",
       "status": {
         "PLANNING": "Planning the update train…",
         "AWAITING_CONFIRM": "Review the plan",
         "CHECKING": "Checking for breaking changes…",
-        "VERIFYING": "Running the test build…",
+        "VERIFYING": "Compiling apps against the upgrade…",
         "OPENING_PRS": "Opening the PRs…",
         "PR_OPEN": "PRs open — awaiting merge",
         "AWAITING_MANUAL_FIX": "Needs your changes",
@@ -457,8 +457,8 @@
           "detail": "The AI assesses whether the upgrade is safe to apply."
         },
         "VERIFYING": {
-          "label": "Building & testing locally",
-          "detail": "Bumping BOM → core → api/web → app and running each app’s tests."
+          "label": "Building & compiling locally",
+          "detail": "Bumping BOM → core → api/web → app and compiling each app against it (its tests run in CI/Jenkins after the PR)."
         },
         "OPENING_PRS": {
           "label": "Opening the pull requests",
