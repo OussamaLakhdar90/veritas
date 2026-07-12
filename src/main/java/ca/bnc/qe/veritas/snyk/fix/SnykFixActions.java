@@ -324,7 +324,9 @@ public class SnykFixActions {
         b.append("Risk: ").append(train.isBreaking() ? "breaking change flagged — reviewed manually"
                 : "no breaking change expected (advisory)").append("\n");
         b.append("Local reactor build: ").append(Boolean.TRUE.equals(train.getReactorPassed())
-                ? "passed (mvn install + per-app mvn test)" : "see the fix train for details").append("\n");
+                ? "passed — framework installed + every app compiled against it (mvn clean install -DskipTests); "
+                        + "the apps' own tests run in CI/Jenkins after merge"
+                : "see the fix train for details").append("\n");
         if (train.getJiraKey() != null && !train.getJiraKey().isBlank()) {
             b.append("Jira: ").append(train.getJiraKey());
             if (train.getJiraSummary() != null && !train.getJiraSummary().isBlank()) {
