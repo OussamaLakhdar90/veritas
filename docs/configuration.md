@@ -97,8 +97,9 @@ veritas:
       branch: develop                    # integration branch the cascade branches off + opens PRs against
       consumer-repo: application-tests   # repo (under each watched app-id) holding the consumer poms Veritas bumps
       default-reviewers: []              # Bitbucket usernames added when git history yields no reviewer
-    build-commands:                      # OPTIONAL per-app reactor build-command overrides (see below)
-      APP7571: mvn -q -B -DsuiteXmlFile=src/test/resources/suites/regression.xml test
+    fix:                                 # fix-flow settings (prefix veritas.snyk.fix)
+      build-commands:                    # OPTIONAL per-app reactor build-command overrides (see below)
+        APP7571: mvn -q -B -DsuiteXmlFile=src/test/resources/suites/regression.xml test
 ```
 
 **Per-app build-command overrides (`veritas.snyk.fix.build-commands.<APP-ID>`).** Before it runs the local
