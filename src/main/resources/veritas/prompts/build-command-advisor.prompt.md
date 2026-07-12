@@ -18,6 +18,12 @@ Decide the command by reading the pom + suites:
   integration tests bound to `failsafe`/the `verify` phase.
 - If the surefire/failsafe plugin is configured with `<suiteXmlFiles>` (or reads a property for it), pass the suite
   file the pom expects, using the path from SUITE_FILES.
+- **Watch for a suite file the pom reads from an UNDEFINED property.** If surefire/failsafe has
+  `<suiteXmlFile>${someProp}</suiteXmlFile>` (or `<suiteXmlFiles><suiteXmlFile>${someProp}…`) and `${someProp}` has no
+  `<properties>` default and no activated-profile value, a bare `mvn test` fails with `suiteXmlFile(s)… has null value`
+  (Maven can't resolve the placeholder) — NOT a code break. Fix it by supplying the property the pom reads, pointing at
+  the matching file from SUITE_FILES: `-DsomeProp=<path>` (use the EXACT `${…}` name and the EXACT discovered path). If
+  a profile instead defines that property, activate it with `-P<profile>` rather than passing `-D`.
 - If a **profile** activates the tests (e.g. a `system-test` profile), activate it with `-P<profile>`.
 - Strongly prefer a command that **actually runs** the app's tests. Only add `-DskipTests` if the tests **genuinely
   cannot** run standalone here (say why in the rationale) — it makes the check compile-only (which is then treated as

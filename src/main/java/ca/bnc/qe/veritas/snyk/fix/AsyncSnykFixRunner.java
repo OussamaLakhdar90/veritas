@@ -523,16 +523,25 @@ public class AsyncSnykFixRunner {
             BuildCommandAdvisor.BuildCommand advised =
                     buildCommandAdvisor.resolve(app.appId(), fw.getConsumerRepo(), dir, owner, trainId);
             commands.put(app.appId(), advised.command());
-            // Say honestly whether the AI chose the command or it fell back to the default (and why) — never present a
-            // silent degrade as an AI decision.
-            String detail = advised.aiDerived()
-                    ? "Will test " + app.appId() + " with: " + advised.command()
-                    : "AI couldn't choose a build command for " + app.appId()
-                            + (advised.note() == null || advised.note().isBlank() ? "" : " (" + advised.note() + ")")
-                            + " — using the default: " + advised.command();
-            train = stage(train, SnykFixStatus.VERIFYING, detail);
+            train = stage(train, SnykFixStatus.VERIFYING, buildCommandDetail(app.appId(), advised));
         }
         return commands;
+    }
+
+    /**
+     * The honest live-tracker line for a resolved build command: a configured override (AI-derived with a note) reads
+     * as an operator override; a genuine AI choice reads as "Will test …"; a degraded fallback reads as "AI couldn't
+     * choose … using the default" with the reason — never presenting a silent degrade as an AI decision.
+     */
+    private static String buildCommandDetail(String appId, BuildCommandAdvisor.BuildCommand advised) {
+        boolean hasNote = advised.note() != null && !advised.note().isBlank();
+        if (advised.aiDerived()) {
+            return "Will test " + appId + " with: " + advised.command()
+                    + (hasNote ? " (" + advised.note() + ")" : "");
+        }
+        return "AI couldn't choose a build command for " + appId
+                + (hasNote ? " (" + advised.note() + ")" : "")
+                + " — using the default: " + advised.command();
     }
 
     private ReactorResult runReactor(Map<String, Path> clones, List<AppInput> apps, Map<String, String> appCommands) {
