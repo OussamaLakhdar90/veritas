@@ -138,6 +138,7 @@ public class AsyncSnykFixRunner {
         train.setSeverity(effective.severity());
         train.setAppIds(effective.appIds() == null ? "" : String.join(",", effective.appIds()));
         train.setJiraKey(effective.jiraKey());      // requested-or-carried key (may be null) — kept so confirm can rebuild
+        train.setStoryKey(effective.storyKey());    // the shared bulk story (null for a single fix) — groups the batch
         train.setJiraProject(effective.jiraProject());
         train.setJiraIssueType(effective.jiraIssueType());
         train.setOwner(effective.owner());
@@ -181,7 +182,8 @@ public class AsyncSnykFixRunner {
         }
         SnykFixRequest req = new SnykFixRequest(train.getWatchId(), train.getIssueId(), train.getCoordinate(),
                 train.getOldVersion(), train.getFixedIn(), train.getSeverity(), splitAppIds(train.getAppIds()),
-                train.getJiraKey(), train.getJiraProject(), train.getJiraIssueType(), List.of(), train.getOwner(), true);
+                train.getJiraKey(), train.getJiraProject(), train.getJiraIssueType(), List.of(), train.getOwner(), true,
+                train.getStoryKey());
         train.setStatus(SnykFixStatus.PLANNING);
         train.setStartedAt(Instant.now());   // reset the runtime clock so the reconciler measures the execute phase
         trains.save(train);

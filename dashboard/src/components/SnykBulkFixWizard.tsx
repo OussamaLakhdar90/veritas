@@ -306,7 +306,10 @@ export function SnykBulkFixWizard({ open, onClose, watches }:
   const doneFooter = (
     <>
       <Button variant="secondary" onClick={onClose}>{t('common.close')}</Button>
-      <Button onClick={() => { onClose(); navigate('/activity'); }}>{t('snyk.bulk.wizard.success.watch')}</Button>
+      {/* Land on the persistent batch view (keyed by story), not the ephemeral /activity feed — so the launched
+          batch is re-findable after the modal closes and each app's AI activity is one click away. */}
+      <Button onClick={() => { onClose(); navigate(result ? `/snyk/batch/${encodeURIComponent(result.storyKey)}` : '/activity'); }}>
+        {t('snyk.bulk.wizard.success.watch')}</Button>
     </>
   );
 

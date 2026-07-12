@@ -20,6 +20,7 @@ import { Codegen } from './pages/Codegen';
 import { GenerateApiTests } from './pages/GenerateApiTests';
 import { Snyk } from './pages/Snyk';
 import { SnykFixDetail } from './pages/SnykFixDetail';
+import { SnykBatchDetail } from './pages/SnykBatchDetail';
 import { EngineEvolution } from './pages/EngineEvolution';
 import { EngineBadge } from './components/EngineBadge';
 import { Costs } from './pages/Costs';
@@ -196,6 +197,7 @@ function RoutedMain() {
       <Route path="/generate-api-tests" element={<GenerateApiTests />} />
       <Route path="/snyk" element={<Snyk />} />
       <Route path="/snyk/fix/:trainId" element={<SnykFixDetail />} />
+      <Route path="/snyk/batch/:storyKey" element={<SnykBatchDetail />} />
       <Route path="/gates" element={<Gates />} />
       <Route path="/engine-evolution" element={<EngineEvolution />} />
       <Route path="/costs" element={<Costs />} />

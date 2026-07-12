@@ -36,6 +36,7 @@ public class SnykFixTrain extends AuditableEntity {
     private String appIds;          // comma-joined selected app-ids
 
     private String jiraKey;
+    private String storyKey;        // the shared bulk story this train belongs to (null for a single-issue fix) — groups a batch
     @Column(length = 500)
     private String jiraSummary;     // the ticket's summary/title, surfaced in each PR body for reviewer context
     @Column(length = 100)

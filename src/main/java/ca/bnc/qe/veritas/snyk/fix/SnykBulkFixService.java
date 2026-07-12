@@ -79,7 +79,7 @@ public class SnykBulkFixService {
                     // runs each train straight through (the reactor build is the gate; breaking ones hold for review).
                     String trainId = runner.submit(new SnykFixRequest(app.watchId(), issue.issueId(),
                             issue.coordinate(), issue.oldVersion(), issue.fixedIn(), issue.severity(),
-                            List.of(app.appId()), storyKey, project, null, reviewers, null, true));
+                            List.of(app.appId()), storyKey, project, null, reviewers, null, true, storyKey));
                     trainIds.add(trainId);
                 }
                 results.add(new AppResult(app.appId(), storyKey, storyUrl, trainIds, null));

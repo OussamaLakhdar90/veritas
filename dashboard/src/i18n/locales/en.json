@@ -360,6 +360,19 @@
         }
       }
     },
+    "batch": {
+      "title": "Fix batch · {{story}}",
+      "subtitle": "Every app's fix under this story — expand any row to see what the AI decided.",
+      "empty": "No fixes were found for this batch.",
+      "bucket": {
+        "fixed": "fixed",
+        "building": "building",
+        "waiting": "waiting on you",
+        "failed": "failed",
+        "alreadySafe": "already safe",
+        "cancelled": "cancelled"
+      }
+    },
     "fix": {
       "button": "Fix…",
       "title": "Fix {{pkg}} → {{version}}",

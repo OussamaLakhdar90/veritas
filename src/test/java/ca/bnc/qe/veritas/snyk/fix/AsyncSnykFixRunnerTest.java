@@ -41,7 +41,7 @@ class AsyncSnykFixRunnerTest {
 
     private SnykFixRequest request() {
         return new SnykFixRequest("w1", "i1", "com.x:y", "1.0", "2.0", "critical",
-                List.of("APP7576"), null, "CIAM", "Task", List.of(), "alice", false);
+                List.of("APP7576"), null, "CIAM", "Task", List.of(), "alice", false, null);
     }
 
     private SnykFixTrain train(String id, String status) {
