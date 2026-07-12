@@ -74,7 +74,18 @@ public class CascadePlanner {
     private CascadeStep bomStep(int order, String pom, String groupId, String artifactId, String fixedIn,
                                 String newBom, Map<String, String> newVersions) {
         List<PomEdit> edits = new ArrayList<>();
-        // 1) Pin the safe version of the vulnerable dependency (only when it isn't ALREADY at the safe version).
+        // 0) NEVER downgrade. If the BOM already manages the coordinate strictly ABOVE the requested safe version,
+        //    applying fixedIn would LOWER it — a security "fix" must never regress a dependency. Refuse with an honest
+        //    manual step instead of a downgrade PR. (The exactly-at-fixedIn case is benign and falls through to the
+        //    "already pins … nothing to release" no-op branch below — it isn't a downgrade, so it isn't flagged here.)
+        String current = FixValidator.effectiveVersion(pom, groupId, artifactId);
+        if (current != null && VersionCompare.compare(current, fixedIn) > 0) {
+            return CascadeStep.manual(order, fw.getProject(), fw.getBomRepo(), "pom.xml", "BOM",
+                    "The BOM already manages " + groupId + ":" + artifactId + " at " + current + " — ABOVE the "
+                            + "requested safe version " + fixedIn + ", so it was NOT downgraded. Nothing to release "
+                            + "(if a fix is still expected, verify the Snyk advisory's affected-version range).");
+        }
+        // 1) Pin the safe version of the vulnerable dependency (the coordinate is genuinely below fixedIn here).
         addVulnPin(pom, edits, groupId, artifactId, fixedIn);
         // 2) Bump any framework module versions the BOM itself pins.
         addPresentPropertyBumps(pom, edits, newVersions);

@@ -192,6 +192,18 @@ class CascadePlannerTest {
     }
 
     @Test
+    void bomStepRefusesToDowngradeWhenTheCurrentVersionIsAlreadyAboveTheFix() {
+        // The BOM manages jackson at 2.14.0 (via ${jackson.version}); Snyk asks to "fix" DOWN to 2.10.0. A security fix
+        // must NEVER downgrade — the BOM step is an honest manual "already at or above" note, with NO edits and NO
+        // release. (The real-run case: jackson already on a newer line than Snyk's fixedIn.)
+        CascadeStep bom = planner.plan("com.fasterxml.jackson.core", "jackson-databind", "2.10.0",
+                new FrameworkPoms(BOM, null, null, null), List.of()).get(0);
+        assertThat(bom.manual()).isTrue();
+        assertThat(bom.edits()).isEmpty();
+        assertThat(bom.reason()).contains("NOT downgraded").contains("2.14.0").contains("2.10.0");
+    }
+
+    @Test
     void bomStepStillReleasesWhenTheVulnPinActuallyMoves() {
         // Control: a real move (2.14.0 → 2.15.0) DOES pin the property AND release a new BOM version — the guard
         // must not over-fire and suppress a genuine fix.

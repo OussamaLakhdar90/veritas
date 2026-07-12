@@ -59,6 +59,19 @@ class FixValidatorTest {
     }
 
     @Test
+    void satisfiesIsTrueWhenTheManagedVersionIsAtOrAboveTheFix() {
+        String pom = """
+                <project><dependencyManagement><dependencies>
+                    <dependency><groupId>com.x</groupId><artifactId>y</artifactId><version>2.21.4</version></dependency>
+                </dependencies></dependencyManagement></project>
+                """;
+        assertThat(FixValidator.satisfies(pom, "com.x", "y", "2.18.8")).isTrue();   // already newer than the "fix"
+        assertThat(FixValidator.satisfies(pom, "com.x", "y", "2.21.4")).isTrue();   // exactly at the fix
+        assertThat(FixValidator.satisfies(pom, "com.x", "y", "2.22.0")).isFalse();  // genuinely below → a real upgrade
+        assertThat(FixValidator.satisfies("<project/>", "com.x", "y", "1.0")).isFalse();   // not managed here
+    }
+
+    @Test
     void aPropertyReferenceToAnUndeclaredPropertyResolvesToNull() {
         // ${jackson.version} used but never declared → the effective version is unknown (null), NOT "fixed".
         String pom = """

@@ -285,6 +285,39 @@ class SnykFixActionsTest {
     }
 
     @Test
+    void decideDoesNotCallAnInconclusiveReactorABreakingChangeEvenWhenTheAiFlaggedOne() {
+        // The real-run confusion: the reactor was INCONCLUSIVE (the app's own TestNG suite config broke, not a code
+        // break) but the advisory LLM said breaking=true. The hold reason must lead with the honest "couldn't verify"
+        // and mention the AI as ADVISORY — never headline it as a confirmed breaking change.
+        SnykFixTrain t = train();
+        t.setReactorPassed(false);
+        t.setReactorInconclusive(true);   // the app's build config failed
+        t.setBreaking(true);              // the AI judge independently flagged breaking
+
+        actions.decide(t, List.of(step(1, false, SnykFixStatus.BRANCH_PUSHED)));
+
+        assertThat(t.getStatus()).isEqualTo(SnykFixStatus.AWAITING_MANUAL_FIX);
+        assertThat(t.getStageDetail()).containsIgnoringCase("inconclusive")   // led by the honest "couldn't verify"
+                .contains("advisory")                                          // AI concern is advisory, not confirmed
+                .doesNotContain("Action needed — breaking change");            // never the flat breaking headline
+        verify(gitHost, never()).openPullRequest(any(GitHost.PullRequestSpec.class));
+    }
+
+    @Test
+    void decidePhrasesAnAiOnlyConcernAsAdvisoryWhenTheBuildActuallyPassed() {
+        SnykFixTrain t = train();
+        t.setReactorPassed(true);       // the real gate passed
+        t.setReactorInconclusive(false);
+        t.setBreaking(true);            // only the advisory AI flagged a concern
+
+        actions.decide(t, List.of(step(1, false, SnykFixStatus.BRANCH_PUSHED)));
+
+        assertThat(t.getStatus()).isEqualTo(SnykFixStatus.AWAITING_MANUAL_FIX);
+        assertThat(t.getStageDetail()).contains("build passed").contains("advisory");
+        verify(gitHost, never()).openPullRequest(any(GitHost.PullRequestSpec.class));
+    }
+
+    @Test
     void decideHoldsAsManualWhenEveryPushFailedRatherThanClaimingPrOpenWithZeroPrs() {
         SnykFixTrain t = train();
         t.setReactorPassed(true);
