@@ -59,28 +59,29 @@ public class SnykFixActions {
         log.info("Snyk fix train {}: DECIDE — llmBreaking={}, reactorFailed={}, inconclusive={} → {}", train.getId(),
                 llmBreaking, reactorFailed, inconclusive, decision);
         if (reactorFailed) {
-            // A genuine local build/test failure — the real gate broke. Hold; name the module.
+            // A genuine compile failure against the upgraded framework — the real gate broke. Hold; name the module.
             train.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);
             train.setStageDetail(breakingDetail(train));
         } else if (inconclusive) {
-            // We COULDN'T verify — the app's own build/test setup failed (config/infra, not the upgrade). Hold with an
-            // honest reason; if the advisory AI separately flagged a possible breaking change, mention it as advisory —
-            // never present an unverified fix as a confirmed breaking change.
+            // We COULDN'T verify — the build infrastructure failed (a dependency couldn't be fetched, not the upgrade).
+            // Hold with an honest reason; if the advisory AI separately flagged a possible breaking change, mention it
+            // as advisory — never present an unverified fix as a confirmed breaking change.
             train.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);
             train.setStageDetail(inconclusiveDetail(train)
                     + (llmBreaking ? " Separately, the AI flagged a possible breaking change (advisory) — review it, "
                             + "but note the build itself was not verified." : ""));
         } else if (llmBreaking) {
-            // The build PASSED, but the advisory AI flagged a possible breaking change — hold for a human look. Phrase
-            // it as advisory, not a confirmed break (the real gate, the reactor build, was clean).
+            // The consumers COMPILED against the upgrade, but the advisory AI flagged a possible breaking change — hold
+            // for a human look. Phrase it as advisory, not a confirmed break (the real gate, the compile, was clean).
             train.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);
-            train.setStageDetail("The local build passed, but the AI flagged a possible breaking change (advisory). The "
-                    + "version-bump branches are pushed; review the AI's reasoning, then open the PRs (yourself or via "
-                    + "Veritas).");
+            train.setStageDetail("Every app compiled against the upgraded framework, but the AI flagged a possible "
+                    + "breaking change (advisory). The version-bump branches are pushed; review the AI's reasoning, "
+                    + "then open the PRs (yourself or via Veritas).");
         } else {
             openAll(train, trainSteps, SnykFixStatus.BY_VERITAS);
             markPrTrainOpenedOrHeld(train, trainSteps,
-                    "Clean — PR train opened; reviewers assigned; awaiting human merge.");
+                    "Clean — every app compiles against the upgraded framework; PR train opened, reviewers assigned. "
+                            + "The apps' own tests run in CI/Jenkins after the PR is reviewed and merged.");
         }
         trains.save(train);
     }
@@ -231,13 +232,13 @@ public class SnykFixActions {
                 + "; this action requires " + String.join(" or ", allowed) + ".");
     }
 
-    /** The action-needed line for a held (inconclusive) train — the app's own build/test setup failed, not the upgrade. */
+    /** The action-needed line for a held (inconclusive) train — the build infrastructure failed, not the upgrade. */
     private static String inconclusiveDetail(SnykFixTrain train) {
         String where = train.getReactorFailingLabel() != null && !train.getReactorFailingLabel().isBlank()
                 ? " (" + train.getReactorFailingLabel() + ")" : "";
-        return "Verification inconclusive — the app's own build/test setup failed" + where + ", not the dependency "
-                + "change. The version-bump branches are pushed; review the build, then open the PRs (yourself or via "
-                + "Veritas).";
+        return "Verification inconclusive — the build infrastructure failed" + where + " (a dependency couldn't be "
+                + "fetched), not the dependency change. The version-bump branches are pushed; review the build, then "
+                + "open the PRs (yourself or via Veritas).";
     }
 
     /** The action-needed line for a held (breaking) train — names the module that broke the build when one did. */

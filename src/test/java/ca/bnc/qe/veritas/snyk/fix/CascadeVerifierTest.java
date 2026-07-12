@@ -19,7 +19,10 @@ import ca.bnc.qe.veritas.snyk.fix.CascadeVerifier.ReactorResult;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
-/** The local reactor gate: install the framework chain, then test each app; the first failure decides. */
+/**
+ * The local reactor gate: install the framework chain, then compile-check each consumer app against it (a fixed
+ * {@code mvn clean install -DskipTests}); the first failure decides. The apps' own tests run in CI/Jenkins after the PR.
+ */
 class CascadeVerifierTest {
 
     private final BuildVerifier bv = mock(BuildVerifier.class);
@@ -32,20 +35,37 @@ class CascadeVerifierTest {
     }
 
     @Test
-    void allPassOpensTheTrain() {
+    void allCompilePassesTheGate() {
         when(bv.verify(any(), any(), anyLong())).thenReturn(new BuildVerifier.BuildResult("PASS", ""));
         ReactorResult r = verifier.verify(inputs());
         assertThat(r.passed()).isTrue();
     }
 
     @Test
-    void aConsumerTestFailureNamesTheApp() {
-        when(bv.verify(any(), contains("install"), anyLong())).thenReturn(new BuildVerifier.BuildResult("PASS", ""));
-        when(bv.verify(any(), contains(" test "), anyLong())).thenReturn(new BuildVerifier.BuildResult("FAIL", "boom in app"));
+    void everyConsumerIsBuiltWithTheFixedCompileOnlyCommand() {
+        // No AI, no per-app command: every consumer is compile-checked with the same fixed skip-tests install so the
+        // reactor never tries to RUN the app's tests (those run in Jenkins).
+        ArgumentCaptor<String> cmd = ArgumentCaptor.forClass(String.class);
+        when(bv.verify(any(), cmd.capture(), anyLong())).thenReturn(new BuildVerifier.BuildResult("PASS", ""));
+
+        verifier.verify(new ReactorInputs(Path.of("localrepo"), List.of(),
+                List.of(new ConsumerBuild("app7576", Path.of("app")))));
+
+        assertThat(cmd.getAllValues()).anyMatch(c -> c.startsWith(CascadeVerifier.CONSUMER_BUILD_COMMAND));
+        assertThat(cmd.getAllValues()).anyMatch(c -> c.contains("clean install") && c.contains("-DskipTests"));
+        assertThat(cmd.getAllValues()).noneMatch(c -> c.contains(" test "));   // never runs a bare `test` phase
+    }
+
+    @Test
+    void aConsumerCompileFailureNamesTheApp() {
+        when(bv.verify(any(), contains("-DskipTests install"), anyLong()))
+                .thenReturn(new BuildVerifier.BuildResult("PASS", ""));   // framework installs OK
+        when(bv.verify(any(), contains("clean install"), anyLong()))
+                .thenReturn(new BuildVerifier.BuildResult("FAIL", "cannot find symbol: method removedApi()"));
         ReactorResult r = verifier.verify(inputs());
         assertThat(r.passed()).isFalse();
         assertThat(r.failingLabel()).isEqualTo("consumer:app7576");
-        assertThat(r.outputTail()).contains("boom in app");
+        assertThat(r.outputTail()).contains("cannot find symbol");
     }
 
     @Test
@@ -58,7 +78,7 @@ class CascadeVerifierTest {
     }
 
     @Test
-    void aFrameworkInstallFailureStopsBeforeTestingConsumers() {
+    void aFrameworkInstallFailureStopsBeforeCompilingConsumers() {
         when(bv.verify(any(), any(), anyLong())).thenReturn(new BuildVerifier.BuildResult("FAIL", "cannot compile core"));
         ReactorResult r = verifier.verify(inputs());
         assertThat(r.passed()).isFalse();
@@ -84,12 +104,13 @@ class CascadeVerifierTest {
     }
 
     @Test
-    void aConsumerConfigErrorIsInconclusiveNotBreaking() {
-        // The exact ciam-oauth case: a TestNG suite-file config error is the app's own build setup, not the upgrade.
-        // It must be classified INCONCLUSIVE (review manually), never a false "breaking change".
-        when(bv.verify(any(), contains("install"), anyLong())).thenReturn(new BuildVerifier.BuildResult("PASS", ""));
-        when(bv.verify(any(), contains(" test "), anyLong())).thenReturn(new BuildVerifier.BuildResult(
-                "FAIL", "maven-surefire-plugin:test failed: The parameters 'testSuiteXmlFiles0' has null value"));
+    void aConsumerInfrastructureFailureIsInconclusiveNotBreaking() {
+        // A dependency that can't be fetched is the build ENVIRONMENT, not the upgrade — classify INCONCLUSIVE (review
+        // manually), never a false "breaking change".
+        when(bv.verify(any(), contains("-DskipTests install"), anyLong()))
+                .thenReturn(new BuildVerifier.BuildResult("PASS", ""));
+        when(bv.verify(any(), contains("clean install"), anyLong())).thenReturn(new BuildVerifier.BuildResult(
+                "FAIL", "Could not resolve dependencies for project: ... connection timed out"));
         ReactorResult r = verifier.verify(inputs());
         assertThat(r.passed()).isFalse();
         assertThat(r.inconclusive()).isTrue();
@@ -97,11 +118,13 @@ class CascadeVerifierTest {
     }
 
     @Test
-    void aGenuineConsumerTestFailureIsBreakingNotInconclusive() {
-        // A real assertion failure (no config/infra signature) stays a genuine break — the gate must not be too lenient.
-        when(bv.verify(any(), contains("install"), anyLong())).thenReturn(new BuildVerifier.BuildResult("PASS", ""));
-        when(bv.verify(any(), contains(" test "), anyLong())).thenReturn(new BuildVerifier.BuildResult(
-                "FAIL", "Tests run: 12, Failures: 1 — expected <200> but was <500>"));
+    void aGenuineConsumerCompileFailureIsBreakingNotInconclusive() {
+        // A real compile break against the upgraded framework (no infra signature) stays a genuine break — the gate
+        // must not be too lenient.
+        when(bv.verify(any(), contains("-DskipTests install"), anyLong()))
+                .thenReturn(new BuildVerifier.BuildResult("PASS", ""));
+        when(bv.verify(any(), contains("clean install"), anyLong())).thenReturn(new BuildVerifier.BuildResult(
+                "FAIL", "BUILD FAILURE — incompatible types: String cannot be converted to UUID"));
         ReactorResult r = verifier.verify(inputs());
         assertThat(r.passed()).isFalse();
         assertThat(r.inconclusive()).isFalse();
@@ -109,56 +132,12 @@ class CascadeVerifierTest {
     }
 
     @Test
-    void aCompileOnlySkipTestsPassIsInconclusiveNotClean() {
-        // A command that skips test EXECUTION compiled the app but never ran its tests — never present that as a
-        // verified clean pass (that would auto-open a PR train for an un-tested upgrade).
-        when(bv.verify(any(), contains("install"), anyLong())).thenReturn(new BuildVerifier.BuildResult("PASS", ""));
-        when(bv.verify(any(), contains("-DskipTests"), anyLong())).thenReturn(new BuildVerifier.BuildResult("PASS", ""));
-        ReactorResult r = verifier.verify(new ReactorInputs(Path.of("localrepo"), List.of(),
-                List.of(new ConsumerBuild("app7576", Path.of("app"), "mvn -q -B -DskipTests test"))));
-        assertThat(r.passed()).isFalse();
-        assertThat(r.inconclusive()).isTrue();
-        assertThat(r.failingLabel()).isEqualTo("consumer:app7576");
-    }
-
-    @Test
-    void runsTheAppsOwnStoredCommandWhenOneIsProvided() {
-        ArgumentCaptor<String> cmd = ArgumentCaptor.forClass(String.class);
-        when(bv.verify(any(), cmd.capture(), anyLong())).thenReturn(new BuildVerifier.BuildResult("PASS", ""));
-        ReactorInputs in = new ReactorInputs(Path.of("localrepo"), List.of(),
-                List.of(new ConsumerBuild("app7576", Path.of("app"), "mvn -q -B -Psystem-test verify")));
-
-        verifier.verify(in);
-
-        assertThat(cmd.getAllValues()).anyMatch(c -> c.contains("-Psystem-test verify"));
-    }
-
-    @Test
-    void fallsBackToTheDefaultCommandWhenTheAppHasNone() {
-        ArgumentCaptor<String> cmd = ArgumentCaptor.forClass(String.class);
-        when(bv.verify(any(), cmd.capture(), anyLong())).thenReturn(new BuildVerifier.BuildResult("PASS", ""));
-        // ConsumerBuild(appId, dir) with no command → the reactor uses the bare default.
-        verifier.verify(new ReactorInputs(Path.of("localrepo"), List.of(),
-                List.of(new ConsumerBuild("app7576", Path.of("app")))));
-        assertThat(cmd.getAllValues()).anyMatch(c -> c.startsWith(CascadeVerifier.DEFAULT_CONSUMER_COMMAND));
-    }
-
-    @Test
-    void fallsBackToTheDefaultCommandWhenTheStoredCommandIsBlank() {
-        ArgumentCaptor<String> cmd = ArgumentCaptor.forClass(String.class);
-        when(bv.verify(any(), cmd.capture(), anyLong())).thenReturn(new BuildVerifier.BuildResult("PASS", ""));
-        // A blank (non-null) stored command must also fall back to the bare default.
-        verifier.verify(new ReactorInputs(Path.of("localrepo"), List.of(),
-                List.of(new ConsumerBuild("app7576", Path.of("app"), "   "))));
-        assertThat(cmd.getAllValues()).anyMatch(c -> c.startsWith(CascadeVerifier.DEFAULT_CONSUMER_COMMAND));
-    }
-
-    @Test
     void aLongBuildOutputIsTailedInTheLogButReturnedInFull() {
         // A >2 KB output exercises the truncation branch of the log tail; the returned outputTail keeps the full text.
         String huge = "x".repeat(5000);
-        when(bv.verify(any(), contains("install"), anyLong())).thenReturn(new BuildVerifier.BuildResult("PASS", ""));
-        when(bv.verify(any(), contains(" test "), anyLong())).thenReturn(new BuildVerifier.BuildResult("FAIL", huge));
+        when(bv.verify(any(), contains("-DskipTests install"), anyLong()))
+                .thenReturn(new BuildVerifier.BuildResult("PASS", ""));
+        when(bv.verify(any(), contains("clean install"), anyLong())).thenReturn(new BuildVerifier.BuildResult("FAIL", huge));
         ReactorResult r = verifier.verify(inputs());
         assertThat(r.passed()).isFalse();
         assertThat(r.outputTail()).hasSize(5000);   // the train still gets the whole log; only the console line is tailed
