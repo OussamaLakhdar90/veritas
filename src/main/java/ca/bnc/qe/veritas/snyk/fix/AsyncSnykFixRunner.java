@@ -227,13 +227,14 @@ public class AsyncSnykFixRunner {
             // PR: ALREADY_FIXED (benign terminal) when the BOM genuinely pins the coordinate at fixedIn; FAILED when
             // the fix couldn't be applied at all (nothing pins it here and no app has a local version to bump).
             String terminal = terminalOutcomeIfNothingActionable(steps.findByTrainIdOrderByStepOrder(trainId),
-                    FixValidator.managesAtVersion(poms.bom(), groupId, artifactId, req.fixedIn()));
+                    FixValidator.satisfies(poms.bom(), groupId, artifactId, req.fixedIn()));   // at-or-above, never downgrade
             if (terminal != null) {
                 train.setStatus(terminal);
                 train.setFinishedAt(Instant.now());
                 if (SnykFixStatus.ALREADY_FIXED.equals(terminal)) {
-                    train.setStageDetail("The framework already ships the safe version of " + req.coordinate() + " ("
-                            + req.fixedIn() + ") and no selected app needs a bump — nothing to release; no PR opened.");
+                    train.setStageDetail("The framework already ships a safe version of " + req.coordinate() + " (at or "
+                            + "above " + req.fixedIn() + ") and no selected app needs a bump — nothing to release; no "
+                            + "PR opened (not downgraded).");
                 } else {
                     train.setFailedStage(SnykFixStatus.PLANNING);
                     train.setErrorMessage("No automated fix could be applied for " + req.coordinate() + " → "

@@ -35,8 +35,17 @@ public final class FixValidator {
         return token;
     }
 
-    /** True when the pom's effective managed version for {@code groupId:artifactId} is exactly {@code fixedIn}. */
+    /** True when the pom's effective managed version for {@code groupId:artifactId} is exactly {@code fixedIn} — used
+     *  as the post-edit assertion (a real upgrade sets the version EXACTLY to fixedIn). */
     public static boolean managesAtVersion(String pom, String groupId, String artifactId, String fixedIn) {
         return fixedIn != null && fixedIn.equals(effectiveVersion(pom, groupId, artifactId));
+    }
+
+    /** True when the pom's effective managed version for {@code groupId:artifactId} is at or ABOVE {@code fixedIn} —
+     *  i.e. the safe version is already satisfied, so applying {@code fixedIn} would not be an upgrade (a downgrade or
+     *  a no-op). Used to decide "already safe → don't touch it" without ever downgrading. */
+    public static boolean satisfies(String pom, String groupId, String artifactId, String fixedIn) {
+        String effective = effectiveVersion(pom, groupId, artifactId);
+        return effective != null && VersionCompare.atOrAbove(effective, fixedIn);
     }
 }

@@ -47,20 +47,36 @@ public class SnykFixActions {
         boolean inconclusive = Boolean.TRUE.equals(train.getReactorInconclusive());
         // A genuine reactor break is a non-pass that is NOT the app's own config/infra failing (that's inconclusive).
         boolean reactorFailed = Boolean.FALSE.equals(train.getReactorPassed()) && !inconclusive;
-        boolean breaking = llmBreaking || reactorFailed;
-        train.setBreaking(breaking);
+        // "breaking" (the train field, used for the PR body) means a REAL build break OR the advisory LLM's concern.
+        // But the HOLD REASON must not conflate the two: an INCONCLUSIVE reactor (the app's own build config broke) is
+        // NOT a confirmed breaking change even when the advisory LLM independently flagged one — otherwise the card
+        // headlines "breaking change" while the log says "not a code break", which reads as a contradiction.
+        train.setBreaking(reactorFailed || llmBreaking);
+        String decision = reactorFailed ? "HOLD PRs (build failed)"
+                : inconclusive ? "HOLD PRs (verification inconclusive)"
+                : llmBreaking ? "HOLD PRs (AI-flagged, build passed)"
+                : "open the PR train automatically";
         log.info("Snyk fix train {}: DECIDE — llmBreaking={}, reactorFailed={}, inconclusive={} → {}", train.getId(),
-                llmBreaking, reactorFailed, inconclusive, breaking ? "HOLD PRs (breaking)"
-                        : inconclusive ? "HOLD PRs (verification inconclusive)" : "open the PR train automatically");
-        if (breaking) {
+                llmBreaking, reactorFailed, inconclusive, decision);
+        if (reactorFailed) {
+            // A genuine local build/test failure — the real gate broke. Hold; name the module.
             train.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);
             train.setStageDetail(breakingDetail(train));
         } else if (inconclusive) {
-            // The upgrade itself isn't flagged breaking, but we couldn't verify it (the app's own build/test setup
-            // failed). Hold for manual review with an HONEST reason — never auto-open an unverified fix, and never
-            // mislabel a config error as a breaking change.
+            // We COULDN'T verify — the app's own build/test setup failed (config/infra, not the upgrade). Hold with an
+            // honest reason; if the advisory AI separately flagged a possible breaking change, mention it as advisory —
+            // never present an unverified fix as a confirmed breaking change.
             train.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);
-            train.setStageDetail(inconclusiveDetail(train));
+            train.setStageDetail(inconclusiveDetail(train)
+                    + (llmBreaking ? " Separately, the AI flagged a possible breaking change (advisory) — review it, "
+                            + "but note the build itself was not verified." : ""));
+        } else if (llmBreaking) {
+            // The build PASSED, but the advisory AI flagged a possible breaking change — hold for a human look. Phrase
+            // it as advisory, not a confirmed break (the real gate, the reactor build, was clean).
+            train.setStatus(SnykFixStatus.AWAITING_MANUAL_FIX);
+            train.setStageDetail("The local build passed, but the AI flagged a possible breaking change (advisory). The "
+                    + "version-bump branches are pushed; review the AI's reasoning, then open the PRs (yourself or via "
+                    + "Veritas).");
         } else {
             openAll(train, trainSteps, SnykFixStatus.BY_VERITAS);
             markPrTrainOpenedOrHeld(train, trainSteps,
