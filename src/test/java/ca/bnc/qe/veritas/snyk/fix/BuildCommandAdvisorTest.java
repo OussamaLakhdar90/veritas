@@ -39,10 +39,11 @@ class BuildCommandAdvisorTest {
     private final ModelSelector modelSelector = mock(ModelSelector.class);
     private final CostRecorder costRecorder = mock(CostRecorder.class);
     private final AppBuildCommandRepository cache = mock(AppBuildCommandRepository.class);
+    private final BuildCommandProperties overrides = new BuildCommandProperties();
 
     private final BuildCommandAdvisor advisor = new BuildCommandAdvisor(llm, composer, modelSelector, costRecorder,
             new JsonBlockExtractor(), new ResponseSchemaValidator(new DefaultResourceLoader()), new ObjectMapper(),
-            cache);
+            cache, overrides);
 
     // A stateful in-memory stand-in for the JPA cache so hit/miss/stale paths are exercised end-to-end.
     private final AtomicReference<AppBuildCommand> stored = new AtomicReference<>();
@@ -76,6 +77,44 @@ class BuildCommandAdvisorTest {
         assertThat(cmd).isEqualTo("mvn -q -B -Psystem-test verify");
         assertThat(stored.get().getCommand()).isEqualTo("mvn -q -B -Psystem-test verify");
         assertThat(stored.get().getPomHash()).isNotBlank();
+    }
+
+    @Test
+    void usesTheConfiguredOverrideBeforeConsultingTheCacheOrTheAi() {
+        // The deterministic escape hatch: an operator pins the command for an app the advisor can't infer. It must win
+        // over the AI (and be immune to model availability), and is reported as a configured override, not an AI choice.
+        overrides.getBuildCommands().put("APP7571",
+                "mvn -q -B -DsuiteXmlFile=src/test/resources/suites/regression.xml test");
+
+        BuildCommandAdvisor.BuildCommand cmd = advisor.resolve("APP7571", "app-tests", repo, "alice", "t1");
+
+        assertThat(cmd.command()).isEqualTo("mvn -q -B -DsuiteXmlFile=src/test/resources/suites/regression.xml test");
+        assertThat(cmd.aiDerived()).isTrue();                       // a deliberate real command, not a degraded default
+        assertThat(cmd.note()).containsIgnoringCase("override");    // labelled honestly as an operator override
+        verify(llm, never()).complete(anyString(), anyString());    // the AI was never consulted
+        assertThat(stored.get()).isNull();                          // an override is config, never cached
+    }
+
+    @Test
+    void matchesTheOverrideAppIdCaseInsensitively() {
+        overrides.getBuildCommands().put("app7571", "mvn -q -B verify");   // lower-case key, upper-case lookup
+        assertThat(advisor.resolve("APP7571", "app-tests", repo, "alice", "t1").command()).isEqualTo("mvn -q -B verify");
+        verify(llm, never()).complete(anyString(), anyString());
+    }
+
+    @Test
+    void ignoresAnUnsafeConfiguredOverrideAndFallsBackToTheAdvisor() {
+        // A dangerous override (exec-plugin RCE vector) must NOT be run — it fails the guard, and the advisor falls
+        // back to the AI rather than executing an unvetted command.
+        overrides.getBuildCommands().put("APP7571", "mvn exec:exec -Dexec.executable=/bin/sh verify");
+        when(llm.complete(anyString(), anyString())).thenReturn(
+                "```json\n{\"command\":\"mvn -q -B verify\",\"rationale\":\"safe fallback\"}\n```");
+
+        BuildCommandAdvisor.BuildCommand cmd = advisor.resolve("APP7571", "app-tests", repo, "alice", "t1");
+
+        assertThat(cmd.command()).isEqualTo("mvn -q -B verify");   // the AI's safe command, not the dangerous override
+        assertThat(cmd.aiDerived()).isTrue();
+        verify(llm).complete(anyString(), anyString());            // the unsafe override was ignored → AI consulted
     }
 
     @Test

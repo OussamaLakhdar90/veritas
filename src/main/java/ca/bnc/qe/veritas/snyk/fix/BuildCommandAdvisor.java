@@ -72,11 +72,12 @@ public class BuildCommandAdvisor {
     private final ResponseSchemaValidator schemaValidator;
     private final ObjectMapper mapper;
     private final AppBuildCommandRepository cache;
+    private final BuildCommandProperties overrides;
 
     public BuildCommandAdvisor(LlmGateway llm, PromptComposer composer, ModelSelector modelSelector,
                                CostRecorder costRecorder, JsonBlockExtractor jsonExtractor,
                                ResponseSchemaValidator schemaValidator, ObjectMapper mapper,
-                               AppBuildCommandRepository cache) {
+                               AppBuildCommandRepository cache, BuildCommandProperties overrides) {
         this.llm = llm;
         this.composer = composer;
         this.modelSelector = modelSelector;
@@ -85,6 +86,7 @@ public class BuildCommandAdvisor {
         this.schemaValidator = schemaValidator;
         this.mapper = mapper;
         this.cache = cache;
+        this.overrides = overrides;
     }
 
     /**
@@ -93,6 +95,12 @@ public class BuildCommandAdvisor {
      * advisor is unavailable/fails. Deterministic for a given app config (so the reactor is reproducible).
      */
     public BuildCommand resolve(String appId, String repoSlug, Path repoDir, String owner, String refId) {
+        // A deterministic operator override wins over the cache AND the AI — it's the escape hatch for an app the
+        // advisor can't infer (or a Copilot outage). Still guard-checked: an unsafe override is ignored, never run.
+        Optional<BuildCommand> pinned = configuredOverride(appId, repoDir);
+        if (pinned.isPresent()) {
+            return pinned.get();
+        }
         String pom = readPom(repoDir);
         List<SuiteFile> suites = discoverSuiteFiles(repoDir);
         String hash = configHash(pom, suites);
@@ -107,6 +115,29 @@ public class BuildCommandAdvisor {
             persist(existing.orElseGet(AppBuildCommand::new), appId, repoSlug, hash, advised);
         }
         return new BuildCommand(advised.command(), advised.aiDerived(), advised.note());
+    }
+
+    /**
+     * The operator-configured override for this app ({@code veritas.snyk.fix.build-commands.<APPID>}), guard-checked
+     * against the repo. Present only when an override is set AND passes {@link BuildCommandGuard}; an unsafe override is
+     * logged and ignored ({@code empty}) so the caller falls back to the AI/default rather than running an unvetted
+     * command. Marked {@code aiDerived=true} (it's a deliberate real command, not a degraded fallback) with a note so
+     * the tracker can label it as a configured override rather than an AI decision.
+     */
+    private Optional<BuildCommand> configuredOverride(String appId, Path repoDir) {
+        Optional<String> configured = overrides.override(appId);
+        if (configured.isEmpty()) {
+            return Optional.empty();
+        }
+        try {
+            String safe = BuildCommandGuard.sanitize(configured.get(), repoDir);
+            log.info("Build-command advisor: {} uses the configured override '{}'.", appId, safe);
+            return Optional.of(new BuildCommand(safe, true, "Configured override (veritas.snyk.fix.build-commands)."));
+        } catch (RuntimeException e) {
+            log.warn("Build-command advisor: the configured override for {} ('{}') is unsafe ({}) — ignoring it and "
+                    + "falling back to the advisor.", appId, configured.get(), e.getMessage());
+            return Optional.empty();
+        }
     }
 
     /**
